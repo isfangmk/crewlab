@@ -1,4 +1,4 @@
-import { createLogger, defineConfig } from 'vite';
+import { createLogger, defineConfig, type Logger } from 'vite';
 import react from '@vitejs/plugin-react';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logFile = path.resolve(__dirname, '../logs/frontend.log');
 
 /** 每次启动覆盖写入 logs/frontend.log，同时保留终端输出。 */
-function createFileLogger() {
+function createFileLogger(): Logger {
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   fs.writeFileSync(logFile, '', 'utf8');
   const sink = fs.createWriteStream(logFile, { flags: 'a', encoding: 'utf8' });
