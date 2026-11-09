@@ -46,9 +46,8 @@ def build_builtin_tools() -> list[FunctionTool]:
     return []
 
 
-# 技能页「执行」按名字直接调用技能声明的工具。
-# 这里维护「工具名 → 可调用对象」的注册表；
-# 技能声明的工具不在注册表内必须显式失败，不能静默跳过。
+# Skill 声明的 additional_tools 必须能在此注册表解析；
+# 不在表内则技能目录标为不可装配（inventory_only）。
 _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
     "query_knowledge": query_knowledge,
 }
@@ -61,7 +60,7 @@ def builtin_tool_registry() -> dict[str, Any]:
 
 
 def tool_param_specs(func: Any) -> list[dict]:
-    """按函数签名导出参数定义，供技能页渲染表单。"""
+    """按函数签名导出参数定义，供目录 / 运行表单渲染。"""
 
     signature = inspect.signature(func)
     specs: list[dict] = []

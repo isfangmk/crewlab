@@ -297,8 +297,8 @@ export default function KnowledgePage() {
               }}
               placeholder={
                 activePath
-                  ? tr(`在「${activePath}」内检索（同 query_knowledge 工具）`, `Search within "${activePath}" (same as the query_knowledge tool)`)
-                  : tr('试搜：LLM 看到的命中结果（同 query_knowledge 工具）', "Try a search — see what the LLM would (same as query_knowledge tool)")
+                  ? tr(`在「${activePath}」下语义检索`, `Semantic search under "${activePath}"`)
+                  : tr('语义检索组织知识库', 'Semantic search across the knowledge base')
               }
               className="w-full pl-8 pr-2"
             />
@@ -1107,7 +1107,7 @@ function DocEditor({
           <Textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder={tr('支持 markdown。LLM 通过 query_knowledge 检索时按语义匹配 title + content。', 'Markdown supported. The LLM does semantic match over title + content via the query_knowledge tool.')}
+            placeholder={tr('支持 Markdown；助手按标题与正文做语义匹配', 'Markdown supported; the assistant matches on title and content semantically')}
             className="h-72 w-full resize-y font-mono"
           />
         </Label>

@@ -3,9 +3,6 @@ import { tr as trInline } from '@/i18n/locale';
 
 export type SkillClass = 'safe' | 'mutating' | 'dangerous';
 
-// 与后端 skill metadata.scope 一致：manager=平台内执行；host=需主机侧执行。
-export type SkillScope = 'host' | 'manager';
-
 export type SkillParamType = 'string' | 'int' | 'float' | 'bool' | 'duration' | 'enum';
 
 export type SkillParamDef = {
@@ -22,31 +19,20 @@ export type SkillSummary = {
   name: string;
   description: string;
   class: SkillClass;
-  scope?: SkillScope;
   category?: string;
   params: SkillParamDef[];
   result_preview?: string;
   // 当前后端固定返回 builtin。
   source?: string;
-  // true：技能不可在本页直接执行（声明的工具不在注册表），应走对话调用。
+  // true：技能声明的工具不在注册表（目录可见，对话侧也调不了）。
   inventory_only?: boolean;
 };
 
 export type SkillListResp = { items: SkillSummary[]; total: number };
 
-export type ExecuteResult = {
-  tool?: string;
-  result?: unknown;
-  error?: string;
-};
-
 export function listSkills(category?: string) {
   const qs = category ? `?category=${encodeURIComponent(category)}` : '';
   return request<SkillListResp>('GET', `/skills${qs}`);
-}
-
-export function getSkill(key: string) {
-  return request<SkillSummary>('GET', `/skills/${encodeURIComponent(key)}`);
 }
 
 // BUILTIN_SKILL_I18N: per-skill overrides for the skills shipped with
@@ -294,16 +280,4 @@ export function localizedSkill(s: SkillSummary): SkillSummary {
     description: trInline(m.desc.zh, m.desc.en),
     category: m.category ? trInline(m.category.zh, m.category.en) : s.category,
   };
-}
-
-/**
- * 执行技能声明的内置工具。
- * 本工作台不支持设备端（host）技能执行：技能页只跑云端内置工具，
- * 不带 device_id。
- */
-export function executeSkill(
-  key: string,
-  params: Record<string, unknown>,
-) {
-  return request<ExecuteResult>('POST', `/skills/${encodeURIComponent(key)}/execute`, { params });
 }

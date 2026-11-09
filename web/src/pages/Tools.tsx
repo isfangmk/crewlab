@@ -1,8 +1,13 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Hammer, RefreshCw, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Hammer, Loader2, Play, RefreshCw, Search } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { listBuiltinTools, type BuiltinTool } from '@/api/tools';
+import {
+  listBuiltinTools,
+  runBuiltinTool,
+  type BuiltinTool,
+  type BuiltinToolParam,
+} from '@/api/tools';
 import { ApiError } from '@/api/client';
 import { Modal } from '@/components/Modal';
 import { Button, EmptyStateCard, Input, Label, PageHeader } from '@/components/ui';
@@ -11,7 +16,7 @@ import { useI18n } from '@/i18n/locale';
 
 type RiskFilter = '' | 'safe' | 'approval_required';
 
-/** 内置 Tool 目录页：版式对齐技能目录（筛选条 + 分组表 + 详情弹窗）。 */
+/** 内置 Tool 目录页：版式对齐技能目录（筛选条 + 分组表 + 详情 / 运行弹窗）。 */
 export default function ToolsPage() {
   const { tr } = useI18n();
   const [items, setItems] = useState<BuiltinTool[]>([]);
@@ -22,6 +27,7 @@ export default function ToolsPage() {
   const [risk, setRisk] = useState<RiskFilter>('');
   const [collapsed, setCollapsed] = useState(false);
   const [viewing, setViewing] = useState<BuiltinTool | null>(null);
+  const [running, setRunning] = useState<BuiltinTool | null>(null);
 
   const fetchTools = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -71,7 +77,7 @@ export default function ToolsPage() {
   useAssistantPage('工具目录', 'Tool catalog', {
     risk,
     visible_tools: filtered.length,
-    selected_tool: viewing?.name,
+    selected_tool: viewing?.name ?? running?.name,
     loading,
   });
 
@@ -194,7 +200,12 @@ export default function ToolsPage() {
                   </tr>
                   {!collapsed &&
                     filtered.map((tool) => (
-                      <ToolRow key={tool.name} tool={tool} onView={() => setViewing(tool)} />
+                      <ToolRow
+                        key={tool.name}
+                        tool={tool}
+                        onView={() => setViewing(tool)}
+                        onRun={() => setRunning(tool)}
+                      />
                     ))}
                 </tbody>
               </table>
@@ -203,7 +214,17 @@ export default function ToolsPage() {
         </div>
       </div>
 
-      {viewing && <ToolDetailModal tool={viewing} onClose={() => setViewing(null)} />}
+      {viewing && (
+        <ToolDetailModal
+          tool={viewing}
+          onClose={() => setViewing(null)}
+          onRun={() => {
+            setRunning(viewing);
+            setViewing(null);
+          }}
+        />
+      )}
+      {running && <ToolRunModal tool={running} onClose={() => setRunning(null)} />}
     </main>
   );
 }
@@ -254,7 +275,15 @@ function RiskBadge({ value }: { value: string }) {
   throw new Error(`未知 Tool risk: ${value}`);
 }
 
-function ToolRow({ tool, onView }: { tool: BuiltinTool; onView(): void }) {
+function ToolRow({
+  tool,
+  onView,
+  onRun,
+}: {
+  tool: BuiltinTool;
+  onView(): void;
+  onRun(): void;
+}) {
   const { tr } = useI18n();
   return (
     <tr className="cursor-pointer transition-colors hover:bg-zinc-900/40" onClick={onView}>
@@ -271,21 +300,35 @@ function ToolRow({ tool, onView }: { tool: BuiltinTool; onView(): void }) {
         <div className="line-clamp-1">{tool.description}</div>
       </td>
       <td className="whitespace-nowrap px-4 py-1.5 text-right">
-        <Hint
-          content={tr(
-            '此 Tool 由 AI 助手在对话中调用，不提供手动执行表单',
-            'This Tool is invoked by the AI assistant in chat; no manual form',
-          )}
+        <Button
+          variant="outline"
+          size="sm"
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRun();
+          }}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px]"
         >
-          <span className="text-[11px] text-zinc-500">{tr('仅 AI 调用', 'AI only')}</span>
-        </Hint>
+          <Play size={11} />
+          {tr('运行', 'Run')}
+        </Button>
       </td>
     </tr>
   );
 }
 
-function ToolDetailModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void }) {
+function ToolDetailModal({
+  tool,
+  onClose,
+  onRun,
+}: {
+  tool: BuiltinTool;
+  onClose(): void;
+  onRun(): void;
+}) {
   const { tr } = useI18n();
+  const params = tool.params ?? [];
   return (
     <Modal open onClose={onClose} size="lg" resizable title={tool.name}>
       <div className="space-y-4">
@@ -306,15 +349,213 @@ function ToolDetailModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void
           </div>
         </section>
 
+        <section>
+          <div className="mb-1.5 text-[11px] uppercase tracking-wider text-zinc-500">
+            {tr('参数', 'Parameters')}
+          </div>
+          {params.length === 0 ? (
+            <div className="text-xs text-zinc-500">{tr('无参数', 'No parameters')}</div>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-zinc-800">
+              <table className="w-full text-xs">
+                <thead className="border-b border-zinc-800 bg-zinc-950/40 text-[10px] uppercase tracking-wider text-zinc-500">
+                  <tr>
+                    <th className="px-3 py-1.5 text-left">{tr('名称', 'Name')}</th>
+                    <th className="px-3 py-1.5 text-left">{tr('类型', 'Type')}</th>
+                    <th className="px-3 py-1.5 text-left">{tr('必填', 'Required')}</th>
+                    <th className="px-3 py-1.5 text-left">{tr('默认值', 'Default')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/60">
+                  {params.map((p) => (
+                    <tr key={p.name}>
+                      <td className="whitespace-nowrap px-3 py-1.5 font-mono text-zinc-200">{p.name}</td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-zinc-400">{p.type}</td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-zinc-400">
+                        {p.required ? tr('是', 'Yes') : '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 font-mono text-zinc-400">
+                        {p.default === undefined || p.default === null ? '—' : String(p.default)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
         <div className="flex items-center justify-between gap-3 border-t border-zinc-800 pt-3">
           <span className="text-[11px] text-zinc-500">
             {tr('内置 Tool 由平台代码定义，不可在线编辑', 'Built-in Tools are defined in platform code and cannot be edited online')}
           </span>
-          <span className="text-[11px] text-zinc-500">{tr('仅 AI 调用', 'AI only')}</span>
+          <Button
+            variant="primary"
+            size="sm"
+            type="button"
+            onClick={onRun}
+            className="inline-flex items-center gap-1.5"
+          >
+            <Play size={11} />
+            {tr('运行', 'Run')}
+          </Button>
         </div>
       </div>
     </Modal>
   );
+}
+
+function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void }) {
+  const { tr } = useI18n();
+  const params = tool.params ?? [];
+  const [values, setValues] = useState<Record<string, string>>(() => initialFormValues(params));
+  const [busy, setBusy] = useState(false);
+  const [runErr, setRunErr] = useState<string | null>(null);
+  const [resultText, setResultText] = useState<string | null>(null);
+
+  const onRun = async () => {
+    setBusy(true);
+    setRunErr(null);
+    setResultText(null);
+    try {
+      const payload = buildParams(params, values, tr);
+      const resp = await runBuiltinTool(tool.name, payload);
+      setResultText(formatResult(resp.result));
+    } catch (e) {
+      setRunErr(e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={tr(`运行 ${tool.name}`, `Run ${tool.name}`)}
+      footer={
+        <>
+          <Button onClick={onClose} variant="ghost">
+            {tr('关闭', 'Close')}
+          </Button>
+          <Button variant="primary" disabled={busy} onClick={() => void onRun()}>
+            {busy ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+            {busy ? tr('运行中…', 'Running…') : tr('运行', 'Run')}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+          <div className="font-mono text-[11px] text-zinc-100">{tool.name}</div>
+          {tool.description ? (
+            <p className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{tool.description}</p>
+          ) : null}
+        </div>
+
+        {params.length === 0 ? (
+          <div className="text-[12px] text-zinc-500">
+            {tr('无参数，可直接运行。', 'No parameters. You can run directly.')}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {params.map((p) => (
+              <Label key={p.name} className="block min-w-0">
+                <span className="mb-0.5 flex items-center gap-1 text-[11px]">
+                  <span className="font-mono text-sky-300">{p.name}</span>
+                  {p.required ? <span className="text-amber-400">*</span> : null}
+                  <span className="font-mono text-zinc-600">{p.type}</span>
+                </span>
+                <Input
+                  type={p.type === 'int' || p.type === 'float' ? 'number' : 'text'}
+                  step={p.type === 'int' ? 1 : p.type === 'float' ? 'any' : undefined}
+                  value={values[p.name] ?? ''}
+                  onChange={(e) => setValues((cur) => ({ ...cur, [p.name]: e.target.value }))}
+                  className="h-8 w-full font-mono text-[12px]"
+                />
+              </Label>
+            ))}
+          </div>
+        )}
+
+        {runErr && (
+          <div className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-300">
+            {runErr}
+          </div>
+        )}
+        {resultText != null && (
+          <div>
+            <div className="mb-1.5 text-[11px] uppercase tracking-wide text-zinc-500">
+              {tr('运行结果', 'Result')}
+            </div>
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-[11px] text-zinc-200">
+              {resultText}
+            </pre>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function initialFormValues(params: BuiltinToolParam[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const p of params) {
+    if (p.default === undefined || p.default === null) {
+      out[p.name] = '';
+    } else {
+      out[p.name] = String(p.default);
+    }
+  }
+  return out;
+}
+
+function buildParams(
+  defs: BuiltinToolParam[],
+  values: Record<string, string>,
+  tr: (zh: string, en: string) => string,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const p of defs) {
+    const raw = (values[p.name] ?? '').trim();
+    if (raw === '') {
+      if (p.required) {
+        throw new Error(tr(`参数 ${p.name} 必填`, `Parameter ${p.name} is required`));
+      }
+      continue;
+    }
+    if (p.type === 'int') {
+      const n = Number.parseInt(raw, 10);
+      if (Number.isNaN(n)) {
+        throw new Error(tr(`参数 ${p.name} 必须是整数`, `Parameter ${p.name} must be an integer`));
+      }
+      out[p.name] = n;
+      continue;
+    }
+    if (p.type === 'float') {
+      const n = Number.parseFloat(raw);
+      if (Number.isNaN(n)) {
+        throw new Error(tr(`参数 ${p.name} 必须是数字`, `Parameter ${p.name} must be a number`));
+      }
+      out[p.name] = n;
+      continue;
+    }
+    if (p.type === 'bool') {
+      if (raw !== 'true' && raw !== 'false') {
+        throw new Error(tr(`参数 ${p.name} 必须是 true/false`, `Parameter ${p.name} must be true/false`));
+      }
+      out[p.name] = raw === 'true';
+      continue;
+    }
+    out[p.name] = raw;
+  }
+  return out;
+}
+
+function formatResult(result: unknown): string {
+  if (typeof result === 'string') return result;
+  return JSON.stringify(result, null, 2);
 }
 
 function EmptyState({ hasFilter, onClear }: { hasFilter: boolean; onClear: () => void }) {

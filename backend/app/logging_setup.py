@@ -5,6 +5,11 @@ from __future__ import annotations
 import logging
 import re
 import sys
+from pathlib import Path
+
+# 仓库根目录 logs/backend.log；每次启动覆盖写入
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_LOG_FILE = _REPO_ROOT / "logs" / "backend.log"
 
 # 密钥类字段脱敏。
 # 引号包裹的值允许含空格（password='p@ss w0rd'），未加引号的值读到空白为止。
@@ -95,17 +100,36 @@ class RedactingFormatter(logging.Formatter):
         return redact_secrets(original)
 
 
-def setup_logging(level: str) -> None:
-    """按级别配置根日志；业务代码统一用 logging.getLogger(__name__)。"""
+def setup_logging(level: str, *, log_file: Path | None = None) -> None:
+    """按级别配置根日志；业务代码统一用 logging.getLogger(__name__)。
+
+    默认写入仓库 logs/backend.log，每次启动以覆盖模式打开。
+    """
+
+    path = log_file if log_file is not None else DEFAULT_LOG_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    formatter = RedactingFormatter(
+        fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
 
     root = logging.getLogger()
     root.handlers.clear()
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(
-        RedactingFormatter(
-            fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-            datefmt="%Y-%m-%dT%H:%M:%S",
-        )
-    )
-    root.addHandler(handler)
+
+    file_handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+    # 前台运行时仍打控制台；后台 Hidden 启动时无终端可读
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+    root.addHandler(stream_handler)
+
     root.setLevel(level.upper())
+
+    # uvicorn 默认自带 handler；清掉后走根 logger，写入同一日志文件
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        uv_logger = logging.getLogger(name)
+        uv_logger.handlers.clear()
+        uv_logger.propagate = True

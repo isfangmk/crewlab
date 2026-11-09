@@ -7,7 +7,6 @@ metadata:
   category: 知识
   version: "1.0"
   risk: safe
-  scope: manager
   adk_additional_tools:
     - query_knowledge
 ---

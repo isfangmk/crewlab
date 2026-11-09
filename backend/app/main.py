@@ -40,8 +40,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     settings = get_settings()
+    # 每次进程启动覆盖写入 logs/backend.log
     setup_logging(settings.log_level)
-    logger.info("启动 AI 工作台后端 app=%s", settings.app_name)
+    logger.info("启动 AI 工作台后端 app=%s log_file=logs/backend.log", settings.app_name)
 
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

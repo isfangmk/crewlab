@@ -5,9 +5,11 @@
 **/secrets/
 
 # 后端运行时
-backend/.uvicorn.pid
-backend/uvicorn.*.log
 backend/.venv/
+
+# 运行日志与 PID（目录保留，文件不入库）
+logs/*
+!logs/.gitkeep
 
 # Python
 __pycache__/

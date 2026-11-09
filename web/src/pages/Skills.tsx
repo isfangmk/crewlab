@@ -3,17 +3,14 @@ import { EmptyStateCard } from '@/components/ui';
 import { Label, Input, Button } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Cloud, Cpu, Wrench, RefreshCw, Play, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { Wrench, RefreshCw, Search, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { listSkills, localizedSkill, type SkillClass, type SkillScope, type SkillSummary } from '@/api/skills';
+import { listSkills, localizedSkill, type SkillClass, type SkillSummary } from '@/api/skills';
 import { ApiError } from '@/api/client';
 import { Modal } from '@/components/Modal';
 import { useI18n } from '@/i18n/locale';
 import { toolGroupKey, groupTag, groupTitle, orderedGroupKeys } from '@/lib/toolSkill';
 import { PageHeader } from '@/components/ui';
-
-type ScopeFilter = '' | SkillScope;
 
 export default function SkillsPage() {
   const { tr } = useI18n();
@@ -37,7 +34,6 @@ function CatalogTab() {
   const [err, setErr] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<string>('');
-  const [scope, setScope] = useState<ScopeFilter>('');
   // 详情弹窗：只读查看本地 Skill 目录（MCP 工具在 /tools 与 /mcp，不混入本页）
   const [viewing, setViewing] = useState<SkillSummary | null>(null);
 
@@ -68,8 +64,7 @@ function CatalogTab() {
       return next;
     });
 
-  // The single canonical grouping (shared with the flow palette): built-in
-  // tools → 6 curated skills, MCP → per-server, SKILL.md packs → per-pack.
+  // 与流程面板共用分组：内置工具 → 技能类目，MCP → 按 server，SKILL.md → 按包。
   // Keyed by the WIRE name (s.key), not the localized display name.
   const skillKey = useCallback((s: SkillSummary) => toolGroupKey(s.key, s.source, s.category), []);
   const skills = useMemo(() => orderedGroupKeys(items.map(skillKey)), [items, skillKey]);
@@ -89,19 +84,6 @@ function CatalogTab() {
     return out;
   }, [skills]);
 
-  // scope 缺省按 host 过滤。
-  const effectiveScope = (s: SkillSummary): SkillScope => s.scope ?? 'host';
-
-  const counts = useMemo(() => {
-    let edge = 0;
-    let manager = 0;
-    for (const s of items) {
-      if (effectiveScope(s) === 'manager') manager++;
-      else edge++;
-    }
-    return { edge, manager, total: items.length };
-  }, [items]);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter((s) => {
@@ -110,7 +92,6 @@ function CatalogTab() {
         const ok = category === 'mcp' ? gk.startsWith('mcp:') : category === 'ext' ? gk.startsWith('skill:') : gk === category;
         if (!ok) return false;
       }
-      if (scope && effectiveScope(s) !== scope) return false;
       if (!q) return true;
       return (
         s.name.toLowerCase().includes(q) ||
@@ -118,10 +99,10 @@ function CatalogTab() {
         (s.description ?? '').toLowerCase().includes(q)
       );
     });
-  }, [items, query, category, scope]);
+  }, [items, query, category, skillKey]);
 
   useAssistantPage('技能目录', 'Skill catalog', {
-    category, scope, visible_skills: filtered.length, selected_skill: viewing?.name, loading,
+    category, visible_skills: filtered.length, selected_skill: viewing?.name, loading,
   });
 
   return (
@@ -139,26 +120,6 @@ function CatalogTab() {
                 className="w-full pl-8 pr-2"
               />
             </Label>
-            <div className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
-              <span className="text-zinc-500">{tr('运行位置', 'Runs on')}</span>
-              <div className="flex flex-wrap gap-1">
-                <CategoryChip
-                  active={scope === ''}
-                  label={`${tr('全部', 'All')} ${counts.total}`}
-                  onClick={() => setScope('')}
-                />
-                <CategoryChip
-                  active={scope === 'host'}
-                  label={`🖥️ ${tr('设备端', 'Device')} ${counts.edge}`}
-                  onClick={() => setScope('host')}
-                />
-                <CategoryChip
-                  active={scope === 'manager'}
-                  label={`☁️ ${tr('云端', 'Cloud')} ${counts.manager}`}
-                  onClick={() => setScope('manager')}
-                />
-              </div>
-            </div>
             {chips.length > 0 && (
               <div className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
                 <span className="text-zinc-500">{tr('技能', 'Skill')}</span>
@@ -205,14 +166,13 @@ function CatalogTab() {
           {loading ? (
             <div className="flex h-40 items-center justify-center text-sm text-zinc-500">{tr('加载中…', 'Loading…')}</div>
           ) : err && items.length === 0 ? null : filtered.length === 0 ? (
-            <EmptyState hasItems={!!(query.trim() || category || scope)} onClear={() => { setQuery(''); setCategory(''); setScope(''); }} />
+            <EmptyState hasItems={!!(query.trim() || category)} onClear={() => { setQuery(''); setCategory(''); }} />
           ) : (
             <div className="overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/30">
               <table className="w-full text-sm">
                 <thead className="border-b border-zinc-800/60 bg-zinc-950/40 text-[11px] uppercase tracking-wider text-zinc-500">
                   <tr className="whitespace-nowrap">
                     <th className="px-4 py-2.5 text-left">{tr('名称', 'Name')}</th>
-                    <th className="px-4 py-2.5 text-left">{tr('运行位置', 'Runs on')}</th>
                     <th className="px-4 py-2.5 text-left">{tr('类别', 'Class')}</th>
                     <th className="w-full px-4 py-2.5 text-left">{tr('描述', 'Description')}</th>
                     <th className="px-4 py-2.5 text-right">{tr('操作', 'Actions')}</th>
@@ -228,7 +188,7 @@ function CatalogTab() {
                         className="cursor-pointer select-none border-t border-zinc-800/60 bg-zinc-950/50 hover:bg-zinc-900/50"
                         onClick={() => toggleGroup(gk)}
                       >
-                        <td colSpan={5} className="px-3 py-2">
+                        <td colSpan={4} className="px-3 py-2">
                           <div className="flex items-center gap-1.5">
                             {isCollapsed ? <ChevronRight size={13} className="text-zinc-500" /> : <ChevronDown size={13} className="text-zinc-500" />}
                             <span className="text-sm font-medium text-zinc-200">
@@ -297,9 +257,6 @@ function SkillRow({ skill, displayName, onView }: { skill: SkillSummary; display
         </div></Hint>
       </td>
       <td className="whitespace-nowrap px-4 py-1.5">
-        <ScopeBadge value={skill.scope ?? 'host'} />
-      </td>
-      <td className="whitespace-nowrap px-4 py-1.5">
         <ClassBadge value={skill.class} />
       </td>
       {/* Description column is the truncate-absorber — w-full + max-w-0
@@ -310,52 +267,16 @@ function SkillRow({ skill, displayName, onView }: { skill: SkillSummary; display
         <div className="line-clamp-1">{skill.description || '—'}</div>
       </td>
       <td className="whitespace-nowrap px-4 py-1.5 text-right">
-        {skill.inventory_only ? (
-          <Hint content={tr(
-              '此能力主要由 AI 助手在 chat 中调用，参数 schema 太复杂没法手动填表',
-              'Mainly invoked by the AI assistant in chat — schema too complex for a manual form',
-            )}><span
-
-            className="text-[11px] text-zinc-500"
-          >
-            {tr('仅 AI 调用', 'AI only')}
-          </span></Hint>
-        ) : (
-          <Link
-            to={`/skills/${encodeURIComponent(skill.key)}`}
-            onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[11px] text-zinc-200 hover:bg-zinc-800"
-          >
-            <Play size={11} /> {tr('执行', 'Run')}
-          </Link>
-        )}
+        <Hint
+          content={tr(
+            'Skill 由 AI 助手在对话中按需加载，不提供手动执行表单',
+            'Skills are loaded on demand by the AI assistant in chat; no manual form',
+          )}
+        >
+          <span className="text-[11px] text-zinc-500">{tr('仅 AI 调用', 'AI only')}</span>
+        </Hint>
       </td>
     </tr>
-  );
-}
-
-// ScopeBadge tells the user where this skill physically runs. "host"
-// means a tunnel RPC into the device agent (probe_*, tail_file, etc);
-// "manager" means in-process on the cloud side (web_search). The same
-// info gates the Run page form (manager skills hide the device picker).
-export function ScopeBadge({ value }: { value: SkillScope }) {
-  const { tr } = useI18n();
-  const isHost = value === 'host';
-  return (
-    <Hint content={isHost
-        ? tr('在设备上执行（需要选择设备）', 'Runs on the device (requires device selection)')
-        : tr('在云端执行（无需设备）', 'Runs on the cloud (no device required)')}><span
-
-      className={cn(
-        'inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
-        isHost
-          ? 'bg-sky-500/10 text-sky-300 ring-sky-500/30'
-          : 'bg-violet-500/10 text-violet-300 ring-violet-500/30',
-      )}
-    >
-      {isHost ? <Cpu size={10} /> : <Cloud size={10} />}
-      {isHost ? tr('设备端', 'Device') : tr('云端', 'Cloud')}
-    </span></Hint>
   );
 }
 
@@ -385,17 +306,14 @@ export function ClassBadge({ value }: { value: SkillClass }) {
   );
 }
 
-// SkillDetailModal — 只读详情弹窗，参照知识库文档的阅读弹窗形态：
-// 顶部元信息条（运行位置 / 类别 / 分类 / key），正文完整描述 + 参数表。
-// 技能由代码或技能包定义、启动时注册进内存 registry，没有可编辑的
-// 存储——所以这里只有查看，没有编辑入口。
+// SkillDetailModal — 只读详情弹窗：顶部元信息（类别 / 分类 / key），正文完整描述 + 参数表。
+// 技能由代码或技能包定义、启动时注册进内存 registry，没有可编辑的存储。
 function SkillDetailModal({ skill, onClose }: { skill: SkillSummary; onClose(): void }) {
   const { tr } = useI18n();
   return (
     <Modal open onClose={onClose} size="lg" resizable title={skill.name}>
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          <ScopeBadge value={skill.scope ?? 'host'} />
           <ClassBadge value={skill.class} />
           {skill.category && (
             <span className="rounded-md border border-zinc-800 bg-zinc-950/40 px-1.5 py-0.5 text-[10px] text-zinc-400">
@@ -420,9 +338,7 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillSummary; onClose(): 
           </div>
           {skill.params.length === 0 ? (
             <div className="text-xs text-zinc-500">
-              {skill.inventory_only
-                ? tr('参数为原始 JSON Schema（由 AI 在 chat 中调用，无手动表单）', 'Params are raw JSON Schema (invoked by the AI in chat; no manual form)')
-                : tr('无参数', 'No parameters')}
+              {tr('无参数（由 AI 在对话中按工具签名调用）', 'No parameters (AI invokes tools by their signatures in chat)')}
             </div>
           ) : (
             <div className="overflow-hidden rounded-md border border-zinc-800">
@@ -474,16 +390,7 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillSummary; onClose(): 
           <span className="text-[11px] text-zinc-500">
             {tr('技能由代码 / 技能包定义，不可在线编辑', 'Skills are defined in code / skill packs and cannot be edited online')}
           </span>
-          {skill.inventory_only ? (
-            <span className="text-[11px] text-zinc-500">{tr('仅 AI 调用', 'AI only')}</span>
-          ) : (
-            <Link
-              to={`/skills/${encodeURIComponent(skill.key)}`}
-              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg hover:bg-accent/90"
-            >
-              <Play size={11} /> {tr('执行', 'Run')}
-            </Link>
-          )}
+          <span className="text-[11px] text-zinc-500">{tr('仅 AI 调用', 'AI only')}</span>
         </div>
       </div>
     </Modal>
@@ -496,7 +403,7 @@ function EmptyState({ hasItems, onClear }: { hasItems: boolean; onClear: () => v
     <EmptyStateCard icon={Wrench}
       action={hasItems && <Button onClick={onClear}>{tr('清除筛选', 'Clear filters')}</Button>}
       title={hasItems ? tr('没有匹配的技能', 'No matching skills') : tr('还没有 skill 注册', 'No skills registered yet')}
-      hint={hasItems ? tr('换个关键字或清除分类筛选', 'Try a different keyword or clear filters') : tr('设备注册自己的 capability 后会出现在这里', 'Skills appear here once a device registers its capabilities')}
+      hint={hasItems ? tr('换个关键字或清除分类筛选', 'Try a different keyword or clear filters') : tr('在 backend/skills 放入 SKILL.md 后会出现在这里', 'Skills appear here after you add SKILL.md packs under backend/skills')}
     />
   );
 }

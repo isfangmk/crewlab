@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 from pathlib import Path
 from typing import Any
@@ -66,7 +65,7 @@ def _skill_declared_tools(skill: Skill) -> list[str]:
 def skill_to_wire(skill: Skill) -> dict:
     """映射为前端 SkillSummary。
 
-    风险等级、作用域、参数都从 SKILL.md frontmatter 与工具签名读取，
+    风险等级与参数从 SKILL.md frontmatter 与工具签名读取，
     不写死：写死会让前端把任意技能都当成可安全执行。
     """
 
@@ -90,18 +89,14 @@ def skill_to_wire(skill: Skill) -> dict:
 
     executable = all(name in registry for name in tools)
     risk = _require_meta_str(meta, "risk", fm.name)
-    scope = _require_meta_str(meta, "scope", fm.name)
     if risk not in ("safe", "mutating", "dangerous"):
         raise ValueError(f"skill metadata.risk 非法: {fm.name} risk={risk}")
-    if scope not in ("manager", "host"):
-        raise ValueError(f"skill metadata.scope 非法: {fm.name} scope={scope}")
 
     return {
         "key": fm.name,
         "name": fm.name,
         "description": fm.description,
         "class": risk,
-        "scope": scope,
         "category": category,
         "params": params,
         "source": "builtin",
@@ -116,46 +111,6 @@ def builtin_tool_registry() -> dict[str, Any]:
     from app.adk_runtime.builtin_tools import builtin_tool_registry as _registry
 
     return _registry()
-
-
-async def execute_skill(key: str, params: dict[str, Any]) -> dict:
-    """执行技能声明的内置工具。
-
-    技能不存在、参数非法、工具不在注册表内，都必须显式失败。
-    """
-
-    if key == "":
-        raise ValueError("skill key 不能为空")
-
-    target: Skill | None = None
-    for skill in load_local_skills():
-        if skill.frontmatter.name == key:
-            target = skill
-            break
-    if target is None:
-        raise LookupError(f"技能不存在: {key}")
-
-    tools = _skill_declared_tools(target)
-    if len(tools) != 1:
-        raise ValueError(
-            f"技能 {key} 声明了 {len(tools)} 个工具，技能页只支持单工具技能"
-        )
-    tool_name = tools[0]
-    registry = builtin_tool_registry()
-    func = registry.get(tool_name)
-    if func is None:
-        raise LookupError(f"技能 {key} 声明的工具不可执行: {tool_name}")
-
-    allowed = {p["name"] for p in tool_param_specs(func)}
-    unknown = sorted(set(params) - allowed)
-    if unknown:
-        raise ValueError(f"技能 {key} 不接受参数: {','.join(unknown)}")
-
-    logger.info("执行技能 key=%s tool=%s params=%s", key, tool_name, sorted(params))
-    result = func(**params)
-    if inspect.isawaitable(result):
-        result = await result
-    return {"tool": tool_name, "result": result}
 
 
 def list_skill_summaries() -> list[dict]:

@@ -28,7 +28,6 @@ const skills = [
     name: 'analyze_database_status',
     description: longDesc,
     class: 'safe',
-    scope: 'manager',
     category: 'agent',
     params: [
       { name: 'device_id', type: 'int', required: true, desc: '目标设备 id' },
