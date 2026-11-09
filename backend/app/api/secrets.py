@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth
 from app.db import get_db
 from app.services import secrets_service
+from app.services.audit_service import write_audit
+from app.services.auth_service import AuthUser
 
 router = APIRouter(tags=["secrets"])
 
@@ -43,7 +45,7 @@ async def list_secrets(
 async def create_secret(
     body: SecretCreateIn,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     try:
         row = await secrets_service.create_secret(
@@ -57,6 +59,14 @@ async def create_secret(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="secret.create",
+        resource_type="secret",
+        resource_id=str(row.id),
+        detail={"name": row.name, "type": row.cred_type},
+    )
     return secrets_service.secret_to_wire(row)
 
 
@@ -64,10 +74,18 @@ async def create_secret(
 async def delete_secret(
     secret_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     try:
-        await secrets_service.delete_secret(db, secret_id)
+        name, cred_type = await secrets_service.delete_secret(db, secret_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="secret.delete",
+        resource_type="secret",
+        resource_id=str(secret_id),
+        detail={"name": name, "type": cred_type},
+    )
     return {"ok": True}

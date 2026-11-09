@@ -161,13 +161,17 @@ async def create_secret(
     return row
 
 
-async def delete_secret(db: AsyncSession, secret_id: int) -> None:
+async def delete_secret(db: AsyncSession, secret_id: int) -> tuple[str, str]:
+    """删除凭证并返回 (name, type)：审计要在提交后仍能拿到标识。"""
+
     row = await db.get(SecretCredential, secret_id)
     if row is None:
         raise LookupError(f"凭证不存在: {secret_id}")
+    name, cred_type = row.name, row.cred_type
     await db.delete(row)
     await db.commit()
     logger.info("删除凭证 id=%s", secret_id)
+    return name, cred_type
 
 
 async def resolve_secret_fields(

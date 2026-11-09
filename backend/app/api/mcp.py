@@ -11,8 +11,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth
 from app.db import get_db
 from app.services import mcp_service
+from app.services.audit_service import write_audit
+from app.services.auth_service import AuthUser
 
 router = APIRouter(tags=["mcp"])
+
+_DETAIL_LIMIT = 500
+
+
+def _detail_summary(value: object) -> str:
+    """审计只存参数/结果摘要，避免把整份 MCP 输出写进日志表。"""
+
+    text = json.dumps(value, ensure_ascii=False, default=str)
+    return text if len(text) <= _DETAIL_LIMIT else text[:_DETAIL_LIMIT] + "…"
 
 
 class McpServerInput(BaseModel):
@@ -133,10 +144,10 @@ async def run_tool(
     tool_name: str,
     body: McpToolRunInput,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     try:
-        return await mcp_service.run_tool(
+        result = await mcp_service.run_tool(
             db,
             server_id,
             tool_name=tool_name,
@@ -148,3 +159,16 @@ async def run_tool(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="mcp.tool_run",
+        resource_type="mcp_server",
+        resource_id=str(server_id),
+        detail={
+            "tool": tool_name,
+            "arguments": _detail_summary(body.arguments),
+            "result": _detail_summary(result),
+        },
+    )
+    return result

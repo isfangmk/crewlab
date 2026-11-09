@@ -8,6 +8,8 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 from uuid import uuid4
 
+from google.adk.events import Event
+from google.genai import types
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -460,7 +462,61 @@ async def fork_session(
         new_session.id,
         len(prefix),
     )
+    await _replay_adk_events(
+        session=new_session,
+        history=[(m.role, m.kind, m.content) for m in prefix],
+    )
     return new_session
+
+
+async def _replay_adk_events(
+    *,
+    session: ChatSession,
+    history: list[tuple[str, str, str | None]],
+) -> None:
+    """按业务投影重建 ADK 事件流。
+
+    编辑重发 / 分叉后 ADK 侧必须与截断后的消息一致，否则模型会看到
+    用户已经删掉的历史。工具调用没有完整的 wire 记录，只回放正文；
+    调用次数与落库数量会写日志，便于排查上下文差异。
+    """
+
+    adk = get_adk_session_service()
+    existing = await adk.get_session(
+        app_name=APP_NAME, user_id=session.adk_user_id, session_id=session.id
+    )
+    if existing is not None:
+        await adk.delete_session(
+            app_name=APP_NAME, user_id=session.adk_user_id, session_id=session.id
+        )
+    adk_session = await adk.create_session(
+        app_name=APP_NAME, user_id=session.adk_user_id, session_id=session.id
+    )
+    replayed = 0
+    for role, kind, content in history:
+        if kind != "message" or role not in ("user", "assistant"):
+            continue
+        text = (content or "").strip()
+        if text == "":
+            continue
+        is_user = role == "user"
+        await adk.append_event(
+            session=adk_session,
+            event=Event(
+                author="user" if is_user else "workbench_chat",
+                content=types.Content(
+                    role="user" if is_user else "model",
+                    parts=[types.Part(text=text)],
+                ),
+            ),
+        )
+        replayed += 1
+    logger.info(
+        "已重建 ADK 事件流 session_id=%s 投影=%s 回放=%s",
+        session.id,
+        len(history),
+        replayed,
+    )
 
 
 async def truncate_after_message(
@@ -502,7 +558,7 @@ async def prepare_resend_from_user_message(
 
     if message_id == "":
         raise ValueError("message_id 不能为空")
-    await get_session(db, session_id)
+    session = await get_session(db, session_id)
     messages = await list_messages(db, session_id)
     target: ChatMessage | None = None
     for m in messages:
@@ -533,6 +589,11 @@ async def prepare_resend_from_user_message(
         "已删除用户消息及后续投影以便重发 session_id=%s from_message_id=%s",
         session_id,
         message_id,
+    )
+    remaining = await list_messages(db, session_id)
+    await _replay_adk_events(
+        session=session,
+        history=[(m.role, m.kind, m.content) for m in remaining],
     )
     return content, attachment_ids
 

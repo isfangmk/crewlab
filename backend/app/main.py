@@ -12,6 +12,7 @@ from sqlalchemy import text
 from app.api import (
     agents,
     approvals,
+    audit,
     auth,
     chat,
     health,
@@ -105,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(system_settings.router, prefix="/api/v1")
     app.include_router(integrations_llm.router, prefix="/api/v1")
     app.include_router(observability.router, prefix="/api/v1")
+    app.include_router(audit.router, prefix="/api/v1")
     return app
 
 
