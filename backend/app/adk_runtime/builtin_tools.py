@@ -14,7 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 async def query_knowledge(query: str, limit: int = 5) -> dict:
-    """语义检索组织知识库，返回标题、路径、摘录与相关度。"""
+    """语义检索组织知识库，返回标题、路径、摘录与相关度。
+
+    Args:
+        query: 检索语句
+        limit: 返回条数上限
+    """
 
     return await search_for_agent(query, limit)
 
@@ -90,5 +95,13 @@ def tool_param_specs(func: Any) -> list[dict]:
             spec["type"] = "float"
         elif annotation_name == "bool":
             spec["type"] = "bool"
+        # 从 docstring Args 段提取单行说明（没有则省略）
+        doc = inspect.getdoc(func)
+        if doc is not None:
+            for line in doc.splitlines():
+                stripped = line.strip()
+                if stripped.startswith(f"{name}:"):
+                    spec["desc"] = stripped[len(name) + 1 :].strip()
+                    break
         specs.append(spec)
     return specs

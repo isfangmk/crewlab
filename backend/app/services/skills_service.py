@@ -117,6 +117,15 @@ def list_skill_summaries() -> list[dict]:
     return [skill_to_wire(s) for s in load_local_skills()]
 
 
+def reload_skill_summaries() -> list[dict]:
+    """强制重读磁盘并校验全部技能；任一非法则整批失败。"""
+
+    skills = load_local_skills()
+    items = [skill_to_wire(s) for s in skills]
+    logger.info("技能目录重载完成 count=%s", len(items))
+    return items
+
+
 def get_skill_summary(key: str) -> dict:
     if key == "":
         raise ValueError("skill key 不能为空")

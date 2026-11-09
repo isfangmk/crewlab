@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
@@ -22,17 +23,55 @@ class RejectBody(BaseModel):
     reason: str
 
 
+class ApproveBody(BaseModel):
+    # 批准允许空说明
+    reason: str = ""
+
+
+class BatchDecideBody(BaseModel):
+    ids: list[str]
+    confirmed: bool
+    # 批准可空；拒绝由服务层校验必填
+    reason: str = ""
+
+
 @router.get("/approvals")
 async def list_approvals(
     status: str | None = None,
+    q: str | None = Query(None),
+    created_from: datetime | None = Query(None),
+    created_to: datetime | None = Query(None),
+    sort_dir: str = Query("desc"),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
     try:
-        items = await approval_service.list_approvals(db, status)
+        items, total = await approval_service.list_approvals(
+            db,
+            status,
+            q=q,
+            created_from=created_from,
+            created_to=created_to,
+            sort_dir=sort_dir,
+            limit=limit,
+            offset=offset,
+        )
+        # 统计与列表共用搜索与时间条件，但覆盖全部状态，供顶部指标卡使用。
+        counts = await approval_service.approval_status_counts(
+            db,
+            q=q,
+            created_from=created_from,
+            created_to=created_to,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"items": [approval_service.approval_to_wire(a) for a in items]}
+    return {
+        "items": [approval_service.approval_to_wire(a) for a in items],
+        "total": total,
+        "counts": counts,
+    }
 
 
 @router.get("/approvals/count")
@@ -59,11 +98,12 @@ async def get_approval(
 @router.post("/approvals/{approval_id}/approve")
 async def approve(
     approval_id: str,
+    body: ApproveBody,
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
     try:
-        row = await approval_service.approve(db, approval_id)
+        row = await approval_service.approve(db, approval_id, reason=body.reason)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -71,9 +111,29 @@ async def approve(
     return approval_service.approval_to_wire(row)
 
 
+@router.post("/approvals/batch")
+async def batch_decide(
+    body: BatchDecideBody,
+    db: AsyncSession = Depends(get_db),
+    _user: str = Depends(require_auth),
+) -> dict:
+    if len(body.ids) == 0:
+        raise HTTPException(status_code=400, detail="ids 不能为空")
+    try:
+        items = await approval_service.batch_decide(
+            db, ids=body.ids, confirmed=body.confirmed, reason=body.reason
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"items": [approval_service.approval_to_wire(a) for a in items]}
+
+
 @router.post("/approvals/{approval_id}/approve/stream")
 async def approve_stream(
     approval_id: str,
+    body: ApproveBody,
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ):
@@ -85,7 +145,7 @@ async def approve_stream(
                 db,
                 approval_id=approval_id,
                 confirmed=True,
-                reason=None,
+                reason=body.reason,
             ):
                 yield {
                     "event": frame.event,
@@ -120,6 +180,8 @@ async def reject(
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    if body.reason == "":
+        raise HTTPException(status_code=400, detail="拒绝原因 reason 必填")
     try:
         await approval_service.reject(db, approval_id, body.reason)
     except LookupError as exc:

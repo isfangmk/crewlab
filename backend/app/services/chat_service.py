@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
+from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import delete, func, select
@@ -22,6 +23,7 @@ from app.services import (
     app_settings_service,
     llm_config,
     mcp_service,
+    observation_service,
 )
 from app.services.llm_config import resolve_model
 from app.services import turn_control
@@ -250,6 +252,7 @@ async def create_session(
     model: str,
     agent_id: str,
     user_id: str,
+    owner_user_id: int | None = None,
     page_context: dict | None = None,
 ) -> ChatSession:
     await resolve_model(db, provider, model)
@@ -261,6 +264,7 @@ async def create_session(
         model=model,
         agent_id=agent_id,
         adk_user_id=user_id,
+        owner_user_id=owner_user_id,
         page_context_json=_serialize_page_context(page_context),
     )
     db.add(session)
@@ -284,11 +288,276 @@ async def get_session(db: AsyncSession, session_id: str) -> ChatSession:
     return session
 
 
-async def list_sessions(db: AsyncSession) -> list[ChatSession]:
-    result = await db.scalars(
-        select(ChatSession).order_by(ChatSession.updated_at.desc())
+_SESSION_SORT_COLUMNS = {
+    "title": ChatSession.title,
+    "model": ChatSession.model,
+    "updated_at": ChatSession.updated_at,
+    "agent_id": ChatSession.agent_id,
+    "created_at": ChatSession.created_at,
+}
+
+
+async def list_sessions(
+    db: AsyncSession,
+    *,
+    q: str | None = None,
+    include_archived: bool = False,
+    agent_id: str | None = None,
+    updated_from: datetime | None = None,
+    updated_to: datetime | None = None,
+    sort_by: str | None = None,
+    sort_dir: str = "desc",
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[ChatSession], int]:
+    """按筛选条件分页列出会话；total 为同条件总数。"""
+
+    if limit < 1 or limit > 100:
+        raise ValueError("limit 范围是 1..100")
+    if offset < 0:
+        raise ValueError("offset 不能为负")
+    if updated_from is not None and updated_to is not None and updated_from > updated_to:
+        raise ValueError("updated_from 不能晚于 updated_to")
+    if agent_id is not None and agent_id == "":
+        raise ValueError("agent_id 不能为空字符串")
+    if sort_dir not in ("asc", "desc"):
+        raise ValueError("sort_dir 只能是 asc 或 desc")
+    if sort_by is not None and sort_by not in _SESSION_SORT_COLUMNS:
+        raise ValueError(
+            "sort_by 非法，允许: " + ", ".join(sorted(_SESSION_SORT_COLUMNS))
+        )
+
+    filters = []
+    if not include_archived:
+        filters.append(ChatSession.archived.is_(False))
+    if q is not None and q != "":
+        pattern = f"%{q}%"
+        filters.append(
+            (ChatSession.title.ilike(pattern)) | (ChatSession.model.ilike(pattern))
+        )
+    if agent_id is not None:
+        filters.append(ChatSession.agent_id == agent_id)
+    if updated_from is not None:
+        filters.append(ChatSession.updated_at >= updated_from)
+    if updated_to is not None:
+        filters.append(ChatSession.updated_at <= updated_to)
+
+    count_stmt = select(func.count()).select_from(ChatSession)
+    list_stmt = select(ChatSession)
+    if filters:
+        count_stmt = count_stmt.where(*filters)
+        list_stmt = list_stmt.where(*filters)
+
+    raw_total = await db.scalar(count_stmt)
+    if raw_total is None:
+        raise RuntimeError("会话计数返回空")
+    total = int(raw_total)
+
+    if sort_by is None:
+        order = (ChatSession.pinned.desc(), ChatSession.updated_at.desc())
+    else:
+        col = _SESSION_SORT_COLUMNS[sort_by]
+        order = (col.asc() if sort_dir == "asc" else col.desc(),)
+
+    list_stmt = list_stmt.order_by(*order).offset(offset).limit(limit)
+    items = list(await db.scalars(list_stmt))
+    logger.info(
+        "列出会话 q=%s agent_id=%s archived=%s from=%s to=%s sort=%s/%s limit=%s offset=%s total=%s page=%s",
+        q,
+        agent_id,
+        include_archived,
+        updated_from.isoformat() if updated_from else None,
+        updated_to.isoformat() if updated_to else None,
+        sort_by,
+        sort_dir,
+        limit,
+        offset,
+        total,
+        len(items),
     )
-    return list(result.all())
+    return items, total
+
+
+async def update_session_flags(
+    db: AsyncSession,
+    session_id: str,
+    *,
+    pinned: bool | None = None,
+    archived: bool | None = None,
+) -> ChatSession:
+    if pinned is None and archived is None:
+        raise ValueError("pinned 与 archived 至少提供一个")
+    session = await get_session(db, session_id)
+    if pinned is not None:
+        session.pinned = pinned
+    if archived is not None:
+        session.archived = archived
+    await db.commit()
+    await db.refresh(session)
+    logger.info(
+        "更新会话标记 session_id=%s pinned=%s archived=%s",
+        session_id,
+        session.pinned,
+        session.archived,
+    )
+    return session
+
+
+async def fork_session(
+    db: AsyncSession,
+    session_id: str,
+    *,
+    up_to_message_id: str,
+    owner_user_id: int | None,
+    adk_user_id: str,
+) -> ChatSession:
+    """复制前缀消息到新会话（不含 ADK 事件，仅业务投影）。"""
+
+    if up_to_message_id == "":
+        raise ValueError("up_to_message_id 不能为空")
+    src = await get_session(db, session_id)
+    messages = await list_messages(db, session_id)
+    cut: ChatMessage | None = None
+    for m in messages:
+        if m.id == up_to_message_id:
+            cut = m
+            break
+    if cut is None:
+        raise LookupError(f"消息不存在: {up_to_message_id}")
+    prefix = [m for m in messages if m.seq <= cut.seq]
+    if len(prefix) == 0:
+        raise ValueError("无可复制的消息前缀")
+    if src.agent_id is None:
+        raise ValueError("源会话缺少 agent_id，无法 fork")
+    pc = session_page_context(src)
+    new_session = await create_session(
+        db,
+        title=f"{src.title} (fork)",
+        provider=src.provider,
+        model=src.model,
+        agent_id=src.agent_id,
+        user_id=adk_user_id,
+        owner_user_id=owner_user_id,
+        page_context=None if pc is None else pc.model_dump(),
+    )
+    for i, m in enumerate(prefix, start=1):
+        db.add(
+            ChatMessage(
+                id=str(uuid4()),
+                session_id=new_session.id,
+                role=m.role,
+                kind=m.kind,
+                content=m.content,
+                tool_call_json=m.tool_call_json,
+                attachments_json=m.attachments_json,
+                seq=i,
+            )
+        )
+    await db.commit()
+    logger.info(
+        "fork 会话 source=%s new=%s messages=%s",
+        session_id,
+        new_session.id,
+        len(prefix),
+    )
+    return new_session
+
+
+async def truncate_after_message(
+    db: AsyncSession, session_id: str, message_id: str
+) -> ChatMessage:
+    """删除指定消息之后的全部投影消息，返回被保留的用户消息。"""
+
+    if message_id == "":
+        raise ValueError("message_id 不能为空")
+    await get_session(db, session_id)
+    messages = await list_messages(db, session_id)
+    target: ChatMessage | None = None
+    for m in messages:
+        if m.id == message_id:
+            target = m
+            break
+    if target is None:
+        raise LookupError(f"消息不存在: {message_id}")
+    if target.role != "user" or target.kind != "message":
+        raise ValueError("只能编辑用户正文消息")
+    for m in messages:
+        if m.seq > target.seq:
+            await db.delete(m)
+    await db.commit()
+    await db.refresh(target)
+    logger.info(
+        "已截断会话消息 session_id=%s keep_message_id=%s keep_seq=%s",
+        session_id,
+        target.id,
+        target.seq,
+    )
+    return target
+
+
+async def prepare_resend_from_user_message(
+    db: AsyncSession, session_id: str, message_id: str
+) -> tuple[str, list[str]]:
+    """编辑重发：删除该用户消息及其后全部投影，返回原文与附件 id。"""
+
+    if message_id == "":
+        raise ValueError("message_id 不能为空")
+    await get_session(db, session_id)
+    messages = await list_messages(db, session_id)
+    target: ChatMessage | None = None
+    for m in messages:
+        if m.id == message_id:
+            target = m
+            break
+    if target is None:
+        raise LookupError(f"消息不存在: {message_id}")
+    if target.role != "user" or target.kind != "message":
+        raise ValueError("只能对用户正文消息编辑重发")
+    content = target.content if target.content is not None else ""
+    if content == "":
+        raise ValueError("用户消息内容为空，无法重发")
+    attachment_ids: list[str] = []
+    if target.attachments_json is not None and target.attachments_json != "":
+        raw = json.loads(target.attachments_json)
+        if not isinstance(raw, list):
+            raise TypeError("attachments_json 必须是数组")
+        for item in raw:
+            if not isinstance(item, str) or item == "":
+                raise ValueError("attachments_json 含无效 id")
+            attachment_ids.append(item)
+    for m in messages:
+        if m.seq >= target.seq:
+            await db.delete(m)
+    await db.commit()
+    logger.info(
+        "已删除用户消息及后续投影以便重发 session_id=%s from_message_id=%s",
+        session_id,
+        message_id,
+    )
+    return content, attachment_ids
+
+
+async def export_session_markdown(db: AsyncSession, session_id: str) -> str:
+    session = await get_session(db, session_id)
+    messages = await list_messages(db, session_id)
+    lines = [
+        f"# {session.title}",
+        "",
+        f"- provider: `{session.provider}`",
+        f"- model: `{session.model}`",
+        f"- agent: `{session.agent_id}`",
+        "",
+    ]
+    for m in messages:
+        if m.kind != "message":
+            continue
+        role = m.role
+        body = m.content if m.content is not None else ""
+        lines.append(f"## {role}")
+        lines.append("")
+        lines.append(body)
+        lines.append("")
+    return "\n".join(lines)
 
 
 async def list_messages(db: AsyncSession, session_id: str) -> list[ChatMessage]:
@@ -361,6 +630,27 @@ async def delete_session(db: AsyncSession, session_id: str) -> None:
             app_name=APP_NAME, user_id=adk_user_id, session_id=session_id
         )
     logger.info("删除会话 session_id=%s", session_id)
+
+
+async def batch_delete_sessions(db: AsyncSession, ids: list[str]) -> int:
+    """批量硬删除：任一 id 不存在则整批失败，已删 0 条。"""
+
+    if len(ids) == 0:
+        raise ValueError("ids 不能为空")
+    if len(ids) > 100:
+        raise ValueError("ids 最多 100 个")
+    if any(i == "" for i in ids):
+        raise ValueError("ids 不能包含空字符串")
+    if len(set(ids)) != len(ids):
+        raise ValueError("ids 不能重复")
+
+    # 先全部校验存在，避免删到一半才 404
+    for session_id in ids:
+        await get_session(db, session_id)
+    for session_id in ids:
+        await delete_session(db, session_id)
+    logger.info("批量删除会话 count=%s", len(ids))
+    return len(ids)
 
 
 async def _next_seq(db: AsyncSession, session_id: str) -> int:
@@ -457,10 +747,14 @@ class AdkFramePersister:
         self,
         db: AsyncSession,
         session_id: str,
+        *,
+        trace_id: str,
         turn_context: dict | None = None,
     ) -> None:
         self._db = db
         self._session_id = session_id
+        # 本回合 Trace：工具/技能调用要挂到同一条观测记录上
+        self._trace_id = trace_id
         # 按 message_id 分段落库，保持与 SSE 时间线一致
         self._assistant_segments: dict[str, list[str]] = {}
         self._current_assistant_id: str | None = None
@@ -510,6 +804,12 @@ class AdkFramePersister:
                 self._current_assistant_id = None
             # 与前端 toolCardId(`tool-card-${tool_call_id}`) 保持同一 id
             tool_call_id = frame.data["tool_call_id"]
+            await observation_service.record_tool_start(
+                trace_id=self._trace_id,
+                tool_call_id=tool_call_id,
+                name=frame.data["name"],
+                arguments=json.dumps(frame.data["arguments"], ensure_ascii=False),
+            )
             await _add_message(
                 self._db,
                 message_id=f"tool-card-{tool_call_id}",
@@ -536,6 +836,21 @@ class AdkFramePersister:
                 frame.data["tool_call_id"],
                 frame.data["status"],
                 duration_ms,
+            )
+            raw_status = frame.data["status"]
+            if raw_status not in ("success", "error"):
+                raise ValueError(f"tool_end.status 非法: {raw_status}")
+            await observation_service.record_tool_end(
+                trace_id=self._trace_id,
+                tool_call_id=frame.data["tool_call_id"],
+                name=frame.data["name"],
+                status=(
+                    observation_service.STATUS_OK
+                    if raw_status == "success"
+                    else observation_service.STATUS_ERROR
+                ),
+                duration_ms=duration_ms,
+                error=frame.data["error"],
             )
             await _update_tool_card(
                 self._db,
@@ -564,6 +879,7 @@ class AdkFramePersister:
                 tool_name=frame.data["tool_name"],
                 hint=command,
                 arguments=arguments,
+                trace_id=self._trace_id,
                 turn_context=self._turn_context,
             )
             pending_result = {
@@ -805,9 +1121,20 @@ async def stream_session_message(
         extra_tools.append(build_web_search_tool(base_url=search_base, api_key=search_key))
         logger.info("本回合已挂载 web_search（DeepSeek） session_id=%s", session_id)
 
+    # 观测回合必须先建立：persister 要把工具/技能调用挂到该 trace 上
+    turn_control.begin_turn(session_id)
+    obs = await observation_service.start_chat_turn(
+        session_id=session_id,
+        agent_id=resolved_agent.name,
+        provider=llm.provider_id,
+        model=use_model,
+        user_input=content,
+    )
+
     persister = AdkFramePersister(
         db,
         session_id,
+        trace_id=obs.trace_id,
         # 记录本回合实际使用的模型上下文；审批恢复必须沿用同一模型与超时
         turn_context={
             "provider": llm.provider_id,
@@ -817,6 +1144,7 @@ async def stream_session_message(
             "thinking_enabled": thinking_enabled,
             "model_prefix": llm.model_prefix,
             "provider_extra_body": llm_config.provider_extra_body(llm),
+            "trace_id": obs.trace_id,
         },
     )
     # 附件字节交给 ADK 多模态 parts；校验已在上方完成，这里再取内容
@@ -834,7 +1162,8 @@ async def stream_session_message(
             [len(item[0]) for item in image_parts],
         )
 
-    turn_control.begin_turn(session_id)
+    stopped = False
+    last_usage: dict[str, int | None] | None = None
     try:
         async for frame in stream_adk_turn(
             session_id=session_id,
@@ -860,10 +1189,39 @@ async def stream_session_message(
         ):
             if turn_control.is_stopped(session_id):
                 logger.info("回合被停止 session_id=%s", session_id)
-                yield SseFrame(event="done", data={"session_id": session_id, "stopped": True})
+                stopped = True
+                yield SseFrame(
+                    event="done",
+                    data={
+                        "session_id": session_id,
+                        "stopped": True,
+                        "trace_id": obs.trace_id,
+                    },
+                )
                 break
-            await persister.persist(frame)
-            yield frame
+            out = frame
+            if frame.event == "done" and isinstance(frame.data, dict):
+                usage_raw = frame.data.get("usage")
+                if isinstance(usage_raw, dict):
+                    last_usage = {
+                        "prompt_tokens": usage_raw.get("prompt_tokens"),
+                        "completion_tokens": usage_raw.get("completion_tokens"),
+                        "total_tokens": usage_raw.get("total_tokens"),
+                    }
+                # SseFrame 不可变，拼上 trace_id 后重建
+                out = SseFrame(
+                    event=frame.event,
+                    data={**frame.data, "trace_id": obs.trace_id},
+                )
+            await persister.persist(out)
+            yield out
+        if stopped:
+            await obs.end_stopped()
+        else:
+            await obs.end_ok(usage=last_usage)
+    except Exception as exc:
+        await obs.end_error(exc)
+        raise
     finally:
         turn_control.end_turn(session_id)
 

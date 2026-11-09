@@ -128,10 +128,9 @@ async def _upstream_reasoning_chunks(*, thinking_type: str) -> int:
 
 @pytest.mark.asyncio
 async def test_custom_thinking_toggle_controls_thinking_delta() -> None:
-    env = _load_env()
-    token = env.get("AUTH_TOKEN")
-    if not token:
-        pytest.skip("缺少 AUTH_TOKEN")
+    from tests.conftest import load_env, login_access_token
+
+    env = load_env()
     host = env.get("HOST", "127.0.0.1")
     port = env.get("PORT", "18080")
     base = f"http://{host}:{port}"
@@ -146,14 +145,12 @@ async def test_custom_thinking_toggle_controls_thinking_delta() -> None:
     assert on_up >= 1, f"上游 thinking=enabled 应有 reasoning，实际={on_up}"
 
     try:
-        async with httpx.AsyncClient(
-            base_url=base,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=120.0,
-        ) as client:
+        async with httpx.AsyncClient(base_url=base, timeout=120.0) as client:
             health = await client.get("/healthz")
             if health.status_code != 200:
                 pytest.skip(f"后端未就绪 status={health.status_code}")
+            token = await login_access_token(client, env)
+            client.headers["Authorization"] = f"Bearer {token}"
 
             # 关思考：即便上游仍吐 reasoning_content，工作台也不得出 thinking_delta
             for _ in range(2):

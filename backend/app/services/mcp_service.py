@@ -20,6 +20,20 @@ from app.models_orm.mcp import McpServer
 logger = logging.getLogger(__name__)
 
 
+_APPROVAL_POLICIES = frozenset({"never", "non_readonly", "always"})
+
+
+def effective_approval_policy(server: McpServer) -> str:
+    """trusted 视为 never；否则使用 approval_policy。"""
+
+    if server.trusted:
+        return "never"
+    policy = server.approval_policy
+    if policy not in _APPROVAL_POLICIES:
+        raise ValueError(f"MCP Server {server.name} approval_policy 非法: {policy}")
+    return policy
+
+
 def server_to_wire(s: McpServer) -> dict:
     """把 ORM 行转成前端 MCP 列表/详情用的字段字典。"""
 
@@ -31,10 +45,17 @@ def server_to_wire(s: McpServer) -> dict:
         "credential": s.credential,
         "header_template_json": s.header_template_json,
         "trusted": s.trusted,
+        "approval_policy": effective_approval_policy(s),
         "enabled": s.enabled,
         "status": s.status,
         "last_error": s.last_error,
         "tools_cache_json": s.tools_cache_json,
+        "embedding_sync_status": s.embedding_sync_status,
+        "embedding_sync_count": s.embedding_sync_count,
+        "embedding_sync_error": s.embedding_sync_error,
+        "embedding_synced_at": (
+            None if s.embedding_synced_at is None else s.embedding_synced_at.isoformat()
+        ),
     }
 
 
@@ -216,17 +237,30 @@ async def build_mcp_toolset(db: AsyncSession, server: McpServer) -> McpToolset:
     )
 
 
-def confirm_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
-    """非 trusted MCP 的业务工具 wire 名（不含 search/load 管理工具）。
+def _tool_looks_readonly(tool_name: str, description: str) -> bool:
+    """粗判定只读工具：名称以 get/list/search/query/read 开头或描述含 read-only。"""
 
-    与 build_searchable_mcp_toolsets 保持同一套可用性判定：
-    探测未成功的 server 被跳过（它的工具本轮根本不会挂载），
-    不再因为一个不可用的 server 让整轮对话失败。
+    lowered = tool_name.lower()
+    for prefix in ("get_", "list_", "search_", "query_", "read_", "find_", "describe_"):
+        if lowered.startswith(prefix):
+            return True
+    if "read-only" in description.lower() or "readonly" in description.lower():
+        return True
+    return False
+
+
+def confirm_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
+    """按 approval_policy 收集需审批的业务工具 wire 名。
+
+    - never：不进审批
+    - always：全部进审批
+    - non_readonly：非只读工具进审批
     """
 
     names: set[str] = set()
     for server in servers:
-        if server.trusted:
+        policy = effective_approval_policy(server)
+        if policy == "never":
             continue
         if server.status != "ok":
             logger.warning(
@@ -250,6 +284,11 @@ def confirm_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
             tool_name = item["name"]
             if not isinstance(tool_name, str) or tool_name == "":
                 raise ValueError(f"tools_cache[{i}].name 无效")
+            desc = item.get("description")
+            if not isinstance(desc, str):
+                desc = ""
+            if policy == "non_readonly" and _tool_looks_readonly(tool_name, desc):
+                continue
             names.add(mcp_tool_wire_name(server.name, tool_name))
     logger.info("需审批 MCP 工具数=%s", len(names))
     return names
@@ -376,11 +415,14 @@ async def create_server(
     header_template_json: str,
     trusted: bool,
     enabled: bool,
+    approval_policy: str = "always",
 ) -> McpServer:
     if transport not in ("http", "sse"):
         raise ValueError(f"不支持的 transport: {transport}")
     if endpoint == "":
         raise ValueError("endpoint 不能为空")
+    if approval_policy not in _APPROVAL_POLICIES:
+        raise ValueError(f"approval_policy 非法: {approval_policy}")
     assert_mcp_server_name(name)
     _parse_headers(header_template_json)
     # 名称唯一：显式预检，避免 IntegrityError 变成 500
@@ -394,6 +436,7 @@ async def create_server(
         credential=credential,
         header_template_json=header_template_json,
         trusted=trusted,
+        approval_policy="never" if trusted else approval_policy,
         enabled=enabled,
         status="",
         last_error="",
@@ -425,12 +468,15 @@ async def update_server(
     header_template_json: str,
     trusted: bool,
     enabled: bool,
+    approval_policy: str = "always",
 ) -> McpServer:
     row = await get_server(db, server_id)
     if transport not in ("http", "sse"):
         raise ValueError(f"不支持的 transport: {transport}")
     if endpoint == "":
         raise ValueError("endpoint 不能为空")
+    if approval_policy not in _APPROVAL_POLICIES:
+        raise ValueError(f"approval_policy 非法: {approval_policy}")
     assert_mcp_server_name(name)
     _parse_headers(header_template_json)
     # 改名时同样校验唯一性
@@ -445,6 +491,7 @@ async def update_server(
     row.credential = credential
     row.header_template_json = header_template_json
     row.trusted = trusted
+    row.approval_policy = "never" if trusted else approval_policy
     row.enabled = enabled
     await db.commit()
     await db.refresh(row)
@@ -524,9 +571,14 @@ def _format_call_tool_result(result: object) -> str:
 
 
 async def test_server(db: AsyncSession, server_id: int) -> list[dict]:
+    from datetime import datetime, timezone
+
     from app.services.tool_search_index import sync_server_tool_embeddings
 
     row = await get_server(db, server_id)
+    row.embedding_sync_status = "syncing"
+    row.embedding_sync_error = ""
+    await db.commit()
     toolset = await build_mcp_toolset(db, row)
     try:
         tools = await toolset.get_tools()
@@ -546,10 +598,17 @@ async def test_server(db: AsyncSession, server_id: int) -> list[dict]:
             for item in items
         ]
         await sync_server_tool_embeddings(db, row.id, embed_items)
+        row.embedding_sync_status = "ok"
+        row.embedding_sync_count = len(embed_items)
+        row.embedding_sync_error = ""
+        row.embedding_synced_at = datetime.now(timezone.utc)
+        await db.commit()
         return items
     except Exception as exc:
         row.status = "error"
         row.last_error = str(exc)
+        row.embedding_sync_status = "error"
+        row.embedding_sync_error = str(exc)
         await db.commit()
         logger.exception("探测 MCP 失败 id=%s", row.id)
         raise

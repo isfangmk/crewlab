@@ -33,7 +33,8 @@ SYSTEM_TIMEZONES: dict[str, timezone] = {
 }
 DEFAULT_SYSTEM_TIMEZONE = "UTC+08:00"
 _OBSERVABILITY_KEYS = frozenset({"timezone"})
-_SUPPORTED_CATEGORIES = frozenset({"agent", "observability"})
+_KNOWLEDGE_KEYS = frozenset({"chunk_size", "chunk_overlap", "approval_timeout_hours"})
+_SUPPORTED_CATEGORIES = frozenset({"agent", "observability", "knowledge"})
 
 
 def _setting_pk(category: str, key: str) -> str:
@@ -75,6 +76,28 @@ _AGENT_RUNTIME_SEEDS: dict[str, str] = {
     "llm_timeout_seconds": "120",
     "output_locale": "",
 }
+
+_KNOWLEDGE_SEEDS: dict[str, str] = {
+    "chunk_size": "800",
+    "chunk_overlap": "100",
+    "approval_timeout_hours": "72",
+}
+
+
+async def ensure_knowledge_settings(db: AsyncSession) -> None:
+    """种子写入知识库/审批超时参数；已存在的键不动。"""
+
+    added = 0
+    for key, value in _KNOWLEDGE_SEEDS.items():
+        pk = _setting_pk("knowledge", key)
+        row = await db.get(AppSetting, pk)
+        if row is not None:
+            continue
+        db.add(AppSetting(key=pk, value=value))
+        added += 1
+    if added > 0:
+        await db.commit()
+        logger.info("已写入知识库参数种子 count=%s", added)
 
 
 async def ensure_agent_runtime(db: AsyncSession) -> None:
@@ -183,6 +206,17 @@ async def put_setting(
             raise ValueError(
                 "timezone 非法，允许: " + ", ".join(sorted(SYSTEM_TIMEZONES))
             )
+    elif category == "knowledge":
+        if key not in _KNOWLEDGE_KEYS:
+            raise ValueError(f"不支持的 knowledge key: {key}")
+        if key in ("chunk_size", "chunk_overlap", "approval_timeout_hours"):
+            number = int(value)
+            if key == "chunk_size" and number < 64:
+                raise ValueError("chunk_size 必须 >= 64")
+            if key == "chunk_overlap" and number < 0:
+                raise ValueError("chunk_overlap 必须 >= 0")
+            if key == "approval_timeout_hours" and number < 1:
+                raise ValueError("approval_timeout_hours 必须 >= 1")
 
     pk = _setting_pk(category, key)
     row = await db.get(AppSetting, pk)

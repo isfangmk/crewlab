@@ -19,6 +19,8 @@ dependencies = [
   "pgvector",
   "mcp>=2.3.0",
   "adk-tool-search>=0.3.0",
+  "pypdf",
+  "python-docx",
 ]
 
 [dependency-groups]

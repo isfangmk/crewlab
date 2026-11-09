@@ -23,6 +23,8 @@ class McpServerInput(BaseModel):
     header_template_json: str
     trusted: bool
     enabled: bool
+    # never | non_readonly | always；缺省 always
+    approval_policy: str = "always"
 
 
 @router.get("/mcp/servers")
@@ -53,6 +55,7 @@ async def create_server(
             header_template_json=body.header_template_json,
             trusted=body.trusted,
             enabled=body.enabled,
+            approval_policy=body.approval_policy,
         )
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -81,6 +84,7 @@ async def update_server(
             header_template_json=body.header_template_json,
             trusted=body.trusted,
             enabled=body.enabled,
+            approval_policy=body.approval_policy,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

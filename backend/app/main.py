@@ -20,6 +20,7 @@ from app.api import (
     mcp,
     mentions,
     models,
+    observability,
     secrets,
     skills,
     system_settings,
@@ -30,9 +31,15 @@ from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.db_schema import ensure_columns
 from app.logging_setup import setup_logging
+from app.middleware_request_id import RequestIdMiddleware
 from app.models_orm import Base
+from app.services.auth_service import ensure_bootstrap_admin
 from app.services.llm_config import ensure_seed_provider
-from app.services.app_settings_service import ensure_agent_runtime, ensure_system_timezone
+from app.services.app_settings_service import (
+    ensure_agent_runtime,
+    ensure_knowledge_settings,
+    ensure_system_timezone,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +62,10 @@ async def lifespan(_app: FastAPI):
     await prepare_adk_session_tables()
 
     async with SessionLocal() as db:
+        await ensure_bootstrap_admin(db)
         await ensure_seed_provider(db)
         await ensure_agent_runtime(db)
+        await ensure_knowledge_settings(db)
         await ensure_system_timezone(db)
         # 向量表 tool_name 必须与 wire 规则一致，否则检索装配会查错名。
         from app.services.tool_search_index import assert_embedding_names_consistent
@@ -71,6 +80,7 @@ async def lifespan(_app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    app.add_middleware(RequestIdMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -94,6 +104,7 @@ def create_app() -> FastAPI:
     app.include_router(secrets.router, prefix="/api/v1")
     app.include_router(system_settings.router, prefix="/api/v1")
     app.include_router(integrations_llm.router, prefix="/api/v1")
+    app.include_router(observability.router, prefix="/api/v1")
     return app
 
 

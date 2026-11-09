@@ -7,7 +7,7 @@ import logging
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adk_runtime.session_store import get_adk_session_service
@@ -33,6 +33,7 @@ def approval_to_wire(a: Approval) -> dict:
         "proposed_by": a.proposed_by,
         "approved_by": a.approved_by,
         "reason": a.reason,
+        "decision_reason": a.decision_reason,
         "result": a.result,
         "created_at": a.created_at.isoformat(),
         "decided_at": a.decided_at.isoformat() if a.decided_at else None,
@@ -49,6 +50,7 @@ async def create_pending_approval(
     tool_name: str,
     hint: str,
     arguments: dict,
+    trace_id: str,
     turn_context: dict | None = None,
 ) -> Approval:
     existing = await db.scalar(
@@ -65,6 +67,8 @@ async def create_pending_approval(
         "arguments": arguments,
         "command": hint,
         "summary": title,
+        # 审批恢复的工具/技能调用要归到同一 Trace
+        "trace_id": trace_id,
     }
     # 记录发起本回合的实际模型上下文：审批恢复必须用同一个模型/超时/思考开关，
     # 否则与发起时的行为不一致（会话默认模型可能被单回合覆盖）。
@@ -96,14 +100,144 @@ async def create_pending_approval(
     return row
 
 
-async def list_approvals(db: AsyncSession, status: str | None) -> list[Approval]:
-    stmt = select(Approval).order_by(Approval.created_at.desc())
+async def expire_stale_pending(db: AsyncSession) -> int:
+    """将超时未决审批标为 expired；绝不自动批准。"""
+
+    from datetime import timedelta
+
+    from app.models_orm.llm import AppSetting
+
+    timeout_row = await db.get(AppSetting, "knowledge.approval_timeout_hours")
+    if timeout_row is None:
+        raise ValueError("缺少 knowledge.approval_timeout_hours")
+    hours = int(timeout_row.value)
+    if hours < 1:
+        raise ValueError("approval_timeout_hours 必须 >= 1")
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    rows = (
+        await db.scalars(select(Approval).where(Approval.status == "pending"))
+    ).all()
+    n = 0
+    for row in rows:
+        if row.created_at < cutoff:
+            row.status = "expired"
+            n += 1
+    if n > 0:
+        await db.commit()
+        logger.info("已标记过期审批 count=%s cutoff_hours=%s", n, hours)
+    return n
+
+
+APPROVAL_STATUSES = ("pending", "approved", "executed", "rejected", "failed", "expired")
+
+
+def _approval_filters(
+    *,
+    q: str | None,
+    created_from: datetime | None,
+    created_to: datetime | None,
+) -> list:
+    """构造列表与状态计数共用的 WHERE 条件；非法入参直接报错。"""
+
+    if q is not None and q == "":
+        raise ValueError("q 不能为空字符串")
+    if created_from is not None and created_to is not None and created_from > created_to:
+        raise ValueError("created_from 不能晚于 created_to")
+
+    filters = []
+    if q is not None:
+        like = f"%{q}%"
+        # 关键字同时匹配标题、摘要、类型、来源工具与会话，避免只能按标题查。
+        filters.append(
+            or_(
+                Approval.title.ilike(like),
+                Approval.summary.ilike(like),
+                Approval.kind.ilike(like),
+                Approval.tool_name.ilike(like),
+                Approval.session_id.ilike(like),
+            )
+        )
+    if created_from is not None:
+        filters.append(Approval.created_at >= created_from)
+    if created_to is not None:
+        filters.append(Approval.created_at <= created_to)
+    return filters
+
+
+async def list_approvals(
+    db: AsyncSession,
+    status: str | None = None,
+    *,
+    q: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    sort_dir: str = "desc",
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[Approval], int]:
+    """分页查询审批单，返回当前页与命中总数。
+
+    列表只按提交时间排序：sort_dir 控制升/降序，其他字段不开放排序。
+    """
+
     if status is not None:
         if status == "":
             raise ValueError("status 不能为空字符串")
-        stmt = stmt.where(Approval.status == status)
-    result = await db.scalars(stmt)
-    return list(result.all())
+        if status not in APPROVAL_STATUSES:
+            raise ValueError(f"status 取值非法: {status}")
+    if sort_dir not in ("asc", "desc"):
+        raise ValueError("sort_dir 只能是 asc 或 desc")
+    if limit < 1 or limit > 200:
+        raise ValueError("limit 必须在 1..200")
+    if offset < 0:
+        raise ValueError("offset 不能为负")
+
+    await expire_stale_pending(db)
+
+    filters = _approval_filters(q=q, created_from=created_from, created_to=created_to)
+    if status is not None:
+        filters.append(Approval.status == status)
+
+    count_stmt = select(func.count()).select_from(Approval)
+    # created_at 可能重复，补 id 保证分页顺序稳定。
+    order = (
+        (Approval.created_at.asc(), Approval.id.asc())
+        if sort_dir == "asc"
+        else (Approval.created_at.desc(), Approval.id.desc())
+    )
+    list_stmt = (
+        select(Approval)
+        .order_by(*order)
+        .limit(limit)
+        .offset(offset)
+    )
+    if filters:
+        count_stmt = count_stmt.where(*filters)
+        list_stmt = list_stmt.where(*filters)
+
+    total = int(await db.scalar(count_stmt) or 0)
+    rows = list((await db.scalars(list_stmt)).all())
+    return rows, total
+
+
+async def approval_status_counts(
+    db: AsyncSession,
+    *,
+    q: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+) -> dict[str, int]:
+    """按状态统计审批单数量，条件与列表一致（不含 status 过滤）。"""
+
+    filters = _approval_filters(q=q, created_from=created_from, created_to=created_to)
+    stmt = select(Approval.status, func.count()).group_by(Approval.status)
+    if filters:
+        stmt = stmt.where(*filters)
+    rows = (await db.execute(stmt)).all()
+    counts = {status: 0 for status in APPROVAL_STATUSES}
+    for status, n in rows:
+        counts[status] = int(n)
+    return counts
 
 
 async def get_approval(db: AsyncSession, approval_id: str) -> Approval:
@@ -114,8 +248,9 @@ async def get_approval(db: AsyncSession, approval_id: str) -> Approval:
 
 
 async def pending_count(db: AsyncSession) -> int:
-    rows = await list_approvals(db, "pending")
-    return len(rows)
+    await expire_stale_pending(db)
+    counts = await approval_status_counts(db)
+    return counts["pending"]
 
 
 async def _turn_context_from_approval(row: Approval) -> dict:
@@ -143,15 +278,30 @@ async def _turn_context_from_approval(row: Approval) -> dict:
     return ctx
 
 
+async def _trace_id_from_approval(row: Approval) -> str:
+    """读出审批单所属的观测 Trace，续跑的工具/技能调用必须归到同一回合。"""
+
+    raw = json.loads(row.payload)
+    if not isinstance(raw, dict):
+        raise TypeError(f"审批 payload 损坏: {row.id}")
+    trace_id = raw.get("trace_id")
+    if not isinstance(trace_id, str) or trace_id == "":
+        raise ValueError(f"审批单缺少 Trace 关联: {row.id}")
+    return trace_id
+
+
 async def stream_decide(
     db: AsyncSession,
     *,
     approval_id: str,
     confirmed: bool,
-    reason: str | None,
+    reason: str,
 ) -> AsyncIterator[SseFrame]:
     """审批后续跑：边执行边产出与聊天流同构的 SSE 帧（含 assistant_delta）。"""
 
+    # 拒绝必须写原因；批准允许空说明
+    if not confirmed and reason == "":
+        raise ValueError("拒绝原因 reason 必填")
     row = await get_approval(db, approval_id)
     if row.status != "pending":
         raise ValueError(f"审批状态不可决策: status={row.status}")
@@ -166,6 +316,7 @@ async def stream_decide(
     # 全部前置校验必须在写状态之前完成：否则失败时该审批行已被置为已决，
     # 再也无法重新决策。
     turn_ctx = await _turn_context_from_approval(row)
+    trace_id = await _trace_id_from_approval(row)
     provider_id = turn_ctx["provider"]
     model = turn_ctx["model"]
     base_url = turn_ctx["base_url"]
@@ -201,6 +352,7 @@ async def stream_decide(
     row.decided_at = now
     row.approved_by = 1
     row.reason = reason
+    row.decision_reason = reason
     row.status = "approved" if confirmed else "rejected"
     await db.commit()
 
@@ -220,7 +372,12 @@ async def stream_decide(
         thinking_enabled,
     )
     # 与聊天流同一套落库：续跑里的二次审批 / 后续工具卡不能丢
-    persister = chat_service.AdkFramePersister(db, session.id, turn_context=turn_ctx)
+    persister = chat_service.AdkFramePersister(
+        db,
+        session.id,
+        trace_id=trace_id,
+        turn_context=turn_ctx,
+    )
     try:
         async for frame in stream_adk_confirmation(
             session_id=session.id,
@@ -332,9 +489,39 @@ async def _decide(
     return await get_approval(db, approval_id)
 
 
-async def approve(db: AsyncSession, approval_id: str) -> Approval:
-    return await _decide(db, approval_id=approval_id, confirmed=True, reason=None)
+async def approve(db: AsyncSession, approval_id: str, *, reason: str = "") -> Approval:
+    row = await _decide(db, approval_id=approval_id, confirmed=True, reason=reason)
+    row.decision_reason = reason
+    await db.commit()
+    await db.refresh(row)
+    return row
 
 
 async def reject(db: AsyncSession, approval_id: str, reason: str) -> Approval:
-    return await _decide(db, approval_id=approval_id, confirmed=False, reason=reason)
+    if reason == "":
+        raise ValueError("拒绝原因 reason 必填")
+    row = await _decide(db, approval_id=approval_id, confirmed=False, reason=reason)
+    row.decision_reason = reason
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def batch_decide(
+    db: AsyncSession,
+    *,
+    ids: list[str],
+    confirmed: bool,
+    reason: str = "",
+) -> list[Approval]:
+    if not confirmed and reason == "":
+        raise ValueError("拒绝原因 reason 必填")
+    if len(ids) == 0:
+        raise ValueError("ids 不能为空")
+    out: list[Approval] = []
+    for approval_id in ids:
+        if confirmed:
+            out.append(await approve(db, approval_id, reason=reason))
+        else:
+            out.append(await reject(db, approval_id, reason))
+    return out

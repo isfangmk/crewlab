@@ -7,6 +7,8 @@ import re
 import sys
 from pathlib import Path
 
+from app.request_context import request_id_var, session_id_var, user_id_var
+
 # 仓库根目录 logs/backend.log；每次启动覆盖写入
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_LOG_FILE = _REPO_ROOT / "logs" / "backend.log"
@@ -92,10 +94,26 @@ def redact_secrets(message: str) -> str:
     return _redact_pairs(out)
 
 
+class ContextFilter(logging.Filter):
+    """把 contextvars 注入 LogRecord，供格式化输出。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = request_id_var.get()  # type: ignore[attr-defined]
+        record.user_id = user_id_var.get()  # type: ignore[attr-defined]
+        record.session_id = session_id_var.get()  # type: ignore[attr-defined]
+        return True
+
+
 class RedactingFormatter(logging.Formatter):
     """格式化时脱敏。"""
 
     def format(self, record: logging.LogRecord) -> str:
+        if not hasattr(record, "request_id"):
+            record.request_id = "-"  # type: ignore[attr-defined]
+        if not hasattr(record, "user_id"):
+            record.user_id = "-"  # type: ignore[attr-defined]
+        if not hasattr(record, "session_id"):
+            record.session_id = "-"  # type: ignore[attr-defined]
         original = super().format(record)
         return redact_secrets(original)
 
@@ -110,20 +128,26 @@ def setup_logging(level: str, *, log_file: Path | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     formatter = RedactingFormatter(
-        fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        fmt=(
+            "%(asctime)s %(levelname)s [%(name)s] "
+            "rid=%(request_id)s uid=%(user_id)s sid=%(session_id)s %(message)s"
+        ),
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
+    ctx_filter = ContextFilter()
 
     root = logging.getLogger()
     root.handlers.clear()
 
     file_handler = logging.FileHandler(path, mode="w", encoding="utf-8")
     file_handler.setFormatter(formatter)
+    file_handler.addFilter(ctx_filter)
     root.addHandler(file_handler)
 
     # 前台运行时仍打控制台；后台 Hidden 启动时无终端可读
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
+    stream_handler.addFilter(ctx_filter)
     root.addHandler(stream_handler)
 
     root.setLevel(level.upper())
@@ -133,3 +157,41 @@ def setup_logging(level: str, *, log_file: Path | None = None) -> None:
         uv_logger = logging.getLogger(name)
         uv_logger.handlers.clear()
         uv_logger.propagate = True
+
+    _maybe_setup_otlp()
+
+
+def _maybe_setup_otlp() -> None:
+    """仅当 OTLP_ENDPOINT 显式配置时安装导出；否则不装。"""
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    endpoint = settings.otlp_endpoint
+    if endpoint == "":
+        logging.getLogger(__name__).info("未配置 OTLP_ENDPOINT，跳过 OTLP 导出")
+        return
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    except ImportError as exc:
+        raise RuntimeError(
+            "已配置 OTLP_ENDPOINT 但缺少 opentelemetry 依赖，请安装后重试"
+        ) from exc
+
+    resource = Resource.create({"service.name": settings.otlp_service_name})
+    provider = TracerProvider(resource=resource)
+    provider.add_span_processor(
+        BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint))
+    )
+    trace.set_tracer_provider(provider)
+    logging.getLogger(__name__).info(
+        "已启用 OTLP 导出 endpoint=%s service=%s",
+        endpoint,
+        settings.otlp_service_name,
+    )

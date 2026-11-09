@@ -30,6 +30,8 @@ class Approval(Base):
     proposed_by: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     approved_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 审批人填写的决策说明（批量/单条批准时必填）
+    decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

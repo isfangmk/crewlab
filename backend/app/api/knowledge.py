@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["knowledge"])
 
-_ALLOWED_UPLOAD_SUFFIX = (".md", ".txt")
+_ALLOWED_UPLOAD_SUFFIX = (".md", ".txt", ".pdf", ".docx")
 
 
 @router.get("/knowledge/docs")
@@ -143,22 +143,20 @@ async def upload_doc(
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
-    """multipart 上传 .md/.txt，入库为 source_type=upload。"""
+    """multipart 上传 .md/.txt/.pdf/.docx，入库为 source_type=upload。"""
 
     filename = file.filename
     if filename is None or filename == "":
         raise HTTPException(status_code=400, detail="缺少文件名")
     lower = filename.lower()
     if not lower.endswith(_ALLOWED_UPLOAD_SUFFIX):
-        raise HTTPException(status_code=400, detail="仅支持 .md / .txt")
+        raise HTTPException(status_code=400, detail="仅支持 .md / .txt / .pdf / .docx")
 
     raw = await file.read()
     try:
-        content = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(status_code=400, detail="文件必须是 UTF-8 文本") from exc
-    if content == "":
-        raise HTTPException(status_code=400, detail="文件内容为空")
+        content = knowledge_service.extract_upload_text(filename=filename, raw=raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     doc_title = title if title is not None else filename
     tag_list: list[str] | None = None if tags is None else tags.split(",")
@@ -178,6 +176,20 @@ async def upload_doc(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     logger.info("上传文档 doc_id=%s filename=%s", doc.id, filename)
     return knowledge_service.doc_to_wire(doc, include_content=True)
+
+
+@router.post("/knowledge/reindex")
+async def reindex_knowledge(
+    db: AsyncSession = Depends(get_db),
+    _user: str = Depends(require_auth),
+) -> dict:
+    """按当前切块配置重建全部文档索引。"""
+
+    try:
+        chunks = await knowledge_service.reindex_all_docs(db)
+    except (ValueError, TypeError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"chunks": chunks}
 
 
 @router.get("/knowledge/search")

@@ -25,6 +25,7 @@ build/
 # Node
 web/node_modules/
 web/dist/
+*.tsbuildinfo
 
 # IDE / OS
 .idea/

@@ -17,6 +17,8 @@ class Settings(BaseSettings):
 
     app_name: str = Field(alias="APP_NAME")
     database_url: str = Field(alias="DATABASE_URL")
+    # bootstrap 首个管理员的登录邮箱；密码用 AUTH_TOKEN
+    auth_admin_email: str = Field(alias="AUTH_ADMIN_EMAIL")
     auth_token: str = Field(alias="AUTH_TOKEN")
     # 凭证库字段的加密密钥：与登录口令解耦。
     # 轮换 AUTH_TOKEN 不得让已存凭证永久不可解。
@@ -36,6 +38,9 @@ class Settings(BaseSettings):
     host: str = Field(alias="HOST")
     port: int = Field(alias="PORT")
     log_level: str = Field(alias="LOG_LEVEL")
+    # 可选 OTLP：未配置则不装 exporter，禁止假装已观测
+    otlp_endpoint: str = Field(alias="OTLP_ENDPOINT", default="")
+    otlp_service_name: str = Field(alias="OTLP_SERVICE_NAME", default="ai-workbench")
 
 
 @lru_cache

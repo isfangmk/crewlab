@@ -41,6 +41,49 @@ class ChatSessionOut(BaseModel):
     updated_at: str
     # 引用了页面快照的会话；没有引用时为 None
     page_context: PageContextIn | None = None
+    pinned: bool = False
+    archived: bool = False
+
+
+class UpdateSessionFlagsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pinned: bool | None = None
+    archived: bool | None = None
+
+
+class BatchDeleteSessionsRequest(BaseModel):
+    """批量硬删除会话：ids 必须全部存在，否则整批失败。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class ForkSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # 复制到该消息（含）为止；必须是本会话已有消息 id
+    up_to_message_id: str = Field(min_length=1)
+
+
+class TruncateAndResendRequest(BaseModel):
+    """编辑用户消息：删除该消息之后的内容，并用新正文重发。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: str = Field(min_length=1)
+    content: str = Field(min_length=1)
+    thinking_enabled: bool
+    web_search_enabled: bool
+    attachment_ids: list[str] = Field(default_factory=list)
+
+
+class CreateShareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # 过期小时数，必须显式给出
+    expires_in_hours: int = Field(ge=1, le=24 * 30)
 
 
 class ChatMessageOut(BaseModel):

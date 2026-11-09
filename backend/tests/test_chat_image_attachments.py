@@ -19,17 +19,6 @@ _PNG_B64 = (
 )
 
 
-def _load_env() -> dict[str, str]:
-    path = ROOT / ".env"
-    out: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line == "" or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        out[k.strip()] = v.strip()
-    return out
-
-
 def _png_bytes() -> bytes:
     return base64.b64decode(_PNG_B64)
 
@@ -48,27 +37,25 @@ def test_user_content_with_images_builds_inline_parts() -> None:
 
 @pytest.mark.asyncio
 async def test_upload_image_persists_on_user_message() -> None:
-    env = _load_env()
-    token = env.get("AUTH_TOKEN")
-    if not token:
-        pytest.skip("缺少 AUTH_TOKEN")
+    from tests.conftest import load_env, login_access_token
+
+    env = load_env()
     host = env.get("HOST", "127.0.0.1")
     port = env.get("PORT", "18080")
     base = f"http://{host}:{port}"
     png = _png_bytes()
 
     try:
-        async with httpx.AsyncClient(
-            base_url=base,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=120.0,
-        ) as client:
+        async with httpx.AsyncClient(base_url=base, timeout=120.0) as client:
             health = await client.get("/healthz")
             if health.status_code != 200:
                 pytest.skip(f"后端未就绪 status={health.status_code}")
+            token = await login_access_token(client, env)
+            headers = {"Authorization": f"Bearer {token}"}
 
             cr = await client.post(
                 "/api/v1/chat/sessions",
+                headers=headers,
                 json={
                     "title": "image-attach-test",
                     "provider": "custom",
@@ -81,6 +68,7 @@ async def test_upload_image_persists_on_user_message() -> None:
 
             up = await client.post(
                 f"/api/v1/chat/sessions/{session_id}/attachments",
+                headers=headers,
                 files={"file": ("ocr.png", png, "image/png")},
             )
             up.raise_for_status()
@@ -91,6 +79,7 @@ async def test_upload_image_persists_on_user_message() -> None:
             async with client.stream(
                 "POST",
                 f"/api/v1/chat/sessions/{session_id}/messages/stream",
+                headers=headers,
                 json={
                     "content": "识别下文字",
                     "thinking_enabled": False,
@@ -103,7 +92,10 @@ async def test_upload_image_persists_on_user_message() -> None:
                 async for _line in r.aiter_lines():
                     pass
 
-            hist = await client.get(f"/api/v1/chat/sessions/{session_id}/messages")
+            hist = await client.get(
+                f"/api/v1/chat/sessions/{session_id}/messages",
+                headers=headers,
+            )
             hist.raise_for_status()
             items = hist.json()["items"]
             user_msgs = [m for m in items if m.get("role") == "user"]

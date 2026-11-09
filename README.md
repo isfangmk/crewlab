@@ -34,7 +34,7 @@ cd ..
 
 健康检查：`http://127.0.0.1:18080/healthz`
 
-登录：邮箱 `admin@local`，密码 = `.env` 中 `AUTH_TOKEN`
+登录：邮箱 = `.env` 中 `AUTH_ADMIN_EMAIL`，密码 = `.env` 中 `AUTH_TOKEN`
 
 ## 前端
 

@@ -13,9 +13,30 @@ from app.services.embedding_client import embed_text, embed_texts
 
 logger = logging.getLogger(__name__)
 
-# 按字符切块：保证嵌入输入有足够语义，又不超过常见上下文窗口
-_CHUNK_SIZE = 800
-_CHUNK_OVERLAP = 100
+# 按字符切块默认值；可被 system_settings(knowledge) 覆盖
+_DEFAULT_CHUNK_SIZE = 800
+_DEFAULT_CHUNK_OVERLAP = 100
+_RRF_K = 60
+
+
+async def resolve_chunk_params(db: AsyncSession) -> tuple[int, int]:
+    """从 AppSetting(knowledge.*) 读取切块参数；缺配置显式失败。"""
+
+    from app.models_orm.llm import AppSetting
+
+    size_row = await db.get(AppSetting, "knowledge.chunk_size")
+    overlap_row = await db.get(AppSetting, "knowledge.chunk_overlap")
+    if size_row is None:
+        raise ValueError("缺少 knowledge.chunk_size")
+    if overlap_row is None:
+        raise ValueError("缺少 knowledge.chunk_overlap")
+    size = int(size_row.value)
+    overlap = int(overlap_row.value)
+    if size < 64:
+        raise ValueError("chunk_size 必须 >= 64")
+    if overlap < 0 or overlap >= size:
+        raise ValueError("chunk_overlap 必须满足 0 <= overlap < chunk_size")
+    return size, overlap
 
 
 def _resolve_path(path: str | None) -> str:
@@ -39,24 +60,33 @@ def _resolve_tags(tags: list[str] | None) -> list[str]:
     return tags
 
 
-def chunk_text(content: str) -> list[str]:
+def chunk_text(
+    content: str,
+    *,
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
+    chunk_overlap: int = _DEFAULT_CHUNK_OVERLAP,
+) -> list[str]:
     """按固定窗口切块；正文过短则单块。"""
 
     if content == "":
         raise ValueError("content 不能为空")
-    if len(content) <= _CHUNK_SIZE:
+    if chunk_size < 64:
+        raise ValueError("chunk_size 必须 >= 64")
+    if chunk_overlap < 0 or chunk_overlap >= chunk_size:
+        raise ValueError("chunk_overlap 必须满足 0 <= overlap < chunk_size")
+    if len(content) <= chunk_size:
         return [content]
     chunks: list[str] = []
     start = 0
     while start < len(content):
-        end = start + _CHUNK_SIZE
+        end = start + chunk_size
         piece = content[start:end]
         if piece == "":
             raise RuntimeError("切块结果为空")
         chunks.append(piece)
         if end >= len(content):
             break
-        start = end - _CHUNK_OVERLAP
+        start = end - chunk_overlap
         if start < 0:
             raise RuntimeError("切块窗口计算错误")
     return chunks
@@ -87,8 +117,16 @@ async def _replace_chunks(db: AsyncSession, doc: KnowledgeDoc) -> int:
     """删除旧切块并重新嵌入写入。"""
 
     await db.execute(delete(KnowledgeChunk).where(KnowledgeChunk.doc_id == doc.id))
-    pieces = chunk_text(doc.content)
-    logger.info("切块完成 doc_id=%s chunks=%s content_len=%s", doc.id, len(pieces), len(doc.content))
+    size, overlap = await resolve_chunk_params(db)
+    pieces = chunk_text(doc.content, chunk_size=size, chunk_overlap=overlap)
+    logger.info(
+        "切块完成 doc_id=%s chunks=%s content_len=%s size=%s overlap=%s",
+        doc.id,
+        len(pieces),
+        len(doc.content),
+        size,
+        overlap,
+    )
     vectors = await embed_texts(pieces)
     for i, (text, vec) in enumerate(zip(pieces, vectors, strict=True)):
         db.add(
@@ -228,6 +266,17 @@ async def list_paths(db: AsyncSession) -> list[dict]:
     return [{"path": path, "count": count} for path, count in rows]
 
 
+def _apply_doc_filters(stmt, *, path: str | None, path_prefix: str | None, tags: list[str] | None):
+    if path is not None:
+        stmt = stmt.where(KnowledgeDoc.path == path)
+    if path_prefix is not None:
+        stmt = stmt.where(KnowledgeDoc.path.startswith(path_prefix))
+    if tags:
+        for t in tags:
+            stmt = stmt.where(KnowledgeDoc.tags.contains([t]))
+    return stmt
+
+
 async def search_docs(
     db: AsyncSession,
     *,
@@ -237,46 +286,113 @@ async def search_docs(
     path_prefix: str | None,
     tags: list[str] | None,
 ) -> list[tuple[KnowledgeDoc, float]]:
-    """向量检索：按切块余弦距离取最优命中，再聚合到文档。"""
+    """混合检索：向量余弦 + 关键词 ILIKE，RRF 融合后聚合到文档。"""
 
     if query == "":
         raise ValueError("q 不能为空")
     if limit < 1:
         raise ValueError("limit 必须 >= 1")
 
+    pool = limit * 4
     query_vec = await embed_text(query)
     distance = KnowledgeChunk.embedding.cosine_distance(query_vec)
-    stmt = (
+    vec_stmt = (
         select(KnowledgeChunk, KnowledgeDoc, distance.label("distance"))
         .join(KnowledgeDoc, KnowledgeDoc.id == KnowledgeChunk.doc_id)
         .order_by(distance)
-        .limit(limit * 4)
+        .limit(pool)
     )
-    if path is not None:
-        stmt = stmt.where(KnowledgeDoc.path == path)
-    if path_prefix is not None:
-        stmt = stmt.where(KnowledgeDoc.path.startswith(path_prefix))
-    if tags:
-        for t in tags:
-            stmt = stmt.where(KnowledgeDoc.tags.contains([t]))
+    vec_stmt = _apply_doc_filters(
+        vec_stmt, path=path, path_prefix=path_prefix, tags=tags
+    )
+    vec_rows = (await db.execute(vec_stmt)).all()
 
-    rows = (await db.execute(stmt)).all()
-    best: dict[str, tuple[KnowledgeDoc, float]] = {}
-    for _chunk, doc, dist in rows:
-        score = 1.0 - float(dist)
-        prev = best.get(doc.id)
-        if prev is None or score > prev[1]:
-            best[doc.id] = (doc, score)
+    kw_stmt = (
+        select(KnowledgeChunk, KnowledgeDoc)
+        .join(KnowledgeDoc, KnowledgeDoc.id == KnowledgeChunk.doc_id)
+        .where(KnowledgeChunk.content.ilike(f"%{query}%"))
+        .limit(pool)
+    )
+    kw_stmt = _apply_doc_filters(kw_stmt, path=path, path_prefix=path_prefix, tags=tags)
+    kw_rows = (await db.execute(kw_stmt)).all()
 
-    ranked = sorted(best.values(), key=lambda x: x[1], reverse=True)[:limit]
+    # RRF：按文档聚合排名分
+    rrf: dict[str, float] = {}
+    docs: dict[str, KnowledgeDoc] = {}
+    for rank, (_chunk, doc, _dist) in enumerate(vec_rows, start=1):
+        docs[doc.id] = doc
+        rrf[doc.id] = rrf.get(doc.id, 0.0) + 1.0 / (_RRF_K + rank)
+    for rank, (_chunk, doc) in enumerate(kw_rows, start=1):
+        docs[doc.id] = doc
+        rrf[doc.id] = rrf.get(doc.id, 0.0) + 1.0 / (_RRF_K + rank)
+
+    ranked_ids = sorted(rrf.keys(), key=lambda i: rrf[i], reverse=True)[:limit]
+    ranked = [(docs[i], rrf[i]) for i in ranked_ids]
     logger.info(
-        "知识库检索 q_len=%s limit=%s hits=%s top_score=%s",
+        "知识库混合检索 q_len=%s limit=%s vec=%s kw=%s hits=%s top_score=%s",
         len(query),
         limit,
+        len(vec_rows),
+        len(kw_rows),
         len(ranked),
         ranked[0][1] if ranked else None,
     )
     return ranked
+
+
+async def reindex_all_docs(db: AsyncSession) -> int:
+    """按当前切块配置重建全部文档切块。"""
+
+    docs = list((await db.scalars(select(KnowledgeDoc))).all())
+    total = 0
+    for doc in docs:
+        n = await _replace_chunks(db, doc)
+        total += n
+    await db.commit()
+    logger.info("知识库全量重建切块 docs=%s chunks=%s", len(docs), total)
+    return total
+
+
+def extract_upload_text(*, filename: str, raw: bytes) -> str:
+    """按扩展名解析上传字节为纯文本；不支持的类型显式失败。"""
+
+    lower = filename.lower()
+    if lower.endswith(".md") or lower.endswith(".txt"):
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("文本文件必须是 UTF-8") from exc
+        if content == "":
+            raise ValueError("文件内容为空")
+        return content
+    if lower.endswith(".pdf"):
+        from pypdf import PdfReader
+        import io
+
+        reader = PdfReader(io.BytesIO(raw))
+        parts: list[str] = []
+        for page in reader.pages:
+            text = page.extract_text()
+            if text is None:
+                continue
+            if text != "":
+                parts.append(text)
+        content = "\n".join(parts)
+        if content == "":
+            raise ValueError("PDF 未解析出文本")
+        return content
+    if lower.endswith(".docx"):
+        import io
+
+        from docx import Document
+
+        doc = Document(io.BytesIO(raw))
+        parts = [p.text for p in doc.paragraphs if p.text != ""]
+        content = "\n".join(parts)
+        if content == "":
+            raise ValueError("DOCX 未解析出文本")
+        return content
+    raise ValueError("仅支持 .md / .txt / .pdf / .docx")
 
 
 async def search_for_agent(query: str, limit: int = 5) -> dict:
