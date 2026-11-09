@@ -55,3 +55,16 @@ export function createUser(input: {
 export function setUserStatus(id: number, status: UserStatus): Promise<ManagedUser> {
   return request<ManagedUser>('POST', `/users/${encodeURIComponent(String(id))}/status`, { status });
 }
+
+export function updateUserRole(id: number, role: SystemRole): Promise<ManagedUser> {
+  return request<ManagedUser>('PATCH', `/users/${encodeURIComponent(String(id))}/role`, { role });
+}
+
+// 重置密码会让后端吊销该用户全部 Token；调用方需提示重新登录。
+export function resetUserPassword(id: number, password: string): Promise<void> {
+  return request<void>('POST', `/users/${encodeURIComponent(String(id))}/password`, { password });
+}
+
+export function deleteUser(id: number): Promise<void> {
+  return request<void>('DELETE', `/users/${encodeURIComponent(String(id))}`);
+}

@@ -1,6 +1,6 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, RefreshCw, Shield, UserCheck, UserX } from 'lucide-react';
+import { KeyRound, Plus, RefreshCw, Shield, Trash2, UserCheck, UserCog, UserX } from 'lucide-react';
 import {
   Button,
   Chip,
@@ -9,20 +9,25 @@ import {
   Label,
   PageHeader,
   RowAction,
+  RowActionIcon,
   TableCard,
 } from '@/components/ui';
+import { Hint } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/Modal';
 import { ApiError } from '@/api/client';
 import {
   createUser,
+  deleteUser,
   listUsers,
+  resetUserPassword,
   setUserStatus,
+  updateUserRole,
   type ManagedUser,
   type SystemRole,
 } from '@/api/users';
 import { useI18n } from '@/i18n/locale';
-import { usePermissions } from '@/store/me';
+import { usePermissions, useMe } from '@/store/me';
 
 // 用户与权限：本地账号的建号、角色与启停用；仅管理员可进入。
 // 角色与后端 auth_service._ROLES 对齐：admin / developer / viewer。
@@ -60,6 +65,7 @@ function roleMeta(role: SystemRole): { zh: string; en: string } {
 export default function UsersPage() {
   const { tr } = useI18n();
   const { isAdmin } = usePermissions();
+  const { me } = useMe();
   const [items, setItems] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -72,6 +78,14 @@ export default function UsersPage() {
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<SystemRole>('developer');
+  const [roleTarget, setRoleTarget] = useState<ManagedUser | null>(null);
+  const [roleDraft, setRoleDraft] = useState<SystemRole>('developer');
+  const [roleBusy, setRoleBusy] = useState(false);
+  const [roleErr, setRoleErr] = useState<string | null>(null);
+  const [resetTarget, setResetTarget] = useState<ManagedUser | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetErr, setResetErr] = useState<string | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -136,6 +150,72 @@ export default function UsersPage() {
     try {
       const updated = await setUserStatus(user.id, next);
       setItems((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openRole = (user: ManagedUser) => {
+    setRoleTarget(user);
+    setRoleDraft(user.role);
+    setRoleErr(null);
+  };
+
+  const submitRole = async () => {
+    if (roleTarget === null) return;
+    setRoleBusy(true);
+    setRoleErr(null);
+    try {
+      const updated = await updateUserRole(roleTarget.id, roleDraft);
+      setItems((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      setRoleTarget(null);
+    } catch (e) {
+      setRoleErr(e instanceof ApiError ? e.message : (e as Error).message);
+    } finally {
+      setRoleBusy(false);
+    }
+  };
+
+  const openReset = (user: ManagedUser) => {
+    setResetTarget(user);
+    setResetPassword('');
+    setResetErr(null);
+  };
+
+  const submitReset = async () => {
+    if (resetTarget === null) return;
+    if (resetPassword === '') {
+      setResetErr(tr('新密码不能为空', 'New password is required'));
+      return;
+    }
+    setResetBusy(true);
+    setResetErr(null);
+    try {
+      await resetUserPassword(resetTarget.id, resetPassword);
+      setResetTarget(null);
+      setResetPassword('');
+    } catch (e) {
+      setResetErr(e instanceof ApiError ? e.message : (e as Error).message);
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  const removeUser = async (user: ManagedUser) => {
+    const confirmed = window.confirm(
+      tr(
+        `确定删除账号「${user.email}」？该操作不可撤销。`,
+        `Delete "${user.email}"? This cannot be undone.`,
+      ),
+    );
+    if (!confirmed) return;
+    setBusyId(user.id);
+    try {
+      await deleteUser(user.id);
+      setItems((prev) => prev.filter((u) => u.id !== user.id));
       setErr(null);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : (e as Error).message);
@@ -212,13 +292,13 @@ export default function UsersPage() {
             />
           ) : (
             <TableCard>
-              <table className="og-action-table w-full min-w-[52rem] table-fixed text-sm">
+              <table className="og-action-table w-full min-w-[56rem] table-fixed text-sm">
                 <colgroup>
                   <col className="w-[18rem]" />
                   <col className="w-[12rem]" />
                   <col className="w-[9rem]" />
                   <col className="w-[7rem]" />
-                  <col className="w-[8rem]" />
+                  <col className="w-[13rem]" />
                 </colgroup>
                 <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
                   <tr className="whitespace-nowrap">
@@ -233,6 +313,7 @@ export default function UsersPage() {
                   {items.map((user) => {
                     const meta = roleMeta(user.role);
                     const busy = busyId === user.id;
+                    const isSelf = me?.email === user.email;
                     return (
                       <tr key={user.id} className="transition-colors">
                         <td className="min-w-0 px-3 py-2">
@@ -262,7 +343,22 @@ export default function UsersPage() {
                           </span>
                         </td>
                         <td className="px-3 py-2">
-                          <div className="flex items-center justify-end">
+                          <div className="flex items-center justify-end gap-1">
+                            <RowAction
+                              icon={UserCog}
+                              disabled={busy || isSelf}
+                              onClick={() => openRole(user)}
+                            >
+                              {tr('改角色', 'Change role')}
+                            </RowAction>
+                            <Hint content={tr('重置密码', 'Reset password')}>
+                              <RowActionIcon
+                                icon={KeyRound}
+                                label={tr('重置密码', 'Reset password')}
+                                disabled={busy}
+                                onClick={() => openReset(user)}
+                              />
+                            </Hint>
                             <RowAction
                               icon={user.status === 'active' ? UserX : UserCheck}
                               tone={user.status === 'active' ? 'danger' : 'positive'}
@@ -271,6 +367,21 @@ export default function UsersPage() {
                             >
                               {user.status === 'active' ? tr('禁用', 'Disable') : tr('启用', 'Enable')}
                             </RowAction>
+                            <Hint
+                              content={
+                                isSelf
+                                  ? tr('不能删除当前登录账号', 'Cannot delete the signed-in account')
+                                  : tr('删除账号', 'Delete account')
+                              }
+                            >
+                              <RowActionIcon
+                                icon={Trash2}
+                                label={tr('删除账号', 'Delete account')}
+                                tone="danger"
+                                disabled={busy || isSelf}
+                                onClick={() => void removeUser(user)}
+                              />
+                            </Hint>
                           </div>
                         </td>
                       </tr>
@@ -343,6 +454,127 @@ export default function UsersPage() {
               {tr(
                 ROLE_OPTIONS.find((r) => r.value === role)?.hintZh ?? '',
                 ROLE_OPTIONS.find((r) => r.value === role)?.hintEn ?? '',
+              )}
+            </p>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={roleTarget !== null}
+        onClose={() => {
+          if (roleBusy) return;
+          setRoleTarget(null);
+        }}
+        title={tr('修改角色', 'Change role')}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              disabled={roleBusy}
+              onClick={() => setRoleTarget(null)}
+            >
+              {tr('取消', 'Cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              disabled={roleBusy}
+              onClick={() => void submitRole()}
+            >
+              {roleBusy ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {roleErr && (
+            <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">
+              {roleErr}
+            </div>
+          )}
+          <p className="text-[12px] text-zinc-400">
+            {tr(
+              `账号：${roleTarget?.email ?? ''}`,
+              `Account: ${roleTarget?.email ?? ''}`,
+            )}
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="role-select">{tr('角色', 'Role')}</Label>
+            <Select
+              aria-label={tr('角色', 'Role')}
+              value={roleDraft}
+              onValueChange={(v) => setRoleDraft(v as SystemRole)}
+              options={ROLE_OPTIONS.map((r) => ({ value: r.value, label: tr(r.zh, r.en) }))}
+            />
+            <p className="text-[11px] text-zinc-500">
+              {tr(
+                ROLE_OPTIONS.find((r) => r.value === roleDraft)?.hintZh ?? '',
+                ROLE_OPTIONS.find((r) => r.value === roleDraft)?.hintEn ?? '',
+              )}
+            </p>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={resetTarget !== null}
+        onClose={() => {
+          if (resetBusy) return;
+          setResetTarget(null);
+        }}
+        title={tr('重置密码', 'Reset password')}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              disabled={resetBusy}
+              onClick={() => setResetTarget(null)}
+            >
+              {tr('取消', 'Cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              disabled={resetBusy}
+              onClick={() => void submitReset()}
+            >
+              {resetBusy ? tr('重置中…', 'Resetting…') : tr('重置', 'Reset')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {resetErr && (
+            <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">
+              {resetErr}
+            </div>
+          )}
+          <p className="text-[12px] text-zinc-400">
+            {tr(
+              `账号：${resetTarget?.email ?? ''}`,
+              `Account: ${resetTarget?.email ?? ''}`,
+            )}
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="reset-password">{tr('新密码', 'New password')}</Label>
+            <Input
+              id="reset-password"
+              type="password"
+              value={resetPassword}
+              onChange={(e) => setResetPassword(e.target.value)}
+              autoFocus
+            />
+            <p className="text-[11px] text-zinc-500">
+              {tr(
+                '重置后该账号的全部登录状态立即失效，需要用新密码重新登录。',
+                'All sessions for this account are revoked immediately; sign in with the new password.',
               )}
             </p>
           </div>

@@ -28,6 +28,9 @@ const PAGE_SIZE = 20;
 const ACTION_LABELS: Record<string, { zh: string; en: string }> = {
   'user.create': { zh: '创建用户', en: 'Create user' },
   'user.status': { zh: '启停用用户', en: 'Toggle user status' },
+  'user.role': { zh: '修改角色', en: 'Change user role' },
+  'user.password_reset': { zh: '重置密码', en: 'Reset password' },
+  'user.delete': { zh: '删除用户', en: 'Delete user' },
   'approval.approve': { zh: '批准审批', en: 'Approve' },
   'approval.reject': { zh: '拒绝审批', en: 'Reject' },
   'approval.batch_approve': { zh: '批量批准', en: 'Batch approve' },

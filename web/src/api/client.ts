@@ -81,6 +81,7 @@ export async function request<T = unknown>(
       const obj = parsed as Record<string, unknown>;
       if (typeof obj.error === 'string') msg = obj.error;
       else if (typeof obj.message === 'string') msg = obj.message;
+      else if (typeof obj.detail === 'string') msg = obj.detail;
       if (typeof obj.code === 'string') code = obj.code;
     } else if (typeof parsed === 'string' && parsed.trim()) {
       // 非 JSON 错误正文：截取一段展示，避免只显示 HTTP 状态码。
