@@ -164,3 +164,94 @@ async def set_status(
         role=row.role,
         status=row.status,
     )
+
+
+class UpdateRoleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: str = Field(min_length=1)
+
+
+@router.patch("/users/{user_id}/role", response_model=UserOut)
+async def update_role(
+    user_id: int,
+    body: UpdateRoleRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: AuthUser = Depends(require_admin),
+) -> UserOut:
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="不能修改当前登录账号的角色")
+    try:
+        row = await auth_service.update_user_role(db, user_id, body.role)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        db,
+        actor_user_id=admin.id,
+        action="user.role",
+        resource_type="user",
+        resource_id=str(row.id),
+        detail={"email": row.email, "role": row.role},
+    )
+    return UserOut(
+        id=row.id,
+        email=row.email,
+        display_name=row.display_name,
+        role=row.role,
+        status=row.status,
+    )
+
+
+class ResetPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    password: str = Field(min_length=1)
+
+
+@router.post("/users/{user_id}/password", status_code=204)
+async def reset_password(
+    user_id: int,
+    body: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: AuthUser = Depends(require_admin),
+) -> None:
+    try:
+        row = await auth_service.reset_user_password(db, user_id, body.password)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        db,
+        actor_user_id=admin.id,
+        action="user.password_reset",
+        resource_type="user",
+        resource_id=str(row.id),
+        detail={"email": row.email},
+    )
+
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: AuthUser = Depends(require_admin),
+) -> None:
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="不能删除当前登录账号")
+    try:
+        email = await auth_service.delete_user(db, user_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        db,
+        actor_user_id=admin.id,
+        action="user.delete",
+        resource_type="user",
+        resource_id=str(user_id),
+        detail={"email": email},
+    )

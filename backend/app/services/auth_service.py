@@ -9,7 +9,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -194,3 +194,52 @@ async def set_user_status(db: AsyncSession, user_id: int, status: str) -> User:
     await db.refresh(user)
     logger.info("已更新用户状态 id=%s status=%s", user.id, status)
     return user
+
+
+async def update_user_role(db: AsyncSession, user_id: int, role: str) -> User:
+    """调整角色；bootstrap 管理员必须保留管理员角色。"""
+
+    if role not in _ROLES:
+        raise ValueError(f"role 非法: {role}")
+    user = await db.get(User, user_id)
+    if user is None:
+        raise LookupError(f"用户不存在: {user_id}")
+    if user.email == bootstrap_admin_email() and role != "admin":
+        raise ValueError("不能降级 bootstrap 管理员")
+    previous = user.role
+    user.role = role
+    await db.commit()
+    await db.refresh(user)
+    logger.info("已更新用户角色 id=%s %s -> %s", user.id, previous, role)
+    return user
+
+
+async def reset_user_password(db: AsyncSession, user_id: int, password: str) -> User:
+    """重置密码并吊销该用户全部 Token，旧会话必须重新登录。"""
+
+    if password == "":
+        raise ValueError("密码不能为空")
+    user = await db.get(User, user_id)
+    if user is None:
+        raise LookupError(f"用户不存在: {user_id}")
+    user.password_hash = hash_password(password)
+    await db.execute(delete(ApiToken).where(ApiToken.user_id == user_id))
+    await db.commit()
+    await db.refresh(user)
+    logger.info("已重置用户密码 id=%s", user.id)
+    return user
+
+
+async def delete_user(db: AsyncSession, user_id: int) -> str:
+    """删除账号；返回邮箱供审计使用。bootstrap 管理员不可删除。"""
+
+    user = await db.get(User, user_id)
+    if user is None:
+        raise LookupError(f"用户不存在: {user_id}")
+    if user.email == bootstrap_admin_email():
+        raise ValueError("不能删除 bootstrap 管理员")
+    email = user.email
+    await db.delete(user)
+    await db.commit()
+    logger.info("已删除用户 id=%s email=%s", user_id, email)
+    return email
