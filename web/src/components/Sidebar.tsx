@@ -26,10 +26,24 @@ import {
   Moon,
   Monitor,
   Languages,
+  MessageSquare,
+  Share2,
+  FlaskConical,
+  Brain,
+  Package,
+  Terminal,
+  FolderGit2,
+  SearchCheck,
+  Workflow,
+  Rocket,
+  MessagesSquare,
+  ScrollText,
+  Activity,
+  TestTube2,
+  Users,
 } from 'lucide-react';
 import { Avatar } from './Avatar';
 import { OngridLogo } from './OngridLogo';
-import { SessionRevealRegion } from './SessionRevealRegion';
 import { Button } from './ui';
 import { useI18n } from '@/i18n/locale';
 import { useThemeMode } from '@/store/mode';
@@ -41,13 +55,16 @@ import { useMe, usePermissions } from '@/store/me';
 
 type SidebarSectionItem = {
   key: string;
-  to: string;
+  /** 已上线路由；规划中条目可省略 */
+  to?: string;
   icon: IconType;
   iconSize?: number;
   label: string;
   exact?: boolean;
   exactQuery?: boolean;
   badge?: number;
+  /** 迭代计划已立项、页面未上线：侧栏占位，禁止跳转 */
+  planned?: boolean;
 };
 
 export function Sidebar() {
@@ -154,7 +171,6 @@ export function Sidebar() {
   if (narrow ? !mobileExpanded : sidebarCollapsed) {
     return (
       <aside className="flex h-full min-h-0 w-14 shrink-0 flex-col items-center gap-2 overflow-hidden border-r border-zinc-800/60 bg-zinc-900 py-3">
-        <SessionRevealRegion>
         {/* Brand mark + expand toggle: logo doubles as the expand
             affordance — saves a row in the narrow column. */}
         <Hint content={tr('Ongrid · 点击展开', 'Ongrid · click to expand')}><Button variant="subtle" size="sm"
@@ -166,7 +182,6 @@ export function Sidebar() {
         >
           <OngridLogo size={34} />
         </Button></Hint>
-        </SessionRevealRegion>
         <Button variant="subtle" size="sm"
           type="button"
           onClick={toggleNavigation}
@@ -175,12 +190,20 @@ export function Sidebar() {
         >
           <PanelLeftOpen size={16} />
         </Button>
+        {/* 折叠轨：每业务分区一个入口，展开侧栏可见完整菜单 */}
         <Link
           to="/"
           aria-label={tr('首页', 'Home')}
           className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
         >
           <Home size={16} />
+        </Link>
+        <Link
+          to="/sessions"
+          aria-label={tr('对话', 'Chat')}
+          className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+        >
+          <MessageSquare size={16} />
         </Link>
         <Link
           to="/agents"
@@ -191,24 +214,10 @@ export function Sidebar() {
         </Link>
         <Link
           to="/tools"
-          aria-label={tr('工具', 'Tools')}
+          aria-label={tr('能力', 'Capabilities')}
           className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
         >
           <Hammer size={16} />
-        </Link>
-        <Link
-          to="/skills"
-          aria-label={tr('技能', 'Skills')}
-          className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
-        >
-          <Wrench size={16} />
-        </Link>
-        <Link
-          to="/mcp"
-          aria-label="MCP"
-          className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
-        >
-          <Plug size={16} />
         </Link>
         <Link
           to="/knowledge"
@@ -216,6 +225,21 @@ export function Sidebar() {
           className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
         >
           <BookOpen size={16} />
+        </Link>
+        <span
+          aria-disabled
+          aria-label={tr('工作流（规划中）', 'Workflows (planned)')}
+          className="rounded-lg p-2 text-zinc-600"
+          title={tr('工作流（规划中）', 'Workflows (planned)')}
+        >
+          <Workflow size={16} />
+        </span>
+        <Link
+          to="/approvals"
+          aria-label={tr('治理', 'Governance')}
+          className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+        >
+          <ShieldCheck size={16} />
         </Link>
         <div className="mt-auto flex flex-col items-center gap-2">
           <Link
@@ -245,7 +269,7 @@ export function Sidebar() {
       {/* Brand row — keeps the product identity visible while the user
           row below still owns the avatar + menu. Clicking the wordmark
           goes home. */}
-      <SessionRevealRegion className="flex items-center gap-1.5 border-b border-zinc-800/60 px-3 py-3">
+      <div className="flex items-center gap-1.5 border-b border-zinc-800/60 px-3 py-3">
         <Link
           to="/"
           aria-label={tr('Ongrid 首页', 'Ongrid home')}
@@ -257,7 +281,7 @@ export function Sidebar() {
         </Link>
         {/* Version + upgrade CTA moved to Settings → About / Upgrade — the brand
             mark stays clean. */}
-      </SessionRevealRegion>
+      </div>
 
       {/* user / collapse / bell */}
       <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen}>
@@ -316,16 +340,42 @@ export function Sidebar() {
           <SidebarNavItem to="/" icon={Home} label={tr('首页', 'Home')} exact level={1} />
         </div>
 
+        {/*
+          侧栏 IA：已上线可跳转；planned 为迭代计划占位（不可跳转）。
+          工作流 = 定时/触发与发布自动化，不做可视化画布。
+          命令面板 routes.ts 仅收录已上线路由。
+        */}
         <CollapsibleSection
-          storageKey="agent"
-          title="Agent"
+          storageKey="chat"
+          title={tr('对话', 'Chat')}
+          defaultOpen
+          items={[
+            { key: 'sessions', to: '/sessions', icon: MessageSquare, label: tr('会话', 'Sessions') },
+            { key: 'share-export', icon: Share2, label: tr('导出与分享', 'Export & share'), planned: true },
+          ]}
+        />
+
+        <CollapsibleSection
+          storageKey="assistants"
+          title={tr('助理', 'Assistants')}
           defaultOpen
           items={[
             { key: 'assistants', to: '/agents', icon: Bot, label: tr('助理', 'Assistants') },
+            { key: 'playground', icon: FlaskConical, label: tr('试玩台', 'Playground'), planned: true },
+            { key: 'memory', icon: Brain, label: tr('记忆', 'Memory'), planned: true },
+          ]}
+        />
+
+        <CollapsibleSection
+          storageKey="capabilities"
+          title={tr('能力', 'Capabilities')}
+          defaultOpen
+          items={[
             { key: 'tools', to: '/tools', icon: Hammer, label: tr('工具', 'Tools') },
             { key: 'skills', to: '/skills', icon: Wrench, label: tr('技能', 'Skills') },
             { key: 'mcp', to: '/mcp', icon: Plug, label: 'MCP' },
-            { key: 'approvals', to: '/approvals', icon: ShieldCheck, label: tr('审批', 'Approvals') },
+            { key: 'packages', icon: Package, label: tr('插件包', 'Plugin packs'), planned: true },
+            { key: 'sandbox', icon: Terminal, label: tr('沙箱', 'Sandbox'), planned: true },
           ]}
         />
 
@@ -335,6 +385,32 @@ export function Sidebar() {
           defaultOpen
           items={[
             { key: 'knowledge', to: '/knowledge', icon: BookOpen, label: tr('知识库', 'Knowledge') },
+            { key: 'knowledge-sources', icon: FolderGit2, label: tr('外部源', 'External sources'), planned: true },
+            { key: 'knowledge-playground', icon: SearchCheck, label: tr('检索试跑', 'Retrieval playground'), planned: true },
+          ]}
+        />
+
+        <CollapsibleSection
+          storageKey="workflows"
+          title={tr('工作流', 'Workflows')}
+          defaultOpen
+          items={[
+            { key: 'schedules', icon: Workflow, label: tr('定时触发', 'Schedules'), planned: true },
+            { key: 'publish', icon: Rocket, label: tr('对外发布', 'Publish'), planned: true },
+            { key: 'channels', icon: MessagesSquare, label: tr('IM 渠道', 'IM channels'), planned: true },
+          ]}
+        />
+
+        <CollapsibleSection
+          storageKey="governance"
+          title={tr('治理', 'Governance')}
+          defaultOpen
+          items={[
+            { key: 'approvals', to: '/approvals', icon: ShieldCheck, label: tr('审批', 'Approvals') },
+            { key: 'audit', icon: ScrollText, label: tr('审计日志', 'Audit logs'), planned: true },
+            { key: 'observability', to: '/observability', icon: Activity, label: tr('可观测', 'Observability') },
+            { key: 'evals', icon: TestTube2, label: tr('评测', 'Evals'), planned: true },
+            { key: 'users', icon: Users, label: tr('用户与权限', 'Users & roles'), planned: true },
           ]}
         />
       </nav>
@@ -390,6 +466,7 @@ function CollapsibleSection({
     }
   });
   const hasActiveItem = items.some((item) => {
+    if (item.planned || !item.to) return false;
     if (item.exact) return location.pathname === item.to;
     const [path] = item.to.split('?');
     return location.pathname === path || location.pathname.startsWith(`${path}/`);
@@ -470,6 +547,9 @@ function CollapsibleSection({
                     />
                     <item.icon size={13} className="shrink-0 text-zinc-500" />
                     <span className="truncate">{item.label}</span>
+                    {item.planned ? (
+                      <span className="ml-auto text-[10px] text-zinc-600">{tr('规划中', 'Soon')}</span>
+                    ) : null}
                   </Label>
                 ))}            </PopoverContent>
           </Popover>
@@ -494,13 +574,14 @@ function CollapsibleSection({
           {visibleItems.map((item) => (
             <div key={item.key} className="group/item relative">
               <SidebarNavItem
-                to={item.to}
+                to={item.planned ? undefined : item.to}
                 icon={item.icon}
                 iconSize={item.iconSize}
                 label={item.label}
                 exact={item.exact}
                 exactQuery={item.exactQuery}
                 badge={item.badge}
+                planned={item.planned}
                 reserveTrailingAction
               />
               <Hint content={tr('从侧栏取消固定', 'Unpin from sidebar')}><Button variant="subtle" size="sm"
@@ -528,6 +609,7 @@ function SidebarNavItem({
   exact,
   exactQuery,
   disabled,
+  planned,
   muted,
   level,
   badge,
@@ -540,6 +622,7 @@ function SidebarNavItem({
   exact?: boolean;
   exactQuery?: boolean;
   disabled?: boolean;
+  planned?: boolean;
   muted?: boolean;
   // level 1 = 一级（首页 / 仪表盘）不缩进；默认 2 = 二级，缩 ml-2 比之前 ml-3 更紧凑。
   level?: 1 | 2;
@@ -556,10 +639,13 @@ function SidebarNavItem({
     reserveTrailingAction && 'pr-8',
   );
   const location = useLocation();
-  if (disabled || !to) {
+  if (disabled || planned || !to) {
+    const plannedLabel = tr('规划中', 'Soon');
     return (
       <div
         aria-disabled
+        aria-label={planned ? `${label}（${plannedLabel}）` : label}
+        title={planned ? plannedLabel : undefined}
         className={cn(
           baseCls,
           'cursor-not-allowed opacity-50',
@@ -567,7 +653,10 @@ function SidebarNavItem({
         )}
       >
         <Icon size={iconSize} className="shrink-0 text-zinc-500" />
-        <span>{label}</span>
+        <span className="flex-1 truncate">{label}</span>
+        {planned ? (
+          <span className="text-[10px] text-zinc-600">{plannedLabel}</span>
+        ) : null}
       </div>
     );
   }

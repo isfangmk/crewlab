@@ -33,8 +33,9 @@ export function PaginationFooter({
   const canPrev = currentPage > 0;
   const canNext = total != null ? last < total : Boolean(hasNext);
 
-  if (!canPrev && !canNext && total != null && total <= pageSize) return null;
-  if (!canPrev && !canNext && total == null && shown < pageSize) return null;
+  // 无数据时不占位；单页也展示条数与翻页按钮（禁用），避免列表页「看不见分页」。
+  if (total != null && total === 0 && shown === 0) return null;
+  if (total == null && shown === 0 && !canPrev && !canNext) return null;
 
   const rangeLabel = total != null
     ? matchLabel
@@ -43,11 +44,16 @@ export function PaginationFooter({
     : tr(`第 ${currentPage + 1} 页`, `Page ${currentPage + 1}`);
 
   return (
-    <div className={cn(
-      'sticky bottom-0 z-10 mt-2 flex items-center justify-end gap-2 border-t border-zinc-800/60 bg-zinc-950 py-3 text-xs text-zinc-400',
-      className,
-    )}>
-      <span className="mr-2 text-zinc-600">{rangeLabel}</span>
+    <div
+      role="navigation"
+      aria-label={tr('分页', 'Pagination')}
+      className={cn(
+        // 默认贴合列表容器内底边，不单独铺底色，避免与表格「上下两截」
+        'flex shrink-0 items-center justify-end gap-2 border-t border-border px-3 py-2 text-xs text-text-muted',
+        className,
+      )}
+    >
+      <span className="mr-auto text-text-faint">{rangeLabel}</span>
       <Button variant="outline" size="sm"
         type="button"
         disabled={loading || !canPrev}

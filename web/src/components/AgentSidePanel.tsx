@@ -814,9 +814,12 @@ function AssistantHistory({
   useEffect(() => {
     let current = true;
     setError('');
-    listSessions()
+    listSessions({ limit: 20, offset: 0 })
       .then((r) => {
-        if (current) setSessions(r.items ?? []);
+        if (!Array.isArray(r.items)) {
+          throw new Error('会话列表缺少 items');
+        }
+        if (current) setSessions(r.items);
       })
       .catch((err) => {
         if (current)

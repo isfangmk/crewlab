@@ -1,6 +1,6 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useLocation, useParams } from 'react-router-dom';
 
@@ -16,7 +16,11 @@ import {
 
 import { AgentBadge } from '@/components/AgentBadge';
 
-import { PageHeader } from '@/components/ui';
+import { Download, Share2 } from 'lucide-react';
+
+import { PageHeader, RowAction } from '@/components/ui';
+
+import { ShareSessionDialog } from '@/components/ShareSessionDialog';
 
 import {
 
@@ -28,13 +32,19 @@ import {
 
   streamMessage,
 
+  exportSessionMarkdown,
+
   updateSessionModel,
+
+  getSession,
 
   updateSessionAgent,
 
   uploadChatAttachment,
 
   type ChatMessage,
+
+  type ChatSession,
 
   type LLMProvider,
 
@@ -51,7 +61,7 @@ import { CHAT_LIVE_EVENT, type ChatLiveDetail } from '@/lib/chatLiveBus';
 
 import { ApiError } from '@/api/client';
 
-import { invalidateChatSessions, useChatSessions } from '@/store/chatSessions';
+import { invalidateChatSessions } from '@/store/chatSessions';
 
 import { useModelSelection } from '@/store/modelSelection';
 
@@ -102,9 +112,7 @@ export default function ChatThreadPage() {
 
 
 
-  const sessions = useChatSessions((s) => s.sessions);
-
-  const sessionMeta = sessions.find((s) => String(s.id) === String(sessionId));
+  const [sessionMeta, setSessionMeta] = useState<ChatSession | null>(null);
 
   const sessionTitle = sessionMeta?.title;
 
@@ -119,6 +127,12 @@ export default function ChatThreadPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
+
+  const [shareOpen, setShareOpen] = useState(false);
+
+  // 本次会话内已被用户决定的审批 id：卡片在 tool_end 之前仍带 pending_approval 快照，
+  // 用它避免底栏继续显示「等待你确认」。
+  const [decidedApprovals, setDecidedApprovals] = useState<Set<string>>(new Set());
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
@@ -184,11 +198,23 @@ export default function ChatThreadPage() {
 
   const [catalogDefault, setCatalogDefault] = useState<ModelSelection | null>(null);
 
-  const persistedSessionModel = sessionMeta?.provider && sessionMeta?.model
+  // 用 useMemo 固定引用：下面的「模型已同步」副作用按对象引用比较，
 
-    ? { provider: sessionMeta.provider, model: sessionMeta.model }
+  // 每次渲染新建字面量会让副作用白跑一遍。
 
-    : null;
+  const persistedSessionModel = useMemo<ModelSelection | null>(() => {
+
+    const provider = sessionMeta?.provider ?? '';
+
+    const model = sessionMeta?.model ?? '';
+
+    // 空串 = 会话未绑定模型，交给 catalogDefault 兜底。
+
+    if (provider === '' || model === '') return null;
+
+    return { provider, model };
+
+  }, [sessionMeta?.provider, sessionMeta?.model]);
 
   const [pendingSessionModel, setPendingSessionModel] = useState<ModelSelection | null>(null);
 
@@ -276,9 +302,31 @@ export default function ChatThreadPage() {
 
     setPendingSessionModel(null);
 
+    setDecidedApprovals(new Set());
+
   }, [sessionId]);
 
-
+  // 分页后不能靠全量列表找元数据，按 id 拉取当前会话。
+  useEffect(() => {
+    if (sessionId === '') {
+      setSessionMeta(null);
+      return;
+    }
+    let cancelled = false;
+    void getSession(sessionId)
+      .then((session) => {
+        if (!cancelled) setSessionMeta(session);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) {
+          setSessionMeta(null);
+          setError(e instanceof ApiError ? e.message : e.message);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   useEffect(() => {
 
@@ -324,6 +372,7 @@ export default function ChatThreadPage() {
     try {
       await updateSessionAgent(sessionId, agentId);
       invalidateChatSessions();
+      setSessionMeta(await getSession(sessionId));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       throw e;
@@ -343,6 +392,8 @@ export default function ChatThreadPage() {
       useModelSelection.getState().setSelected(selection);
 
       invalidateChatSessions();
+
+      setSessionMeta(await getSession(sessionId));
 
     } catch (err) {
 
@@ -456,7 +507,7 @@ export default function ChatThreadPage() {
 
         // Non-admins 403 here → 空列表（收件箱是管理员专属，卡片只是不再出现）。
         // 其他错误（500 / 网络故障）必须显式冒泡，不能伪装成「没有待审批」。
-        listApprovals('pending').catch((err: unknown) => {
+        listApprovals({ status: 'pending' }).catch((err: unknown) => {
           if (err instanceof ApiError && err.status === 403) return { items: [] as Approval[] };
           throw err;
         }),
@@ -639,6 +690,15 @@ export default function ChatThreadPage() {
       if (detail.type === 'busy') {
         submittingRef.current = detail.busy;
         setSubmitting(detail.busy);
+        return;
+      }
+      if (detail.type === 'approval_decided') {
+        setDecidedApprovals((prev) => {
+          if (prev.has(detail.approvalId)) return prev;
+          const next = new Set(prev);
+          next.add(detail.approvalId);
+          return next;
+        });
         return;
       }
       if (detail.type === 'thinking_delta') {
@@ -1560,29 +1620,29 @@ export default function ChatThreadPage() {
 
   // decision (its tool card still carries the synthetic pending_approval
 
-  // blob). Once approved/rejected the blocked tool returns and tool_end
+  // blob). Once the user decides, the blob survives until tool_end, so
 
-  // replaces the blob, so this flips back to false and the normal thinking
-
-  // indicator resumes for the continuation.
+  // decidedApprovals marks it resolved and the normal thinking indicator resumes.
 
   const awaitingApproval =
 
     submitting &&
 
-    messages.some(
+    messages.some((m) => {
 
-      (m) =>
+      if (m.kind !== 'tool_card') return false;
 
-        m.kind === 'tool_card' &&
+      const result = m.tool_call?.result;
 
-        m.tool_call?.result != null &&
+      if (result == null || typeof result !== 'object') return false;
 
-        typeof m.tool_call.result === 'object' &&
+      const blob = result as { status?: string; approval_id?: string };
 
-        (m.tool_call.result as { status?: string }).status === 'pending_approval',
+      if (blob.status !== 'pending_approval') return false;
 
-    );
+      return !(typeof blob.approval_id === 'string' && decidedApprovals.has(blob.approval_id));
+
+    });
 
 
   useAssistantPage('完整会话', 'Conversation', {
@@ -1601,27 +1661,88 @@ export default function ChatThreadPage() {
 
   return (
 
+    <>
+
     <main className="flex flex-1 flex-col overflow-hidden">
 
         <PageHeader
 
           className="px-6 py-3"
 
-          title={
+          title={<span className="block truncate">{sessionTitle || tr('会话', 'Session')}</span>}
 
-            <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-zinc-100">
+          subtitle={
 
-              <span className="truncate">{sessionTitle || tr('会话', 'Session')}</span>
+            <span className="flex items-center gap-2">
 
               <AgentBadge agentId={sessionAgentID} size="sm" />
 
-              <span className="text-[11px] font-normal text-zinc-600">#{sessionId}</span>
+              <span className="font-mono">#{sessionId}</span>
 
             </span>
 
           }
 
-        />
+        
+          actions={
+
+            !isViewer && sessionId ? (
+
+              <div className="flex flex-wrap items-center gap-1.5">
+
+                <RowAction
+
+                  icon={Download}
+
+                  onClick={() => {
+
+                    void (async () => {
+
+                      const md = await exportSessionMarkdown(sessionId);
+
+                      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+
+                      const url = URL.createObjectURL(blob);
+
+                      const a = document.createElement('a');
+
+                      a.href = url;
+
+                      a.download = `${sessionTitle || 'session'}.md`;
+
+                      a.click();
+
+                      URL.revokeObjectURL(url);
+
+                    })();
+
+                  }}
+
+                >
+
+                  {tr('导出', 'Export')}
+
+                </RowAction>
+
+                <RowAction
+
+                  icon={Share2}
+
+                  onClick={() => setShareOpen(true)}
+
+                >
+
+                  {tr('分享', 'Share')}
+
+                </RowAction>
+
+              </div>
+
+            ) : undefined
+
+          }
+
+/>
 
 
 
@@ -1681,7 +1802,7 @@ export default function ChatThreadPage() {
 
                 role="alert"
 
-                className="self-center rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+                className="self-center rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300"
 
               >
 
@@ -1707,7 +1828,7 @@ export default function ChatThreadPage() {
 
                 role="status"
 
-                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
+                className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
 
               >
 
@@ -1762,6 +1883,18 @@ export default function ChatThreadPage() {
         </div>
 
       </main>
+
+      <ShareSessionDialog
+
+        open={shareOpen}
+
+        sessionId={sessionId}
+
+        onClose={() => setShareOpen(false)}
+
+      />
+
+    </>
 
   );
 

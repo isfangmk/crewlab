@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { IconType } from '@/lib/icon';
-import { Card, EmptyState, PageHeader } from '@/components/ui';
+import { EmptyStateCard, PageHeader } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
 
@@ -38,14 +38,17 @@ export default function SettingsLayout() {
   const { isAdmin } = usePermissions();
   if (!isAdmin) {
     return (
-      <main className="anim-fade flex flex-1 flex-col overflow-hidden p-6">
-        <Card className="p-6">
-          <EmptyState
-            icon={Shield}
-            title={tr('需要管理员权限', 'Admin permission required')}
-            hint={tr('设置页只对管理员开放。', 'Settings are admin-only.')}
-          />
-        </Card>
+      <main className="anim-fade flex flex-1 flex-col overflow-hidden">
+        <PageHeader title={tr('设置', 'Settings')} subtitle={tr('产品级配置', 'Product settings')} />
+        <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="mx-auto max-w-3xl">
+            <EmptyStateCard
+              icon={Shield}
+              title={tr('需要管理员权限', 'Admin permission required')}
+              hint={tr('设置页只对管理员开放。', 'Settings are admin-only.')}
+            />
+          </div>
+        </div>
       </main>
     );
   }
@@ -88,13 +91,19 @@ function RailLink({ item }: { item: RailItem }) {
         to={item.to}
         className={({ isActive }) =>
           cn(
-            'flex items-center gap-2 rounded-md px-2.5 py-2 text-sm',
-            isActive ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200',
+            'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] transition-colors',
+            isActive
+              ? 'bg-indigo-500/10 text-zinc-100 ring-1 ring-inset ring-indigo-500/30'
+              : 'text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200',
           )
         }
       >
-        <Icon size={15} />
-        <span>{tr(item.labelZh, item.labelEn)}</span>
+        {({ isActive }) => (
+          <>
+            <Icon size={14} className={isActive ? 'text-indigo-300' : undefined} />
+            <span>{tr(item.labelZh, item.labelEn)}</span>
+          </>
+        )}
       </NavLink>
     </Hint>
   );

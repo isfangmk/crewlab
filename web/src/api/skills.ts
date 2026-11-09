@@ -26,6 +26,8 @@ export type SkillSummary = {
   source?: string;
   // true：技能声明的工具不在注册表（目录可见，对话侧也调不了）。
   inventory_only?: boolean;
+  // 技能 frontmatter 声明的工具名。
+  tools?: string[];
 };
 
 export type SkillListResp = { items: SkillSummary[]; total: number };
@@ -33,6 +35,10 @@ export type SkillListResp = { items: SkillSummary[]; total: number };
 export function listSkills(category?: string) {
   const qs = category ? `?category=${encodeURIComponent(category)}` : '';
   return request<SkillListResp>('GET', `/skills${qs}`);
+}
+
+export function reloadSkills() {
+  return request<SkillListResp>('POST', '/skills/reload');
 }
 
 // BUILTIN_SKILL_I18N: per-skill overrides for the skills shipped with

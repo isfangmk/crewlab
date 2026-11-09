@@ -1,6 +1,5 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { usePermissions } from '@/store/me';
-import { Label, Input, Textarea } from '@/components/ui';
 import { Select } from '@/components/ui/Select';
 import { Hint } from '@/components/ui/Tooltip';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -32,13 +31,12 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Search,
   Trash2,
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Modal } from '@/components/Modal';
-import { Button, Card, EmptyStateCard, PageHeader } from '@/components/ui';
+import { Button, Card, Chip, CodeBlock, DetailSection, EmptyStateCard, FilterBar, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Textarea } from '@/components/ui';
 import {
   createUserAgent,
   deleteAgent,
@@ -50,10 +48,36 @@ import {
   type UserAgentInput,
 } from '@/api/agents';
 import { listMcpServers, parseToolsCache } from '@/api/mcp';
+import { listBuiltinTools } from '@/api/tools';
 import { createSession, listModels } from '@/api/chat';
 import { ApiError } from '@/api/client';
 import { tr as trInline, useI18n } from '@/i18n/locale';
 import { useModelSelection } from '@/store/modelSelection';
+import { toolGroupKey, groupTitle, orderedGroupKeys } from '@/lib/toolSkill';
+
+const PERSONA_TEMPLATES: { id: string; zh: string; en: string; prompt: string }[] = [
+  {
+    id: 'sre',
+    zh: 'SRE 排障',
+    en: 'SRE triage',
+    prompt:
+      '你是资深 SRE。先收集可观测性证据，再给出可验证的假设与下一步操作；不臆测。',
+  },
+  {
+    id: 'knowledge',
+    zh: '知识问答',
+    en: 'Knowledge Q&A',
+    prompt:
+      '你是组织知识库助理。优先检索内部文档，回答时标注来源标题与摘录；找不到就明确说没有。',
+  },
+  {
+    id: 'ops',
+    zh: '变更助手',
+    en: 'Change assistant',
+    prompt:
+      '你是变更执行助手。写操作前说明影响面与回滚；需要人工确认的步骤不得跳过。',
+  },
+];
 
 /** 解析开会话要用的 provider/model：助理绑定模型优先，否则用全局选择或目录默认。 */
 async function resolveSessionModel(agent: AgentSummary): Promise<{ provider: string; model: string }> {
@@ -155,36 +179,37 @@ export default function AgentsPage() {
         subtitle={tr(`AI 助理库 · 共 ${items.length} 个，已匹配 ${filtered.length}`, `AI assistant library · ${items.length} total, ${filtered.length} matched`)}
         actions={
           <>
-            <Button
-              onClick={() => fetchAgents(true)}
+            <RowAction
+              icon={RefreshCw}
+              iconClassName={cn(refreshing && 'animate-spin')}
               disabled={loading || refreshing}
-              variant="ghost"
+              onClick={() => fetchAgents(true)}
             >
-              <RefreshCw size={12} className={cn(refreshing && 'animate-spin')} />
               {tr('刷新', 'Refresh')}
-            </Button>
-            {canMutate && <Button onClick={() => setEditing({ mode: 'create' })} variant="primary">
-              <Plus size={12} /> {tr('新建助理', 'New assistant')}
-            </Button>}
+            </RowAction>
+            {canMutate && (
+              <Button onClick={() => setEditing({ mode: 'create' })} variant="primary" size="sm">
+                <Plus size={12} /> {tr('新建助理', 'New assistant')}
+              </Button>
+            )}
           </>
         }
       />
 
-      <div className="border-b border-zinc-800/60 px-6 py-2.5">
-        <Label className="relative block w-72">
-          <span className="sr-only">{tr('搜索', 'Search')}</span>
-          <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-          <Input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={tr('搜索 name / description', 'Search name / description')}
-            className="w-full pl-8 pr-2"
-          />
-        </Label>
-      </div>
+      <FilterBar className="mx-6 mt-3">
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          placeholder={tr('搜索 name / description', 'Search name / description')}
+          ariaLabel={tr('搜索', 'Search')}
+          className="min-w-[16rem] flex-1"
+        />
+        <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
+          {tr(`共 ${items.length} 个 · 匹配 ${filtered.length}`, `${items.length} total · ${filtered.length} matched`)}
+        </span>
+      </FilterBar>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-6 py-4">
         {err && (
           <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/5 px-4 py-3 text-sm text-red-300">
             {tr('加载失败：', 'Load failed: ')}{err}
@@ -358,58 +383,57 @@ function AgentCard({
             <Bot size={14} />
           </span>
           <div className="min-w-0">
-            <Hint content={agent.name}><div className="truncate text-sm font-medium text-zinc-100" >
+            <Hint content={agent.name}><div className="truncate text-[12.5px] font-medium text-zinc-100" >
               {displayName}
             </div></Hint>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-zinc-500">
-              <span className="font-mono normal-case tracking-normal text-zinc-600">
+            <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-zinc-500">
+              <span className="font-mono text-zinc-600">
                 {agent.name}
               </span>
-              <span>·</span>
               <SourceLabel source={agent.source} />
             </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {isUser && (
-            <Hint content={tr('编辑', 'Edit')}><Button variant="subtle" size="sm"
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit();
-              }}
-
-              className="p-1"
-            >
-              <Pencil size={11} />
-            </Button></Hint>
+            <Hint content={tr('编辑', 'Edit')}>
+              <RowActionIcon
+                icon={Pencil}
+                label={tr('编辑', 'Edit')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+              />
+            </Hint>
           )}
           {canDelete && (
-            <Hint content={isUser ? tr('删除', 'Delete') : tr('从助理列表中移除（重启后内置 persona 会自动加载回来）', 'Remove from the list (built-in personas reload automatically on restart)')}><Button variant="dangerGhost" size="sm"
+            <Hint content={isUser ? tr('删除', 'Delete') : tr('从助理列表中移除（重启后内置 persona 会自动加载回来）', 'Remove from the list (built-in personas reload automatically on restart)')}>
+              <RowActionIcon
+                icon={Trash2}
+                label={isUser ? tr('删除', 'Delete') : tr('从助理列表中移除', 'Remove from the list')}
+                tone="danger"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+              />
+            </Hint>
+          )}
+          <Hint content={tr('用此助理开新会话', 'Start a new session with this assistant')}>
+            <Button variant="plain" size="sm"
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onDelete();
+                void onUse();
               }}
-
-              className="p-1"
+              disabled={busy}
+              className="ml-1 gap-1 border border-indigo-500/40 bg-indigo-500/10 px-2 text-[11px] text-indigo-200 hover:bg-indigo-500/20"
             >
-              <Trash2 size={11} />
-            </Button></Hint>
-          )}
-          <Hint content={tr('用此助理开新会话', 'Start a new session with this assistant')}><Button variant="plain" size="sm"
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              void onUse();
-            }}
-            disabled={busy}
-
-            className="ml-1 inline-flex items-center gap-1 px-2 py-1 border border-indigo-500/40 bg-indigo-500/10 text-indigo-200 hover:bg-indigo-500/20"
-          >
-            <MessageSquarePlus size={11} />
-            {busy ? tr('创建中…', 'Creating…') : tr('使用此助理', 'Use this')}
-          </Button></Hint>
+              <MessageSquarePlus size={12} />
+              {busy ? tr('创建中…', 'Creating…') : tr('使用此助理', 'Use this')}
+            </Button>
+          </Hint>
         </div>
       </div>
       {err && <div className="mt-2 text-[11px] text-red-300">{err}</div>}
@@ -418,14 +442,9 @@ function AgentCard({
           {agent.description}
         </p>
       )}
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
-        <span>{toolCount > 0 ? tr(`${toolCount} 个工具`, `${toolCount} tool(s)`) : tr('继承全部工具', 'Inherits all tools')}</span>
-        {agent.permission_mode === 'read-only' && (
-          <>
-            <span className="text-zinc-700">·</span>
-            <span className="text-emerald-400">{tr('只读', 'Read-only')}</span>
-          </>
-        )}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <Chip dense>{toolCount > 0 ? tr(`${toolCount} 个工具`, `${toolCount} tool(s)`) : tr('继承全部工具', 'Inherits all tools')}</Chip>
+        {agent.permission_mode === 'read-only' && <Chip dense tone="success">{tr('只读', 'Read-only')}</Chip>}
       </div>
     </Card>
   );
@@ -433,9 +452,9 @@ function AgentCard({
 
 function SourceLabel({ source }: { source: AgentSource }) {
   const { tr } = useI18n();
-  if (source === 'user') return <span className="text-violet-300">{tr('自定义', 'Custom')}</span>;
-  if (source === 'builtin') return <span className="text-emerald-300">{tr('系统内置', 'Built-in')}</span>;
-  if (source === 'disk') return <span>{tr('预置', 'Preset')}</span>;
+  if (source === 'user') return <Chip dense tone="accent">{tr('自定义', 'Custom')}</Chip>;
+  if (source === 'builtin') return <Chip dense tone="success">{tr('系统内置', 'Built-in')}</Chip>;
+  if (source === 'disk') return <Chip dense>{tr('预置', 'Preset')}</Chip>;
   throw new Error(`未知助理来源: ${String(source)}`);
 }
 
@@ -497,7 +516,6 @@ function AgentDetailModal({
           <Button variant="outline" size="sm"
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5"
           >
             {tr('关闭', 'Close')}
           </Button>
@@ -505,7 +523,6 @@ function AgentDetailModal({
             <Button variant="outline" size="sm"
               type="button"
               onClick={onEdit}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5"
             >
               <Pencil size={11} /> {tr('编辑', 'Edit')}
             </Button>
@@ -513,8 +530,6 @@ function AgentDetailModal({
             <Hint content={tr('内置 / 预置助理定义在代码 / agents/*.md，不可直接改；复制一份为自定义助理后即可编辑', 'Built-in / preset assistants are defined in code / agents/*.md and cannot be edited directly; copy into a custom assistant to edit')}><Button variant="outline" size="sm"
               type="button"
               onClick={onFork}
-
-              className="inline-flex items-center gap-1.5 px-3 py-1.5"
             >
               <Copy size={11} /> {tr('复制为自定义助理', 'Copy as custom')}
             </Button></Hint>
@@ -523,7 +538,6 @@ function AgentDetailModal({
             type="button"
             onClick={() => void onUse()}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 font-medium text-accent-fg"
           >
             <MessageSquarePlus size={11} /> {busy ? tr('创建中…', 'Creating…') : tr('使用此助理', 'Use this')}
           </Button>
@@ -531,61 +545,53 @@ function AgentDetailModal({
       }
     >
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
-          <span className="font-mono text-zinc-400">{agent.name}</span>
-          <span>·</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-[11px] text-zinc-400">{agent.name}</span>
           <SourceLabel source={agent.source} />
-          {agent.permission_mode === 'read-only' && (
-            <>
-              <span className="text-zinc-700">·</span>
-              <span className="text-emerald-400">{tr('只读', 'Read-only')}</span>
-            </>
-          )}
-          <span className="ml-auto">
+          {agent.permission_mode === 'read-only' && <Chip dense tone="success">{tr('只读', 'Read-only')}</Chip>}
+          <span className="ml-auto text-[11px] text-zinc-500">
             {toolCount > 0 ? tr(`${toolCount} 个工具`, `${toolCount} tool(s)`) : tr('继承全部工具', 'Inherits all tools')}
           </span>
         </div>
 
         {err && <div className="text-[11px] text-red-300">{err}</div>}
 
-        <DetailSection label={tr('描述', 'Description')}>
-          <p className="text-xs leading-relaxed text-zinc-300">{agent.description || '—'}</p>
+        <DetailSection title={tr('描述', 'Description')}>
+          <p className="text-[12px] leading-relaxed text-zinc-300">{agent.description || '—'}</p>
         </DetailSection>
 
         {agent.when_to_use && (
-          <DetailSection label={tr('何时使用', 'When to use')}>
-            <p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-300">{agent.when_to_use}</p>
+          <DetailSection title={tr('何时使用', 'When to use')}>
+            <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-zinc-300">{agent.when_to_use}</p>
           </DetailSection>
         )}
 
-        <DetailSection label={tr('系统提示（原文）', 'System prompt (raw)')}>
+        <DetailSection title={tr('系统提示（原文）', 'System prompt (raw)')}>
           {agent.system_prompt ? (
-            <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-zinc-800 bg-zinc-950/40 p-3 font-mono text-[11px] leading-relaxed text-zinc-300">
-              {agent.system_prompt}
-            </pre>
+            <CodeBlock maxHeightClassName="max-h-80">{agent.system_prompt}</CodeBlock>
           ) : (
-            <p className="text-xs text-zinc-500">{tr('继承 coordinator 默认提示', 'Inherits the coordinator default prompt')}</p>
+            <p className="text-[12px] text-zinc-500">{tr('继承 coordinator 默认提示', 'Inherits the coordinator default prompt')}</p>
           )}
         </DetailSection>
 
         {agent.critical_reminder && (
-          <DetailSection label={tr('关键提醒', 'Critical reminder')}>
+          <DetailSection title={tr('关键提醒', 'Critical reminder')}>
             {/* 用不带透明度的 text-amber-300：light 主题有 amber-300→amber-700
                 的覆盖（index.css），透明度变体 /80 不在覆盖内、浅色下会发灰看不清。
                 配一层 amber 描边底色，强化「提醒」语义又保证两主题都够对比度。 */}
-            <p className="whitespace-pre-wrap rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-300">
+            <p className="whitespace-pre-wrap rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-[12px] leading-relaxed text-amber-300">
               {agent.critical_reminder}
             </p>
           </DetailSection>
         )}
 
-        <DetailSection label={tr('允许使用的工具', 'Allowed tools')}>
+        <DetailSection title={tr('允许使用的工具', 'Allowed tools')}>
           {toolCount === 0 ? (
-            <p className="text-xs text-zinc-500">{tr('继承 coordinator 的全部工具', 'Inherits all coordinator tools')}</p>
+            <p className="text-[12px] text-zinc-500">{tr('继承 coordinator 的全部工具', 'Inherits all coordinator tools')}</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {agent.tools.map((t) => (
-                <span key={t} className="rounded border border-zinc-800 bg-zinc-950/40 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                <span key={t} className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
                   {t}
                 </span>
               ))}
@@ -605,15 +611,6 @@ function AgentDetailModal({
         )}
       </div>
     </Modal>
-  );
-}
-
-function DetailSection({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <div className="mb-1.5 text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>
-      {children}
-    </section>
   );
 }
 
@@ -672,9 +669,8 @@ function AgentEditor({
 
   useEffect(() => {
     let cancelled = false;
-    // 技能后端尚未就绪时只拉 MCP；技能列表失败不得静默当成空列表。
-    void listMcpServers()
-      .then((servers) => {
+    void Promise.all([listMcpServers(), listBuiltinTools()])
+      .then(([servers, builtins]) => {
         if (cancelled) return;
         const mcp = servers
           .filter((server) => server.enabled)
@@ -686,7 +682,13 @@ function AgentEditor({
               description: tool.description,
             })),
           );
-        setToolOptions(mcp);
+        const builtin = builtins.items.map((tool) => ({
+          key: tool.name,
+          source: 'builtin' as const,
+          server: '',
+          description: tool.description,
+        }));
+        setToolOptions([...builtin, ...mcp]);
       })
       .catch((e: Error) => {
         if (!cancelled) setErr(e instanceof ApiError ? e.message : e.message);
@@ -695,6 +697,23 @@ function AgentEditor({
       cancelled = true;
     };
   }, []);
+
+  const groupedTools = useMemo(() => {
+    const map = new Map<string, ToolOption[]>();
+    for (const tool of toolOptions) {
+      const key = toolGroupKey(tool.key, tool.source);
+      const list = map.get(key) ?? [];
+      list.push(tool);
+      map.set(key, list);
+    }
+    return orderedGroupKeys(map.keys()).map((key) => ({
+      key,
+      title: groupTitle(key, true),
+      tools: map.get(key) ?? [],
+    }));
+  }, [toolOptions]);
+
+  const visibleToolCount = toolOptions.length;
 
   const submit = async () => {
     setErr(null);
@@ -819,6 +838,20 @@ function AgentEditor({
         </Field>
 
         <Field label={tr('系统提示', 'System prompt')} required>
+          <div className="mb-1.5 flex flex-wrap gap-1.5">
+            {PERSONA_TEMPLATES.map((tpl) => (
+              <Button
+                key={tpl.id}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="px-2 py-0.5 text-[11px]"
+                onClick={() => setSystemPrompt(tpl.prompt)}
+              >
+                {tr(tpl.zh, tpl.en)}
+              </Button>
+            ))}
+          </div>
           <Textarea
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
@@ -829,33 +862,41 @@ function AgentEditor({
 
         <Field label={tr('允许使用的工具', 'Allowed tools')}>
           <div className="text-[11px] text-zinc-500 mb-1">
-            {tr('留空 = 继承 coordinator 的全部工具', 'Empty = inherit all coordinator tools')}
+            {tr(
+              `留空 = 继承全部工具；当前可见 ${visibleToolCount} 个`,
+              `Empty = inherit all tools; ${visibleToolCount} visible`,
+            )}
           </div>
           {toolOptions.length === 0 ? (
             <div className="text-[11px] text-zinc-500">{tr('加载工具列表中…', 'Loading tool list…')}</div>
           ) : (
-            <div className="max-h-48 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
-              <div className="grid grid-cols-2 gap-1">
-                {toolOptions.map((tool) => (
-                  <Hint key={tool.key} content={tool.description}><Label
-
-
-                    className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] hover:bg-zinc-900/60"
-                  >
-                    <Checkbox
-
-                      checked={allowedTools.includes(tool.key)}
-                      onCheckedChange={() => toggleTool(tool.key)}
-                      className="h-3 w-3"
-                    />
-                    <span className="truncate font-mono">{tool.key}</span>
-                  </Label></Hint>
-                ))}
-              </div>
+            <div className="max-h-56 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950/40 p-2 space-y-2">
+              {groupedTools.map((group) => (
+                <div key={group.key}>
+                  <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">
+                    {group.title}
+                    <span className="ml-1 text-zinc-600">({group.tools.length})</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    {group.tools.map((tool) => (
+                      <Hint key={tool.key} content={tool.description}>
+                        <Label className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] hover:bg-zinc-900/60">
+                          <Checkbox
+                            checked={allowedTools.includes(tool.key)}
+                            onCheckedChange={() => toggleTool(tool.key)}
+                            className="h-3 w-3"
+                          />
+                          <span className="truncate font-mono">{tool.key}</span>
+                        </Label>
+                      </Hint>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
           <div className="mt-1 text-[11px] text-zinc-500">
-            {tr(`已选 ${allowedTools.length} / ${toolOptions.length}`, `Selected ${allowedTools.length} / ${toolOptions.length}`)}
+            {tr(`已选 ${allowedTools.length} / ${visibleToolCount}`, `Selected ${allowedTools.length} / ${visibleToolCount}`)}
           </div>
         </Field>
 
@@ -929,7 +970,7 @@ function AgentEditor({
 
 type ToolOption = {
   key: string;
-  source: 'skill' | 'mcp';
+  source: 'skill' | 'mcp' | 'builtin';
   server?: string;
   description?: string;
 };
@@ -965,7 +1006,7 @@ function Field({
 }) {
   return (
     <Label className="block">
-      <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+      <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
         {label}
         {required && <span className="ml-0.5 text-red-400">*</span>}
       </div>

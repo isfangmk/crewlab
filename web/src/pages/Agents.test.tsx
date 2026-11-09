@@ -49,6 +49,7 @@ describe('AgentsPage', () => {
       // AgentEditor 打开时拉工具列表
       http.get(listURL, () => HttpResponse.json({ items: [], total: 0 })),
       http.get(mcpListURL, () => HttpResponse.json({ items: [], total: 0 })),
+      http.get('/api/v1/tools/builtin', () => HttpResponse.json({ items: [], total: 0 })),
     );
   });
 
@@ -93,6 +94,7 @@ describe('AgentsPage', () => {
   it('新建助理可选择已测试且启用的 MCP 工具', async () => {
     server.use(
       http.get(listURL, () => HttpResponse.json({ items: [{ key: 'query_promql' }], total: 1 })),
+      http.get('/api/v1/tools/builtin', () => HttpResponse.json({ items: [], total: 0 })),
       http.get(mcpListURL, () => HttpResponse.json({
         items: [{
           id: 1,
@@ -102,6 +104,7 @@ describe('AgentsPage', () => {
           credential: '',
           header_template_json: '{}',
           trusted: false,
+          approval_policy: 'always',
           enabled: true,
           status: 'ok',
           last_error: '',

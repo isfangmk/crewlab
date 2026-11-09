@@ -1,6 +1,6 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { usePermissions } from '@/store/me';
-import { Input, Label, Textarea } from '@/components/ui';
+import { FilterBar, Input, Label, SearchInput, Textarea } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 // Knowledge page — folder-tree view of the RAG knowledge base.
 //
@@ -24,7 +24,8 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Search,
+  RotateCw,
+  Settings2,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -33,7 +34,7 @@ import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/cn';
 import { splitFrontmatter, stripFrontmatter } from '@/lib/frontmatter';
 import { Modal } from '@/components/Modal';
-import { Button, Card, EmptyStateCard, PageHeader } from '@/components/ui';
+import { Button, Card, Chip, EmptyStateCard, PageHeader, RowAction, RowActionIcon } from '@/components/ui';
 import {
   createDoc,
   deleteDoc,
@@ -45,10 +46,12 @@ import {
   searchKnowledge,
   updateDoc,
   uploadDoc,
+  reindexKnowledge,
   type KnowledgeDoc,
   type PathRow,
   type SearchHit,
 } from '@/api/knowledge';
+import { listSettings, setSetting } from '@/api/settings';
 import { ApiError } from '@/api/client';
 import { useI18n } from '@/i18n/locale';
 
@@ -266,63 +269,98 @@ export default function KnowledgePage() {
             <Input
               ref={fileInputRef}
               type="file"
-              accept=".md,.txt"
+              accept=".md,.txt,.pdf,.docx"
               multiple
               className="hidden"
               onChange={(e) => void onUploadFiles(e.target.files)}
             />
-            <Button
-              onClick={() => fetchAll(true)}
+            {canMutate && (
+              <RowAction
+                icon={Settings2}
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      const settings = await listSettings('knowledge');
+                      const size = settings.items.find((i) => i.key === 'chunk_size')?.value ?? '800';
+                      const overlap = settings.items.find((i) => i.key === 'chunk_overlap')?.value ?? '100';
+                      const sizeNext = window.prompt(tr('切块大小 chunk_size', 'Chunk size'), size);
+                      if (sizeNext === null) return;
+                      const overlapNext = window.prompt(tr('切块重叠 chunk_overlap', 'Chunk overlap'), overlap);
+                      if (overlapNext === null) return;
+                      await setSetting('knowledge', 'chunk_size', sizeNext.trim());
+                      await setSetting('knowledge', 'chunk_overlap', overlapNext.trim());
+                      window.alert(tr('切块参数已保存；重建索引后生效', 'Chunk settings saved; reindex to apply'));
+                    } catch (e) {
+                      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+                    }
+                  })();
+                }}
+              >
+                {tr('切块设置', 'Chunk settings')}
+              </RowAction>
+            )}
+            {canMutate && (
+              <RowAction
+                icon={RotateCw}
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      const r = await reindexKnowledge();
+                      window.alert(tr(`重建完成，切块数 ${r.chunks}`, `Reindex done, chunks=${r.chunks}`));
+                    } catch (e) {
+                      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+                    }
+                  })();
+                }}
+              >
+                {tr('重建索引', 'Reindex')}
+              </RowAction>
+            )}
+            <RowAction
+              icon={RefreshCw}
+              iconClassName={refreshing ? 'animate-spin' : undefined}
               disabled={loading || refreshing}
-              variant="ghost"
+              onClick={() => fetchAll(true)}
             >
-              <RefreshCw size={12} className={cn(refreshing && 'animate-spin')} />
               {tr('刷新', 'Refresh')}
-            </Button>
+            </RowAction>
           </>
         }
       />
 
-      <div className="border-b border-zinc-800/60 px-6 py-2.5">
-        <div className="flex items-center gap-2">
-          <Label className="relative block flex-1 max-w-2xl">
-            <span className="sr-only">{tr('检索', 'Search')}</span>
-            <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-            <Input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void runSearch();
-              }}
-              placeholder={
-                activePath
-                  ? tr(`在「${activePath}」下语义检索`, `Semantic search under "${activePath}"`)
-                  : tr('语义检索组织知识库', 'Semantic search across the knowledge base')
-              }
-              className="w-full pl-8 pr-2"
-            />
-          </Label>
-          <Button variant="primary" size="sm"
-            type="button"
-            onClick={() => void runSearch()}
-            disabled={searching || !query.trim()}
-            className="px-3 py-1.5 font-medium text-accent-fg"
-          >
-            {searching ? tr('检索中…', 'Searching…') : tr('检索', 'Search')}
-          </Button>
-          {hits.length > 0 && (
-            <span className="text-[11px] text-zinc-500">{tr(`命中 ${hits.length} 条`, `${hits.length} hit(s)`)}</span>
-          )}
-        </div>
+      <FilterBar className="mx-6 mt-3">
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void runSearch();
+          }}
+          placeholder={
+            activePath
+              ? tr(`在「${activePath}」下语义检索`, `Semantic search under "${activePath}"`)
+              : tr('语义检索组织知识库', 'Semantic search across the knowledge base')
+          }
+          ariaLabel={tr('检索', 'Search')}
+          className="max-w-2xl flex-1"
+        />
+        <Button variant="primary" size="sm"
+          type="button"
+          onClick={() => void runSearch()}
+          disabled={searching || !query.trim()}
+        >
+          {searching ? tr('检索中…', 'Searching…') : tr('检索', 'Search')}
+        </Button>
         {hits.length > 0 && (
-          <div className="mt-3 grid gap-2">
-            {hits.map((h) => (
-              <SearchHitCard key={h.doc.id} hit={h} />
-            ))}
-          </div>
+          <span className="text-[11px] text-zinc-500">{tr(`命中 ${hits.length} 条`, `${hits.length} hit(s)`)}</span>
         )}
-      </div>
+      </FilterBar>
+      {hits.length > 0 && (
+        <div className="mx-6 mt-2 grid max-h-60 shrink-0 gap-2 overflow-y-auto">
+          {hits.map((h) => (
+            <SearchHitCard key={h.doc.id} hit={h} />
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-zinc-800 bg-zinc-950/40 px-2 py-3 md:block">
@@ -337,30 +375,28 @@ export default function KnowledgePage() {
             onMoveDoc={onMoveDoc}
             actions={canMutate && (
               <>
-                <Hint content={tr('上传文件 (.md/.txt/.pdf/.docx)', 'Upload file (.md/.txt/.pdf/.docx)')}><Button variant="subtle" size="sm"
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    fileInputRef.current?.click();
-                  }}
-                  disabled={uploading}
-
-                  className="p-1"
-                >
-                  <Upload size={13} className={cn(uploading && 'animate-pulse')} />
-                </Button></Hint>
-                <Hint content={tr('新建文档', 'New doc')}><Button variant="subtle" size="sm"
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSourceScope('org');
-                    setEditing('create');
-                  }}
-
-                  className="p-1"
-                >
-                  <Plus size={13} />
-                </Button></Hint>
+                <Hint content={tr('上传文件 (.md/.txt/.pdf/.docx)', 'Upload file (.md/.txt/.pdf/.docx)')}>
+                  <RowActionIcon
+                    icon={Upload}
+                    label={tr('上传文件', 'Upload file')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                    disabled={uploading}
+                  />
+                </Hint>
+                <Hint content={tr('新建文档', 'New doc')}>
+                  <RowActionIcon
+                    icon={Plus}
+                    label={tr('新建文档', 'New doc')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSourceScope('org');
+                      setEditing('create');
+                    }}
+                  />
+                </Hint>
               </>
             )}
           />
@@ -375,7 +411,7 @@ export default function KnowledgePage() {
             onPick={(p) => pickFolder('builtin', p)}
           />
         </aside>
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="flex-1 overflow-y-auto px-6 py-4">
           {err && (
             <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/5 px-4 py-3 text-sm text-red-300">
               {err}
@@ -396,10 +432,10 @@ export default function KnowledgePage() {
               hint={!canMutate ? tr('请联系管理员添加或同步知识库。', 'Ask an admin to add or sync knowledge.') : undefined}
               action={canMutate && (
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                  <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                     <Upload size={12} /> {tr('上传文件', 'Upload')}
                   </Button>
-                  <Button variant="primary" onClick={() => setEditing('create')}>
+                  <Button variant="primary" size="sm" onClick={() => setEditing('create')}>
                     <Plus size={12} /> {tr('新建文档', 'New doc')}
                   </Button>
                 </div>
@@ -585,15 +621,18 @@ function FolderNode({
             : undefined
         }
         className={cn(
-          'group flex items-center gap-1 rounded-md px-1.5 py-1 text-xs',
+          'group relative flex items-center gap-1 rounded-md px-1.5 py-1 text-xs',
           dragOver
             ? 'ring-1 ring-sky-400/70 bg-sky-500/10 text-zinc-100'
             : isActive
-              ? 'bg-zinc-800 text-zinc-100'
+              ? 'bg-indigo-500/10 text-zinc-100'
               : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200',
         )}
         style={{ paddingLeft: 6 + depth * 12 }}
       >
+        {isActive ? (
+          <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 rounded-full bg-indigo-400" />
+        ) : null}
         <Button variant="subtle" size="sm"
           type="button"
           onClick={() => setExpanded((v) => !v)}
@@ -619,7 +658,7 @@ function FolderNode({
             <Icon size={12} className="shrink-0" />
             <span className="truncate">{localizedPathSegment(node.name)}</span>
           </span>
-          <span className="text-[10px] text-zinc-500">{node.subtreeCount}</span>
+          <Chip dense tone={isActive ? 'accent' : 'default'} className="shrink-0">{node.subtreeCount}</Chip>
         </Button></Hint>
       </div>
       {expanded && hasChildren && (
@@ -656,12 +695,12 @@ function DocCard({
   const editable = doc.source_type === 'manual' || doc.source_type === 'upload';
   const sourceBadge =
     doc.source_type === 'vault'
-      ? { label: tr('内置', 'built-in'), cls: 'text-amber-300' }
+      ? { label: tr('内置', 'built-in'), tone: 'warning' as const }
       : doc.source_type === 'upload'
-        ? { label: tr('上传', 'upload'), cls: 'text-sky-300' }
+        ? { label: tr('上传', 'upload'), tone: 'info' as const }
         : doc.source_type === 'repo'
-          ? { label: 'repo', cls: 'text-emerald-300' }
-          : { label: tr('手动', 'manual'), cls: 'text-indigo-300' };
+          ? { label: 'repo', tone: 'success' as const }
+          : { label: tr('手动', 'manual'), tone: 'accent' as const };
   return (
     <Card
       compact
@@ -680,26 +719,17 @@ function DocCard({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <Hint content={localizedDocTitle(doc)}><div className="truncate text-sm font-medium text-zinc-100" >
+          <Hint content={localizedDocTitle(doc)}><div className="truncate text-[12.5px] font-medium text-zinc-100" >
             {localizedDocTitle(doc)}
           </div></Hint>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wider text-zinc-500">
-            <span className={sourceBadge.cls}>{sourceBadge.label}</span>
-            {doc.path && (
-              <span className="rounded bg-zinc-800/60 px-1.5 py-0.5 font-normal normal-case text-zinc-300">
-                {localizedPath(doc.path)}
-              </span>
-            )}
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-500">
+            <Chip tone={sourceBadge.tone} dense>{sourceBadge.label}</Chip>
+            {doc.path && <Chip dense className="font-mono">{localizedPath(doc.path)}</Chip>}
           </div>
           {doc.tags && doc.tags.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {doc.tags.map((t) => (
-                <span
-                  key={t}
-                  className="rounded bg-zinc-800/60 px-1.5 py-0.5 text-[10px] text-zinc-400"
-                >
-                  {t}
-                </span>
+                <Chip key={t} dense>{t}</Chip>
               ))}
             </div>
           )}
@@ -712,41 +742,39 @@ function DocCard({
         <div className="flex shrink-0 items-center gap-1">
           {editable ? (
             <>
-              <Hint content={tr('编辑', 'Edit')}><Button variant="subtle" size="sm"
-                type="button"
+              <Hint content={tr('编辑', 'Edit')}>
+                <RowActionIcon
+                  icon={Pencil}
+                  label={tr('编辑', 'Edit')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit();
+                  }}
+                />
+              </Hint>
+              <Hint content={tr('删除', 'Delete')}>
+                <RowActionIcon
+                  icon={Trash2}
+                  label={tr('删除', 'Delete')}
+                  tone="danger"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                  }}
+                />
+              </Hint>
+            </>
+          ) : (
+            <Hint content={tr('查看', 'View')}>
+              <RowActionIcon
+                icon={Eye}
+                label={tr('查看', 'View')}
                 onClick={(e) => {
                   e.stopPropagation();
                   onEdit();
                 }}
-
-                className="p-1"
-              >
-                <Pencil size={11} />
-              </Button></Hint>
-              <Hint content={tr('删除', 'Delete')}><Button variant="dangerGhost" size="sm"
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-
-                className="p-1"
-              >
-                <Trash2 size={11} />
-              </Button></Hint>
-            </>
-          ) : (
-            <Hint content={tr('查看', 'View')}><Button variant="subtle" size="sm"
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit();
-              }}
-
-              className="p-1"
-            >
-              <Eye size={11} />
-            </Button></Hint>
+              />
+            </Hint>
           )}
         </div>
       </div>
@@ -757,24 +785,16 @@ function DocCard({
 function SearchHitCard({ hit }: { hit: SearchHit }) {
   return (
     <div className="rounded-md border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
-      <div className="flex items-center justify-between text-[11px] text-zinc-500">
-        <div className="flex items-center gap-2">
-          <span className="text-zinc-100 font-medium">{localizedDocTitle(hit.doc)}</span>
-          {hit.doc.path && (
-            <span className="rounded bg-zinc-800/60 px-1.5 py-0.5 text-[10px] text-zinc-400">
-              {localizedPath(hit.doc.path)}
-            </span>
-          )}
-          {hit.doc.source_type === 'repo' && (
-            <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
-              repo
-            </span>
-          )}
+      <div className="flex items-center justify-between gap-3 text-[11px] text-zinc-500">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span className="truncate text-[12.5px] font-medium text-zinc-100">{localizedDocTitle(hit.doc)}</span>
+          {hit.doc.path && <Chip dense className="font-mono">{localizedPath(hit.doc.path)}</Chip>}
+          {hit.doc.source_type === 'repo' && <Chip dense tone="success">repo</Chip>}
         </div>
-        <span>score {hit.score.toFixed(2)}</span>
+        <span className="shrink-0 tabular-nums">score {hit.score.toFixed(2)}</span>
       </div>
       {/* 预览只给正文：frontmatter 占满 3 行预览毫无信息量 */}
-      <div className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-[12px] text-zinc-300">
+      <div className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-zinc-300">
         {stripFrontmatter(hit.doc.content ?? '')}
       </div>
     </div>

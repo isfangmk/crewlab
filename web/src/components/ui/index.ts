@@ -24,3 +24,14 @@ export { Slider } from './Slider';
 export { Chip as Badge } from './Chip';
 
 export { FilterField } from './FilterField';
+export { FilterBar, ChoiceChip, FilterChip, FilterPill } from './FilterBar';
+export { SearchInput } from './SearchInput';
+export { MetricCard, DEFAULT_METRIC_ICON } from './MetricCard';
+export { StatusPill } from './StatusPill';
+export { TableCard, TablePager } from './TableCard';
+export { RowAction, RowActionIcon, rowActionClass, rowActionIconClass } from './RowAction';
+export { SectionCard } from './SectionCard';
+export { DetailSection } from './DetailSection';
+export { DetailStat, DetailStatGrid } from './DetailStat';
+export { CodeBlock } from './CodeBlock';
+export { MetaRow } from './MetaRow';

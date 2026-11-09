@@ -28,10 +28,13 @@ export function CommandPalette({ open, onClose }: Props) {
     setQuery('');
     setActiveIndex(0);
     let cancelled = false;
-    void listSessions()
+    void listSessions({ limit: 5, offset: 0 })
       .then((r) => {
         if (cancelled) return;
-        setRecent((r.items ?? []).slice(0, 5));
+        if (!Array.isArray(r.items)) {
+          throw new Error('会话列表缺少 items');
+        }
+        setRecent(r.items);
       })
       .catch(() => {
         if (!cancelled) setRecent([]);
@@ -64,7 +67,7 @@ export function CommandPalette({ open, onClose }: Props) {
       .filter((x) => x.score >= 0);
     scored.sort((a, b) => b.score - a.score);
     return scored.map((x) => x.s);
-  }, [query, recent]);
+  }, [query, recent, tr]);
 
   // Flat list — routes first, then sessions — for keyboard nav.
   type FlatItem =

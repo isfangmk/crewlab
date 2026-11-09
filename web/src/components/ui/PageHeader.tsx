@@ -31,8 +31,8 @@ export function PageHeader({ title, subtitle, actions, extra, navigation, leadin
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           {leading && <div className="mb-1 text-xs text-zinc-500">{leading}</div>}
-          <h1 className="text-base font-semibold text-zinc-100">{title}</h1>
-          {subtitle && <div className="mt-0.5 text-xs text-zinc-500">{subtitle}</div>}
+          <h1 className="text-[15px] font-semibold leading-6 tracking-tight text-zinc-100">{title}</h1>
+          {subtitle && <div className="mt-0.5 text-[11.5px] leading-4 text-zinc-500">{subtitle}</div>}
         </div>
         {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
       </div>

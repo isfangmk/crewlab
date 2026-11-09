@@ -10,18 +10,39 @@ type ChatSessionsState = {
   sessions: ChatSession[];
   loading: boolean;
   error: boolean;
+  query: string;
+  includeArchived: boolean;
+  setQuery(q: string): void;
+  setIncludeArchived(v: boolean): void;
   refresh(): Promise<void>;
 };
 
-export const useChatSessions = create<ChatSessionsState>((set) => ({
+export const useChatSessions = create<ChatSessionsState>((set, get) => ({
   sessions: [],
   loading: false,
   error: false,
+  query: '',
+  includeArchived: false,
+  setQuery(q: string) {
+    set({ query: q });
+  },
+  setIncludeArchived(v: boolean) {
+    set({ includeArchived: v });
+  },
   async refresh() {
     set({ loading: true, error: false });
     try {
-      const r = await listSessions();
-      set({ sessions: r.items ?? [], loading: false, error: false });
+      const { query, includeArchived } = get();
+      const r = await listSessions({
+        q: query.trim() === '' ? undefined : query.trim(),
+        include_archived: includeArchived,
+        limit: 50,
+        offset: 0,
+      });
+      if (!Array.isArray(r.items)) {
+        throw new Error('会话列表缺少 items');
+      }
+      set({ sessions: r.items, loading: false, error: false });
     } catch {
       set({ loading: false, error: true });
     }

@@ -513,7 +513,7 @@ export function ChatInput({
                 disabled={disabled || attachments.length >= MAX_IMAGES}
                 aria-label={tr('添加图片', 'Add images')}
                 title={tr('添加图片', 'Add images')}
-                className="h-6 w-6 p-0"
+                className="w-7 p-0"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Paperclip size={14} />
@@ -526,13 +526,13 @@ export function ChatInput({
             disabled={disabled || empty}
             aria-label={tr('发送消息', 'Send message')}
             className={cn(
-              'inline-flex h-9 w-9 items-center justify-center rounded-full transition-all',
+              'inline-flex w-7 items-center justify-center rounded-full transition-all',
               empty || disabled
                 ? 'bg-zinc-800 text-zinc-500'
                 : 'bg-zinc-100 text-zinc-900 hover:bg-white'
             )}
           >
-            <Send size={15} />
+            <Send size={13} />
           </Button>
         </div>
       </div>

@@ -25,9 +25,9 @@ export function PromptCard({ title, description, icon: Icon, onClick, className 
         {Icon && (
           <Icon size={14} className="text-zinc-400 transition-colors group-hover:text-zinc-200" />
         )}
-        <span className="text-sm font-semibold text-zinc-100">{title}</span>
+        <span className="text-[12.5px] font-medium text-zinc-100">{title}</span>
       </div>
-      <span className="text-xs leading-relaxed text-zinc-400">{description}</span>
+      <span className="text-[11px] leading-relaxed text-zinc-400">{description}</span>
     </button>
   );
 }

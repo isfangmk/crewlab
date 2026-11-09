@@ -1,4 +1,4 @@
-import { getLocale, tr as trInline } from '@/i18n/locale';
+import { getLocale } from '@/i18n/locale';
 import { getSystemTimeZoneId } from '@/store/systemTimezone';
 
 // Map our app-locale tag onto the Intl BCP-47 locale used by the
@@ -15,21 +15,6 @@ function asDate(input: string | number | Date): Date {
     throw new Error(`非法时间: ${String(input)}`);
   }
   return t;
-}
-
-export function relativeTime(input: string | number | Date): string {
-  const t = asDate(input);
-  const ms = Date.now() - t.getTime();
-  const sec = Math.round(ms / 1000);
-  if (sec < 5) return trInline('刚刚', 'just now');
-  if (sec < 60) return trInline(`${sec} 秒前`, `${sec}s ago`);
-  const min = Math.round(sec / 60);
-  if (min < 60) return trInline(`${min} 分钟前`, `${min}m ago`);
-  const hr = Math.round(min / 60);
-  if (hr < 24) return trInline(`${hr} 小时前`, `${hr}h ago`);
-  const day = Math.round(hr / 24);
-  if (day < 30) return trInline(`${day} 天前`, `${day}d ago`);
-  return t.toLocaleDateString(intlLocale(), { timeZone: getSystemTimeZoneId() });
 }
 
 export function formatBytes(b: number): string {

@@ -1,6 +1,7 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Hammer, Loader2, Play, RefreshCw, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Hammer, Loader2, Play, RefreshCw, ShieldAlert, ShieldCheck, Wrench } from 'lucide-react';
+import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
 import {
   listBuiltinTools,
@@ -10,8 +11,22 @@ import {
 } from '@/api/tools';
 import { ApiError } from '@/api/client';
 import { Modal } from '@/components/Modal';
-import { Button, EmptyStateCard, Input, Label, PageHeader } from '@/components/ui';
-import { Hint } from '@/components/ui/Tooltip';
+import {
+  Button,
+  ChoiceChip,
+  CodeBlock,
+  DetailSection,
+  EmptyStateCard,
+  FilterBar,
+  Input,
+  Label,
+  MetricCard,
+  PageHeader,
+  RowAction,
+  SearchInput,
+  StatusPill,
+  TableCard,
+} from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
 
 type RiskFilter = '' | 'safe' | 'approval_required';
@@ -89,64 +104,85 @@ export default function ToolsPage() {
           '平台自带 Tool（非 Skill、非 MCP 全量列表）',
           'Built-in Tools (not Skills, not full MCP catalog)',
         )}
+        actions={
+          <RowAction
+            icon={RefreshCw}
+            iconClassName={cn(refreshing && 'animate-spin')}
+            disabled={loading || refreshing}
+            onClick={() => void fetchTools(true)}
+          >
+            {tr('刷新', 'Refresh')}
+          </RowAction>
+        }
       />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="border-b border-zinc-800 px-6 py-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <Label className="relative block w-64">
-              <span className="sr-only">{tr('搜索', 'Search')}</span>
-              <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-              <Input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={tr('搜索 name / description', 'Search name / description')}
-                className="w-full pl-8 pr-2"
-              />
-            </Label>
-            <div className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
-              <span className="text-zinc-500">{tr('风险', 'Risk')}</span>
-              <div className="flex flex-wrap gap-1">
-                <FilterChip
-                  active={risk === ''}
-                  label={`${tr('全部', 'All')} ${counts.total}`}
-                  onClick={() => setRisk('')}
-                />
-                <FilterChip
-                  active={risk === 'safe'}
-                  label={`${tr('安全', 'Safe')} ${counts.safe}`}
-                  onClick={() => setRisk('safe')}
-                />
-                <FilterChip
-                  active={risk === 'approval_required'}
-                  label={`${tr('需审批', 'Approval')} ${counts.approval}`}
-                  onClick={() => setRisk('approval_required')}
-                />
-              </div>
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              <span className="text-xs text-zinc-500">
-                {tr(`${items.length} 个 · 匹配 ${filtered.length}`, `${items.length} total · ${filtered.length} matched`)}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={() => void fetchTools(true)}
-                disabled={loading || refreshing}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5"
-              >
-                <RefreshCw size={12} className={cn(refreshing && 'animate-spin')} />
-                {tr('刷新', 'Refresh')}
-              </Button>
-            </div>
+        <FilterBar className="mx-6 mt-3">
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder={tr('搜索 name / description', 'Search name / description')}
+            ariaLabel={tr('搜索', 'Search')}
+            className="min-w-[16rem] flex-1"
+          />
+          <span className="pl-1 text-[11px] text-zinc-500">{tr('风险', 'Risk')}</span>
+          <ChoiceChip
+            active={risk === ''}
+            label={tr('全部', 'All')}
+            count={counts.total}
+            onClick={() => setRisk('')}
+          />
+          <ChoiceChip
+            active={risk === 'safe'}
+            label={tr('安全', 'Safe')}
+            count={counts.safe}
+            onClick={() => setRisk('safe')}
+          />
+          <ChoiceChip
+            active={risk === 'approval_required'}
+            label={tr('需审批', 'Approval')}
+            count={counts.approval}
+            onClick={() => setRisk('approval_required')}
+          />
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[11px] tabular-nums text-zinc-500">
+              {tr(`${items.length} 个 · 匹配 ${filtered.length}`, `${items.length} total · ${filtered.length} matched`)}
+            </span>
           </div>
+        </FilterBar>
+
+        {/* 概览：把「多少工具需要审批」变成一屏可见，而不是靠筛选项去数 */}
+        <div className="mx-6 mt-3 grid shrink-0 grid-cols-3 gap-2">
+          <MetricCard
+            icon={Wrench}
+            label={tr('工具总数', 'Tools')}
+            value={String(counts.total)}
+            hint={tr('平台内置能力', 'Built-in capabilities')}
+          />
+          <MetricCard
+            icon={ShieldCheck}
+            tone="ok"
+            label={tr('安全', 'Safe')}
+            value={String(counts.safe)}
+            hint={tr('无需审批，直接执行', 'Run without approval')}
+          />
+          <MetricCard
+            icon={ShieldAlert}
+            tone={counts.approval > 0 ? 'warn' : 'default'}
+            label={tr('需审批', 'Needs approval')}
+            value={String(counts.approval)}
+            hint={
+              counts.total === 0
+                ? undefined
+                : tr(`占比 ${Math.round((counts.approval / counts.total) * 100)}%`, `${Math.round((counts.approval / counts.total) * 100)}% of tools`)
+            }
+            bar={counts.total === 0 ? undefined : (counts.approval / counts.total) * 100}
+          />
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
           {err && (
-            <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+            <div className="mb-3 rounded-xl border border-red-500/40 bg-red-500/5 px-4 py-3 text-[12px] text-red-300">
               {tr('加载失败：', 'Load failed: ')}
               {err}
             </div>
@@ -164,14 +200,20 @@ export default function ToolsPage() {
               }}
             />
           ) : (
-            <div className="overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/30">
-              <table className="w-full text-sm">
-                <thead className="border-b border-zinc-800/60 bg-zinc-950/40 text-[11px] uppercase tracking-wider text-zinc-500">
+            <TableCard className="min-h-0 flex-1">
+              <table className="og-action-table w-full table-fixed text-sm">
+                <colgroup>
+                  <col />
+                  <col className="w-[7rem]" />
+                  <col className="w-[8.5rem]" />
+                  <col className="w-[7.5rem]" />
+                </colgroup>
+                <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
                   <tr className="whitespace-nowrap">
-                    <th className="px-4 py-2.5 text-left">{tr('名称', 'Name')}</th>
-                    <th className="px-4 py-2.5 text-left">{tr('风险', 'Risk')}</th>
-                    <th className="w-full px-4 py-2.5 text-left">{tr('描述', 'Description')}</th>
-                    <th className="px-4 py-2.5 text-right">{tr('操作', 'Actions')}</th>
+                    <th className="w-full px-3 py-2 text-left font-medium">{tr('工具 / 说明', 'Tool / description')}</th>
+                    <th className="px-3 py-2 text-left font-medium">{tr('风险', 'Risk')}</th>
+                    <th className="px-3 py-2 text-left font-medium">{tr('参数', 'Params')}</th>
+                    <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/40">
@@ -186,10 +228,10 @@ export default function ToolsPage() {
                         ) : (
                           <ChevronDown size={13} className="text-zinc-500" />
                         )}
-                        <span className="text-sm font-medium text-zinc-200">
+                        <span className="text-[12.5px] font-medium text-zinc-200">
                           {tr('内置工具', 'Built-in tools')}
                         </span>
-                        <span className="rounded bg-emerald-900/40 px-1 text-[9px] font-medium text-emerald-300">
+                        <span className="rounded border border-zinc-700/60 bg-zinc-800/40 px-1 py-px text-[9px] font-medium text-zinc-400">
                           builtin
                         </span>
                         <span className="ml-1 text-[11px] text-zinc-500">
@@ -209,7 +251,7 @@ export default function ToolsPage() {
                     ))}
                 </tbody>
               </table>
-            </div>
+            </TableCard>
           )}
         </div>
       </div>
@@ -229,48 +271,13 @@ export default function ToolsPage() {
   );
 }
 
-function FilterChip({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick(): void;
-}) {
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rounded-md border px-2 py-0.5 text-[11px] transition-colors',
-        active
-          ? 'border-zinc-600 bg-zinc-800 text-zinc-100'
-          : 'border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200',
-      )}
-    >
-      {label}
-    </Button>
-  );
-}
-
 function RiskBadge({ value }: { value: string }) {
   const { tr } = useI18n();
   if (value === 'safe') {
-    return (
-      <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-inset ring-emerald-500/30">
-        {tr('安全', 'safe')}
-      </span>
-    );
+    return <StatusPill tone="ok" label={tr('安全', 'safe')} />;
   }
   if (value === 'approval_required') {
-    return (
-      <span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300 ring-1 ring-inset ring-amber-500/30">
-        {tr('需审批', 'approval')}
-      </span>
-    );
+    return <StatusPill tone="warn" label={tr('需审批', 'approval')} />;
   }
   throw new Error(`未知 Tool risk: ${value}`);
 }
@@ -285,34 +292,40 @@ function ToolRow({
   onRun(): void;
 }) {
   const { tr } = useI18n();
+  const required = tool.params.filter((p) => p.required).length;
   return (
     <tr className="cursor-pointer transition-colors hover:bg-zinc-900/40" onClick={onView}>
-      <td className="whitespace-nowrap px-4 py-1.5 pl-8">
-        <span className="text-xs text-zinc-200">{tool.name}</span>
-        <Hint content={tool.name}>
-          <div className="font-mono text-[10px] text-zinc-600">{tool.name}</div>
-        </Hint>
+      <td className="min-w-0 px-3 py-2 pl-8">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="shrink-0 font-mono text-[12.5px] font-medium text-zinc-100">{tool.name}</span>
+        </div>
+        <div className="mt-0.5 line-clamp-1 text-[11px] text-zinc-500" title={tool.description}>
+          {tool.description}
+        </div>
       </td>
-      <td className="whitespace-nowrap px-4 py-1.5">
+      <td className="whitespace-nowrap px-3 py-2">
         <RiskBadge value={tool.risk} />
       </td>
-      <td className="w-full max-w-0 px-4 py-1.5 text-[11px] text-zinc-500">
-        <div className="line-clamp-1">{tool.description}</div>
+      <td className="whitespace-nowrap px-3 py-2 text-[11px] text-zinc-400">
+        {tool.params.length === 0 ? (
+          <span className="text-zinc-600">{tr('无参数', 'No params')}</span>
+        ) : (
+          <span className="tabular-nums">
+            {tr(`${tool.params.length} 个参数`, `${tool.params.length} params`)}
+            {required > 0 ? <span className="text-zinc-600"> · {tr(`${required} 必填`, `${required} required`)}</span> : null}
+          </span>
+        )}
       </td>
-      <td className="whitespace-nowrap px-4 py-1.5 text-right">
-        <Button
-          variant="outline"
-          size="sm"
-          type="button"
+      <td className="whitespace-nowrap px-3 py-2 text-right">
+        <RowAction
+          icon={Play}
           onClick={(e) => {
             e.stopPropagation();
             onRun();
           }}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px]"
         >
-          <Play size={11} />
           {tr('运行', 'Run')}
-        </Button>
+        </RowAction>
       </td>
     </tr>
   );
@@ -340,41 +353,35 @@ function ToolDetailModal({
           <span className="ml-auto font-mono text-[11px] text-zinc-500">{tool.name}</span>
         </div>
 
-        <section>
-          <div className="mb-1.5 text-[11px] uppercase tracking-wider text-zinc-500">
-            {tr('描述', 'Description')}
-          </div>
-          <div className="whitespace-pre-wrap rounded-md border border-zinc-800 bg-zinc-950/40 p-3 text-xs leading-relaxed text-zinc-300">
+        <DetailSection title={tr('描述', 'Description')}>
+          <div className="whitespace-pre-wrap rounded-lg border border-zinc-800/60 bg-zinc-900/30 p-3 text-[12px] leading-relaxed text-zinc-300">
             {tool.description}
           </div>
-        </section>
+        </DetailSection>
 
-        <section>
-          <div className="mb-1.5 text-[11px] uppercase tracking-wider text-zinc-500">
-            {tr('参数', 'Parameters')}
-          </div>
+        <DetailSection title={tr('参数', 'Parameters')}>
           {params.length === 0 ? (
-            <div className="text-xs text-zinc-500">{tr('无参数', 'No parameters')}</div>
+            <div className="text-[12px] text-zinc-500">{tr('无参数', 'No parameters')}</div>
           ) : (
-            <div className="overflow-hidden rounded-md border border-zinc-800">
-              <table className="w-full text-xs">
-                <thead className="border-b border-zinc-800 bg-zinc-950/40 text-[10px] uppercase tracking-wider text-zinc-500">
-                  <tr>
-                    <th className="px-3 py-1.5 text-left">{tr('名称', 'Name')}</th>
-                    <th className="px-3 py-1.5 text-left">{tr('类型', 'Type')}</th>
-                    <th className="px-3 py-1.5 text-left">{tr('必填', 'Required')}</th>
-                    <th className="px-3 py-1.5 text-left">{tr('默认值', 'Default')}</th>
+            <div className="overflow-hidden rounded-lg border border-zinc-800/60">
+              <table className="og-action-table w-full text-[12px]">
+                <thead className="border-b border-zinc-800/60 text-[11px] text-zinc-500">
+                  <tr className="whitespace-nowrap">
+                    <th className="px-3 py-2 text-left font-medium">{tr('名称', 'Name')}</th>
+                    <th className="px-3 py-2 text-left font-medium">{tr('类型', 'Type')}</th>
+                    <th className="px-3 py-2 text-left font-medium">{tr('必填', 'Required')}</th>
+                    <th className="px-3 py-2 text-left font-medium">{tr('默认值', 'Default')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/60">
                   {params.map((p) => (
                     <tr key={p.name}>
-                      <td className="whitespace-nowrap px-3 py-1.5 font-mono text-zinc-200">{p.name}</td>
-                      <td className="whitespace-nowrap px-3 py-1.5 text-zinc-400">{p.type}</td>
-                      <td className="whitespace-nowrap px-3 py-1.5 text-zinc-400">
+                      <td className="whitespace-nowrap px-3 py-2 font-mono text-zinc-200">{p.name}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-zinc-400">{p.type}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-zinc-400">
                         {p.required ? tr('是', 'Yes') : '—'}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-1.5 font-mono text-zinc-400">
+                      <td className="whitespace-nowrap px-3 py-2 font-mono text-zinc-400">
                         {p.default === undefined || p.default === null ? '—' : String(p.default)}
                       </td>
                     </tr>
@@ -383,9 +390,9 @@ function ToolDetailModal({
               </table>
             </div>
           )}
-        </section>
+        </DetailSection>
 
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-800 pt-3">
+        <div className="flex items-center justify-between gap-3 border-t border-zinc-800/60 pt-3">
           <span className="text-[11px] text-zinc-500">
             {tr('内置 Tool 由平台代码定义，不可在线编辑', 'Built-in Tools are defined in platform code and cannot be edited online')}
           </span>
@@ -394,9 +401,8 @@ function ToolDetailModal({
             size="sm"
             type="button"
             onClick={onRun}
-            className="inline-flex items-center gap-1.5"
           >
-            <Play size={11} />
+            <Play size={12} />
             {tr('运行', 'Run')}
           </Button>
         </div>
@@ -447,7 +453,7 @@ function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void })
       }
     >
       <div className="space-y-4">
-        <div className="rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
           <div className="font-mono text-[11px] text-zinc-100">{tool.name}</div>
           {tool.description ? (
             <p className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{tool.description}</p>
@@ -466,32 +472,66 @@ function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void })
                   <span className="font-mono text-sky-300">{p.name}</span>
                   {p.required ? <span className="text-amber-400">*</span> : null}
                   <span className="font-mono text-zinc-600">{p.type}</span>
+                  {p.desc ? <span className="truncate text-zinc-500">{p.desc}</span> : null}
                 </span>
-                <Input
-                  type={p.type === 'int' || p.type === 'float' ? 'number' : 'text'}
-                  step={p.type === 'int' ? 1 : p.type === 'float' ? 'any' : undefined}
-                  value={values[p.name] ?? ''}
-                  onChange={(e) => setValues((cur) => ({ ...cur, [p.name]: e.target.value }))}
-                  className="h-8 w-full font-mono text-[12px]"
-                />
+                {p.type === 'bool' ? (
+                  <Select
+                    label={p.name}
+                    value={values[p.name] ?? ''}
+                    onValueChange={(v) => setValues((cur) => ({ ...cur, [p.name]: v }))}
+                    className="h-8 w-full font-mono text-[12px]"
+                  >
+                    <option value="">{tr('（选择）', '(select)')}</option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </Select>
+                ) : p.type === 'enum' && Array.isArray(p.enum) ? (
+                  <Select
+                    label={p.name}
+                    value={values[p.name] ?? ''}
+                    onValueChange={(v) => setValues((cur) => ({ ...cur, [p.name]: v }))}
+                    className="h-8 w-full font-mono text-[12px]"
+                  >
+                    <option value="">{tr('（选择）', '(select)')}</option>
+                    {p.enum.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Input
+                    type={p.type === 'int' || p.type === 'float' ? 'number' : 'text'}
+                    step={p.type === 'int' ? 1 : p.type === 'float' ? 'any' : undefined}
+                    value={values[p.name] ?? ''}
+                    onChange={(e) => setValues((cur) => ({ ...cur, [p.name]: e.target.value }))}
+                    className="h-8 w-full font-mono text-[12px]"
+                  />
+                )}
               </Label>
             ))}
           </div>
         )}
 
         {runErr && (
-          <div className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-300">
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300">
             {runErr}
           </div>
         )}
         {resultText != null && (
           <div>
-            <div className="mb-1.5 text-[11px] uppercase tracking-wide text-zinc-500">
-              {tr('运行结果', 'Result')}
+            <div className="mb-1.5 flex items-center justify-between text-[11px] uppercase tracking-wide text-zinc-500">
+              <span>{tr('运行结果', 'Result')}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] normal-case"
+                onClick={() => void navigator.clipboard.writeText(resultText)}
+              >
+                <Copy size={11} />
+                {tr('复制', 'Copy')}
+              </Button>
             </div>
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-[11px] text-zinc-200">
-              {resultText}
-            </pre>
+            <CodeBlock maxHeightClassName="max-h-72">{resultText}</CodeBlock>
           </div>
         )}
       </div>

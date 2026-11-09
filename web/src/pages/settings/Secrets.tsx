@@ -1,5 +1,5 @@
 import { useAssistantPage } from '@/lib/assistantPage';
-import { Button, Input, Label } from '@/components/ui';
+import { Button, Chip, Input, Label, RowAction, RowActionIcon, SectionCard, TableCard } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -115,42 +115,45 @@ export default function SecretsPage() {
   });
 
   return (
-    <div className="anim-fade space-y-5">
-      {/* SettingsLayout already provides the page-level header — we render
-          content only, matching the other settings sub-pages (a description
-          card with a small icon, not a separate h1 title). */}
-      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3 text-xs leading-relaxed text-zinc-400">
-        <div className="mb-1 flex items-center gap-2 text-zinc-200">
-          <Lock size={14} className="text-zinc-400" />
-          <span className="font-medium">{tr('凭证 — 凭据库', 'Credentials — vault')}</span>
-          <Button variant="outline" size="sm"
-            type="button"
-            onClick={() => void load()}
-            className="ml-auto inline-flex items-center gap-1.5 px-2 py-1"
-          >
-            <RefreshCw size={12} />
-            {tr('刷新', 'Refresh')}
-          </Button>
-        </div>
-        {tr(
-          '凭据库。选一个类型（腾讯云 / AWS / GitHub …）会自动列出该填的字段，并自带"注入到哪些环境变量"的规则；技能 / 外部 MCP 用上这份凭据时按类型规则注入。类型选"自定义"则自由填字段，按同名环境变量注入。字段值只写不读，使用现有系统密钥进行 AES 加密后落库。',
-          'Credential vault. Pick a type (Tencent Cloud / AWS / GitHub …) and it lists the right fields plus a built-in "which env vars to inject" rule; skills / external MCP that use this credential inject by that rule. Pick "Custom" to enter free-form fields injected as same-named env vars. Values are write-only and AES-encrypted at rest with the existing system secret.'
+    <div className="anim-fade space-y-4">
+      <SectionCard
+        title={<span className="inline-flex items-center gap-2"><Lock size={13} className="text-zinc-400" />{tr('凭据库', 'Credential vault')}</span>}
+        description={tr(
+          '选一个类型（腾讯云 / AWS / GitHub …）会自动列出该填的字段，并自带“注入到哪些环境变量”的规则；技能 / 外部 MCP 用上这份凭据时按类型规则注入。类型选“自定义”则自由填字段，按同名环境变量注入。字段值只写不读，使用现有系统密钥进行 AES 加密后落库。',
+          'Pick a type (Tencent Cloud / AWS / GitHub …) and it lists the right fields plus a built-in "which env vars to inject" rule; skills / external MCP that use this credential inject by that rule. Pick "Custom" to enter free-form fields injected as same-named env vars. Values are write-only and AES-encrypted at rest with the existing system secret.',
         )}
-      </div>
+        actions={
+          <Hint content={tr('刷新', 'Refresh')}>
+            <RowAction icon={RefreshCw} onClick={() => void load()} disabled={loading}>
+              {tr('刷新', 'Refresh')}
+            </RowAction>
+          </Hint>
+        }
+      />
 
       {err && (
-        <div className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-400">{err}</div>
+        <div className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[11px] text-red-400">{err}</div>
       )}
 
-      {/* add form */}
-      <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-        <div className="text-[12px] font-medium text-zinc-300">{tr('新增凭据', 'Add credential')}</div>
+      <SectionCard
+        title={tr('新增凭据', 'Add credential')}
+        footer={
+          <Button variant="primary" size="sm"
+            type="button"
+            onClick={() => void onAdd()}
+            disabled={busy || !name.trim()}
+          >
+            <Plus size={12} />
+            {tr('保存凭据', 'Save credential')}
+          </Button>
+        }
+      >
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={tr('名称（如 tencent-prod）', 'Name (e.g. tencent-prod)')}
-            className="font-mono outline-none"
+            className="font-mono"
           />
           <Select label={tr('凭证类型', 'Credential type')}
             value={typeName}
@@ -170,23 +173,22 @@ export default function SecretsPage() {
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             placeholder={tr('备注（可选）', 'Description (optional)')}
-            className="outline-none"
           />
         </div>
 
         {/* typed fields */}
         {!isCustom && selectedType && (
-          <div className="space-y-1.5">
+          <div className="mt-3 space-y-2">
             {selectedType.fields.map((f) => (
               <div key={f.key} className="flex items-center gap-2">
-                <Label className="w-40 shrink-0 text-[12px] text-zinc-400">{f.label}</Label>
+                <Label className="w-40 shrink-0 text-[11px] text-zinc-400">{f.label}</Label>
                 <Input
                   value={typedVals[f.key] ?? ''}
                   onChange={(e) => setTypedVals((v) => ({ ...v, [f.key]: e.target.value }))}
                   type={f.secret ? 'password' : 'text'}
                   autoComplete="new-password"
                   placeholder={f.key}
-                  className="flex-1 outline-none"
+                  className="flex-1"
                 />
               </div>
             ))}
@@ -201,7 +203,7 @@ export default function SecretsPage() {
 
         {/* custom free-form fields */}
         {isCustom && (
-          <div className="space-y-1.5">
+          <div className="mt-3 space-y-2">
             <div className="text-[11px] text-zinc-500">{tr('字段（键 = 环境变量名 / 值）', 'Fields (key = env var name / value)')}</div>
             {rows.map((row, i) => (
               <div key={i} className="flex items-center gap-2">
@@ -209,7 +211,7 @@ export default function SecretsPage() {
                   value={row.key}
                   onChange={(e) => setRow(i, { key: e.target.value })}
                   placeholder={tr('字段名（如 GITHUB_TOKEN）', 'field key (e.g. GITHUB_TOKEN)')}
-                  className="w-48 font-mono outline-none"
+                  className="w-48 font-mono"
                 />
                 <Input
                   value={row.value}
@@ -217,50 +219,36 @@ export default function SecretsPage() {
                   type="password"
                   autoComplete="new-password"
                   placeholder={tr('值', 'value')}
-                  className="flex-1 outline-none"
+                  className="flex-1"
                 />
-                <Hint content={tr('删除字段', 'Remove field')}><Button variant="outline" size="sm"
-                  type="button"
-                  onClick={() => removeRow(i)}
-                  className="p-1.5"
-
-                >
-                  <X size={13} />
-                </Button></Hint>
+                <Hint content={tr('删除字段', 'Remove field')}>
+                  <RowActionIcon
+                    icon={X}
+                    label={tr('删除字段', 'Remove field')}
+                    onClick={() => removeRow(i)}
+                  />
+                </Hint>
               </div>
             ))}
-            <Button variant="subtle" size="sm" type="button" onClick={addRow} className="inline-flex items-center gap-1 text-indigo-400">
+            <Button variant="subtle" size="sm" type="button" onClick={addRow} className="gap-1 text-indigo-400">
               <Plus size={12} />
               {tr('加字段', 'Add field')}
             </Button>
           </div>
         )}
+      </SectionCard>
 
-        <div>
-          <Button variant="primary" size="sm"
-            type="button"
-            onClick={() => void onAdd()}
-            disabled={busy || !name.trim()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 font-medium"
-          >
-            <Plus size={13} />
-            {tr('保存凭据', 'Save credential')}
-          </Button>
-        </div>
-      </div>
-
-      {/* list */}
-      <div className="overflow-hidden rounded-lg border border-zinc-800">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-zinc-800 bg-zinc-900/40 text-left text-[11px] uppercase tracking-wide text-zinc-500">
-              <th className="px-3 py-2 font-medium">{tr('名称', 'Name')}</th>
-              <th className="px-3 py-2 font-medium">{tr('类型', 'Type')}</th>
-              <th className="px-3 py-2 font-medium">{tr('字段', 'Fields')}</th>
-              <th className="px-3 py-2" />
+      <TableCard>
+        <table className="og-action-table w-full text-left text-[12px]">
+          <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
+            <tr>
+              <th className="px-3 py-1.5 font-medium">{tr('名称', 'Name')}</th>
+              <th className="px-3 py-1.5 font-medium">{tr('类型', 'Type')}</th>
+              <th className="px-3 py-1.5 font-medium">{tr('字段', 'Fields')}</th>
+              <th className="px-3 py-1.5" />
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-zinc-800/50">
             {loading ? (
               <tr>
                 <td colSpan={4} className="px-3 py-6 text-center text-[12px] text-zinc-500">
@@ -275,7 +263,7 @@ export default function SecretsPage() {
               </tr>
             ) : (
               items.map((s) => (
-                <tr key={s.id} className="border-b border-zinc-800/60 last:border-0">
+                <tr key={s.id} className="transition-colors hover:bg-zinc-800/30">
                   <td className="px-3 py-2 font-mono text-[12px] text-zinc-200">{s.name}</td>
                   <td className="px-3 py-2 text-[12px] text-zinc-400">
                     {types.find((t) => t.name === s.type)?.label ?? s.type ?? CUSTOM}
@@ -286,30 +274,28 @@ export default function SecretsPage() {
                         <span className="text-[11px] text-zinc-600">—</span>
                       ) : (
                         s.field_keys.map((k) => (
-                          <span key={k} className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[11px] text-zinc-400">
-                            {k}
-                          </span>
+                          <Chip key={k} dense className="font-mono">{k}</Chip>
                         ))
                       )}
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-right">
-                    <Hint content={tr('删除', 'Delete')}><Button variant="dangerGhost" size="sm"
-                      type="button"
-                      onClick={() => void onDelete(s.id)}
-                      disabled={busy}
-                      className="p-1"
-
-                    >
-                      <Trash2 size={13} />
-                    </Button></Hint>
+                  <td className="px-3 py-1 text-right">
+                    <Hint content={tr('删除', 'Delete')}>
+                      <RowActionIcon
+                        icon={Trash2}
+                        label={tr('删除', 'Delete')}
+                        tone="danger"
+                        disabled={busy}
+                        onClick={() => void onDelete(s.id)}
+                      />
+                    </Hint>
                   </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
-      </div>
+      </TableCard>
     </div>
   );
 }

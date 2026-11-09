@@ -13,7 +13,7 @@ import {
   type LLMConfigurationProbeResult,
   type SystemSetting,
 } from '@/api/settings';
-import { Button, Card, Chip } from '@/components/ui';
+import { Button, Card, Chip, RowAction, RowActionIcon, SectionCard } from '@/components/ui';
 import { ProviderIcon } from '@/components/icons/Provider';
 import { SettingsProviderPicker } from '@/components/SettingsProviderPicker';
 import { cn } from '@/lib/cn';
@@ -286,23 +286,24 @@ export default function SettingsLLM() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3 text-[12px] text-zinc-400">
-        <div className="mb-1 flex items-center gap-2 text-zinc-200">
-          <Sparkles size={14} className="text-zinc-400" />
-          <span className="font-medium">{tr('LLM 模型', 'LLM models')}</span>
-        </div>
-        {tr('每个提供商可以配多个 model，聊天页的下拉就读这里。改 API key / 模型列表后 ', 'Each provider can host multiple models; the chat-page dropdown reads from here. Changes to API key / model list take effect ')}
-        <b>{tr('~60 秒内自动生效', 'within ~60 seconds')}</b>
-        {tr('，保存时也会立刻让 manager 失效缓存（通常 1 秒内）。留空 API key = 该提供商不出现在聊天页下拉里。', ', and saving also instantly invalidates the manager cache (usually within 1 s). Leaving the API key blank hides the provider from the chat dropdown.')}
-        <div className="mt-1 text-zinc-500">
-          {tr('测试配置会由 Manager 对列表中的每个模型发起一次最小请求，可能消耗少量 token；非空配置保存前必须全部验证通过。', 'The Manager tests every listed model with one minimal request, which may consume a few tokens; all models in a non-empty configuration must pass before saving.')}
-        </div>
-      </div>
+      <SectionCard
+        title={<span className="inline-flex items-center gap-2"><Sparkles size={13} className="text-zinc-400" />{tr('LLM 模型', 'LLM models')}</span>}
+        description={
+          <>
+            {tr('每个提供商可以配多个 model，聊天页的下拉就读这里。改 API key / 模型列表后 ', 'Each provider can host multiple models; the chat-page dropdown reads from here. Changes to API key / model list take effect ')}
+            <b className="font-medium text-zinc-300">{tr('~60 秒内自动生效', 'within ~60 seconds')}</b>
+            {tr('，保存时也会立刻让 manager 失效缓存（通常 1 秒内）。留空 API key = 该提供商不出现在聊天页下拉里。', ', and saving also instantly invalidates the manager cache (usually within 1 s). Leaving the API key blank hides the provider from the chat dropdown.')}
+            <span className="mt-1 block text-zinc-600">
+              {tr('测试配置会由 Manager 对列表中的每个模型发起一次最小请求，可能消耗少量 token；非空配置保存前必须全部验证通过。', 'The Manager tests every listed model with one minimal request, which may consume a few tokens; all models in a non-empty configuration must pass before saving.')}
+            </span>
+          </>
+        }
+      />
       {loadError ? (
-        <Card className="p-4 text-sm text-red-400">{loadError}</Card>
+        <Card className="px-4 py-3 text-[11px] text-red-300">{loadError}</Card>
       ) : settings === null ? (
-        <Card className="flex h-24 items-center justify-center text-sm text-zinc-500">
-          <Loader2 size={14} className="mr-2 animate-spin" /> {tr('加载模型配置…', 'Loading model configuration…')}
+        <Card className="flex h-24 items-center justify-center text-[11px] text-zinc-500">
+          <Loader2 size={13} className="mr-2 animate-spin" /> {tr('加载模型配置…', 'Loading model configuration…')}
         </Card>
       ) : (
         <>
@@ -601,17 +602,40 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
   };
 
   return (
-    <Card className="p-5" data-testid={`llm-provider-${meta.id}`}>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <ProviderIcon provider={meta.id} size={16} />
-        <h2 className="text-sm font-medium text-zinc-100">{tr(meta.label, meta.labelEn ?? meta.label)}</h2>
-        {configured ? <Chip tone="success">{tr('已配置', 'Configured')}</Chip> : <Chip>{tr('未配置', 'Not configured')}</Chip>}
-      </div>
-      <p className="mb-4 text-[11px] text-zinc-500">{tr(meta.hintZh, meta.hintEn)}</p>
-
+    <SectionCard
+      testId={`llm-provider-${meta.id}`}
+      title={<span className="inline-flex items-center gap-2"><ProviderIcon provider={meta.id} size={14} />{tr(meta.label, meta.labelEn ?? meta.label)}</span>}
+      description={tr(meta.hintZh, meta.hintEn)}
+      actions={configured ? <Chip dense tone="success">{tr('已配置', 'Configured')}</Chip> : <Chip dense>{tr('未配置', 'Not configured')}</Chip>}
+      footer={!loading ? (
+        <>
+          <span className="mr-auto text-[11px] text-zinc-500">
+            {dirty
+              ? tr('有未保存修改', 'Unsaved changes')
+              : configured
+                ? tr(`当前默认模型: ${draft.default_model || '(未设)'}`, `Current default model: ${draft.default_model || '(unset)'}`)
+                : ''}
+          </span>
+          {err && <span className="break-all text-[11px] text-red-400">{err}</span>}
+          <Button size="sm"
+            onClick={() => void testDraft()}
+            disabled={fetchingModels || saving || probe.kind === 'testing' || draft.api_key.trim() === ''}
+          >
+            {probe.kind === 'testing' ? <Loader2 size={12} className="animate-spin" /> : <PlugZap size={12} />}
+            <span>{probe.kind === 'testing' ? tr('检测中…', 'Testing…') : tr('测试配置', 'Test configuration')}</span>
+          </Button>
+          <Button size="sm" onClick={submit} disabled={fetchingModels || !dirty || saving || probe.kind === 'testing'} variant="primary">
+            {savedOk && !dirty ? <Check size={12} /> : <Save size={12} />}
+            <span>{saving
+              ? probe.kind === 'testing' ? tr('校验中…', 'Validating…') : tr('保存中…', 'Saving…')
+              : savedOk && !dirty ? tr('已保存', 'Saved') : tr('保存', 'Save')}</span>
+          </Button>
+        </>
+      ) : undefined}
+    >
       {loading ? (
-        <div className="flex h-20 items-center justify-center text-sm text-zinc-500">
-          <Loader2 size={14} className="mr-2 animate-spin" /> {tr('加载中…', 'Loading…')}
+        <div className="flex h-16 items-center justify-center text-[11px] text-zinc-500">
+          <Loader2 size={13} className="mr-2 animate-spin" /> {tr('加载中…', 'Loading…')}
         </div>
       ) : (
         <div className="space-y-3">
@@ -685,8 +709,8 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
 
           <div>
             <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-xs text-zinc-400">{tr('模型列表', 'Models')}</span>
-              <Button
+              <span className="text-[11px] uppercase tracking-wide text-zinc-500">{tr('模型列表', 'Models')}</span>
+              <Button size="sm"
                 onClick={() => void loadModels()}
                 disabled={fetchingModels || saving || probe.kind === 'testing' || draft.api_key.trim() === '' || (meta.custom && draft.base_url.trim() === '')}
               >
@@ -710,28 +734,25 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
                     >
                       <code className="min-w-0 break-all font-mono text-zinc-100">{m}</code>
                       {isDefault && (
-                        <span className="inline-flex items-center gap-0.5 rounded border border-emerald-700/60 bg-emerald-900/20 px-1 text-[10px] text-emerald-300">
+                        <Chip dense tone="success">
                           <Star size={9} /> {tr('默认', 'Default')}
-                        </span>
+                        </Chip>
                       )}
                       <span className="ml-auto flex shrink-0 items-center gap-1">
                         {!isDefault && (
-                          <Button variant="subtle" size="sm"
-                            type="button"
+                          <RowAction
+                            icon={Check}
                             onClick={() => setDefault(m)}
-                            className="px-1.5 py-0.5"
                           >
                             {tr('设为默认', 'Set default')}
-                          </Button>
+                          </RowAction>
                         )}
-                        <Button variant="dangerGhost" size="sm"
-                          type="button"
+                        <RowActionIcon
+                          icon={Trash2}
+                          label={tr(`移除 ${m}`, `Remove ${m}`)}
+                          tone="danger"
                           onClick={() => removeModel(m)}
-                          aria-label={tr(`移除 ${m}`, `Remove ${m}`)}
-                          className="p-1"
-                        >
-                          <Trash2 size={11} />
-                        </Button>
+                        />
                       </span>
                     </li>
                   );
@@ -756,7 +777,6 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
                 type="button"
                 onClick={addModel}
                 disabled={newModel.trim() === ''}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5"
               >
                 <Plus size={12} />
                 {tr('添加', 'Add')}
@@ -768,7 +788,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
 
       {meta.custom && !loading && (
         <div className="mt-4 space-y-1">
-          <label className="flex items-center gap-2 text-xs text-zinc-400">
+          <label className="flex items-center gap-2 text-[11px] text-zinc-400">
             <input
               type="checkbox"
               checked={draft.tls_insecure}
@@ -777,38 +797,15 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
             {tr('跳过 TLS 校验（自签证书时勾选）', 'Skip TLS verification (for self-signed certificates)')}
           </label>
           {draft.tls_insecure && (
-            <p className="text-xs text-amber-500">
+            <p className="text-[11px] text-amber-500">
               {tr('将不验证服务端证书，仅用于可信内网。获取模型、测试和保存后的对话均生效。', 'Server certificates will not be verified. Use only on trusted networks; applies to model discovery, testing and saved chats.')}
             </p>
           )}
         </div>
       )}
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button
-          onClick={() => void testDraft()}
-          disabled={fetchingModels || saving || probe.kind === 'testing' || draft.api_key.trim() === ''}
-        >
-          {probe.kind === 'testing' ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}
-          <span>{probe.kind === 'testing' ? tr('检测中…', 'Testing…') : tr('测试配置', 'Test configuration')}</span>
-        </Button>
-        <Button onClick={submit} disabled={fetchingModels || !dirty || saving || probe.kind === 'testing'} variant="primary">
-          {savedOk && !dirty ? <Check size={14} /> : <Save size={14} />}
-          <span>{saving
-            ? probe.kind === 'testing' ? tr('校验中…', 'Validating…') : tr('保存中…', 'Saving…')
-            : savedOk && !dirty ? tr('已保存', 'Saved') : tr('保存', 'Save')}</span>
-        </Button>
-        <span className="text-xs text-zinc-500">
-          {dirty
-            ? tr('有未保存修改', 'Unsaved changes')
-            : configured
-              ? tr(`当前默认模型: ${draft.default_model || '(未设)'}`, `Current default model: ${draft.default_model || '(unset)'}`)
-              : ''}
-        </span>
-        {err && <span className="break-all text-xs text-red-400">{err}</span>}
-      </div>
       <LLMProbeLine probe={probe} />
-    </Card>
+    </SectionCard>
   );
 }
 
@@ -817,7 +814,7 @@ function LLMProbeLine({ probe }: { probe: LLMProbeState }) {
   if (probe.kind === 'idle' || probe.kind === 'testing') return null;
   if (probe.kind === 'ok') {
     return (
-      <p className="mt-3 text-xs text-emerald-500">
+      <p className="mt-3 text-[11px] text-emerald-500">
         {tr('✓ 配置可用', '✓ Configuration works')}
         {probe.result.model ? ` · ${probe.result.model}` : ''}
         {probe.result.latency_ms > 0 ? ` · ${probe.result.latency_ms} ms` : ''}
@@ -827,7 +824,7 @@ function LLMProbeLine({ probe }: { probe: LLMProbeState }) {
 
   const copy = llmProbeFailureCopy(probe.result.code);
   return (
-    <div className="mt-3 space-y-1 text-xs">
+    <div className="mt-3 space-y-1 text-[11px]">
       <p className="text-red-500">
         ✗ {tr(copy.titleZh, copy.titleEn)}
         {probe.result.detail ? <span className="break-all text-red-400"> · {probe.result.detail}</span> : null}
@@ -888,13 +885,9 @@ function FieldRow({
   const inputType = sensitive ? (revealed ? 'text' : 'password') : 'text';
   return (
     <Label className="block">
-      <span className="mb-1 flex items-center gap-1.5 text-xs text-zinc-400">
+      <span className="mb-1 flex items-center gap-1.5 text-[11px] text-zinc-400">
         {label}
-        {sensitive && (
-          <span className="rounded border border-amber-700/50 bg-amber-900/20 px-1 text-[10px] text-amber-300">
-            sensitive
-          </span>
-        )}
+        {sensitive && <Chip dense tone="warning">sensitive</Chip>}
       </span>
       <div className="relative">
         <Input

@@ -21,8 +21,9 @@ import { emitChatLive } from '@/lib/chatLiveBus';
 import { cn } from '@/lib/cn';
 import { isConfigDraftConfirmationMessage } from '@/lib/configDraftConfirmation';
 import { useI18n } from '@/i18n/locale';
-import { Button } from '@/components/ui';
+import { Button, Chip, CodeBlock, StatusPill } from '@/components/ui';
 import { Modal } from '@/components/Modal';
+import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 
 export type ConfigDraftResult = {
@@ -237,8 +238,8 @@ function ToolCallSummaryBlock({
   return (
     <div
       className={cn(
-        'w-full overflow-hidden rounded-lg bg-zinc-900/40 text-xs ring-1',
-        isError ? 'ring-red-500/30' : 'ring-zinc-800/80',
+        'w-full overflow-hidden rounded-lg border bg-zinc-900/40 text-xs',
+        isError ? 'border-red-500/30' : 'border-zinc-800/60',
       )}
     >
       <button
@@ -256,17 +257,15 @@ function ToolCallSummaryBlock({
           </span></Hint>
         )}
         {typeof call.device_id === 'number' && (
-          <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
-            host#{call.device_id}
-          </span>
+          <Chip dense className="font-mono">host#{call.device_id}</Chip>
         )}
         <span className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500">
           {typeof call.duration_ms === 'number' && call.duration_ms > 0 && (
             <span>{formatDuration(call.duration_ms)}</span>
           )}
-          {status === 'unknown' && <span className="text-zinc-500">{tr('状态未知', 'Status unknown')}</span>}
-          {isPending && <span className="text-blue-400">{tr('运行中', 'Running')}</span>}
-          {isError && <span className="text-red-400">{tr('失败', 'Failed')}</span>}
+          {status === 'unknown' && <StatusPill tone="neutral" label={tr('状态未知', 'Status unknown')} />}
+          {isPending && <StatusPill tone="info" pulse label={tr('运行中', 'Running')} />}
+          {isError && <StatusPill tone="danger" label={tr('失败', 'Failed')} />}
           {open ? (
             <ChevronDown size={13} className="text-zinc-500" />
           ) : (
@@ -278,25 +277,22 @@ function ToolCallSummaryBlock({
         <ConfigDraftCard draft={configDraft} onConfirm={onConfirmConfigDraft} />
       )}
       {open && (
-        <div className="border-t border-zinc-800/80 bg-zinc-950/40 px-3 py-2">
+        <div className="border-t border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
           {call.arguments !== undefined && (
             <div className="mb-2">
-              <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">{tr('参数', 'Arguments')}</div>
-              <pre className="max-h-48 overflow-auto text-[11px] leading-5 text-zinc-300">
-                {typeof call.arguments === 'string'
-                  ? call.arguments
-                  : JSON.stringify(call.arguments, null, 2)}
-              </pre>
+              <div className="mb-1 text-[11px] uppercase tracking-wide text-zinc-500">{tr('参数', 'Arguments')}</div>
+              <CodeBlock maxHeightClassName="max-h-48">
+                {typeof call.arguments === 'string' ? call.arguments : (JSON.stringify(call.arguments, null, 2) ?? '')}
+              </CodeBlock>
             </div>
           )}
           {call.result !== undefined && (
             <div>
-              <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">{tr('结果', 'Result')}</div>
-              <pre className="max-h-72 overflow-auto text-[11px] leading-5 text-zinc-300">
-                {typeof call.result === 'string'
-                  ? call.result
-                  : JSON.stringify(call.result, null, 2)}
-              </pre>
+              <SourcesBlock toolName={call.name} result={call.result} />
+              <div className="mb-1 text-[11px] uppercase tracking-wide text-zinc-500">{tr('结果', 'Result')}</div>
+              <CodeBlock>
+                {typeof call.result === 'string' ? call.result : (JSON.stringify(call.result, null, 2) ?? '')}
+              </CodeBlock>
             </div>
           )}
           {call.error && (
@@ -307,6 +303,82 @@ function ToolCallSummaryBlock({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+type SourceItem = { title: string; href?: string; excerpt?: string; score?: number };
+
+function extractSources(toolName: string, result: unknown): SourceItem[] {
+  if (result === null || typeof result !== 'object') return [];
+  const obj = result as Record<string, unknown>;
+  const rawList = Array.isArray(obj.items)
+    ? obj.items
+    : Array.isArray(obj.results)
+      ? obj.results
+      : null;
+  if (rawList === null) return [];
+  if (toolName !== 'query_knowledge' && toolName !== 'web_search') {
+    // 其它工具也可能返回 items，但本近程只统一知识/网页搜索来源区
+    if (toolName.indexOf('search') < 0 && toolName.indexOf('knowledge') < 0) {
+      return [];
+    }
+  }
+  const out: SourceItem[] = [];
+  for (const raw of rawList) {
+    if (raw === null || typeof raw !== 'object') continue;
+    const row = raw as Record<string, unknown>;
+    if (typeof row.title !== 'string' || row.title === '') continue;
+    const item: SourceItem = { title: row.title };
+    if (typeof row.url === 'string' && row.url !== '') item.href = row.url;
+    else if (typeof row.doc_id === 'string' && row.doc_id !== '') {
+      item.href = `/knowledge?doc=${encodeURIComponent(row.doc_id)}`;
+    }
+    if (typeof row.excerpt === 'string') item.excerpt = row.excerpt;
+    else if (typeof row.snippet === 'string') item.excerpt = row.snippet;
+    if (typeof row.score === 'number') item.score = row.score;
+    out.push(item);
+  }
+  return out;
+}
+
+function SourcesBlock({ toolName, result }: { toolName: string; result: unknown }) {
+  const { tr } = useI18n();
+  const sources = extractSources(toolName, result);
+  if (sources.length === 0) return null;
+  return (
+    <div className="mb-3">
+      <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">
+        {tr('来源', 'Sources')}
+      </div>
+      <ul className="space-y-2">
+        {sources.map((s, i) => (
+          <li key={`${s.title}-${i}`} className="rounded-lg border border-zinc-800/60 bg-zinc-900/40 px-2.5 py-1.5">
+            <div className="flex items-center gap-2">
+              {s.href ? (
+                <a
+                  href={s.href}
+                  className="truncate text-[12px] text-sky-300 hover:underline"
+                  target={s.href.startsWith('http') ? '_blank' : undefined}
+                  rel={s.href.startsWith('http') ? 'noreferrer' : undefined}
+                >
+                  {s.title}
+                </a>
+              ) : (
+                <span className="truncate text-[12px] text-zinc-200">{s.title}</span>
+              )}
+              {typeof s.score === 'number' && (
+                <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500">
+                  {s.score.toFixed(3)}
+                </span>
+              )}
+            </div>
+            {s.excerpt ? (
+              <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-zinc-500">{s.excerpt}</p>
+            ) : null}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -332,10 +404,8 @@ function ConfigDraftCard({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-			{proposal && <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">{tr('提案', 'Proposal')}</span>}
-            <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">
-              {domainLabel(draft.domain, tr)}
-            </span>
+			{proposal && <Chip dense>{tr('提案', 'Proposal')}</Chip>}
+            <Chip dense>{domainLabel(draft.domain, tr)}</Chip>
             {draft.action && (
               <span className="text-[11px] uppercase text-zinc-500">{draft.action}</span>
             )}
@@ -343,7 +413,7 @@ function ConfigDraftCard({
               <span className="truncate text-[11px] text-zinc-500">{draft.target.name}</span>
             )}
           </div>
-          <div className="text-sm font-medium text-zinc-100">
+          <div className="text-[12.5px] font-medium text-zinc-100">
             {proposal?.title || draft.summary || tr('配置草案', 'Configuration draft')}
           </div>
           {scope && <div className="text-[11px] leading-5 text-zinc-300">{scope}</div>}
@@ -366,6 +436,7 @@ function ConfigDraftCard({
         <div className="flex shrink-0 items-center gap-2">
           <Button
             variant="primary"
+            size="sm"
             disabled={disabled}
             onClick={async () => {
               if (!onConfirm) return;
@@ -387,6 +458,7 @@ function ConfigDraftCard({
           </Button>
           <Button
             variant="ghost"
+            size="sm"
             disabled={state !== 'idle'}
             onClick={() => setState('cancelled')}
           >
@@ -550,6 +622,7 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
   const [approvalKind, setApprovalKind] = useState(kind);
   const [approvedToolName, setApprovedToolName] = useState(toolName);
   const [creds, setCreds] = useState<string[]>([]);
+  const [rejectOpen, setRejectOpen] = useState(false);
   const isHostBash = approvalKind === 'host_bash';
 
   // 与审批页权威状态对齐：mount 拉一次；idle 时短轮询，跨页批准后能切到已执行。
@@ -643,18 +716,24 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [approvalID]);
 
+  // 批准直接执行，不再二次确认弹窗。
   const approve = async () => {
     setState('busy');
+    emitChatLive({ type: 'approval_decided', approvalId: approvalID });
     emitChatLive({ type: 'busy', busy: true });
     try {
       // 走 SSE 续跑：正文/思考增量交给 ChatThread 打字机渲染
-      const a = await streamApproveApproval(approvalID, {
-        onThinkingDelta: (event) => emitChatLive({ type: 'thinking_delta', event }),
-        onAssistantDelta: (event) => emitChatLive({ type: 'assistant_delta', event }),
-        onToolStart: (event) => emitChatLive({ type: 'tool_start', event }),
-        onToolEnd: (event) => emitChatLive({ type: 'tool_end', event }),
-        onApprovalPending: (event) => emitChatLive({ type: 'approval_pending', event }),
-      });
+      const a = await streamApproveApproval(
+        approvalID,
+        '',
+        {
+          onThinkingDelta: (event) => emitChatLive({ type: 'thinking_delta', event }),
+          onAssistantDelta: (event) => emitChatLive({ type: 'assistant_delta', event }),
+          onToolStart: (event) => emitChatLive({ type: 'tool_start', event }),
+          onToolEnd: (event) => emitChatLive({ type: 'tool_end', event }),
+          onApprovalPending: (event) => emitChatLive({ type: 'approval_pending', event }),
+        },
+      );
       if (a === null) {
         throw new Error('审批流未返回 approval_done');
       }
@@ -673,41 +752,57 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
       emitChatLive({ type: 'busy', busy: false });
     }
   };
-  const reject = async () => {
+
+  const rejectWithReason = async (reason: string) => {
     setState('busy');
+    emitChatLive({ type: 'approval_decided', approvalId: approvalID });
     try {
-      await rejectApproval(approvalID, '');
+      await rejectApproval(approvalID, reason);
       setState('rejected');
       requestChatRefetch();
     } catch (e) {
-      setState('error');
-      setErrText((e as Error).message);
+      setState('idle');
+      throw e;
     }
   };
 
+  const pill: { tone: 'warn' | 'info' | 'ok' | 'danger' | 'neutral'; label: string; pulse?: boolean } =
+    state === 'done'
+      ? { tone: 'ok', label: tr('已执行', 'Executed') }
+      : state === 'rejected'
+        ? { tone: 'neutral', label: tr('已拒绝', 'Rejected') }
+        : state === 'error'
+          ? { tone: 'danger', label: tr('执行失败', 'Failed') }
+          : state === 'busy'
+            ? { tone: 'info', label: tr('执行中', 'Running'), pulse: true }
+            : state === 'stale'
+              ? { tone: 'neutral', label: tr('已失效', 'Expired') }
+              : state === 'loading'
+                ? { tone: 'neutral', label: tr('加载中', 'Loading') }
+                : { tone: 'warn', label: tr('待确认', 'Pending') };
+
   return (
-    <div className="w-full overflow-hidden rounded-lg bg-zinc-900/30 text-xs ring-1 ring-zinc-800/80">
+    <div className="w-full overflow-hidden rounded-lg border border-zinc-800/60 bg-zinc-900/40 text-xs">
       <div className="flex items-center gap-2 border-b border-zinc-800/60 px-3 py-2">
         <ShieldAlert size={13} className="text-amber-500/90" />
-        <span className="font-medium text-zinc-200">
+        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-zinc-200">
           {isHostBash
             ? tr('需要你确认才能在边端主机执行', 'Needs your approval to run on the edge host')
             : approvalKind === 'cloud_bash'
               ? tr('需要你确认才能在云端执行', 'Needs your approval to run in the cloud')
               : tr(`需要你确认才能执行 ${approvedToolName}`, `Needs your approval to run ${approvedToolName}`)}
         </span>
+        <StatusPill tone={pill.tone} label={pill.label} pulse={pill.pulse} className="shrink-0" />
       </div>
-      <div className="px-3 pb-2.5">
-        <pre className="mb-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-zinc-950 p-2 text-[11px] text-zinc-300">
+      <div className="px-3 pb-2.5 pt-2">
+        <CodeBlock maxHeightClassName="max-h-40" className="mb-2">
           {cmd || tr('(待执行操作)', '(proposed action)')}
-        </pre>
+        </CodeBlock>
         {creds.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center gap-1 text-[11px] text-zinc-400">
             <span>{tr('将注入凭证：', 'Injects credentials: ')}</span>
             {creds.map((c) => (
-              <span key={c} className="rounded bg-zinc-800/60 px-1.5 py-0.5 font-mono text-zinc-300 ring-1 ring-zinc-700/50">
-                {c}
-              </span>
+              <Chip key={c} dense className="font-mono">{c}</Chip>
             ))}
           </div>
         )}
@@ -724,18 +819,16 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
         )}
         {state === 'idle' && (
           <div className="flex gap-2">
-            <Button variant="outline" size="sm"
+            <Button variant="primary" size="sm"
               type="button"
               onClick={() => void approve()}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-emerald-300"
             >
               <Check size={12} />
               {tr('批准并执行', 'Approve & run')}
             </Button>
             <Button variant="dangerGhost" size="sm"
               type="button"
-              onClick={() => void reject()}
-              className="inline-flex items-center gap-1 px-2.5 py-1"
+              onClick={() => setRejectOpen(true)}
             >
               <X size={12} />
               {tr('拒绝', 'Reject')}
@@ -746,12 +839,15 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
         {state === 'rejected' && <div className="text-zinc-500">{tr('已拒绝，未执行', 'Rejected — not run')}</div>}
         {state === 'error' && <div className="break-all text-red-400">{errText}</div>}
         {state === 'done' && (
-          <div>
-            <div className="mb-1 text-emerald-400">{tr('已执行', 'Executed')}</div>
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-all rounded bg-zinc-950 p-2 text-[11px] text-zinc-300">{prettyResult(resultText)}</pre>
-          </div>
+          <CodeBlock maxHeightClassName="max-h-56">{prettyResult(resultText)}</CodeBlock>
         )}
       </div>
+      <RejectApprovalDialog
+        open={rejectOpen}
+        subject={approvedToolName}
+        onClose={() => setRejectOpen(false)}
+        onConfirm={rejectWithReason}
+      />
     </div>
   );
 }

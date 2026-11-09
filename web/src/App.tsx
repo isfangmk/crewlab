@@ -17,6 +17,9 @@ const ApprovalDetailPage = lazy(() => import('@/pages/ApprovalDetail'));
 const AgentsPage = lazy(() => import('@/pages/Agents'));
 const McpPage = lazy(() => import('@/pages/Mcp'));
 const KnowledgePage = lazy(() => import('@/pages/Knowledge'));
+const SessionsPage = lazy(() => import('@/pages/Sessions'));
+const ObservabilityPage = lazy(() => import('@/pages/Observability'));
+const ShareViewPage = lazy(() => import('@/pages/ShareView'));
 const SettingsLayout = lazy(() => import('@/pages/SettingsLayout'));
 const SettingsLLM = lazy(() => import('@/pages/settings/LLM'));
 const SettingsPreferences = lazy(() => import('@/pages/settings/Preferences'));
@@ -57,6 +60,7 @@ export default function App() {
           </PublicOnly>
         }
       />
+      <Route path="/share/:token" element={<ShareViewPage />} />
       <Route
         element={
           <RequireAuth>
@@ -68,10 +72,12 @@ export default function App() {
           <Route path="/" element={<HomePage key={location.key} />} />
           <Route path="/chat/:sessionId" element={<ChatThreadPage />} />
         </Route>
+        <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/skills" element={<SkillsPage />} />
         <Route path="/tools" element={<ToolsPage />} />
         <Route path="/approvals" element={<ApprovalsPage />} />
         <Route path="/approvals/:id" element={<ApprovalDetailPage key={location.pathname} />} />
+        <Route path="/observability" element={<ObservabilityPage />} />
         <Route path="/agents" element={<AgentsPage />} />
         <Route path="/mcp" element={<McpPage />} />
         <Route path="/knowledge" element={<KnowledgePage />} />

@@ -52,6 +52,8 @@ export type ChatSession = {
   model?: string | null;
   created_at?: string;
   updated_at?: string;
+  pinned?: boolean;
+  archived?: boolean;
 };
 
 export type AssistantMessage = {
@@ -74,11 +76,108 @@ export type PostMessageResponse = {
   iterations: number;
 };
 
-export function listSessions(params?: { related_incident_id?: number }) {
-  const qs = params?.related_incident_id != null
-    ? `?related_incident_id=${encodeURIComponent(String(params.related_incident_id))}`
-    : '';
-  return request<{ items: ChatSession[]; total: number }>('GET', `/chat/sessions${qs}`);
+export type SessionSortBy = 'title' | 'model' | 'updated_at' | 'agent_id' | 'created_at';
+export type SessionSortDir = 'asc' | 'desc';
+
+export function listSessions(params?: {
+  q?: string;
+  include_archived?: boolean;
+  agent_id?: string;
+  updated_from?: string;
+  updated_to?: string;
+  sort_by?: SessionSortBy;
+  sort_dir?: SessionSortDir;
+  limit?: number;
+  offset?: number;
+}) {
+  const sp = new URLSearchParams();
+  if (params?.q != null && params.q !== '') {
+    sp.set('q', params.q);
+  }
+  if (params?.include_archived === true) {
+    sp.set('include_archived', 'true');
+  }
+  if (params?.agent_id != null && params.agent_id !== '') {
+    sp.set('agent_id', params.agent_id);
+  }
+  if (params?.updated_from != null && params.updated_from !== '') {
+    sp.set('updated_from', params.updated_from);
+  }
+  if (params?.updated_to != null && params.updated_to !== '') {
+    sp.set('updated_to', params.updated_to);
+  }
+  if (params?.sort_by != null) {
+    sp.set('sort_by', params.sort_by);
+  }
+  if (params?.sort_dir != null) {
+    sp.set('sort_dir', params.sort_dir);
+  }
+  if (params?.limit != null) {
+    sp.set('limit', String(params.limit));
+  }
+  if (params?.offset != null) {
+    sp.set('offset', String(params.offset));
+  }
+  const qs = sp.toString();
+  return request<{ items: ChatSession[]; total: number }>(
+    'GET',
+    `/chat/sessions${qs ? `?${qs}` : ''}`,
+  );
+}
+
+export function batchDeleteSessions(ids: string[]) {
+  if (ids.length === 0) {
+    return Promise.reject(new ApiError('ids 不能为空', 422));
+  }
+  return request<{ deleted: number }>('POST', '/chat/sessions/batch-delete', { ids });
+}
+
+export function getSession(sessionId: string) {
+  if (sessionId === '') {
+    return Promise.reject(new ApiError('sessionId 不能为空', 400));
+  }
+  return request<ChatSession>('GET', `/chat/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+export function updateSessionFlags(
+  sessionId: string,
+  flags: { pinned?: boolean; archived?: boolean },
+) {
+  return request<ChatSession>(
+    'PATCH',
+    `/chat/sessions/${encodeURIComponent(sessionId)}/flags`,
+    flags,
+  );
+}
+
+export function forkSession(sessionId: string, upToMessageId: string) {
+  return request<ChatSession>(
+    'POST',
+    `/chat/sessions/${encodeURIComponent(sessionId)}/fork`,
+    { up_to_message_id: upToMessageId },
+  );
+}
+
+export async function exportSessionMarkdown(sessionId: string): Promise<string> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(
+    `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/export`,
+    { headers },
+  );
+  if (!res.ok) {
+    throw new Error(`导出失败 status=${res.status}`);
+  }
+  return res.text();
+}
+
+export function createSessionShare(sessionId: string, expiresInHours: number) {
+  return request<{ token: string; expires_at: string; session_id: string }>(
+    'POST',
+    `/chat/sessions/${encodeURIComponent(sessionId)}/share`,
+    { expires_in_hours: expiresInHours },
+  );
 }
 
 export function createSession(input: {
@@ -387,6 +486,39 @@ export async function streamMessage(
     signal,
   });
 
+  await consumeSseResponse(res, cbs);
+}
+
+/** 编辑用户消息并截断后续后重发。 */
+export async function streamEditResend(
+  sessionId: string | number,
+  messageId: string,
+  content: string,
+  cbs: StreamCallbacks,
+  opts: Pick<SendOptions, 'thinkingEnabled' | 'webSearchEnabled' | 'attachmentIds'>,
+  signal?: AbortSignal,
+): Promise<void> {
+  const headers: Record<string, string> = {
+    Accept: 'text/event-stream',
+    'Content-Type': 'application/json',
+  };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(
+    `/api/v1/chat/sessions/${encodeURIComponent(String(sessionId))}/messages/edit-resend`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        message_id: messageId,
+        content,
+        thinking_enabled: opts.thinkingEnabled,
+        web_search_enabled: opts.webSearchEnabled,
+        attachment_ids: opts.attachmentIds ?? [],
+      }),
+      signal,
+    },
+  );
   await consumeSseResponse(res, cbs);
 }
 

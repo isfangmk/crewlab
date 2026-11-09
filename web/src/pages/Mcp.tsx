@@ -1,5 +1,5 @@
 import { useAssistantPage } from '@/lib/assistantPage';
-import { Label, Input, Textarea } from '@/components/ui';
+import { FilterBar, Label, Input, SearchInput, Textarea } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { Switch } from '@/components/ui/Switch';
 import { Select } from '@/components/ui/Select';
@@ -16,7 +16,6 @@ import {
   PlugZap,
   Plus,
   RefreshCw,
-  Search,
   Server,
   ShieldCheck,
   Trash2,
@@ -40,7 +39,7 @@ import {
 } from '@/api/mcp';
 import { listSecrets, type SecretView } from '@/api/secrets';
 import { Modal } from '@/components/Modal';
-import { Button, Card, Chip, EmptyStateCard, PageHeader } from '@/components/ui';
+import { Button, Card, Chip, DetailSection, EmptyStateCard, PageHeader, RowAction } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
 
@@ -59,6 +58,7 @@ function emptyInput(): McpServerInput {
     credential: '',
     header_template_json: '{}',
     trusted: false,
+    approval_policy: 'always',
     enabled: true,
   };
 }
@@ -200,13 +200,17 @@ export default function McpPage() {
         }
         actions={
           <>
-            <Button onClick={() => void refresh()} disabled={loading} variant="ghost">
-              {loading ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+            <RowAction
+              icon={RefreshCw}
+              iconClassName={loading ? 'animate-spin' : undefined}
+              disabled={loading}
+              onClick={() => void refresh()}
+            >
               {tr('刷新', 'Refresh')}
-            </Button>
+            </RowAction>
             {isAdmin && (
-              <Button onClick={() => setEditing({ id: null, input: emptyInput() })} variant="primary">
-                <Plus size={13} />
+              <Button onClick={() => setEditing({ id: null, input: emptyInput() })} variant="primary" size="sm">
+                <Plus size={12} />
                 {tr('新建', 'New server')}
               </Button>
             )}
@@ -214,24 +218,18 @@ export default function McpPage() {
         }
       />
       {servers.length > 0 && (
-        <div className="border-b border-zinc-800 px-6 py-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <Label className="relative block w-64">
-              <span className="sr-only">{tr('搜索', 'Search')}</span>
-              <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-              <Input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={tr('搜索服务（名称 / 端点）…', 'Search servers (name / endpoint)…')}
-                className="w-full pl-8 pr-2"
-              />
-            </Label>
-            <span className="ml-auto text-xs text-zinc-500">
-              {tr(`${servers.length} 个 · 匹配 ${shownServers.length}`, `${servers.length} total · ${shownServers.length} matched`)}
-            </span>
-          </div>
-        </div>
+        <FilterBar className="mx-6 mt-3">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder={tr('搜索服务（名称 / 端点）…', 'Search servers (name / endpoint)…')}
+            ariaLabel={tr('搜索服务', 'Search servers')}
+            className="min-w-[16rem] flex-1"
+          />
+          <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
+            {tr(`${servers.length} 个 · 匹配 ${shownServers.length}`, `${servers.length} total · ${shownServers.length} matched`)}
+          </span>
+        </FilterBar>
       )}
 
       <div className="flex-1 space-y-4 overflow-auto px-6 py-4">
@@ -342,6 +340,7 @@ function toInput(s: McpServer): McpServerInput {
     credential: s.credential,
     header_template_json: s.header_template_json,
     trusted: s.trusted,
+    approval_policy: s.approval_policy ?? 'always',
     enabled: s.enabled,
   };
 }
@@ -413,14 +412,16 @@ function ServerRow({
       <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="button"
-          className="min-w-0 flex-1 rounded-md text-left hover:bg-zinc-900/40"
+          className="min-w-0 flex-1 rounded-md text-left"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
         >
           <div className="flex flex-wrap items-center gap-2">
-            {expanded ? <ChevronDown size={14} className="text-zinc-400" /> : <ChevronRight size={14} className="text-zinc-400" />}
-            <Server size={14} className="text-zinc-500" />
-            <span className="font-mono text-sm text-zinc-100">{server.name}</span>
+            {expanded ? <ChevronDown size={14} className="shrink-0 text-zinc-400" /> : <ChevronRight size={14} className="shrink-0 text-zinc-400" />}
+            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-indigo-500/20 text-indigo-300 ring-1 ring-inset ring-indigo-500/40">
+              <Server size={14} />
+            </span>
+            <span className="text-[12.5px] font-medium text-zinc-100">{server.name}</span>
             <Chip className="font-mono">{server.transport}</Chip>
             <StatusChip status={server.status} />
             {server.trusted && (
@@ -429,47 +430,67 @@ function ServerRow({
                 {tr('免审', 'trusted')}
               </Chip>
             )}
+            <Chip>{server.approval_policy ?? 'always'}</Chip>
+            {server.embedding_sync_status && server.embedding_sync_status !== 'idle' && (
+              <Chip
+                tone={
+                  server.embedding_sync_status === 'ok'
+                    ? 'info'
+                    : server.embedding_sync_status === 'error'
+                      ? 'warning'
+                      : 'default'
+                }
+                title={server.embedding_sync_error || undefined}
+              >
+                {`embed: ${server.embedding_sync_status}`}
+                {typeof server.embedding_sync_count === 'number'
+                  ? ` (${server.embedding_sync_count})`
+                  : ''}
+              </Chip>
+            )}
             {!server.enabled && <Chip tone="default">{tr('已停用', 'disabled')}</Chip>}
             <Chip tone="info">{tr(`${toolCount} 个工具`, `${toolCount} tool${toolCount === 1 ? '' : 's'}`)}</Chip>
           </div>
           <div className="mt-2 break-all font-mono text-[11px] text-zinc-500">{server.endpoint || '—'}</div>
         </button>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          <Button onClick={onTest} disabled={test?.loading} variant="ghost">
-            {test?.loading ? <Loader2 size={11} className="animate-spin" /> : <PlugZap size={11} />}
+          <RowAction
+            icon={test?.loading ? Loader2 : PlugZap}
+            iconClassName={test?.loading ? 'animate-spin' : undefined}
+            onClick={onTest}
+            disabled={test?.loading}
+          >
             {tr('测试连接', 'Test')}
-          </Button>
+          </RowAction>
           <Hint content={isAdmin ? undefined : tr('需要 admin 权限', 'Admin permission required')}>
-            <Button onClick={onEdit} disabled={!isAdmin} variant="ghost">
-              <Pencil size={11} />
+            <RowAction icon={Pencil} onClick={onEdit} disabled={!isAdmin}>
               {tr('编辑', 'Edit')}
-            </Button>
+            </RowAction>
           </Hint>
           <Hint content={isAdmin ? undefined : tr('需要 admin 权限', 'Admin permission required')}>
-            <Button onClick={onDelete} disabled={!isAdmin} variant="danger">
-              <Trash2 size={11} />
+            <RowAction icon={Trash2} tone="danger" onClick={onDelete} disabled={!isAdmin}>
               {tr('删除', 'Delete')}
-            </Button>
+            </RowAction>
           </Hint>
         </div>
       </div>
 
       {server.status === 'error' && server.last_error && (
-        <div className="mx-4 mb-3 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[11px] text-red-400">
+        <div className="mx-4 mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
           {server.last_error}
         </div>
       )}
 
       {test?.error && (
-        <div className="mx-4 mb-3 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[11px] text-red-400">
+        <div className="mx-4 mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
           {test.error}
         </div>
       )}
 
       {expanded && (
-        <div className="border-t border-zinc-800/80 bg-zinc-950/40 px-4 py-3">
+        <div className="border-t border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
           {loaded.error ? (
-            <div className="rounded-md border border-amber-900/40 bg-amber-950/20 px-3 py-2 text-[12px] text-amber-200">
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-300">
               {tr(
                 `工具缓存缺少参数定义：${loaded.error}。请点击「测试连接」重新拉取。`,
                 `Tool cache missing schema: ${loaded.error}. Click Test to refresh.`,
@@ -540,68 +561,59 @@ function ToolRow({
           <Chip tone="info" dense className="h-7 inline-flex items-center">
             {tr(`${fields.length} 个参数`, `${fields.length} parameter${fields.length === 1 ? '' : 's'}`)}
           </Chip>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2"
+          <RowAction
+            icon={Play}
             onClick={(e) => {
               e.stopPropagation();
               setRunOpen(true);
             }}
           >
-            <Play size={11} />
             {tr('运行', 'Run')}
-          </Button>
+          </RowAction>
         </div>
       </div>
 
       {open && (
         <div className="space-y-3 border-t border-zinc-800/70 px-3 py-3">
-          <div>
-            <div className="mb-1 text-[11px] uppercase tracking-wide text-zinc-500">{tr('描述', 'Description')}</div>
+          <DetailSection title={tr('描述', 'Description')}>
             <p className="text-[12px] leading-relaxed text-zinc-300">{tool.description || '—'}</p>
-          </div>
+          </DetailSection>
 
-          <div>
-            <div className="mb-1.5 text-[11px] uppercase tracking-wide text-zinc-500">{tr('参数', 'Parameters')}</div>
+          <DetailSection title={tr('参数', 'Parameters')}>
             {fields.length === 0 ? (
               <div className="text-[12px] text-zinc-500">{tr('无参数', 'No parameters')}</div>
             ) : (
-              <div className="overflow-hidden rounded-lg border border-zinc-800/80 bg-zinc-950/50 shadow-sm shadow-black/20">
-                <table className="w-full text-left text-[12px]">
-                  <thead className="border-b border-zinc-800/60 bg-zinc-900/80 text-[11px] uppercase tracking-wider text-zinc-500">
+              <div className="overflow-hidden rounded-lg border border-zinc-800/60 bg-zinc-950/30">
+                <table className="og-action-table w-full text-left text-[12px]">
+                  <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
                     <tr>
-                      <th className="px-3 py-2.5 font-medium">{tr('参数', 'Parameter')}</th>
-                      <th className="px-3 py-2.5 font-medium">{tr('类型', 'Type')}</th>
-                      <th className="px-3 py-2.5 font-medium">{tr('必填', 'Required')}</th>
-                      <th className="px-3 py-2.5 font-medium">{tr('默认', 'Default')}</th>
-                      <th className="px-3 py-2.5 font-medium">{tr('说明', 'Description')}</th>
+                      <th className="px-3 py-1.5 text-left font-medium">{tr('参数', 'Parameter')}</th>
+                      <th className="px-3 py-1.5 text-left font-medium">{tr('类型', 'Type')}</th>
+                      <th className="px-3 py-1.5 text-left font-medium">{tr('必填', 'Required')}</th>
+                      <th className="px-3 py-1.5 text-left font-medium">{tr('默认', 'Default')}</th>
+                      <th className="px-3 py-1.5 text-left font-medium">{tr('说明', 'Description')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/50">
                     {fields.map((field) => (
-                      <tr key={field.name} className="bg-zinc-950/20 transition-colors hover:bg-zinc-900/70">
-                        <td className="px-3 py-2.5 align-top">
-                          <span className="rounded bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[11px] text-sky-300">
-                            {field.name}
-                          </span>
+                      <tr key={field.name} className="transition-colors hover:bg-zinc-900/70">
+                        <td className="px-3 py-2 align-top">
+                          <Chip dense tone="info" className="font-mono">{field.name}</Chip>
                         </td>
-                        <td className="px-3 py-2.5 align-top">
-                          <span className="rounded border border-zinc-700/80 bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-violet-300">
-                            {field.type}
-                          </span>
+                        <td className="px-3 py-2 align-top">
+                          <Chip dense className="font-mono">{field.type}</Chip>
                         </td>
-                        <td className="px-3 py-2.5 align-top">
+                        <td className="px-3 py-2 align-top">
                           {field.required ? (
                             <Chip tone="warning" dense>{tr('必填', 'required')}</Chip>
                           ) : (
                             <Chip tone="default" dense>{tr('可选', 'optional')}</Chip>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 align-top font-mono text-[11px] text-zinc-500">
+                        <td className="px-3 py-2 align-top font-mono text-[11px] text-zinc-500">
                           {field.defaultValue || '—'}
                         </td>
-                        <td className="max-w-md px-3 py-2.5 align-top text-[12px] leading-relaxed text-zinc-400">
+                        <td className="max-w-md px-3 py-2 align-top text-[12px] leading-relaxed text-zinc-400">
                           {field.description || '—'}
                         </td>
                       </tr>
@@ -610,7 +622,7 @@ function ToolRow({
                 </table>
               </div>
             )}
-          </div>
+          </DetailSection>
         </div>
       )}
 
@@ -970,9 +982,14 @@ function ServerEditor({
         </Field>
 
         <Toggle
-          label={tr('Trusted（免审）', 'Trusted')}
+          label={tr('Trusted（映射为 never）', 'Trusted (maps to never)')}
           checked={input.trusted}
-          onChange={(v) => onChange({ trusted: v })}
+          onChange={(v) =>
+            onChange({
+              trusted: v,
+              approval_policy: v ? 'never' : input.approval_policy === 'never' ? 'always' : input.approval_policy,
+            })
+          }
         />
         {input.trusted && (
           <div className="flex items-start gap-2 rounded-md border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-400">
@@ -980,6 +997,24 @@ function ServerEditor({
             <span>{tr('免审直跑：仅建议给只读服务，跳过人工确认。', 'Runs without approval. Recommended for read-only servers only.')}</span>
           </div>
         )}
+
+        <Field label={tr('审批策略', 'Approval policy')}>
+          <Select
+            label={tr('审批策略', 'Approval policy')}
+            value={input.approval_policy}
+            onValueChange={(v) =>
+              onChange({
+                approval_policy: v as McpServerInput['approval_policy'],
+                trusted: v === 'never',
+              })
+            }
+            className="w-full"
+          >
+            <option value="always">{tr('始终审批', 'Always')}</option>
+            <option value="non_readonly">{tr('非只读才审批', 'Non-readonly')}</option>
+            <option value="never">{tr('永不审批', 'Never')}</option>
+          </Select>
+        </Field>
 
         <Toggle
           label={tr('启用', 'Enabled')}

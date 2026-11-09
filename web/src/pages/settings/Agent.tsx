@@ -1,10 +1,9 @@
 import { useAssistantPage } from '@/lib/assistantPage';
-import { Label, Input } from '@/components/ui';
+import { Button, Input, Label, SectionCard } from '@/components/ui';
 import { Select } from '@/components/ui/Select';
 import { useCallback, useEffect, useState } from 'react';
 import { Clock3, Languages, Loader2, Save } from 'lucide-react';
 import { listSettings, setSetting } from '@/api/settings';
-import { Button, Card } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
 
 // 助理运行参数：超时 + 输出语言（去掉 ongrid 运行时版本 / 主机写权限等无关项）
@@ -96,100 +95,85 @@ export default function SettingsAgent() {
 
   return (
     <div className="space-y-4">
-      {err && <div className="text-xs text-red-400">{err}</div>}
+      {err && <div className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">{err}</div>}
 
-      <Card className="p-5">
-        <div className="mb-3 flex items-center gap-2">
-          <Languages size={14} className="text-zinc-400" />
-          <h2 className="text-sm font-medium text-zinc-100">{tr('Agent 输出语言', 'Agent output language')}</h2>
-        </div>
-        <p className="mb-4 text-xs leading-relaxed text-zinc-500">
-          {tr(
-            '约束对话助理的回答语言。留空则不强加语言指令。',
-            'Constrains the chat assistant language. Leave empty to add no language instruction.',
-          )}
-        </p>
+      <SectionCard
+        title={<span className="inline-flex items-center gap-2"><Languages size={13} className="text-zinc-400" />{tr('Agent 输出语言', 'Agent output language')}</span>}
+        description={tr(
+          '约束对话助理的回答语言。留空则不强加语言指令。',
+          'Constrains the chat assistant language. Leave empty to add no language instruction.',
+        )}
+        footer={!loading ? (
+          <Button variant="primary" size="sm" disabled={savingLocale} onClick={() => void onSaveLocale()}>
+            <Save size={12} />
+            {savingLocale ? tr('保存中…', 'Saving…') : tr('保存语言', 'Save language')}
+          </Button>
+        ) : undefined}
+      >
         {loading ? (
-          <div className="flex h-10 items-center text-xs text-zinc-500">
-            <Loader2 size={13} className="mr-2 animate-spin" /> {tr('加载中…', 'Loading…')}
+          <div className="flex h-7 items-center text-[11px] text-zinc-500">
+            <Loader2 size={12} className="mr-2 animate-spin" /> {tr('加载中…', 'Loading…')}
           </div>
         ) : (
-          <>
-            <Label className="block max-w-sm" htmlFor="agent-output-locale">
-              <span className="mb-1 block text-xs text-zinc-400">
-                {tr('输出语言', 'Output language')}
-              </span>
-              <Select
-                id="agent-output-locale"
-                value={outputLocale}
-                onValueChange={(selectedValue) => setOutputLocale(selectedValue as '' | 'zh' | 'en')}
-                className="w-full"
-              >
-                <option value="">{tr('不强制', 'No forced language')}</option>
-                <option value="zh">中文</option>
-                <option value="en">English</option>
-              </Select>
+          <Label className="block max-w-sm" htmlFor="agent-output-locale">
+            <span className="mb-1 block text-[11px] text-zinc-400">
+              {tr('输出语言', 'Output language')}
+            </span>
+            <Select
+              id="agent-output-locale"
+              value={outputLocale}
+              onValueChange={(selectedValue) => setOutputLocale(selectedValue as '' | 'zh' | 'en')}
+              className="w-full"
+            >
+              <option value="">{tr('不强制', 'No forced language')}</option>
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+            </Select>
+          </Label>
+        )}
+      </SectionCard>
+
+      <SectionCard
+        title={<span className="inline-flex items-center gap-2"><Clock3 size={13} className="text-zinc-400" />{tr('LLM 请求超时', 'LLM request timeout')}</span>}
+        description={tr('单次模型请求最长等待时间。默认 120 秒。', 'Max wait for one model request. Default 120 seconds.')}
+        footer={!loading ? (
+          <Button variant="primary" size="sm" disabled={savingTimeout} onClick={() => void onSaveTimeout()}>
+            <Save size={12} />
+            {savingTimeout ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
+          </Button>
+        ) : undefined}
+      >
+        {loading ? (
+          <div className="flex h-7 items-center text-[11px] text-zinc-500">
+            <Loader2 size={12} className="mr-2 animate-spin" /> {tr('加载中…', 'Loading…')}
+          </div>
+        ) : (
+          <div className="max-w-sm">
+            <Label className="mb-1 block text-[11px] text-zinc-400" htmlFor="agent-llm-timeout-seconds">
+              {tr('超时秒数', 'Timeout seconds')}
             </Label>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <Button variant="primary" disabled={savingLocale} onClick={() => void onSaveLocale()}>
-                <Save size={14} />
-                {savingLocale ? tr('保存中…', 'Saving…') : tr('保存语言', 'Save language')}
-              </Button>
+            <div className="flex items-center gap-2">
+              <Input
+                id="agent-llm-timeout-seconds"
+                type="number"
+                min={MIN_LLM_TIMEOUT_SECONDS}
+                max={MAX_LLM_TIMEOUT_SECONDS}
+                step={1}
+                value={llmTimeoutSeconds}
+                onChange={(event) => setLLMTimeoutSeconds(event.target.value)}
+                className="w-full font-mono"
+              />
+              <span className="shrink-0 text-[11px] text-zinc-500">{tr('秒', 'seconds')}</span>
             </div>
-          </>
-        )}
-      </Card>
-
-      <Card className="p-5">
-        <div className="mb-3 flex items-center gap-2">
-          <Clock3 size={14} className="text-zinc-400" />
-          <h2 className="text-sm font-medium text-zinc-100">{tr('LLM 请求超时', 'LLM request timeout')}</h2>
-        </div>
-        <p className="mb-4 text-xs leading-relaxed text-zinc-500">
-          {tr(
-            '单次模型请求最长等待时间。默认 120 秒。',
-            'Max wait for one model request. Default 120 seconds.',
-          )}
-        </p>
-        {loading ? (
-          <div className="flex h-10 items-center text-xs text-zinc-500">
-            <Loader2 size={13} className="mr-2 animate-spin" /> {tr('加载中…', 'Loading…')}
+            <p className="mt-2 text-[11px] leading-relaxed text-zinc-600">
+              {tr(
+                `允许范围 ${MIN_LLM_TIMEOUT_SECONDS}–${MAX_LLM_TIMEOUT_SECONDS} 秒。`,
+                `Allowed range: ${MIN_LLM_TIMEOUT_SECONDS}–${MAX_LLM_TIMEOUT_SECONDS} seconds.`,
+              )}
+            </p>
           </div>
-        ) : (
-          <>
-            <div className="max-w-sm">
-              <Label className="mb-1 block text-xs text-zinc-400" htmlFor="agent-llm-timeout-seconds">
-                {tr('超时秒数', 'Timeout seconds')}
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="agent-llm-timeout-seconds"
-                  type="number"
-                  min={MIN_LLM_TIMEOUT_SECONDS}
-                  max={MAX_LLM_TIMEOUT_SECONDS}
-                  step={1}
-                  value={llmTimeoutSeconds}
-                  onChange={(event) => setLLMTimeoutSeconds(event.target.value)}
-                  className="w-full font-mono outline-none transition"
-                />
-                <span className="shrink-0 text-xs text-zinc-500">{tr('秒', 'seconds')}</span>
-              </div>
-            </div>
-            <div className="mt-4 flex items-center gap-3">
-              <Button variant="primary" disabled={savingTimeout} onClick={() => void onSaveTimeout()}>
-                <Save size={14} />
-                {savingTimeout ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
-              </Button>
-            </div>
-          </>
         )}
-        <p className="mt-4 text-[11px] leading-relaxed text-zinc-600">
-          {tr(
-            `允许范围 ${MIN_LLM_TIMEOUT_SECONDS}–${MAX_LLM_TIMEOUT_SECONDS} 秒。`,
-            `Allowed range: ${MIN_LLM_TIMEOUT_SECONDS}–${MAX_LLM_TIMEOUT_SECONDS} seconds.`,
-          )}
-        </p>
-      </Card>
+      </SectionCard>
     </div>
   );
 }

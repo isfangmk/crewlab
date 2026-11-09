@@ -1,6 +1,8 @@
 import { request } from './client';
 
 /** MCP Server 列表/详情响应字段。 */
+export type McpApprovalPolicy = 'never' | 'non_readonly' | 'always';
+
 export interface McpServer {
   id: number;
   name: string;
@@ -9,10 +11,15 @@ export interface McpServer {
   credential: string;
   header_template_json: string;
   trusted: boolean;
+  approval_policy: McpApprovalPolicy;
   enabled: boolean;
   status: string;
   last_error: string;
   tools_cache_json: string;
+  embedding_sync_status?: string;
+  embedding_sync_count?: number;
+  embedding_sync_error?: string;
+  embedding_synced_at?: string | null;
 }
 
 /** JSON Schema 属性（MCP input_schema.properties 单项）。 */
@@ -41,6 +48,7 @@ export interface McpServerInput {
   credential: string;
   header_template_json: string;
   trusted: boolean;
+  approval_policy: McpApprovalPolicy;
   enabled: boolean;
 }
 

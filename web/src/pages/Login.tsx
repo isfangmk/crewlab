@@ -60,18 +60,18 @@ export default function LoginPage() {
       />
 
 
-      <div className="relative w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900/80 p-7 shadow-xl backdrop-blur">
+      <div className="relative w-full max-w-sm rounded-xl border border-zinc-800/60 bg-zinc-900/60 p-7 shadow-xl backdrop-blur">
         <div className="mb-6 text-center">
           <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center">
             <OngridLogo size={72} />
           </div>
           <h1 className="text-xl font-semibold text-zinc-100">{tr('登录到 Ongrid', 'Sign in to Ongrid')}</h1>
-          <p className="mt-1 text-xs text-zinc-500">{tr('AIOps 工作台', 'AIOps Workbench')}</p>
+          <p className="mt-1 text-[11px] text-zinc-500">{tr('AIOps 工作台', 'AIOps Workbench')}</p>
         </div>
 
         <form onSubmit={onSubmit} className="space-y-3" noValidate>
           <div>
-            <Label htmlFor="email" className="mb-1 block text-xs text-zinc-400">
+            <Label htmlFor="email" className="mb-1 block text-[11px] text-zinc-400">
               {tr('邮箱', 'Email')}
             </Label>
             <Input
@@ -88,7 +88,7 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <Label htmlFor="password" className="mb-1 block text-xs text-zinc-400">
+            <Label htmlFor="password" className="mb-1 block text-[11px] text-zinc-400">
               {tr('密码', 'Password')}
             </Label>
             <Input
@@ -106,7 +106,7 @@ export default function LoginPage() {
           {error && (
             <div
               role="alert"
-              className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+              className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300"
             >
               {error}
             </div>
@@ -116,7 +116,7 @@ export default function LoginPage() {
             type="submit"
             disabled={pending || !email || !password}
             aria-label={tr('登录', 'Sign in')}
-            className="inline-flex w-full items-center justify-center gap-2 px-3 py-2 font-medium transition disabled:cursor-not-allowed"
+            className="w-full gap-2 font-medium"
           >
             {pending && <Loader2 size={14} className="animate-spin" />}
             <span>{tr('登录', 'Sign in')}</span>

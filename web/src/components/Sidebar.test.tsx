@@ -30,17 +30,37 @@ describe('Sidebar workbench nav', () => {
         <Sidebar />
       </MemoryRouter>,
     );
-    expect(await screen.findByRole('link', { name: '助理' })).toHaveAttribute('href', '/agents');
+    expect(await screen.findByRole('button', { name: '对话' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '助理' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '能力' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '知识库' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '工作流' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '治理' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '会话' })).toHaveAttribute('href', '/sessions');
+    expect(screen.getByRole('link', { name: '助理' })).toHaveAttribute('href', '/agents');
     expect(screen.getByRole('link', { name: '工具' })).toHaveAttribute('href', '/tools');
     expect(screen.getByRole('link', { name: '技能' })).toHaveAttribute('href', '/skills');
     expect(screen.getByRole('link', { name: 'MCP' })).toHaveAttribute('href', '/mcp');
-    expect(screen.getByRole('link', { name: '审批' })).toHaveAttribute('href', '/approvals');
     expect(screen.getByRole('link', { name: '知识库' })).toHaveAttribute('href', '/knowledge');
-    expect(screen.queryByRole('link', { name: '运行记录' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: '统计分析' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '设置' })).toHaveAttribute('href', '/settings/llm');
+    expect(screen.getByRole('link', { name: '审批' })).toHaveAttribute('href', '/approvals');
+    expect(screen.getByLabelText('导出与分享（规划中）')).toBeInTheDocument();
+    expect(screen.getByLabelText('试玩台（规划中）')).toBeInTheDocument();
+    expect(screen.getByLabelText('记忆（规划中）')).toBeInTheDocument();
+    expect(screen.getByLabelText('插件包（规划中）')).toBeInTheDocument();
+    expect(screen.getByLabelText('沙箱（规划中）')).toBeInTheDocument();
+    expect(screen.getByLabelText('外部源（规划中）')).toBeInTheDocument();
+    expect(screen.getByLabelText('检索试跑（规划中）')).toBeInTheDocument();
+    expect(screen.getByLabelText('定时触发（规划中）')).toBeInTheDocument();
+    expect(screen.getByLabelText('对外发布（规划中）')).toBeInTheDocument();
+    expect(screen.getByLabelText('IM 渠道（规划中）')).toBeInTheDocument();
+    expect(screen.getByLabelText('审计日志（规划中）')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '可观测' })).toHaveAttribute('href', '/observability');
+    expect(screen.getByLabelText('评测（规划中）')).toBeInTheDocument();
+    expect(screen.getByLabelText('用户与权限（规划中）')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '定时触发' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '仪表盘' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '设备' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '设置' })).toHaveAttribute('href', '/settings/llm');
   });
 
   it('uses the icon rail on narrow screens without overwriting desktop preferences', () => {

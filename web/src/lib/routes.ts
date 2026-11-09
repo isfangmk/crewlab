@@ -1,7 +1,8 @@
-// 命令面板（⌘P）用的工作台路由目录；只保留 App.tsx 已挂载路径。
+// 命令面板（⌘P）路由目录：分组与侧栏 IA 一致，只收录已上线路由。
+// 规划中菜单（工作流/Playground/审计等）仅出现在侧栏占位，不进命令面板。
 import { tr as trInline } from '@/i18n/locale';
 
-export type AppRouteGroup = '主页' | 'Agent' | '知识库' | '设置';
+export type AppRouteGroup = '主页' | '对话' | '助理' | '能力' | '知识库' | '治理' | '设置';
 
 export type AppRoute = {
   path: string;
@@ -15,13 +16,23 @@ type RouteDef = { path: string; zh: string; en: string; keywords?: string[]; gro
 const ROUTE_DEFS: RouteDef[] = [
   { path: '/', zh: '首页', en: 'Home', keywords: ['home', 'shouye'], group: '主页' },
 
-  { path: '/agents', zh: '助理', en: 'Assistants', keywords: ['agents', 'assistant', 'bot', 'zhuli'], group: 'Agent' },
-  { path: '/tools', zh: '工具', en: 'Tools', keywords: ['tools', 'builtin', 'gongju'], group: 'Agent' },
-  { path: '/skills', zh: '技能', en: 'Skills', keywords: ['skills', 'jineng'], group: 'Agent' },
-  { path: '/mcp', zh: 'MCP', en: 'MCP', keywords: ['mcp', 'server'], group: 'Agent' },
-  { path: '/approvals', zh: '审批', en: 'Approvals', keywords: ['approvals', 'shenpi', 'confirm'], group: 'Agent' },
+  // 对话：会话管理；后续可挂导出中心等（不放助理能力）
+  { path: '/sessions', zh: '会话', en: 'Sessions', keywords: ['sessions', 'chat', 'huihua', 'duihua'], group: '对话' },
 
+  // 助理：人设与装配；后续可挂 Memory / Playground
+  { path: '/agents', zh: '助理', en: 'Assistants', keywords: ['agents', 'assistant', 'bot', 'zhuli'], group: '助理' },
+
+  // 能力：可被助理装配的执行面
+  { path: '/tools', zh: '工具', en: 'Tools', keywords: ['tools', 'builtin', 'gongju'], group: '能力' },
+  { path: '/skills', zh: '技能', en: 'Skills', keywords: ['skills', 'jineng'], group: '能力' },
+  { path: '/mcp', zh: 'MCP', en: 'MCP', keywords: ['mcp', 'server'], group: '能力' },
+
+  // 知识库：文档与检索；后续可挂检索试跑子页
   { path: '/knowledge', zh: '知识库', en: 'Knowledge', keywords: ['knowledge', 'kb', 'docs', 'rag', 'zhishiku', 'upload'], group: '知识库' },
+
+  // 治理：审批闸门与安全；后续可挂审计日志（不放助理菜单）
+  { path: '/approvals', zh: '审批', en: 'Approvals', keywords: ['approvals', 'shenpi', 'confirm'], group: '治理' },
+  { path: '/observability', zh: '可观测', en: 'Observability', keywords: ['observability', 'trace', 'token', 'keguance'], group: '治理' },
 
   { path: '/settings/llm', zh: '设置 / 模型', en: 'Settings / LLM', keywords: ['llm', 'model', 'moxing'], group: '设置' },
   { path: '/settings/secrets', zh: '设置 / 凭证', en: 'Settings / Credentials', keywords: ['secrets', 'credentials', 'pingzheng'], group: '设置' },

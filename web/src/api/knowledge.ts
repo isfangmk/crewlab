@@ -96,7 +96,11 @@ export function listPaths() {
   return request<{ items: PathRow[]; total: number }>('GET', '/knowledge/paths');
 }
 
-// 上传文件入库（source_type=upload）；仅 .md / .txt。
+export function reindexKnowledge() {
+  return request<{ chunks: number }>('POST', '/knowledge/reindex');
+}
+
+// 上传文件入库（source_type=upload）；仅 .md / .txt / .pdf / .docx。
 // request() 会强制 JSON，因此这里直接用 FormData + fetch。
 export async function uploadDoc(
   file: File,

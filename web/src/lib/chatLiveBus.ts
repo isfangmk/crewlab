@@ -13,7 +13,9 @@ export type ChatLiveDetail =
   | { type: 'assistant_delta'; event: AssistantDeltaStreamEvent }
   | { type: 'tool_start'; event: ToolStreamEvent }
   | { type: 'tool_end'; event: ToolStreamEvent }
-  | { type: 'approval_pending'; event: ApprovalPendingStreamEvent };
+  | { type: 'approval_pending'; event: ApprovalPendingStreamEvent }
+  // 用户已对某条审批做出决定：会话据此收起「等待你确认」提示。
+  | { type: 'approval_decided'; approvalId: string };
 
 export function emitChatLive(detail: ChatLiveDetail): void {
   window.dispatchEvent(new CustomEvent<ChatLiveDetail>(CHAT_LIVE_EVENT, { detail }));
