@@ -1,0 +1,32 @@
+# 环境与密钥
+.env
+.env.local
+**/.env
+**/secrets/
+
+# 后端运行时
+backend/.uvicorn.pid
+backend/uvicorn.*.log
+backend/.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Node
+web/node_modules/
+web/dist/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store

@@ -1,0 +1,66 @@
+[project]
+name = "ai-workbench"
+version = "0.1.0"
+description = "AI 工作台后端（FastAPI + Google ADK）"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "sqlalchemy",
+  "asyncpg",
+  "greenlet",
+  "pydantic-settings",
+  "httpx",
+  "python-multipart",
+  "sse-starlette",
+  "google-adk",
+  "litellm",
+  "pgvector",
+  "mcp>=2.3.0",
+  "adk-tool-search>=0.3.0",
+]
+
+[dependency-groups]
+dev = [
+  "basedpyright>=1.31.0",
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.24.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
+
+[tool.uv]
+index-url = "https://mirrors.aliyun.com/pypi/simple/"
+default-groups = ["dev"]
+
+[tool.basedpyright]
+include = ["app"]
+exclude = [
+  "**/__pycache__",
+  ".venv",
+]
+pythonVersion = "3.12"
+pythonPlatform = "All"
+typeCheckingMode = "standard"
+# 第三方包多数无完整 stub，缺 stub 不挡门；不可达代码与类型错误要报
+reportMissingTypeStubs = false
+reportUnusedCallResult = false
+reportUnreachable = "error"
+reportUnusedParameter = "error"
+venvPath = "."
+venv = ".venv"

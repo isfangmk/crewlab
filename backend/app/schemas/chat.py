@@ -1,0 +1,114 @@
+"""对话相关请求/响应契约。"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class PageContextIn(BaseModel):
+    """全局助理引用的当前页快照。
+
+    只接受页面自己声明的结构化字段（page + fields），
+    不接受任意 DOM 文本、URL 或表单值。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    page: str = Field(min_length=1)
+    fields: dict[str, str] = Field(default_factory=dict)
+
+
+class CreateSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    agent_id: str = Field(min_length=1)
+    # 全局助理引用的当前页快照；落库后会话才能复现这次引用
+    page_context: PageContextIn | None = None
+
+
+class ChatSessionOut(BaseModel):
+    id: str
+    title: str
+    provider: str
+    model: str
+    agent_id: str | None
+    created_at: str
+    updated_at: str
+    # 引用了页面快照的会话；没有引用时为 None
+    page_context: PageContextIn | None = None
+
+
+class ChatMessageOut(BaseModel):
+    id: str
+    role: str
+    kind: str
+    content: str | None = None
+    tool_call: dict | None = None
+    created_at: str
+
+
+class MentionIn(BaseModel):
+    """一条 @ 提及。type 只能是工作台真实存在的对象类型。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["file", "server"]
+    id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+
+
+class StreamMessageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1)
+    provider: str | None = None
+    model: str | None = None
+    # 前端乐观用户气泡的 id；落库复用，避免轮询后整段重挂载
+    client_message_id: str | None = None
+    thinking_enabled: bool
+    web_search_enabled: bool
+    attachment_ids: list[str]
+    # 本回合输出语言覆盖（覆盖设置页 agent.output_locale）；只接受 zh / en
+    locale: str | None = None
+    # @ 提及对象；后端按 id 反查真实对象并注入上下文
+    mentions: list[MentionIn] = Field(default_factory=list)
+
+
+class UpdateSessionTitleRequest(BaseModel):
+    """重命名会话：只接受 title，与前端 renameSession 的请求体一致。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+
+
+class UpdateSessionModelRequest(BaseModel):
+    """切换会话模型：provider + model 必须成对出现。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+
+
+class UpdateSessionAgentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str = Field(min_length=1)
+
+
+class LLMProviderOut(BaseModel):
+    id: str
+    label: str
+    models: list[str]
+    model: str | None = None
+
+
+class ModelCatalogOut(BaseModel):
+    providers: list[LLMProviderOut]
+    default: dict[str, str]
