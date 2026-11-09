@@ -1,14 +1,11 @@
-// users.ts — 当前登录用户（/v1/me）的类型封装。
-//
-// 后端只提供单管理员的 /api/v1/me；没有用户列表 / 建号 / 改角色 / 改密码
-// 等管理接口，因此这里不保留那些不存在的端点。
+// users.ts — 当前登录用户（/v1/me）与用户管理（/v1/users）的类型封装。
 import { request } from './client';
 
-// SystemRole 是平台权限档位。
-//   admin = 全部系统功能 + 平台配置
-//   user = 使用全部业务功能（会话、可写工具）
-//   viewer = 只读 + 受限会话（LLM 只拿到只读工具集）
-export type SystemRole = 'admin' | 'user' | 'viewer';
+// SystemRole 是平台权限档位，与后端 auth_service._ROLES 一一对应。
+//   admin     = 全部系统功能 + 平台配置 + 用户管理
+//   developer = 使用全部业务功能（会话、可写工具）
+//   viewer    = 只读 + 受限会话（LLM 只拿到只读工具集）
+export type SystemRole = 'admin' | 'developer' | 'viewer';
 export type UserStatus = 'active' | 'disabled';
 
 // OrgMembership — me.memberships[] 用，描述当前用户在某个组织里的角色。
@@ -31,4 +28,30 @@ export type Me = {
 
 export function getMe(): Promise<Me> {
   return request<Me>('GET', '/me');
+}
+
+// ManagedUser — /v1/users 列表项；角色与状态和后端表一一对应。
+export type ManagedUser = {
+  id: number;
+  email: string;
+  display_name: string;
+  role: SystemRole;
+  status: UserStatus;
+};
+
+export function listUsers(): Promise<ManagedUser[]> {
+  return request<ManagedUser[]>('GET', '/users');
+}
+
+export function createUser(input: {
+  email: string;
+  display_name: string;
+  password: string;
+  role: SystemRole;
+}): Promise<ManagedUser> {
+  return request<ManagedUser>('POST', '/users', input);
+}
+
+export function setUserStatus(id: number, status: UserStatus): Promise<ManagedUser> {
+  return request<ManagedUser>('POST', `/users/${encodeURIComponent(String(id))}/status`, { status });
 }

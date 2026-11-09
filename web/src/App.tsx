@@ -19,6 +19,8 @@ const McpPage = lazy(() => import('@/pages/Mcp'));
 const KnowledgePage = lazy(() => import('@/pages/Knowledge'));
 const SessionsPage = lazy(() => import('@/pages/Sessions'));
 const ObservabilityPage = lazy(() => import('@/pages/Observability'));
+const AuditPage = lazy(() => import('@/pages/Audit'));
+const UsersPage = lazy(() => import('@/pages/Users'));
 const ShareViewPage = lazy(() => import('@/pages/ShareView'));
 const SettingsLayout = lazy(() => import('@/pages/SettingsLayout'));
 const SettingsLLM = lazy(() => import('@/pages/settings/LLM'));
@@ -78,6 +80,8 @@ export default function App() {
         <Route path="/approvals" element={<ApprovalsPage />} />
         <Route path="/approvals/:id" element={<ApprovalDetailPage key={location.pathname} />} />
         <Route path="/observability" element={<ObservabilityPage />} />
+        <Route path="/audit" element={<AuditPage />} />
+        <Route path="/users" element={<UsersPage />} />
         <Route path="/agents" element={<AgentsPage />} />
         <Route path="/mcp" element={<McpPage />} />
         <Route path="/knowledge" element={<KnowledgePage />} />

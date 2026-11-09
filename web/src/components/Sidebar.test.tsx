@@ -53,10 +53,10 @@ describe('Sidebar workbench nav', () => {
     expect(screen.getByLabelText('定时触发（规划中）')).toBeInTheDocument();
     expect(screen.getByLabelText('对外发布（规划中）')).toBeInTheDocument();
     expect(screen.getByLabelText('IM 渠道（规划中）')).toBeInTheDocument();
-    expect(screen.getByLabelText('审计日志（规划中）')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '审计日志' })).toHaveAttribute('href', '/audit');
     expect(screen.getByRole('link', { name: '可观测' })).toHaveAttribute('href', '/observability');
     expect(screen.getByLabelText('评测（规划中）')).toBeInTheDocument();
-    expect(screen.getByLabelText('用户与权限（规划中）')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '用户与权限' })).toHaveAttribute('href', '/users');
     expect(screen.queryByRole('link', { name: '定时触发' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '仪表盘' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '设备' })).not.toBeInTheDocument();

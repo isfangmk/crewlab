@@ -104,10 +104,10 @@ export function usePermissions() {
   return {
     role,
     isAdmin: role === 'admin',
-    isUser: role === 'user',
+    isDeveloper: role === 'developer',
     isViewer: role === 'viewer',
     // canMutate covers create / modify / delete of own resources +
     // running ClassMutating skills + ack-ing incidents. Excludes viewer.
-    canMutate: role === 'admin' || role === 'user',
+    canMutate: role === 'admin' || role === 'developer',
   };
 }

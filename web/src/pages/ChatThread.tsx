@@ -2,7 +2,7 @@ import { useAssistantPage } from '@/lib/assistantPage';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { ChatInput, type ModelSelection, type SubmitPayload } from '@/components/ChatInput';
 
@@ -32,6 +32,10 @@ import {
 
   streamMessage,
 
+  streamEditResend,
+
+  forkSession,
+
   exportSessionMarkdown,
 
   updateSessionModel,
@@ -51,6 +55,8 @@ import {
   type Mention,
 
   type ImageAttachment,
+
+  type StreamCallbacks,
 
 } from '@/api/chat';
 
@@ -105,6 +111,8 @@ export default function ChatThreadPage() {
   const { sessionId = '' } = useParams<{ sessionId: string }>();
 
   const location = useLocation();
+
+  const navigate = useNavigate();
 
   const initialPrompt = (location.state as LocationState)?.initialPrompt;
 
@@ -912,11 +920,23 @@ export default function ChatThreadPage() {
       attachments?: File[];
       thinkingEnabled?: boolean;
       webSearchEnabled?: boolean;
+      /** 编辑重发：目标用户消息 id；传了就截断其后投影再重发。 */
+      editMessageId?: string;
+      /** 编辑重发时沿用原消息的图片附件。 */
+      editAttachments?: ImageAttachment[];
     } = {},
 
   ): Promise<boolean> {
 
-    if (!sessionId || getChatTurnController(sessionId) || (!content.trim() && !opts.attachments?.length)) return false;
+    const editingMessageId = opts.editMessageId ?? '';
+
+    const editingAttachments = opts.editAttachments ?? [];
+
+    if (!sessionId || getChatTurnController(sessionId)) return false;
+
+    if (editingMessageId === '' && content.trim() === '' && !opts.attachments?.length) return false;
+
+    if (editingMessageId !== '' && content.trim() === '') return false;
 
     const turnSessionID = sessionId;
 
@@ -972,25 +992,35 @@ export default function ChatThreadPage() {
 
     const userMessageId = crypto.randomUUID();
 
-    setMessages((prev) => [
+    if (editingMessageId === '') {
 
-      ...prev,
+      setMessages((prev) => [
 
-      { id: userMessageId, role: 'user', content: opts.displayContent ?? content, attachments: uploadedAttachments },
+        ...prev,
 
-    ]);
+        { id: userMessageId, role: 'user', content: opts.displayContent ?? content, attachments: uploadedAttachments },
+
+      ]);
+
+    } else {
+
+      // 编辑重发：先丢掉该消息及其后的本地投影，再由 SSE 回传新消息 id。
+
+      setMessages((prev) => {
+
+        const idx = prev.findIndex((m) => m.id === editingMessageId);
+
+        return idx >= 0 ? prev.slice(0, idx) : prev;
+
+      });
+
+    }
 
 
 
     try {
 
-      await streamMessage(
-
-        sessionId,
-
-        content,
-
-        {
+      const callbacks: StreamCallbacks = {
 
           onUserMessage: (e) => {
 
@@ -1004,11 +1034,27 @@ export default function ChatThreadPage() {
 
             // id 已与落库一致时无需替换；不一致则原地换 key，避免整表闪烁
 
-            setMessages((prev) =>
+            if (editingMessageId !== '') {
 
-              prev.map((m) => (m.id === userMessageId ? { ...m, id: e.message_id } : m)),
+              // 编辑重发：截断后服务端重建用户消息，本地直接追加。
 
-            );
+              setMessages((prev) => [
+
+                ...prev,
+
+                { id: e.message_id, role: 'user', content, attachments: editingAttachments },
+
+              ]);
+
+            } else {
+
+              setMessages((prev) =>
+
+                prev.map((m) => (m.id === userMessageId ? { ...m, id: e.message_id } : m)),
+
+              );
+
+            }
 
           },
 
@@ -1370,31 +1416,69 @@ export default function ChatThreadPage() {
 
           },
 
-        },
+        };
 
-        {
+      if (editingMessageId !== '') {
 
-          mentions,
+        await streamEditResend(
 
-          provider: selectedModel?.provider,
+          turnSessionID,
 
-          model: selectedModel?.model,
+          editingMessageId,
 
-          attachmentIds: uploadedAttachments.map((attachment) => attachment.id),
+          content,
 
-          webSearchEnabled: opts.webSearchEnabled ?? webSearchEnabledRef.current,
+          callbacks,
 
-          thinkingEnabled: opts.thinkingEnabled ?? thinkingEnabledRef.current,
+          {
 
-          locale,
+            thinkingEnabled: opts.thinkingEnabled ?? thinkingEnabledRef.current,
 
-          clientMessageId: userMessageId,
+            webSearchEnabled: opts.webSearchEnabled ?? webSearchEnabledRef.current,
 
-        },
+            attachmentIds: editingAttachments.map((attachment) => attachment.id),
 
-        ac.signal,
+          },
 
-      );
+          ac.signal,
+
+        );
+
+      } else {
+
+        await streamMessage(
+
+          turnSessionID,
+
+          content,
+
+          callbacks,
+
+          {
+
+            mentions,
+
+            provider: selectedModel?.provider,
+
+            model: selectedModel?.model,
+
+            attachmentIds: uploadedAttachments.map((attachment) => attachment.id),
+
+            webSearchEnabled: opts.webSearchEnabled ?? webSearchEnabledRef.current,
+
+            thinkingEnabled: opts.thinkingEnabled ?? thinkingEnabledRef.current,
+
+            locale,
+
+            clientMessageId: userMessageId,
+
+          },
+
+          ac.signal,
+
+        );
+
+      }
 
       return expectedToolSeen && !expectedToolFailed;
 
@@ -1509,6 +1593,42 @@ export default function ChatThreadPage() {
   }
 
 
+
+  // 编辑重发：截断该消息及其后的投影，用新正文重跑；后端会同步重建 ADK 历史。
+  function editResend(message: ChatMessage, content: string) {
+    void send(content, [], {
+      editMessageId: message.id,
+      editAttachments: message.attachments,
+      displayContent: content,
+    });
+  }
+
+  // 重新生成：以最近一条用户消息为锚点重跑（等价于对该消息原样编辑重发）。
+  function regenerate(assistantMessage: ChatMessage) {
+    const idx = messages.findIndex((m) => m.id === assistantMessage.id);
+    if (idx < 0) throw new Error('找不到目标消息，无法重新生成');
+    for (let i = idx - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === 'user' && m.kind !== 'tool_card') {
+        editResend(m, m.content ?? '');
+        return;
+      }
+    }
+    throw new Error('找不到对应用户消息，无法重新生成');
+  }
+
+  // 分叉：复制到该消息为止的前缀到新会话，并切过去继续。
+  function forkFrom(message: ChatMessage) {
+    if (!sessionId) throw new Error('会话尚未就绪');
+    void forkSession(sessionId, message.id)
+      .then((forked) => {
+        invalidateChatSessions();
+        navigate(`/chat/${forked.id}`);
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof ApiError ? e.message : (e as Error).message);
+      });
+  }
 
   function ThinkingIndicator() {
 
@@ -1769,6 +1889,14 @@ export default function ChatThreadPage() {
                   message={m}
 
                   sessionId={sessionId}
+
+                  actionsDisabled={submitting}
+
+                  onRegenerate={isViewer ? undefined : regenerate}
+
+                  onFork={isViewer ? undefined : forkFrom}
+
+                  onEditResend={isViewer ? undefined : editResend}
 
                   onConfirmConfigDraft={isViewer ? undefined : confirmConfigDraft}
 

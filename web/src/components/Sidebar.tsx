@@ -121,7 +121,7 @@ export function Sidebar() {
           <div className="mt-0.5 truncate text-[11px] text-zinc-500">{email}</div>
         )}
         <div className="mt-0.5 text-[11px] text-zinc-500">
-          {role || 'user'}
+          {role || 'developer'}
         </div>
       </div>
       <div className="my-1 h-px bg-zinc-800" />
@@ -407,10 +407,10 @@ export function Sidebar() {
           defaultOpen
           items={[
             { key: 'approvals', to: '/approvals', icon: ShieldCheck, label: tr('审批', 'Approvals') },
-            { key: 'audit', icon: ScrollText, label: tr('审计日志', 'Audit logs'), planned: true },
+            { key: 'audit', to: '/audit', icon: ScrollText, label: tr('审计日志', 'Audit logs') },
             { key: 'observability', to: '/observability', icon: Activity, label: tr('可观测', 'Observability') },
             { key: 'evals', icon: TestTube2, label: tr('评测', 'Evals'), planned: true },
-            { key: 'users', icon: Users, label: tr('用户与权限', 'Users & roles'), planned: true },
+            { key: 'users', to: '/users', icon: Users, label: tr('用户与权限', 'Users & roles') },
           ]}
         />
       </nav>

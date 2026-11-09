@@ -320,3 +320,65 @@ describe('MessageBubble config draft card', () => {
     expect(screen.getByRole('button', { name: /取消|Cancel/ })).toBeInTheDocument();
   });
 });
+
+describe('MessageBubble message actions', () => {
+  it('copies the assistant reply and reports success', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+
+    render(<MessageBubble message={{ id: 'assistant-1', role: 'assistant', content: '回答正文' }} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '复制' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('回答正文'));
+    expect(await screen.findByRole('status')).toHaveTextContent('已复制');
+  });
+
+  it('edits a user message and hands the new text to the caller', () => {
+    const onEditResend = vi.fn();
+    const message: ChatMessage = {
+      id: 'user-1',
+      role: 'user',
+      content: '旧问题',
+      attachments: [{ id: 'att-1', name: 'a.png', mime_type: 'image/png', size: 1 }],
+    };
+    render(<MessageBubble message={message} onEditResend={onEditResend} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑并重发' }));
+    const box = screen.getByRole('textbox', { name: '编辑消息' });
+    fireEvent.change(box, { target: { value: '新问题' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存并重发' }));
+
+    expect(onEditResend).toHaveBeenCalledTimes(1);
+    expect(onEditResend).toHaveBeenCalledWith(message, '新问题');
+  });
+
+  it('regenerates and forks from an assistant message', () => {
+    const onRegenerate = vi.fn();
+    const onFork = vi.fn();
+    const message: ChatMessage = { id: 'assistant-1', role: 'assistant', content: '回答正文' };
+    render(<MessageBubble message={message} onRegenerate={onRegenerate} onFork={onFork} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '重新生成' }));
+    fireEvent.click(screen.getByRole('button', { name: '从这条消息分叉' }));
+
+    expect(onRegenerate).toHaveBeenCalledWith(message);
+    expect(onFork).toHaveBeenCalledWith(message);
+  });
+
+  it('hides regenerate/fork while a turn is in flight', () => {
+    render(
+      <MessageBubble
+        message={{ id: 'assistant-1', role: 'assistant', content: '回答正文' }}
+        actionsDisabled
+        onRegenerate={vi.fn()}
+        onFork={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '重新生成' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '从这条消息分叉' })).toBeDisabled();
+  });
+});

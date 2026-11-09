@@ -9,7 +9,11 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Copy,
+  GitBranch,
   Loader2,
+  Pencil,
+  RefreshCw,
   ShieldAlert,
   Wrench,
   X,
@@ -21,7 +25,7 @@ import { emitChatLive } from '@/lib/chatLiveBus';
 import { cn } from '@/lib/cn';
 import { isConfigDraftConfirmationMessage } from '@/lib/configDraftConfirmation';
 import { useI18n } from '@/i18n/locale';
-import { Button, Chip, CodeBlock, StatusPill } from '@/components/ui';
+import { Button, Chip, CodeBlock, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
 import { Modal } from '@/components/Modal';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
@@ -50,14 +54,36 @@ type Props = {
   message: ChatMessage;
   sessionId?: string;
   onConfirmConfigDraft?: ConfirmConfigDraft;
+  /** 回合进行中：消息操作（重发/重新生成/分叉）禁用。 */
+  actionsDisabled?: boolean;
+  onRegenerate?(message: ChatMessage): void;
+  onFork?(message: ChatMessage): void;
+  onEditResend?(message: ChatMessage, content: string): void;
 };
 
-export function MessageBubble({ message, sessionId, onConfirmConfigDraft }: Props) {
+export function MessageBubble({
+  message,
+  sessionId,
+  onConfirmConfigDraft,
+  actionsDisabled,
+  onRegenerate,
+  onFork,
+  onEditResend,
+}: Props) {
   if ((message.kind === 'tool_card' || message.role === 'tool') && message.tool_call) {
     return <ToolCallSummaryBlock call={fromSummary(message.tool_call)} onConfirmConfigDraft={onConfirmConfigDraft} />;
   }
   if (message.role === 'tool') return <ToolBubble message={message} onConfirmConfigDraft={onConfirmConfigDraft} />;
-  if (message.role === 'user') return <UserBubble message={message} sessionId={sessionId} />;
+  if (message.role === 'user') {
+    return (
+      <UserBubble
+        message={message}
+        sessionId={sessionId}
+        actionsDisabled={actionsDisabled}
+        onEditResend={onEditResend}
+      />
+    );
+  }
   // 仅渲染后端在「开启思考」时推送的思考链
   if (message.kind === 'thinking') {
     return <ThinkingPanel message={message} />;
@@ -71,7 +97,15 @@ export function MessageBubble({ message, sessionId, onConfirmConfigDraft }: Prop
   ) {
     return null;
   }
-  return <AssistantBubble message={message} onConfirmConfigDraft={onConfirmConfigDraft} />;
+  return (
+    <AssistantBubble
+      message={message}
+      onConfirmConfigDraft={onConfirmConfigDraft}
+      actionsDisabled={actionsDisabled}
+      onRegenerate={onRegenerate}
+      onFork={onFork}
+    />
+  );
 }
 
 // fromSummary maps the wire-level ToolCallSummary (server SSE shape) to
@@ -98,14 +132,59 @@ function safeParse(s: string): unknown {
   }
 }
 
-function UserBubble({ message, sessionId }: Props) {
+function CopyButton({ text }: { text: string }) {
   const { tr } = useI18n();
+  const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle');
+
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setState('copied');
+    } catch {
+      setState('error');
+    }
+    window.setTimeout(() => setState('idle'), 1500);
+  };
+
+  return (
+    <>
+      <RowActionIcon
+        className="h-6 w-6"
+        icon={state === 'copied' ? Check : Copy}
+        tone={state === 'error' ? 'danger' : 'neutral'}
+        label={
+          state === 'copied'
+            ? tr('已复制', 'Copied')
+            : state === 'error'
+              ? tr('复制失败', 'Copy failed')
+              : tr('复制', 'Copy')
+        }
+        disabled={text === ''}
+        onClick={() => void onCopy()}
+      />
+      {state !== 'idle' && (
+        <span
+          role="status"
+          className={cn('text-[10px]', state === 'error' ? 'text-red-400' : 'text-zinc-500')}
+        >
+          {state === 'error' ? tr('复制失败', 'Copy failed') : tr('已复制', 'Copied')}
+        </span>
+      )}
+    </>
+  );
+}
+
+function UserBubble({ message, sessionId, actionsDisabled, onEditResend }: Props) {
+  const { tr } = useI18n();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.content ?? '');
   const content = compactUserContent(message.content ?? '', tr);
+  const canEdit = onEditResend !== undefined && !actionsDisabled;
 
   // Codex-style: small, compact zinc chip pinned right. No accent color
   // — keeps the visual weight on the assistant content below.
   return (
-    <div className="flex justify-end">
+    <div className="group flex flex-col items-end gap-1">
       <div className="max-w-[78%] space-y-2 rounded-2xl rounded-br-md bg-zinc-800/80 px-3.5 py-2 text-[14px] leading-relaxed text-zinc-100 ring-1 ring-zinc-700/60">
         {!!message.attachments?.length && (
           <div className="grid max-w-md grid-cols-2 gap-2">
@@ -116,6 +195,57 @@ function UserBubble({ message, sessionId }: Props) {
         )}
         {content && <div>{content}</div>}
       </div>
+      {editing ? (
+        <div className="w-full max-w-[78%] space-y-2 rounded-xl border border-zinc-700/60 bg-zinc-900/60 p-2">
+          <Textarea
+            aria-label={tr('编辑消息', 'Edit message')}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={4}
+            autoFocus
+          />
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={() => {
+                setEditing(false);
+                setDraft(message.content ?? '');
+              }}
+            >
+              {tr('取消', 'Cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              disabled={draft.trim() === ''}
+              onClick={() => {
+                setEditing(false);
+                onEditResend?.(message, draft);
+              }}
+            >
+              {tr('保存并重发', 'Save & resend')}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <CopyButton text={message.content ?? ''} />
+          {canEdit && (
+            <RowActionIcon
+              className="h-6 w-6"
+              icon={Pencil}
+              label={tr('编辑并重发', 'Edit & resend')}
+              onClick={() => {
+                setDraft(message.content ?? '');
+                setEditing(true);
+              }}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -170,7 +300,8 @@ function compactUserContent(
   return tr('确认创建这条告警规则', 'Confirm creating this alert rule');
 }
 
-function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
+function AssistantBubble({ message, actionsDisabled, onRegenerate, onFork, onConfirmConfigDraft }: Props) {
+  const { tr } = useI18n();
   // Codex-style: no rounded card around assistant prose. Render markdown
   // flush against the column so headings/lists/code blocks read like a
   // document. Tool calls (when attached) appear as their own rows inside
@@ -178,7 +309,7 @@ function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
   // 流式只渲染已到正文；底部 ThinkingIndicator 表示进行中，不在气泡内再叠三点。
   const body = message.content ?? '';
   return (
-    <div className="flex flex-col items-stretch gap-2">
+    <div className="group flex flex-col items-stretch gap-2">
       {body !== '' && (
         <div className="md-body text-zinc-100">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
@@ -187,6 +318,29 @@ function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
       {message.tool_calls?.map((tc, i) => (
         <ToolCallSummaryBlock key={`${tc.name}-${i}`} call={tc} onConfirmConfigDraft={onConfirmConfigDraft} />
       ))}
+      {body !== '' && !message.pending && (
+        <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <CopyButton text={body} />
+          {onRegenerate !== undefined && (
+            <RowActionIcon
+              className="h-6 w-6"
+              icon={RefreshCw}
+              label={tr('重新生成', 'Regenerate')}
+              disabled={actionsDisabled}
+              onClick={() => onRegenerate(message)}
+            />
+          )}
+          {onFork !== undefined && (
+            <RowActionIcon
+              className="h-6 w-6"
+              icon={GitBranch}
+              label={tr('从这条消息分叉', 'Fork from here')}
+              disabled={actionsDisabled}
+              onClick={() => onFork(message)}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -27,7 +27,7 @@ describe('approval detail', () => {
   expect(screen.getByText(/test-host/)).toBeInTheDocument();
  });
  it('does not fetch privileged details for a non-admin', () => {
-  useAuth.setState({role:'user'}); show(); expect(api.getApproval).not.toHaveBeenCalled();
+  useAuth.setState({role:'developer'}); show(); expect(api.getApproval).not.toHaveBeenCalled();
  });
  it('approves immediately without a confirm dialog or reason prompt', async () => {
   vi.mocked(api.approveApproval).mockResolvedValue({...row, status: 'executed'});

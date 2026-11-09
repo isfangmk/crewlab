@@ -30,9 +30,11 @@ const ROUTE_DEFS: RouteDef[] = [
   // 知识库：文档与检索；后续可挂检索试跑子页
   { path: '/knowledge', zh: '知识库', en: 'Knowledge', keywords: ['knowledge', 'kb', 'docs', 'rag', 'zhishiku', 'upload'], group: '知识库' },
 
-  // 治理：审批闸门与安全；后续可挂审计日志（不放助理菜单）
+  // 治理：审批闸门与安全；后续可挂评测（不放助理菜单）
   { path: '/approvals', zh: '审批', en: 'Approvals', keywords: ['approvals', 'shenpi', 'confirm'], group: '治理' },
+  { path: '/audit', zh: '审计日志', en: 'Audit logs', keywords: ['audit', 'logs', 'shenji'], group: '治理' },
   { path: '/observability', zh: '可观测', en: 'Observability', keywords: ['observability', 'trace', 'token', 'keguance'], group: '治理' },
+  { path: '/users', zh: '用户与权限', en: 'Users & roles', keywords: ['users', 'roles', 'permissions', 'yonghu'], group: '治理' },
 
   { path: '/settings/llm', zh: '设置 / 模型', en: 'Settings / LLM', keywords: ['llm', 'model', 'moxing'], group: '设置' },
   { path: '/settings/secrets', zh: '设置 / 凭证', en: 'Settings / Credentials', keywords: ['secrets', 'credentials', 'pingzheng'], group: '设置' },
