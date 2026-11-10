@@ -176,45 +176,33 @@ def _server(
     )
 
 
-async def test_declared_mcp_tool_is_directly_visible() -> None:
-    """技能声明的工具直接进上下文，其余工具仍留在检索目录里。"""
+async def test_mcp_tools_enter_search_index_not_context() -> None:
+    """MCP 工具一律不进初始上下文：只暴露 search/load，业务工具留在检索目录里。"""
 
     from app.services import tool_search_index
 
     server = _server()
-    deferred_wire = mcp_tool_wire_name("ai-engine", "list_hosts")
+    list_hosts = mcp_tool_wire_name("ai-engine", "list_hosts")
     # 检索目录构建只读进程内向量缓存（线上由 warm_vector_cache_from_db 预热）
-    tool_search_index._VECTOR_CACHE[deferred_wire] = [0.0, 1.0]  # noqa: SLF001
-    toolsets = await build_searchable_mcp_toolsets(
-        None, [server], always_visible_tools={_WIRE}
-    )
+    tool_search_index._VECTOR_CACHE[_WIRE] = [0.0, 1.0]  # noqa: SLF001
+    tool_search_index._VECTOR_CACHE[list_hosts] = [0.0, 1.0]  # noqa: SLF001
+    toolsets = await build_searchable_mcp_toolsets(None, [server])
     assert len(toolsets) == 1
     toolset = toolsets[0]
     try:
-        visible = {tool.name for tool in await toolset.get_tools()}
-        assert _WIRE in visible
-        # 已直接可见的工具不能再被检索，否则 SearchableToolset 会拒绝装配
+        # 上下文里只有 search/load 等管理工具，没有业务工具
+        names = {tool.name for tool in await toolset.get_tools()}
+        assert _WIRE not in names
+        assert list_hosts not in names
+        assert any(name.endswith("search_tools") for name in names)
+        assert any(name.endswith("load_tool") for name in names)
+        # 两台工具都在检索目录里，技能声明的也不做免检索直塞
         deferred = {tool.name for tool in await toolset._source.get_tools()}  # noqa: SLF001
-        assert _WIRE not in deferred
-        assert deferred_wire in deferred
+        assert deferred == {_WIRE, list_hosts}
     finally:
         await toolset.close()
-        tool_search_index._VECTOR_CACHE.pop(deferred_wire, None)  # noqa: SLF001
-
-
-async def test_all_declared_mcp_tools_drop_search_entry() -> None:
-    """整台 Server 的工具都被声明时，不再暴露 search/load 空入口。"""
-
-    server = _server(tools=["get_host_load"])
-    toolsets = await build_searchable_mcp_toolsets(
-        None, [server], always_visible_tools={_WIRE}
-    )
-    assert len(toolsets) == 1
-    toolset = toolsets[0]
-    try:
-        assert {tool.name for tool in await toolset.get_tools()} == {_WIRE}
-    finally:
-        await toolset.close()
+        tool_search_index._VECTOR_CACHE.pop(_WIRE, None)  # noqa: SLF001
+        tool_search_index._VECTOR_CACHE.pop(list_hosts, None)  # noqa: SLF001
 
 
 async def test_unmounted_mcp_server_is_not_searchable() -> None:
@@ -223,7 +211,57 @@ async def test_unmounted_mcp_server_is_not_searchable() -> None:
     server = _server()
     unmounted = filter_mcp_servers_by_tools([server], ["query_knowledge"])
     assert unmounted == []
-    assert await build_searchable_mcp_toolsets(None, unmounted, always_visible_tools={_WIRE}) == []
+    assert await build_searchable_mcp_toolsets(None, unmounted) == []
 
     broken = _server(status="error")
-    assert await build_searchable_mcp_toolsets(None, [broken], always_visible_tools={_WIRE}) == []
+    assert await build_searchable_mcp_toolsets(None, [broken]) == []
+
+
+async def test_unselected_tool_is_not_searchable() -> None:
+    """白名单只勾了部分工具：没勾选的工具不能出现在检索目录里。"""
+
+    from app.services import tool_search_index
+
+    server = _server()
+    list_hosts = mcp_tool_wire_name("ai-engine", "list_hosts")
+    # 向量缓存里同时有两条：如果白名单没生效，list_hosts 会出现在索引里
+    tool_search_index._VECTOR_CACHE[_WIRE] = [0.0, 1.0]  # noqa: SLF001
+    tool_search_index._VECTOR_CACHE[list_hosts] = [0.0, 1.0]  # noqa: SLF001
+    toolsets = await build_searchable_mcp_toolsets(
+        None,
+        [server],
+        allowed_tools=["query_knowledge", _WIRE],
+    )
+    assert len(toolsets) == 1
+    toolset = toolsets[0]
+    try:
+        # 检索目录里只剩白名单勾选的那条，未勾选的工具搜不到
+        deferred = {tool.name for tool in await toolset._source.get_tools()}  # noqa: SLF001
+        assert deferred == {_WIRE}
+        # 勾选的工具同样不进上下文，仍要靠 search/load 获取
+        names = {tool.name for tool in await toolset.get_tools()}
+        assert _WIRE not in names
+        assert any(name.endswith("search_tools") for name in names)
+    finally:
+        await toolset.close()
+        tool_search_index._VECTOR_CACHE.pop(_WIRE, None)  # noqa: SLF001
+        tool_search_index._VECTOR_CACHE.pop(list_hosts, None)  # noqa: SLF001
+
+
+async def test_single_tool_server_still_keeps_search_entry() -> None:
+    """整台 Server 只有一个工具也要保留 search/load，不能再退化成直接装配。"""
+
+    from app.services import tool_search_index
+
+    server = _server(tools=["get_host_load"])
+    tool_search_index._VECTOR_CACHE[_WIRE] = [0.0, 1.0]  # noqa: SLF001
+    toolsets = await build_searchable_mcp_toolsets(None, [server], allowed_tools=[_WIRE])
+    assert len(toolsets) == 1
+    toolset = toolsets[0]
+    try:
+        names = {tool.name for tool in await toolset.get_tools()}
+        assert _WIRE not in names
+        assert any(name.endswith("search_tools") for name in names)
+    finally:
+        await toolset.close()
+        tool_search_index._VECTOR_CACHE.pop(_WIRE, None)  # noqa: SLF001

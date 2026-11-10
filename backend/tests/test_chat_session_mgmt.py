@@ -304,6 +304,65 @@ async def test_session_sort_and_batch_delete(env: dict[str, str], api_base: str)
 
 
 @pytest.mark.asyncio
+async def test_session_batch_delete_many_keeps_audit_in_range(
+    env: dict[str, str], api_base: str
+) -> None:
+    """批量删除超过 3 个会话：审计不能被拼接过长的 resource_id 撑爆（曾经 4 个就 500）。"""
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=60.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        models = await client.get("/api/v1/aiops/models", headers=headers)
+        if models.status_code != 200:
+            pytest.skip("无可用模型")
+        try:
+            provider, model = _pick_model(models.json())
+        except LookupError as exc:
+            pytest.skip(str(exc))
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        ids: list[str] = []
+        for i in range(6):
+            cr = await client.post(
+                "/api/v1/chat/sessions",
+                headers=headers,
+                json={
+                    "title": f"batch-many-{stamp}-{i}",
+                    "provider": provider,
+                    "model": model,
+                    "agent_id": "default",
+                },
+            )
+            assert cr.status_code == 200, cr.text
+            ids.append(cr.json()["id"])
+
+        # 6 个 UUID 拼起来 221 字符，远超 audit_logs.resource_id 的 128
+        assert len(",".join(ids)) > 128
+        res = await client.post(
+            "/api/v1/chat/sessions/batch-delete", headers=headers, json={"ids": ids}
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["deleted"] == 6
+        for sid in ids:
+            gone = await client.get(f"/api/v1/chat/sessions/{sid}", headers=headers)
+            assert gone.status_code == 404, gone.text
+
+        # 审计落库且 id 列表完整记在 detail 里
+        audit = await client.get(
+            "/api/v1/audit",
+            headers=headers,
+            params={"action": "session.batch_delete", "limit": 5},
+        )
+        assert audit.status_code == 200, audit.text
+        rows = audit.json()["items"]
+        matched = [r for r in rows if r["detail"].get("ids") == ids]
+        assert len(matched) == 1, rows
+
+
+@pytest.mark.asyncio
 async def test_session_model_filter_and_summary_stats(
     env: dict[str, str], api_base: str
 ) -> None:
@@ -316,7 +375,10 @@ async def test_session_model_filter_and_summary_stats(
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from app.config import get_settings
+    from app.models_orm.attachment import ChatAttachment
     from app.models_orm.chat import ChatMessage
+    from app.models_orm.observation import ObservationTurn
+    from app.models_orm.share import ShareToken
 
     long_answer = "根因是连接池耗尽，建议先扩池再排查慢查询。" * 20
 
@@ -347,14 +409,18 @@ async def test_session_model_filter_and_summary_stats(
         )
         assert cr.status_code == 200, cr.text
         sid = cr.json()["id"]
-        # 新建会话没有任何消息：统计不能凭空造数
+        # 新建会话没有任何消息 / 观测 / 附件 / 分享：统计不能凭空造数
         assert cr.json()["message_count"] == 0
+        assert cr.json()["turn_count"] == 0
         assert cr.json()["tool_call_count"] == 0
+        assert cr.json()["skill_call_count"] == 0
         assert cr.json()["last_message_at"] is None
         assert cr.json()["last_message_preview"] is None
         assert cr.json()["total_tokens"] is None
         assert cr.json()["last_turn_status"] is None
         assert cr.json()["pending_approvals"] == 0
+        assert cr.json()["attachment_count"] == 0
+        assert cr.json()["shared"] is False
 
         engine = create_async_engine(get_settings().database_url)
         try:
@@ -386,6 +452,44 @@ async def test_session_model_filter_and_summary_stats(
                             content=long_answer,
                             seq=3,
                         ),
+                        # 工具 / 技能调用与 tokens 只认观测的回合账，不看消息行数
+                        ObservationTurn(
+                            id=f"{sid}-t1",
+                            session_id=sid,
+                            agent_id="default",
+                            provider=provider,
+                            model=model,
+                            status="error",
+                            input_summary="数据库连接池告警怎么排查？",
+                            prompt_tokens=1000,
+                            completion_tokens=500,
+                            total_tokens=1500,
+                            duration_ms=1200,
+                            tool_call_count=2,
+                            skill_call_count=1,
+                        ),
+                        ChatAttachment(
+                            # id 列是 36 位，直接复用会话 id（一附件一会话）
+                            id=sid,
+                            session_id=sid,
+                            name="alert.png",
+                            mime_type="image/png",
+                            size=1024,
+                            data_url="data:image/png;base64,AAAA",
+                        ),
+                        ShareToken(
+                            session_id=sid,
+                            token_hash=f"hash-{sid}",
+                            created_by=1,
+                            expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+                        ),
+                        # 已过期的分享不算「已分享」：链接已经点不开
+                        ShareToken(
+                            session_id=sid,
+                            token_hash=f"hash-expired-{sid}",
+                            created_by=1,
+                            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+                        ),
                     ]
                 )
                 await db.commit()
@@ -403,7 +507,14 @@ async def test_session_model_filter_and_summary_stats(
         row = items[0]
         # 只数正文消息：user + assistant 两条，工具卡不算「消息」
         assert row["message_count"] == 2
-        assert row["tool_call_count"] == 1
+        # 轮数按用户提问计，不是消息条数
+        assert row["turn_count"] == 1
+        assert row["tool_call_count"] == 2
+        assert row["skill_call_count"] == 1
+        assert row["total_tokens"] == 1500
+        assert row["last_turn_status"] == "error"
+        assert row["attachment_count"] == 1
+        assert row["shared"] is True
         assert row["last_message_at"] is not None
         # 摘要是最近一条有正文的消息，并按固定长度截断
         assert row["last_message_preview"] == long_answer[:240]
@@ -437,7 +548,8 @@ async def test_session_model_filter_and_summary_stats(
         detail = await client.get(f"/api/v1/chat/sessions/{sid}", headers=headers)
         assert detail.status_code == 200, detail.text
         assert detail.json()["message_count"] == 2
-        assert detail.json()["tool_call_count"] == 1
+        assert detail.json()["turn_count"] == 1
+        assert detail.json()["tool_call_count"] == 2
 
         cleaned = await client.delete(f"/api/v1/chat/sessions/{sid}", headers=headers)
         assert cleaned.status_code == 200, cleaned.text

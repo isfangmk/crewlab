@@ -142,7 +142,9 @@ async def batch_decide(
         actor_user_id=user.id,
         action="approval.batch_approve" if body.confirmed else "approval.batch_reject",
         resource_type="approval",
-        resource_id=",".join(body.ids),
+        # resource_id 定长 128，拼多个 id 会溢出（4 个 UUID 就 146 字符）；
+        # 批次不是单条资源，id 列表走 detail
+        resource_id="",
         detail={"count": len(items), "ids": body.ids, "reason": body.reason},
     )
     return {"items": [approval_service.approval_to_wire(a) for a in items]}

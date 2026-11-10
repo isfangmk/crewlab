@@ -6,7 +6,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from google.adk.events import Event
@@ -18,8 +18,10 @@ from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.stream_bridge import APP_NAME, SseFrame, stream_adk_turn
 from app.adk_runtime.web_search_tool import build_web_search_tool
 from app.models_orm.approval import Approval
+from app.models_orm.attachment import ChatAttachment
 from app.models_orm.chat import ChatMessage, ChatSession
 from app.models_orm.observation import ObservationTurn
+from app.models_orm.share import ShareToken
 from app.schemas.chat import PageContextIn
 from app.services import (
     agent_service,
@@ -318,29 +320,36 @@ _SESSION_PREVIEW_MAX_CHARS = 240
 
 @dataclass(frozen=True)
 class SessionStats:
-    """会话列表附带的统计：对话条数、工具调用、最近活动与运行信号。
+    """会话列表附带的统计：轮数、工具/技能调用、最近活动与运行信号。
 
     message_count 只统计 user / assistant 的正文消息：tool_card / tool_intent
     也是 chat_messages 的行，混进来会让「消息数」随工具调用次数虚高。
+    turn_count 是用户提问次数（一问一答算一轮），列表用它当「轮数」展示。
+    工具 / 技能调用与 tokens 一律取 observation_turns：那是唯一按回合记账的地方，
+    用消息行数推算会把多步工具链算成一次。
     """
 
     message_count: int
+    turn_count: int
     tool_call_count: int
+    skill_call_count: int
     last_message_at: datetime | None
     last_message_preview: str | None
     total_tokens: int | None
     last_turn_status: str | None
     pending_approvals: int
+    attachment_count: int
+    shared: bool
 
 
 async def list_session_stats(
     db: AsyncSession, session_ids: list[str]
 ) -> dict[str, SessionStats]:
-    """批量取会话统计，四条聚合查询覆盖整页，避免逐行 N+1。
+    """批量取会话统计，六条聚合查询覆盖整页，避免逐行 N+1。
 
     预览取「最近一条有正文的消息」：tool_card / tool_intent 的 content 为空，
-    用它们当摘要只会显示空行。运行信号（tokens / 最近回合状态）来自
-    observation_turns；观测未开启时这些字段保持 None，列表不会瞎编。
+    用它们当摘要只会显示空行。运行信号（工具/技能调用、tokens、最近回合状态）
+    来自 observation_turns；没有观测记录时保持 None / 0，列表不会瞎编。
     """
 
     if not session_ids:
@@ -353,9 +362,7 @@ async def list_session_stats(
                 func.count()
                 .filter(ChatMessage.role.in_(("user", "assistant")))
                 .label("message_count"),
-                func.count()
-                .filter(ChatMessage.kind == "tool_card")
-                .label("tool_call_count"),
+                func.count().filter(ChatMessage.role == "user").label("turn_count"),
                 func.max(ChatMessage.created_at).label("last_message_at"),
             )
             .where(ChatMessage.session_id.in_(session_ids))
@@ -363,8 +370,8 @@ async def list_session_stats(
         )
     ).all()
     message_stats = {
-        sid: (int(message_count), int(tool_call_count), last_message_at)
-        for sid, message_count, tool_call_count, last_message_at in message_rows
+        sid: (int(message_count), int(turn_count), last_message_at)
+        for sid, message_count, turn_count, last_message_at in message_rows
     }
 
     # DISTINCT ON：按 seq 倒序取每个会话的第一条，结果集只等于会话数。
@@ -386,7 +393,7 @@ async def list_session_stats(
         if content is not None and content.strip() != ""
     }
 
-    # 一条窗口查询同时拿「累计 tokens」与「最近一回合状态」：
+    # 一条窗口查询同时拿「累计调用数 / tokens」与「最近一回合状态」：
     # 直接 group by 只能给聚合值，拿不到最新状态那一行。
     observation_window = (
         select(
@@ -395,6 +402,12 @@ async def list_session_stats(
             func.sum(ObservationTurn.total_tokens)
             .over(partition_by=ObservationTurn.session_id)
             .label("total_tokens"),
+            func.sum(ObservationTurn.tool_call_count)
+            .over(partition_by=ObservationTurn.session_id)
+            .label("tool_call_count"),
+            func.sum(ObservationTurn.skill_call_count)
+            .over(partition_by=ObservationTurn.session_id)
+            .label("skill_call_count"),
             func.row_number()
             .over(
                 partition_by=ObservationTurn.session_id,
@@ -414,6 +427,8 @@ async def list_session_stats(
                 observation_window.c.session_id,
                 observation_window.c.status,
                 observation_window.c.total_tokens,
+                observation_window.c.tool_call_count,
+                observation_window.c.skill_call_count,
             ).where(observation_window.c.rn == 1)
         )
     ).all()
@@ -421,8 +436,10 @@ async def list_session_stats(
         sid: (
             None if total_tokens is None else int(total_tokens),
             str(status),
+            int(tool_call_count),
+            int(skill_call_count),
         )
-        for sid, status, total_tokens in observation_rows
+        for sid, status, total_tokens, tool_call_count, skill_call_count in observation_rows
     }
 
     approval_rows = (
@@ -437,20 +454,48 @@ async def list_session_stats(
     ).all()
     pending = {sid: int(n) for sid, n in approval_rows}
 
+    attachment_rows = (
+        await db.execute(
+            select(ChatAttachment.session_id, func.count())
+            .where(ChatAttachment.session_id.in_(session_ids))
+            .group_by(ChatAttachment.session_id)
+        )
+    ).all()
+    attachments = {sid: int(n) for sid, n in attachment_rows}
+
+    # 只算「还没过期」的分享：过期令牌在页面上点不开，标「已分享」会误导
+    shared_rows = (
+        await db.execute(
+            select(ShareToken.session_id)
+            .where(
+                ShareToken.session_id.in_(session_ids),
+                ShareToken.expires_at > datetime.now(timezone.utc),
+            )
+            .distinct()
+        )
+    ).all()
+    shared = {sid for (sid,) in shared_rows}
+
     stats: dict[str, SessionStats] = {}
     for sid in session_ids:
-        message_count, tool_call_count, last_message_at = message_stats.get(
+        message_count, turn_count, last_message_at = message_stats.get(
             sid, (0, 0, None)
         )
-        total_tokens, last_turn_status = observations.get(sid, (None, None))
+        total_tokens, last_turn_status, tool_call_count, skill_call_count = (
+            observations.get(sid, (None, None, 0, 0))
+        )
         stats[sid] = SessionStats(
             message_count=message_count,
+            turn_count=turn_count,
             tool_call_count=tool_call_count,
+            skill_call_count=skill_call_count,
             last_message_at=last_message_at,
             last_message_preview=previews.get(sid),
             total_tokens=total_tokens,
             last_turn_status=last_turn_status,
             pending_approvals=pending.get(sid, 0),
+            attachment_count=attachments.get(sid, 0),
+            shared=sid in shared,
         )
     return stats
 
@@ -1358,8 +1403,8 @@ async def stream_session_message(
         await mcp_service.build_searchable_mcp_toolsets(
             db,
             mcp_servers,
-            # 技能声明的 MCP 工具直接进上下文；其余工具仍靠 search/load
-            always_visible_tools=skills_service.declared_tools_of_skills(runtime_skills),
+            # 白名单是唯一口径：没勾选的工具不进检索目录，勾选的也仍需 search/load
+            allowed_tools=allowed_tools,
         )
     )
     confirm_tool_names = mcp_service.confirm_tool_names_for_servers(mcp_servers)

@@ -345,8 +345,8 @@ async def stream_decide(
     extra_tools = await mcp_service.build_searchable_mcp_toolsets(
         db,
         mcp_servers,
-        # 审批恢复回合沿用同一套「技能声明工具直接可见」口径
-        always_visible_tools=skills_service.declared_tools_of_skills(runtime_skills),
+        # 审批恢复回合沿用同一套白名单口径：MCP 工具一律靠 search/load
+        allowed_tools=allowed_tools,
     )
     confirm_tool_names = mcp_service.confirm_tool_names_for_servers(mcp_servers)
     # 助理级禁用名单与只读模式：恢复回合必须沿用发起时的助理约束

@@ -51,7 +51,9 @@ def _session_out(s, stats: chat_service.SessionStats | None = None) -> ChatSessi
         pinned=bool(s.pinned),
         archived=bool(s.archived),
         message_count=0 if stats is None else stats.message_count,
+        turn_count=0 if stats is None else stats.turn_count,
         tool_call_count=0 if stats is None else stats.tool_call_count,
+        skill_call_count=0 if stats is None else stats.skill_call_count,
         last_message_at=(
             None if stats is None or stats.last_message_at is None
             else stats.last_message_at.isoformat()
@@ -60,6 +62,8 @@ def _session_out(s, stats: chat_service.SessionStats | None = None) -> ChatSessi
         total_tokens=None if stats is None else stats.total_tokens,
         last_turn_status=None if stats is None else stats.last_turn_status,
         pending_approvals=0 if stats is None else stats.pending_approvals,
+        attachment_count=0 if stats is None else stats.attachment_count,
+        shared=False if stats is None else stats.shared,
     )
 
 
@@ -128,8 +132,10 @@ async def batch_delete_sessions(
         actor_user_id=user.id,
         action="session.batch_delete",
         resource_type="chat_session",
-        resource_id=",".join(body.ids),
-        detail={"count": deleted},
+        # resource_id 定长 128，多个 UUID 拼进去会溢出（4 个就 146 字符）；
+        # 批次不是单条资源，id 列表放 detail，resource_id 留空
+        resource_id="",
+        detail={"count": deleted, "ids": body.ids},
     )
     return {"deleted": deleted}
 
