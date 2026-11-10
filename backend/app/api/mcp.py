@@ -54,7 +54,7 @@ async def list_servers(
 async def create_server(
     body: McpServerInput,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     try:
         row = await mcp_service.create_server(
@@ -74,6 +74,21 @@ async def create_server(
         # MCP 端点不可达：新建流程已回滚删除该 Server，此处显式返回 502，
         # 不能让连接异常冒泡成 500 的 ASGI traceback。
         raise HTTPException(status_code=502, detail=f"MCP 连接失败: {exc}") from exc
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="mcp.server_create",
+        resource_type="mcp_server",
+        resource_id=str(row.id),
+        detail={
+            "name": row.name,
+            "transport": row.transport,
+            "endpoint": row.endpoint,
+            "trusted": row.trusted,
+            "enabled": row.enabled,
+            "approval_policy": row.approval_policy,
+        },
+    )
     return mcp_service.server_to_wire(row)
 
 
@@ -82,10 +97,10 @@ async def update_server(
     server_id: int,
     body: McpServerInput,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     try:
-        await mcp_service.update_server(
+        row = await mcp_service.update_server(
             db,
             server_id,
             name=body.name,
@@ -104,6 +119,21 @@ async def update_server(
     except (ConnectionError, OSError) as exc:
         # MCP 端点不可达：显式返回 502，不冒泡成 500
         raise HTTPException(status_code=502, detail=f"MCP 连接失败: {exc}") from exc
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="mcp.server_update",
+        resource_type="mcp_server",
+        resource_id=str(server_id),
+        detail={
+            "name": row.name,
+            "transport": row.transport,
+            "endpoint": row.endpoint,
+            "trusted": row.trusted,
+            "enabled": row.enabled,
+            "approval_policy": row.approval_policy,
+        },
+    )
     return {"ok": True}
 
 
@@ -111,12 +141,23 @@ async def update_server(
 async def delete_server(
     server_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> None:
     try:
+        # 删除前取名称：提交后行已消失，审计只能靠这里留痕。
+        existing = await mcp_service.get_server(db, server_id)
+        name = existing.name
         await mcp_service.delete_server(db, server_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="mcp.server_delete",
+        resource_type="mcp_server",
+        resource_id=str(server_id),
+        detail={"name": name},
+    )
 
 
 @router.post("/mcp/servers/{server_id}/test")

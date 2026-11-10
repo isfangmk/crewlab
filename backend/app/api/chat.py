@@ -29,6 +29,7 @@ from app.schemas.chat import (
     UpdateSessionTitleRequest,
 )
 from app.services import attachment_service, chat_service, share_service
+from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,7 @@ async def list_sessions(
 async def batch_delete_sessions(
     body: BatchDeleteSessionsRequest,
     db: AsyncSession = Depends(get_db),
-    _user: AuthUser = Depends(require_not_viewer),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     try:
         deleted = await chat_service.batch_delete_sessions(db, body.ids)
@@ -94,6 +95,14 @@ async def batch_delete_sessions(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="session.batch_delete",
+        resource_type="chat_session",
+        resource_id=",".join(body.ids),
+        detail={"count": deleted},
+    )
     return {"deleted": deleted}
 
 
@@ -222,6 +231,14 @@ async def create_share(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="session.share",
+        resource_type="chat_session",
+        resource_id=session_id,
+        detail={"expires_in_hours": body.expires_in_hours},
+    )
     return {
         "token": raw,
         "expires_at": row.expires_at.isoformat(),
@@ -286,12 +303,19 @@ async def patch_session_agent(
 async def delete_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     try:
         await chat_service.delete_session(db, session_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="session.delete",
+        resource_type="chat_session",
+        resource_id=session_id,
+    )
     return {}
 
 

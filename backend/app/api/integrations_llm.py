@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth
 from app.db import get_db
 from app.services import llm_admin
+from app.services.audit_service import write_audit
+from app.services.auth_service import AuthUser
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +63,10 @@ async def test_llm(
 async def validate_and_save(
     body: LLMConfigIn,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     try:
-        return await llm_admin.validate_and_save(
+        result = await llm_admin.validate_and_save(
             db,
             provider=body.provider,
             api_key=body.api_key,
@@ -81,6 +83,23 @@ async def validate_and_save(
         # 上游厂商不可达：显式失败，不能让 httpx 异常冒泡成 500
         logger.warning("保存 LLM 配置失败（厂商不可达）provider=%s: %s", body.provider, exc)
         raise HTTPException(status_code=502, detail=f"厂商连接失败: {exc}") from exc
+    # 审计只记配置外形，永不落 api_key。
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="llm.save",
+        resource_type="llm_provider",
+        resource_id=body.provider,
+        detail={
+            "base_url": body.base_url,
+            "default_model": body.default_model,
+            "models": list(body.models),
+            "model_prefix": body.model_prefix,
+            "tls_insecure": body.tls_insecure,
+            "api_key_changed": body.api_key != "",
+        },
+    )
+    return result
 
 
 @router.post("/integrations/llm/models")

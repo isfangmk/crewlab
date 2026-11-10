@@ -84,17 +84,24 @@ async def _upstream_reasoning_chunks(*, thinking_type: str) -> int:
     """直连 custom 上游，确认 thinking 字段能逼出 reasoning_content。"""
 
     from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    from app.db import SessionLocal
+    from app.config import get_settings
     from app.models_orm.llm import LlmProvider
 
-    async with SessionLocal() as db:
-        p = await db.scalar(
-            select(LlmProvider).where(LlmProvider.provider_id == "custom")
-        )
-        if p is None:
-            raise RuntimeError("custom provider 不存在")
-        base_url, api_key, model = p.base_url, p.api_key, p.default_model
+    # 不复用 app.db 的全局连接池：同进程里前面的测试可能已在别的 event loop
+    # 上建过连接，复用会撞上 "Event loop is closed"。这里自建自弃。
+    engine = create_async_engine(get_settings().database_url)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            p = await db.scalar(
+                select(LlmProvider).where(LlmProvider.provider_id == "custom")
+            )
+            if p is None:
+                raise RuntimeError("custom provider 不存在")
+            base_url, api_key, model = p.base_url, p.api_key, p.default_model
+    finally:
+        await engine.dispose()
 
     body = {
         "model": model,
