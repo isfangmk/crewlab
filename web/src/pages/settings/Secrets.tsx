@@ -3,16 +3,22 @@ import { Button, Chip, Input, Label, RowAction, RowActionIcon, SectionCard, Tabl
 import { Hint } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Lock, Plus, Trash2, RefreshCw, X } from 'lucide-react';
+import { Download, KeyRound, Lock, Plus, Trash2, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import {
   listSecrets,
   listCredentialTypes,
   createSecret,
   deleteSecret,
+  exportSecrets,
+  getSecretsHealth,
+  type SecretHealthItem,
   type SecretView,
   type CredType,
 } from '@/api/secrets';
 import { ApiError } from '@/api/client';
+import { SecretRotateDialog } from '@/components/SecretRotateDialog';
+import { saveBlob } from '@/lib/download';
+import { fullDateTime } from '@/lib/format';
 import { useI18n } from '@/i18n/locale';
 
 // 凭据管理：按类型渲染字段；custom 为自由键值。明文只写不读，落库加密。
@@ -24,9 +30,13 @@ export default function SecretsPage() {
   const { tr } = useI18n();
   const [items, setItems] = useState<SecretView[]>([]);
   const [types, setTypes] = useState<CredType[]>([]);
+  const [health, setHealth] = useState<Record<number, SecretHealthItem>>({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [rotating, setRotating] = useState<SecretView | null>(null);
 
   // add-form state
   const [name, setName] = useState('');
@@ -40,9 +50,14 @@ export default function SecretsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, t] = await Promise.all([listSecrets(), listCredentialTypes()]);
+      const [s, t, h] = await Promise.all([
+        listSecrets(),
+        listCredentialTypes(),
+        getSecretsHealth(),
+      ]);
       setItems(s.items ?? []);
       setTypes(t.items ?? []);
+      setHealth(Object.fromEntries((h.items ?? []).map((i) => [i.id, i])));
       setErr(null);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : (e as Error).message);
@@ -106,6 +121,35 @@ export default function SecretsPage() {
     }
   };
 
+  const onExport = async () => {
+    setExporting(true);
+    try {
+      const { blob, filename } = await exportSecrets();
+      saveBlob(blob, filename);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const onRotated = (updated: SecretView) => {
+    setItems((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
+    setNote(
+      tr(
+        `凭证 ${updated.name} 已轮换，新值立即生效并已写入审计日志。`,
+        `Credential ${updated.name} rotated; the new value is live and audited.`,
+      ),
+    );
+    // 轮换会改 updated_at 与密文：重查健康状态，避免页面停留在旧的「不可解密」提示。
+    void getSecretsHealth()
+      .then((h) => setHealth(Object.fromEntries((h.items ?? []).map((i) => [i.id, i]))))
+      .catch((e) => setErr(e instanceof ApiError ? e.message : (e as Error).message));
+  };
+
+  const brokenSecrets = items.filter((item) => health[item.id] !== undefined && !health[item.id].ok);
+
   const isCustom = typeName === CUSTOM;
 
   useAssistantPage('凭据管理', 'Credentials', {
@@ -123,16 +167,48 @@ export default function SecretsPage() {
           'Pick a type (Tencent Cloud / AWS / GitHub …) and it lists the right fields plus a built-in "which env vars to inject" rule; skills / external MCP that use this credential inject by that rule. Pick "Custom" to enter free-form fields injected as same-named env vars. Values are write-only and AES-encrypted at rest with the existing system secret.',
         )}
         actions={
-          <Hint content={tr('刷新', 'Refresh')}>
-            <RowAction icon={RefreshCw} onClick={() => void load()} disabled={loading}>
-              {tr('刷新', 'Refresh')}
-            </RowAction>
-          </Hint>
+          <div className="flex flex-wrap items-center gap-2">
+            <Hint content={tr('导出凭证清单（仅元数据，不含密钥）', 'Export credential inventory (metadata only)')}>
+              <RowAction
+                icon={Download}
+                iconClassName={exporting ? 'animate-pulse' : undefined}
+                disabled={loading || exporting || items.length === 0}
+                onClick={() => void onExport()}
+              >
+                {tr('导出清单', 'Export list')}
+              </RowAction>
+            </Hint>
+            <Hint content={tr('刷新', 'Refresh')}>
+              <RowAction icon={RefreshCw} onClick={() => void load()} disabled={loading}>
+                {tr('刷新', 'Refresh')}
+              </RowAction>
+            </Hint>
+          </div>
         }
       />
 
       {err && (
         <div className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[11px] text-red-400">{err}</div>
+      )}
+
+      {note && (
+        <div className="rounded-md border border-ok/30 bg-ok/5 px-3 py-2 text-[11px] text-ok">{note}</div>
+      )}
+
+      {brokenSecrets.length > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[11px] text-red-400">
+          <ShieldAlert size={13} className="mt-[1px] shrink-0" aria-hidden />
+          <span>
+            {tr(
+              `${brokenSecrets.length} 条凭证无法用当前加密密钥解密（${brokenSecrets
+                .map((s) => s.name)
+                .join('、')}）。轮换并补全全部字段即可修复。`,
+              `${brokenSecrets.length} credential(s) cannot be decrypted with the current key (${brokenSecrets
+                .map((s) => s.name)
+                .join(', ')}). Rotate and fill every field to repair.`,
+            )}
+          </span>
+        </div>
       )}
 
       <SectionCard
@@ -245,57 +321,94 @@ export default function SecretsPage() {
               <th className="px-3 py-1.5 font-medium">{tr('名称', 'Name')}</th>
               <th className="px-3 py-1.5 font-medium">{tr('类型', 'Type')}</th>
               <th className="px-3 py-1.5 font-medium">{tr('字段', 'Fields')}</th>
+              <th className="px-3 py-1.5 font-medium">{tr('最近更新', 'Updated')}</th>
               <th className="px-3 py-1.5" />
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/50">
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-[12px] text-zinc-500">
+                <td colSpan={5} className="px-3 py-6 text-center text-[12px] text-zinc-500">
                   {tr('加载中…', 'Loading…')}
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-[12px] text-zinc-600">
+                <td colSpan={5} className="px-3 py-6 text-center text-[12px] text-zinc-600">
                   {tr('还没有凭据。', 'No credentials yet.')}
                 </td>
               </tr>
             ) : (
-              items.map((s) => (
-                <tr key={s.id} className="transition-colors hover:bg-zinc-800/30">
-                  <td className="px-3 py-2 font-mono text-[12px] text-zinc-200">{s.name}</td>
-                  <td className="px-3 py-2 text-[12px] text-zinc-400">
-                    {types.find((t) => t.name === s.type)?.label ?? s.type ?? CUSTOM}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap gap-1">
-                      {s.field_keys.length === 0 ? (
-                        <span className="text-[11px] text-zinc-600">—</span>
-                      ) : (
-                        s.field_keys.map((k) => (
-                          <Chip key={k} dense className="font-mono">{k}</Chip>
-                        ))
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-1 text-right">
-                    <Hint content={tr('删除', 'Delete')}>
-                      <RowActionIcon
-                        icon={Trash2}
-                        label={tr('删除', 'Delete')}
-                        tone="danger"
-                        disabled={busy}
-                        onClick={() => void onDelete(s.id)}
-                      />
-                    </Hint>
-                  </td>
-                </tr>
-              ))
+              items.map((s) => {
+                const healthItem = health[s.id];
+                return (
+                  <tr key={s.id} className="transition-colors hover:bg-zinc-800/30">
+                    <td className="px-3 py-2 font-mono text-[12px] text-zinc-200">
+                      <span className="inline-flex items-center gap-1.5">
+                        {s.name}
+                        {healthItem !== undefined && !healthItem.ok ? (
+                          <Chip tone="danger" dense>
+                            {tr('不可解密', 'Undecryptable')}
+                          </Chip>
+                        ) : null}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-[12px] text-zinc-400">
+                      {types.find((t) => t.name === s.type)?.label ?? s.type ?? CUSTOM}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap gap-1">
+                        {s.field_keys.length === 0 ? (
+                          <span className="text-[11px] text-zinc-600">—</span>
+                        ) : (
+                          s.field_keys.map((k) => (
+                            <Chip key={k} dense className="font-mono">{k}</Chip>
+                          ))
+                        )}
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-zinc-500">
+                      {fullDateTime(s.updated_at)}
+                    </td>
+                    <td className="px-3 py-1 text-right">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <RowAction
+                          icon={KeyRound}
+                          className="h-7 px-2 text-[11px]"
+                          disabled={busy}
+                          onClick={() => {
+                            setNote(null);
+                            setRotating(s);
+                          }}
+                        >
+                          {tr('轮换', 'Rotate')}
+                        </RowAction>
+                        <Hint content={tr('删除', 'Delete')}>
+                          <RowActionIcon
+                            icon={Trash2}
+                            label={tr('删除', 'Delete')}
+                            tone="danger"
+                            disabled={busy}
+                            onClick={() => void onDelete(s.id)}
+                          />
+                        </Hint>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </TableCard>
+
+      <SecretRotateDialog
+        secret={rotating}
+        types={types}
+        health={rotating === null ? undefined : health[rotating.id]}
+        onClose={() => setRotating(null)}
+        onRotated={onRotated}
+      />
     </div>
   );
 }

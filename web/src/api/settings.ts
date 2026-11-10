@@ -1,4 +1,4 @@
-import { request } from './client';
+import { request, requestFile } from './client';
 
 // 系统设置一行；sensitive=true 时列表里的 value 已脱敏，明文只走 reveal。
 export type SystemSetting = {
@@ -40,6 +40,11 @@ export function revealSetting(category: string, key: string): Promise<{ value: s
     'GET',
     `/system-settings/${encodeURIComponent(category)}/${encodeURIComponent(key)}/reveal`
   );
+}
+
+// 配置快照导出：密钥类值一律遮蔽，可直接作为合规附件。
+export function exportSettings(): Promise<{ blob: Blob; filename: string }> {
+  return requestFile('/system-settings/export');
 }
 
 export function fetchLLMModels(
