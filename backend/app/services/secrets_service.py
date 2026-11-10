@@ -174,6 +174,99 @@ async def delete_secret(db: AsyncSession, secret_id: int) -> tuple[str, str]:
     return name, cred_type
 
 
+async def get_secret(db: AsyncSession, secret_id: int) -> SecretCredential:
+    row = await db.get(SecretCredential, secret_id)
+    if row is None:
+        raise LookupError(f"凭证不存在: {secret_id}")
+    return row
+
+
+def _decrypt_fields(row: SecretCredential) -> dict[str, str]:
+    """解密一条凭证的字段对象；密钥不匹配必须显式失败。"""
+
+    try:
+        raw = _fernet().decrypt(row.fields_ciphertext.encode("ascii"))
+    except Exception as exc:
+        raise ValueError(
+            f"凭证解密失败（id={row.id} name={row.name}）：密钥不匹配或密文损坏"
+        ) from exc
+    fields = json.loads(raw.decode("utf-8"))
+    if not isinstance(fields, dict):
+        raise TypeError(f"凭证字段损坏 id={row.id}")
+    for k, v in fields.items():
+        if not isinstance(k, str) or not isinstance(v, str):
+            raise TypeError(f"凭证字段类型非法 id={row.id} key={k}")
+    return fields
+
+
+def check_secret(row: SecretCredential) -> None:
+    """自检：能解密即通过；不能解密抛 ValueError（供健康检查汇总）。"""
+
+    _decrypt_fields(row)
+
+
+async def rotate_secret(
+    db: AsyncSession,
+    secret_id: int,
+    *,
+    new_fields: dict[str, str],
+) -> tuple[SecretCredential, list[str]]:
+    """轮换凭证的部分或全部字段值。
+
+    - 旧密文可解密：未提交的字段沿用旧值（增量轮换，常见于只换一个 token）。
+    - 旧密文不可解密（加密密钥被换过）：轮换是唯一修复路径，必须一次补全全部字段，
+      否则会把「半条凭证」写进库，后续调用只会更难排查。
+    """
+
+    if not isinstance(new_fields, dict) or len(new_fields) == 0:
+        raise ValueError("fields 不能为空")
+    for key, value in new_fields.items():
+        if not isinstance(key, str) or key == "":
+            raise ValueError("fields 的 key 必须是非空字符串")
+        if not isinstance(value, str) or value == "":
+            raise ValueError(f"fields[{key}] 不能为空")
+
+    row = await get_secret(db, secret_id)
+    try:
+        current: dict[str, str] | None = _decrypt_fields(row)
+    except ValueError:
+        current = None
+
+    if current is None:
+        previous_keys = json.loads(row.field_keys_json)
+        if not isinstance(previous_keys, list):
+            raise TypeError(f"field_keys_json 损坏 id={row.id}")
+        missing = [k for k in previous_keys if k not in new_fields]
+        if missing:
+            raise ValueError(
+                "旧密文无法解密，轮换必须一次补全全部字段，缺少: " + ",".join(missing)
+            )
+        merged = dict(new_fields)
+    else:
+        merged = {**current, **new_fields}
+
+    keys = _validate_fields(row.cred_type, merged)
+    row.field_keys_json = json.dumps(keys, ensure_ascii=False)
+    row.fields_ciphertext = _encrypt_fields(merged)
+    await db.commit()
+    await db.refresh(row)
+    logger.info(
+        "轮换凭证 id=%s name=%s fields=%s", row.id, row.name, sorted(new_fields)
+    )
+    return row, sorted(new_fields)
+
+
+async def list_secret_usage(db: AsyncSession, name: str) -> list:
+    """引用该凭证的 MCP Server：轮换前后都要能说清影响面。"""
+
+    from app.models_orm.mcp import McpServer
+
+    rows = await db.scalars(
+        select(McpServer).where(McpServer.credential == name).order_by(McpServer.id)
+    )
+    return list(rows.all())
+
+
 async def resolve_secret_fields(
     db: AsyncSession, name: str
 ) -> dict[str, str]:
@@ -186,17 +279,6 @@ async def resolve_secret_fields(
     row = await db.scalar(select(SecretCredential).where(SecretCredential.name == name))
     if row is None:
         raise LookupError(f"凭证不存在: {name}")
-    try:
-        raw = _fernet().decrypt(row.fields_ciphertext.encode("ascii"))
-    except Exception as exc:
-        raise ValueError(
-            f"凭证解密失败（id={row.id} name={name}）：密钥不匹配或密文损坏"
-        ) from exc
-    fields = json.loads(raw.decode("utf-8"))
-    if not isinstance(fields, dict):
-        raise TypeError(f"凭证字段损坏 id={row.id}")
-    for k, v in fields.items():
-        if not isinstance(k, str) or not isinstance(v, str):
-            raise TypeError(f"凭证字段类型非法 id={row.id} key={k}")
+    fields = _decrypt_fields(row)
     logger.info("解析凭证 name=%s type=%s keys=%s", name, row.cred_type, sorted(fields.keys()))
     return fields

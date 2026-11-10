@@ -17,7 +17,9 @@ from app.api.deps import require_admin
 from app.db import get_db
 from app.models_orm.audit import AuditLog
 from app.models_orm.user import User
+from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
+from app.services.redaction import redact_value
 
 router = APIRouter(tags=["audit"])
 
@@ -163,9 +165,12 @@ async def export_audit(
     sort_dir: str = Query("desc"),
     limit: int = Query(5000, ge=1, le=50000),
     db: AsyncSession = Depends(get_db),
-    _admin: AuthUser = Depends(require_admin),
+    user: AuthUser = Depends(require_admin),
 ) -> Response:
-    """按当前筛选导出 CSV；上限显式限制，避免一次拉爆内存。"""
+    """按当前筛选导出 CSV；恒为脱敏导出，不提供关闭开关。
+
+    历史脏数据里可能存着明文密钥，脱敏不是可选项——出库口径必须唯一。
+    """
 
     if sort_dir not in ("asc", "desc"):
         raise HTTPException(status_code=400, detail="sort_dir 必须是 asc 或 desc")
@@ -194,6 +199,11 @@ async def export_audit(
     writer = csv.writer(buf)
     writer.writerow(["时间", "操作者", "动作", "资源类型", "资源ID", "Request ID", "详情 JSON"])
     for row, email in rows:
+        try:
+            detail = _parse_detail(row.detail_json, row.id)
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        payload = json.dumps(redact_value(detail), ensure_ascii=False)
         writer.writerow(
             [
                 row.created_at.isoformat(),
@@ -202,11 +212,29 @@ async def export_audit(
                 row.resource_type,
                 row.resource_id,
                 row.request_id or "",
-                row.detail_json,
+                payload,
             ]
         )
     # 带 BOM：Windows 版 Excel 直接双击不会把中文显示成乱码。
     body = "\ufeff" + buf.getvalue()
+    # 导出本身就是把审计数据带出系统，必须自己也被审计。
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="audit.export",
+        resource_type="audit",
+        detail={
+            "rows": len(rows),
+            "filters": {
+                "action": action,
+                "resource_type": resource_type,
+                "resource_id": resource_id,
+                "actor_user_id": actor_user_id,
+                "created_from": None if created_from is None else created_from.isoformat(),
+                "created_to": None if created_to is None else created_to.isoformat(),
+            },
+        },
+    )
     return Response(
         content=body.encode("utf-8"),
         media_type="text/csv; charset=utf-8",

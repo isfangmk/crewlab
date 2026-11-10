@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_auth
+from app.api.deps import require_admin
 from app.db import get_db
 from app.services import llm_admin
 from app.services.audit_service import write_audit
@@ -39,7 +39,7 @@ class LLMConfigIn(BaseModel):
 @router.post("/integrations/llm/test")
 async def test_llm(
     body: LLMConfigIn,
-    _user: str = Depends(require_auth),
+    _admin: AuthUser = Depends(require_admin),
 ) -> dict:
     try:
         return await llm_admin.probe_configuration(
@@ -63,7 +63,7 @@ async def test_llm(
 async def validate_and_save(
     body: LLMConfigIn,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_admin),
 ) -> dict:
     try:
         result = await llm_admin.validate_and_save(
@@ -105,7 +105,7 @@ async def validate_and_save(
 @router.post("/integrations/llm/models")
 async def list_remote_models(
     body: LLMConfigIn,
-    _user: str = Depends(require_auth),
+    _admin: AuthUser = Depends(require_admin),
 ) -> dict:
     try:
         models = await llm_admin.fetch_remote_models(

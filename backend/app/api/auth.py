@@ -56,6 +56,15 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Login
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # 只记成功登录：失败尝试来自未认证请求，逐次落库会把审计表变成放大器。
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="auth.login",
+        resource_type="user",
+        resource_id=str(user.id),
+        detail={"email": user.email, "role": user.role},
+    )
     return LoginResponse(access_token=token, email=user.email, role=user.role)
 
 

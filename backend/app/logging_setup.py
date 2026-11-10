@@ -49,8 +49,11 @@ _SECRET_KEY_NAMES: frozenset[str] = frozenset(
 )
 
 
-def _is_secret_key(raw: str) -> bool:
-    """键名（去引号、转小写、'-' 与 '_' 等价）是否属于敏感键。"""
+def is_secret_key(raw: str) -> bool:
+    """键名（去引号、转小写、'-' 与 '_' 等价）是否属于敏感键。
+
+    审计导出、配置快照导出都复用这一判定，避免各页面各写一套脱敏名单。
+    """
 
     cleaned = raw.strip("\"'").lower().replace("-", "_")
     if cleaned in _SECRET_KEY_NAMES:
@@ -73,7 +76,7 @@ def _redact_pairs(text: str) -> str:
 
         def _replace(match: re.Match[str]) -> str:
             key = match.group("key")
-            if not _is_secret_key(key):
+            if not is_secret_key(key):
                 return match.group(0)
             sep = match.group("sep")
             quote = match.groupdict().get("quote")
