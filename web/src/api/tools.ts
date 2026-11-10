@@ -13,6 +13,8 @@ export type BuiltinTool = {
   name: string;
   description: string;
   risk: string;
+  /** always = 随 SkillToolset 始终装配；per_turn = 由对话开关（如联网）决定 */
+  mount: 'always' | 'per_turn';
   params: BuiltinToolParam[];
 };
 

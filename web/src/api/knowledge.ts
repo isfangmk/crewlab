@@ -78,7 +78,13 @@ export function moveDoc(id: string, path: string) {
 
 export function searchKnowledge(
   q: string,
-  opts?: { limit?: number; path?: string; pathPrefix?: string; tags?: string[] },
+  opts?: {
+    limit?: number;
+    path?: string;
+    pathPrefix?: string;
+    tags?: string[];
+    scope?: { paths?: string[]; doc_ids?: string[] };
+  },
 ) {
   const params = new URLSearchParams();
   params.set('q', q);
@@ -86,10 +92,24 @@ export function searchKnowledge(
   if (opts?.path) params.set('path', opts.path);
   if (opts?.pathPrefix) params.set('path_prefix', opts.pathPrefix);
   for (const t of opts?.tags ?? []) params.append('tag', t);
+  for (const p of opts?.scope?.paths ?? []) params.append('scope_path', p);
+  for (const d of opts?.scope?.doc_ids ?? []) params.append('scope_doc', d);
   return request<{ items: SearchHit[]; total: number }>(
     'GET',
     `/knowledge/search?${params.toString()}`,
   );
+}
+
+/** 助理编辑器预览知识范围：命中多少篇、哪些目录/文档已不存在。 */
+export type ScopePreview = {
+  doc_count: number;
+  matched_paths: { path: string; count: number }[];
+  unknown_paths: string[];
+  unknown_doc_ids: string[];
+};
+
+export function scopePreview(input: { paths: string[]; doc_ids: string[] }) {
+  return request<ScopePreview>('POST', '/knowledge/scope-preview', input);
 }
 
 export function listPaths() {

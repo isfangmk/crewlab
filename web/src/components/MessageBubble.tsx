@@ -29,6 +29,7 @@ import { Button, Chip, CodeBlock, RowActionIcon, StatusPill, Textarea } from '@/
 import { Modal } from '@/components/Modal';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
+import { SourcesSection, collectToolSources, extractSources } from '@/components/SourcesBlock';
 
 export type ConfigDraftResult = {
   kind: 'config_draft';
@@ -308,6 +309,8 @@ function AssistantBubble({ message, actionsDisabled, onRegenerate, onFork, onCon
   // the same column, matching the doc-card aesthetic.
   // 流式只渲染已到正文；底部 ThinkingIndicator 表示进行中，不在气泡内再叠三点。
   const body = message.content ?? '';
+  // 本回答用到的来源统一收口到气泡底部一块，工具卡内不再重复列
+  const sources = collectToolSources(message.tool_calls);
   return (
     <div className="group flex flex-col items-stretch gap-2">
       {body !== '' && (
@@ -316,8 +319,14 @@ function AssistantBubble({ message, actionsDisabled, onRegenerate, onFork, onCon
         </div>
       )}
       {message.tool_calls?.map((tc, i) => (
-        <ToolCallSummaryBlock key={`${tc.name}-${i}`} call={tc} onConfirmConfigDraft={onConfirmConfigDraft} />
+        <ToolCallSummaryBlock
+          key={`${tc.name}-${i}`}
+          call={tc}
+          showSources={false}
+          onConfirmConfigDraft={onConfirmConfigDraft}
+        />
       ))}
+      {sources.length > 0 && <SourcesSection sources={sources} className="mt-1 border-l border-zinc-800/60 pl-3" />}
       {body !== '' && !message.pending && (
         <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <CopyButton text={body} />
@@ -365,6 +374,7 @@ function ToolBubble({ message, onConfirmConfigDraft }: Props) {
 function ToolCallSummaryBlock({
   call,
   onConfirmConfigDraft,
+  showSources = true,
 }: {
   call: {
     name: string;
@@ -376,6 +386,8 @@ function ToolCallSummaryBlock({
     error?: string;
   };
   onConfirmConfigDraft?: ConfirmConfigDraft;
+  /** 气泡已聚合来源时置 false，避免同一批来源渲染两次。 */
+  showSources?: boolean;
 }) {
   const { tr } = useI18n();
   const [open, setOpen] = useState(false);
@@ -383,6 +395,7 @@ function ToolCallSummaryBlock({
   const isPending = status === 'pending';
   const isError = status === 'error' || status === 'timeout' || !!call.error;
   const hint = argSummary(call.arguments);
+  const sources = showSources ? extractSources(call.name, call.result) : [];
   // 工具结果 status=pending_approval 时，在会话内渲染批准/拒绝卡。
   const approval = pendingApproval(call.result);
   if (approval) {
@@ -427,6 +440,11 @@ function ToolCallSummaryBlock({
           )}
         </span>
       </button>
+      {sources.length > 0 && (
+        <div className="border-t border-zinc-800/60 bg-zinc-950/30 px-3 py-2">
+          <SourcesSection sources={sources} />
+        </div>
+      )}
       {configDraft && (
         <ConfigDraftCard draft={configDraft} onConfirm={onConfirmConfigDraft} />
       )}
@@ -442,7 +460,6 @@ function ToolCallSummaryBlock({
           )}
           {call.result !== undefined && (
             <div>
-              <SourcesBlock toolName={call.name} result={call.result} />
               <div className="mb-1 text-[11px] uppercase tracking-wide text-zinc-500">{tr('结果', 'Result')}</div>
               <CodeBlock>
                 {typeof call.result === 'string' ? call.result : (JSON.stringify(call.result, null, 2) ?? '')}
@@ -457,82 +474,6 @@ function ToolCallSummaryBlock({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-type SourceItem = { title: string; href?: string; excerpt?: string; score?: number };
-
-function extractSources(toolName: string, result: unknown): SourceItem[] {
-  if (result === null || typeof result !== 'object') return [];
-  const obj = result as Record<string, unknown>;
-  const rawList = Array.isArray(obj.items)
-    ? obj.items
-    : Array.isArray(obj.results)
-      ? obj.results
-      : null;
-  if (rawList === null) return [];
-  if (toolName !== 'query_knowledge' && toolName !== 'web_search') {
-    // 其它工具也可能返回 items，但本近程只统一知识/网页搜索来源区
-    if (toolName.indexOf('search') < 0 && toolName.indexOf('knowledge') < 0) {
-      return [];
-    }
-  }
-  const out: SourceItem[] = [];
-  for (const raw of rawList) {
-    if (raw === null || typeof raw !== 'object') continue;
-    const row = raw as Record<string, unknown>;
-    if (typeof row.title !== 'string' || row.title === '') continue;
-    const item: SourceItem = { title: row.title };
-    if (typeof row.url === 'string' && row.url !== '') item.href = row.url;
-    else if (typeof row.doc_id === 'string' && row.doc_id !== '') {
-      item.href = `/knowledge?doc=${encodeURIComponent(row.doc_id)}`;
-    }
-    if (typeof row.excerpt === 'string') item.excerpt = row.excerpt;
-    else if (typeof row.snippet === 'string') item.excerpt = row.snippet;
-    if (typeof row.score === 'number') item.score = row.score;
-    out.push(item);
-  }
-  return out;
-}
-
-function SourcesBlock({ toolName, result }: { toolName: string; result: unknown }) {
-  const { tr } = useI18n();
-  const sources = extractSources(toolName, result);
-  if (sources.length === 0) return null;
-  return (
-    <div className="mb-3">
-      <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">
-        {tr('来源', 'Sources')}
-      </div>
-      <ul className="space-y-2">
-        {sources.map((s, i) => (
-          <li key={`${s.title}-${i}`} className="rounded-lg border border-zinc-800/60 bg-zinc-900/40 px-2.5 py-1.5">
-            <div className="flex items-center gap-2">
-              {s.href ? (
-                <a
-                  href={s.href}
-                  className="truncate text-[12px] text-sky-300 hover:underline"
-                  target={s.href.startsWith('http') ? '_blank' : undefined}
-                  rel={s.href.startsWith('http') ? 'noreferrer' : undefined}
-                >
-                  {s.title}
-                </a>
-              ) : (
-                <span className="truncate text-[12px] text-zinc-200">{s.title}</span>
-              )}
-              {typeof s.score === 'number' && (
-                <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500">
-                  {s.score.toFixed(3)}
-                </span>
-              )}
-            </div>
-            {s.excerpt ? (
-              <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-zinc-500">{s.excerpt}</p>
-            ) : null}
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MessageBubble, type ConfigDraftResult } from './MessageBubble';
-import type { ChatMessage } from '@/api/chat';
+import type { ChatMessage, ToolCallSummary } from '@/api/chat';
 import { getApproval } from '@/api/approvals';
 import { setLocale } from '@/i18n/locale';
 import * as chatApi from '@/api/chat';
@@ -318,6 +318,63 @@ describe('MessageBubble config draft card', () => {
     expect(screen.getByText(/提案|Proposal/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /确认应用|Apply/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /取消|Cancel/ })).toBeInTheDocument();
+  });
+});
+
+describe('MessageBubble 引用来源', () => {
+  const knowledgeCall: ToolCallSummary = {
+    id: 'call-knowledge',
+    name: 'query_knowledge',
+    status: 'success',
+    result: {
+      items: [
+        {
+          doc_id: 'doc-1',
+          title: '雷达校准手册',
+          path: '运维/手册',
+          chunk_index: 0,
+          score: 0.031,
+          excerpt: '校准前先做零点漂移检查。',
+        },
+      ],
+      total: 1,
+    },
+  };
+
+  it('工具卡不用展开就能看到来源', () => {
+    render(<MessageBubble message={{
+      id: 'tool-card-knowledge',
+      role: 'tool',
+      kind: 'tool_card',
+      tool_call: knowledgeCall,
+    }} />);
+
+    expect(screen.getByRole('region', { name: '来源' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '雷达校准手册' })).toHaveAttribute('href', '/knowledge?doc=doc-1');
+    expect(screen.getByText('校准前先做零点漂移检查。')).toBeInTheDocument();
+    // 折叠区未展开，不渲染原始结果 JSON
+    expect(screen.queryByText('结果')).not.toBeInTheDocument();
+  });
+
+  it('助手气泡把多次检索的来源收口成一块', () => {
+    render(<MessageBubble message={{
+      id: 'assistant-with-sources',
+      role: 'assistant',
+      content: '按手册第 1 条执行 [1]。',
+      tool_calls: [
+        knowledgeCall,
+        {
+          id: 'call-web',
+          name: 'web_search',
+          status: 'success',
+          result: { results: [{ title: '官方文档', url: 'https://example.com/doc', snippet: '接口说明' }] },
+        },
+      ],
+    }} />);
+
+    expect(screen.getAllByRole('region', { name: '来源' })).toHaveLength(1);
+    expect(screen.getByRole('link', { name: '雷达校准手册' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '官方文档' })).toBeInTheDocument();
   });
 });
 

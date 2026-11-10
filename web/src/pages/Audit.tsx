@@ -1,6 +1,6 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Download, RefreshCw, ScrollText, Shield } from 'lucide-react';
+import { ArrowDown, ArrowUp, Download, RefreshCw, ScrollText, Settings2, Shield } from 'lucide-react';
 import {
   Button,
   CodeBlock,
@@ -18,6 +18,9 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/Modal';
 import { ApiError } from '@/api/client';
 import { exportAudit, listAudit, type AuditItem } from '@/api/audit';
+import { exportSettings } from '@/api/settings';
+import { listUsers, type ManagedUser } from '@/api/users';
+import { saveBlob } from '@/lib/download';
 import { useI18n } from '@/i18n/locale';
 import { fullDateTime } from '@/lib/format';
 import { parseLocalDateTime, rangeForPreset, type TimePreset } from '@/lib/timeRange';
@@ -57,6 +60,15 @@ const ACTION_LABELS: Record<string, { zh: string; en: string }> = {
   'session.share': { zh: '创建会话分享', en: 'Share session' },
   'session.delete': { zh: '删除会话', en: 'Delete session' },
   'session.batch_delete': { zh: '批量删除会话', en: 'Batch delete sessions' },
+  'session.model': { zh: '切换会话模型', en: 'Switch session model' },
+  'session.agent': { zh: '切换会话助理', en: 'Switch session assistant' },
+  'auth.login': { zh: '登录', en: 'Sign in' },
+  'skills.reload': { zh: '重载技能目录', en: 'Reload skills' },
+  'secret.rotate': { zh: '轮换凭证', en: 'Rotate credential' },
+  'secret.export': { zh: '导出凭证清单', en: 'Export credentials' },
+  'secret.verify': { zh: '验证凭证引用', en: 'Verify credential usage' },
+  'setting.export': { zh: '导出配置快照', en: 'Export settings snapshot' },
+  'audit.export': { zh: '导出审计日志', en: 'Export audit log' },
 };
 
 const RESOURCE_LABELS: Record<string, { zh: string; en: string }> = {
@@ -71,6 +83,8 @@ const RESOURCE_LABELS: Record<string, { zh: string; en: string }> = {
   setting: { zh: '系统设置', en: 'Setting' },
   llm_provider: { zh: '模型厂商', en: 'LLM provider' },
   chat_session: { zh: '会话', en: 'Session' },
+  skill: { zh: '技能', en: 'Skill' },
+  audit: { zh: '审计', en: 'Audit' },
 };
 
 function summary(text: string, limit = 96): string {
@@ -87,6 +101,8 @@ export default function AuditPage() {
   const [resourceTypes, setResourceTypes] = useState<string[]>([]);
   const [action, setAction] = useState('');
   const [resourceType, setResourceType] = useState('');
+  const [actorId, setActorId] = useState<number | ''>('');
+  const [users, setUsers] = useState<ManagedUser[]>([]);
   const [timePreset, setTimePreset] = useState<TimePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -111,6 +127,7 @@ export default function AuditPage() {
         const res = await listAudit({
           action: action || undefined,
           resource_type: resourceType || undefined,
+          actor_user_id: actorId === '' ? undefined : actorId,
           created_from: createdFrom,
           created_to: createdTo,
           sort_dir: sortDir,
@@ -129,12 +146,19 @@ export default function AuditPage() {
         setRefreshing(false);
       }
     },
-    [action, resourceType, timePreset, customFrom, customTo, sortDir, page],
+    [action, resourceType, actorId, timePreset, customFrom, customTo, sortDir, page],
   );
 
   useEffect(() => {
     if (isAdmin) void load();
   }, [isAdmin, load]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void listUsers()
+      .then((rows) => setUsers(rows))
+      .catch(() => setUsers([]));
+  }, [isAdmin]);
 
   const runExport = async () => {
     setExporting(true);
@@ -142,19 +166,29 @@ export default function AuditPage() {
       const presetRange = rangeForPreset(timePreset);
       const createdFrom = timePreset === 'custom' ? parseLocalDateTime(customFrom) : presetRange.from;
       const createdTo = timePreset === 'custom' ? parseLocalDateTime(customTo) : presetRange.to;
-      const blob = await exportAudit({
+      const { blob, filename } = await exportAudit({
         action: action || undefined,
         resource_type: resourceType || undefined,
+        actor_user_id: actorId === '' ? undefined : actorId,
         created_from: createdFrom,
         created_to: createdTo,
         sort_dir: sortDir,
       });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'audit-log.csv';
-      link.click();
-      URL.revokeObjectURL(url);
+      saveBlob(blob, filename);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // 配置快照与审计同属合规材料：导出都带脱敏，且导出本身会被审计。
+  const runSettingsExport = async () => {
+    setExporting(true);
+    try {
+      const { blob, filename } = await exportSettings();
+      saveBlob(blob, filename);
       setErr(null);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : (e as Error).message);
@@ -195,6 +229,14 @@ export default function AuditPage() {
     [resourceTypes, tr],
   );
 
+  const actorOptions = useMemo(
+    () => [
+      { value: '', label: tr('全部操作者', 'All actors') },
+      ...users.map((u) => ({ value: String(u.id), label: u.email })),
+    ],
+    [users, tr],
+  );
+
   if (!isAdmin) {
     return (
       <main className="anim-fade flex flex-1 flex-col overflow-hidden">
@@ -225,7 +267,14 @@ export default function AuditPage() {
               disabled={loading || exporting || items.length === 0}
               onClick={() => void runExport()}
             >
-              {tr('导出 CSV', 'Export CSV')}
+              {tr('导出审计（脱敏）', 'Export audit (redacted)')}
+            </RowAction>
+            <RowAction
+              icon={Settings2}
+              disabled={loading || exporting}
+              onClick={() => void runSettingsExport()}
+            >
+              {tr('配置快照（脱敏）', 'Settings snapshot')}
             </RowAction>
             <RowAction
               icon={RefreshCw}
@@ -278,6 +327,27 @@ export default function AuditPage() {
               setResourceType(v);
             }}
             options={resourceOptions}
+            variant="ghost"
+            className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+          />
+        </FilterPill>
+        <FilterPill
+          label={tr('操作者', 'Actor')}
+          active={actorId !== ''}
+          onClear={() => {
+            resetFiltersToFirstPage();
+            setActorId('');
+          }}
+          width="w-[12rem]"
+        >
+          <Select
+            aria-label={tr('操作者', 'Actor')}
+            value={actorId === '' ? '' : String(actorId)}
+            onValueChange={(v) => {
+              resetFiltersToFirstPage();
+              setActorId(v === '' ? '' : Number(v));
+            }}
+            options={actorOptions}
             variant="ghost"
             className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
           />
@@ -357,7 +427,7 @@ export default function AuditPage() {
             <EmptyStateCard
               icon={ScrollText}
               title={
-                action !== '' || resourceType !== '' || timePreset !== 'all'
+                action !== '' || resourceType !== '' || actorId !== '' || timePreset !== 'all'
                   ? tr('没有匹配的审计记录', 'No matching audit records')
                   : tr('还没有审计记录', 'No audit records yet')
               }
@@ -488,6 +558,12 @@ export default function AuditPage() {
                 {tr('详情 JSON', 'Detail JSON')}
               </div>
               <CodeBlock>{JSON.stringify(detail.detail, null, 2)}</CodeBlock>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-600">
+                {tr(
+                  '此处为存储原文；导出 CSV 默认对密钥类字段与 URL 凭证脱敏。',
+                  'This is the stored payload; CSV export masks secret fields and URL credentials by default.',
+                )}
+              </p>
             </div>
           </div>
         )}

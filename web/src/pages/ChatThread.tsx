@@ -78,6 +78,10 @@ import { usePermissions } from '@/store/me';
 import { useI18n } from '@/i18n/locale';
 
 import { buildConfigDraftConfirmMessage, configDraftApplyTool } from '@/lib/configDraftConfirmation';
+import {
+  COLLAPSE_THRESHOLD,
+  collapsedMessageCount,
+} from '@/lib/historyCollapse';
 
 import {
 
@@ -129,6 +133,9 @@ export default function ChatThreadPage() {
 
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  // 是否展开被折叠的较早历史。纯展示状态，切换会话时在下面的 effect 里重置。
+  const [showAllHistory, setShowAllHistory] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -450,6 +457,8 @@ export default function ChatThreadPage() {
     setError(null);
 
     setMessages([]);
+
+    setShowAllHistory(false);
 
     setLoading(true);
 
@@ -1765,6 +1774,11 @@ export default function ChatThreadPage() {
     });
 
 
+  // 折叠只影响渲染：hiddenCount 是被折叠的早期消息条数。
+  const hiddenCount = collapsedMessageCount(messages.length, showAllHistory);
+
+  const renderedMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
+
   useAssistantPage('完整会话', 'Conversation', {
 
     session_id: sessionId,
@@ -1870,6 +1884,32 @@ export default function ChatThreadPage() {
 
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-6 py-8">
 
+            {!loading && messages.length > COLLAPSE_THRESHOLD ? (
+
+              <div className="flex items-center justify-center">
+
+                <button
+
+                  type="button"
+
+                  aria-expanded={showAllHistory}
+
+                  onClick={() => setShowAllHistory((v) => !v)}
+
+                  className="rounded-full border border-zinc-800 bg-zinc-900/70 px-3 py-1 text-[11px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200"
+
+                >
+
+                  {showAllHistory
+                    ? tr('收起较早消息', 'Collapse earlier messages')
+                    : tr(`展开更早的 ${hiddenCount} 条消息`, `Show ${hiddenCount} earlier messages`)}
+
+                </button>
+
+              </div>
+
+            ) : null}
+
             {loading ? (
 
               <div className="text-center text-sm text-zinc-500">{tr('加载中…', 'Loading…')}</div>
@@ -1880,7 +1920,7 @@ export default function ChatThreadPage() {
 
             ) : (
 
-              messages.map((m) => (
+              renderedMessages.map((m) => (
 
                 <MessageBubble
 

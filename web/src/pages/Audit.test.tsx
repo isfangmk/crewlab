@@ -52,6 +52,12 @@ describe('AuditPage', () => {
     perms.isAdmin = true;
     requests.length = 0;
     server.use(
+      http.get('/api/v1/users', () =>
+        HttpResponse.json([
+          { id: 1, email: 'admin@local', display_name: 'Admin', role: 'admin', status: 'active' },
+          { id: 2, email: 'dev@local', display_name: 'Dev', role: 'developer', status: 'active' },
+        ]),
+      ),
       http.get('/api/v1/audit', ({ request }) => {
         const url = new URL(request.url);
         requests.push(url.searchParams);
@@ -112,14 +118,17 @@ describe('AuditPage', () => {
     expect(screen.getByText(/"reason": "ok"/)).toBeInTheDocument();
   });
 
-  it('exports the filtered rows as CSV', async () => {
+  it('exports the filtered rows as a redacted CSV', async () => {
     const user = userEvent.setup();
     const exportReqs: URLSearchParams[] = [];
     server.use(
       http.get('/api/v1/audit/export', ({ request }) => {
         exportReqs.push(new URL(request.url).searchParams);
         return new HttpResponse('\ufeff时间,操作者,动作\n2026-11-09,admin@local,user.create\n', {
-          headers: { 'content-type': 'text/csv; charset=utf-8' },
+          headers: {
+            'content-type': 'text/csv; charset=utf-8',
+            'content-disposition': 'attachment; filename="audit-log.csv"',
+          },
         });
       }),
     );
@@ -137,15 +146,34 @@ describe('AuditPage', () => {
     );
 
     await screen.findByText('批准审批');
-    await user.click(screen.getByRole('button', { name: /导出 CSV/ }));
+    await user.click(screen.getByRole('button', { name: /导出审计/ }));
 
     await waitFor(() => expect(exportReqs).toHaveLength(1));
     expect(exportReqs[0].get('sort_dir')).toBe('desc');
     expect(exportReqs[0].get('action')).toBeNull();
+    // 脱敏是服务端唯一口径：前端不传开关，也没有办法关掉。
+    expect(exportReqs[0].get('redact')).toBeNull();
     await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
     expect(anchorClick).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledTimes(1);
     anchorClick.mockRestore();
+  });
+
+  it('filters by actor', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <AuditPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('批准审批');
+    await user.click(screen.getByRole('combobox', { name: '操作者' }));
+    await user.click(await screen.findByRole('option', { name: 'dev@local' }));
+
+    await waitFor(() =>
+      expect(requests.some((p) => p.get('actor_user_id') === '2')).toBe(true),
+    );
   });
 
   it('gates the page behind admin permission', async () => {

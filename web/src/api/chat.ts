@@ -54,6 +54,9 @@ export type ChatSession = {
   updated_at?: string;
   pinned?: boolean;
   archived?: boolean;
+  // 列表摘要：消息条数与最近一条正文（后端已截断到固定长度）
+  message_count?: number;
+  last_message_preview?: string | null;
 };
 
 export type AssistantMessage = {
@@ -83,6 +86,7 @@ export function listSessions(params?: {
   q?: string;
   include_archived?: boolean;
   agent_id?: string;
+  model?: string;
   updated_from?: string;
   updated_to?: string;
   sort_by?: SessionSortBy;
@@ -99,6 +103,9 @@ export function listSessions(params?: {
   }
   if (params?.agent_id != null && params.agent_id !== '') {
     sp.set('agent_id', params.agent_id);
+  }
+  if (params?.model != null && params.model !== '') {
+    sp.set('model', params.model);
   }
   if (params?.updated_from != null && params.updated_from !== '') {
     sp.set('updated_from', params.updated_from);
@@ -123,6 +130,11 @@ export function listSessions(params?: {
     'GET',
     `/chat/sessions${qs ? `?${qs}` : ''}`,
   );
+}
+
+// 会话列表的模型筛选项：只返回会话里真实出现过的模型，避免选到查不到结果的值。
+export function listSessionModels() {
+  return request<{ items: string[] }>('GET', '/chat/sessions/models');
 }
 
 export function batchDeleteSessions(ids: string[]) {

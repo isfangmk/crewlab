@@ -14,11 +14,17 @@ const agentsHandler = http.get('/api/v1/agents', () =>
   }),
 );
 
+// 模型筛选项来自「会话里出现过的模型」接口；页面挂载即请求，所有用例都要给 handler。
+const modelsHandler = http.get('/api/v1/chat/sessions/models', () =>
+  HttpResponse.json({ items: ['deepseek-v3', 'glm-flash'] }),
+);
+
 describe('SessionsPage', () => {
   beforeEach(() => {
     localStorage.setItem('ongrid-locale', 'zh-CN');
     server.use(
       agentsHandler,
+      modelsHandler,
       http.get('/api/v1/chat/sessions', ({ request }) => {
         const url = new URL(request.url);
         const q = url.searchParams.get('q')?.trim().toLowerCase() ?? '';
@@ -85,6 +91,7 @@ describe('SessionsPage', () => {
     let deletedIds: string[] = [];
     server.use(
       agentsHandler,
+      modelsHandler,
       http.get('/api/v1/chat/sessions', ({ request }) => {
         urls.push(request.url);
         return HttpResponse.json({
@@ -140,5 +147,104 @@ describe('SessionsPage', () => {
     });
 
     confirmSpy.mockRestore();
+  });
+
+  it('按模型精确筛选：请求带 model 参数，选项来自会话里出现过的模型', async () => {
+    const user = userEvent.setup();
+    const urls: string[] = [];
+    server.use(
+      agentsHandler,
+      modelsHandler,
+      http.get('/api/v1/chat/sessions', ({ request }) => {
+        urls.push(request.url);
+        const model = new URL(request.url).searchParams.get('model');
+        const all = [
+          { id: '1', title: '排查 MCP 配置', model: 'glm-flash', agent_id: 'default' },
+          { id: '2', title: '数据库状态', model: 'deepseek-v3', agent_id: 'default' },
+        ];
+        const items = model === null ? all : all.filter((s) => s.model === model);
+        return HttpResponse.json({ items, total: items.length });
+      }),
+    );
+
+    render(
+      <MemoryRouter>
+        <SessionsPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('link', { name: '数据库状态' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: '模型' }));
+    await user.click(await screen.findByRole('option', { name: 'deepseek-v3' }));
+
+    await waitFor(() => {
+      expect(urls.some((u) => u.includes('model=deepseek-v3'))).toBe(true);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: '数据库状态' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: '排查 MCP 配置' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('长会话摘要默认折叠，可展开；短会话不出现折叠按钮', async () => {
+    const user = userEvent.setup();
+    const longPreview = '先复述问题，再复现，最后给出根因和修复建议。'.repeat(6);
+    server.use(
+      agentsHandler,
+      modelsHandler,
+      http.get('/api/v1/chat/sessions', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: '10',
+              title: '长会话',
+              model: 'glm-flash',
+              agent_id: 'default',
+              updated_at: '2026-11-09T04:00:00.000Z',
+              message_count: 88,
+              last_message_preview: longPreview,
+            },
+            {
+              id: '11',
+              title: '短会话',
+              model: 'glm-flash',
+              agent_id: 'default',
+              updated_at: '2026-11-09T05:00:00.000Z',
+              message_count: 2,
+              last_message_preview: '简短的一条回复',
+            },
+          ],
+          total: 2,
+        }),
+      ),
+    );
+
+    render(
+      <MemoryRouter>
+        <SessionsPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('link', { name: '长会话' })).toBeInTheDocument();
+    expect(screen.getByText('88 条')).toBeInTheDocument();
+    expect(screen.getByText('2 条')).toBeInTheDocument();
+
+    // 短会话不给折叠按钮：一行摘要本来就够看。
+    const expandButtons = screen.getAllByRole('button', { name: /展开摘要/ });
+    expect(expandButtons).toHaveLength(1);
+    expect(expandButtons[0]).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(expandButtons[0]);
+    const collapse = await screen.findByRole('button', { name: /收起摘要/ });
+    expect(collapse).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(collapse);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /展开摘要/ })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+    });
   });
 });

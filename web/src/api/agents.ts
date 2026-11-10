@@ -3,6 +3,17 @@ import { tr as trInline } from '@/i18n/locale';
 
 export type AgentSource = 'builtin' | 'disk' | 'user';
 
+/** 输出格式约束：free = 不限制；json / checklist 由服务端生成固定文案。 */
+export type OutputFormat = 'free' | 'json' | 'checklist';
+
+export const OUTPUT_FORMATS: OutputFormat[] = ['free', 'json', 'checklist'];
+
+/** 少样本示例（最多 3 条，服务端校验）。 */
+export type AgentExample = { input: string; output: string };
+
+/** 助理可检索的知识范围；两者都为空表示继承全部知识库。 */
+export type KnowledgeScope = { paths: string[]; doc_ids: string[] };
+
 /** 助理列表/详情响应字段。 */
 export type AgentSummary = {
   name: string;
@@ -15,6 +26,11 @@ export type AgentSummary = {
   max_turns: number;
   system_prompt: string;
   critical_reminder: string;
+  output_format: OutputFormat;
+  examples: AgentExample[];
+  knowledge_scope: KnowledgeScope;
+  /** 勾选的技能 key；null = 继承全部技能 */
+  skills: string[] | null;
   source: AgentSource;
 };
 
@@ -30,6 +46,11 @@ export type UserAgentInput = {
   permission_mode: string;
   model: string;
   max_turns: number;
+  output_format: OutputFormat;
+  examples: AgentExample[];
+  knowledge_scope: KnowledgeScope;
+  /** null = 继承全部技能；数组 = 只装配这些（空数组 = 不装配任何技能） */
+  skills: string[] | null;
 };
 
 export type AgentListResp = { items: AgentSummary[]; total: number };

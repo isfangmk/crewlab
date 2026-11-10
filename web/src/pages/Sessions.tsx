@@ -26,6 +26,7 @@ import {
   batchDeleteSessions,
   deleteSession,
   exportSessionMarkdown,
+  listSessionModels,
   listSessions,
   updateSessionFlags,
   type ChatSession,
@@ -60,6 +61,10 @@ import { fullDateTime } from '@/lib/format';
 import { invalidateChatSessions } from '@/store/chatSessions';
 
 const PAGE_SIZE = 20;
+
+// 超过这个条数的会话，列表里的摘要默认折叠成一行，需要手动展开。
+// 阈值定在 40：低于它时摘要一行就是全部，折叠按钮只会增加噪声。
+const LONG_SESSION_MESSAGES = 40;
 
 type TimePreset = 'all' | 'today' | '7d' | '30d' | 'custom';
 
@@ -140,6 +145,10 @@ export default function SessionsPage() {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [agentId, setAgentId] = useState('');
   const [agents, setAgents] = useState<AgentSummary[]>([]);
+  const [modelFilter, setModelFilter] = useState('');
+  const [models, setModels] = useState<string[]>([]);
+  // 长会话摘要折叠状态按会话 id 记录，翻页/刷新后每条会话各自独立。
+  const [expandedPreviews, setExpandedPreviews] = useState<Record<string, boolean>>({});
   const [timePreset, setTimePreset] = useState<TimePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -161,6 +170,28 @@ export default function SessionsPage() {
           throw new Error('助理列表缺少 items');
         }
         setAgents(res.items.map(localizedAgent));
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setErr(e instanceof ApiError ? e.message : (e as Error).message);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 模型筛选项来自「会话里实际出现过的模型」，只取一次；
+  // 列表刷新时再用本页数据并集补齐，避免新模型要刷新整页才出现。
+  useEffect(() => {
+    let cancelled = false;
+    void listSessionModels()
+      .then((res) => {
+        if (cancelled) return;
+        if (!Array.isArray(res.items)) {
+          throw new Error('模型列表缺少 items');
+        }
+        setModels(res.items);
       })
       .catch((e) => {
         if (!cancelled) {
@@ -197,6 +228,7 @@ export default function SessionsPage() {
         q: query.trim() === '' ? undefined : query.trim(),
         include_archived: includeArchived,
         agent_id: agentId === '' ? undefined : agentId,
+        model: modelFilter === '' ? undefined : modelFilter,
         updated_from: updatedFrom,
         updated_to: updatedTo,
         ...sort,
@@ -211,6 +243,14 @@ export default function SessionsPage() {
       }
       setItems(res.items);
       setTotal(res.total);
+      // 本页出现的模型并进筛选项：新会话用了新模型时不必重新加载整页。
+      setModels((prev) => {
+        const next = new Set(prev);
+        for (const s of res.items) {
+          if (s.model) next.add(s.model);
+        }
+        return next.size === prev.length ? prev : [...next].sort();
+      });
       setErr(null);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : (e as Error).message);
@@ -218,7 +258,7 @@ export default function SessionsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [query, includeArchived, agentId, timePreset, customFrom, customTo, page, sorting]);
+  }, [query, includeArchived, agentId, modelFilter, timePreset, customFrom, customTo, page, sorting]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -325,15 +365,60 @@ export default function SessionsPage() {
         cell: ({ row }) => {
           const session = row.original;
           const title = session.title || session.id;
+          const messageCount = session.message_count ?? 0;
+          const preview = (session.last_message_preview ?? '').trim();
+          const expanded = expandedPreviews[session.id] === true;
+          // 长会话的摘要默认只占一行；短会话一行本来就够看，不给折叠按钮。
+          const collapsible = messageCount >= LONG_SESSION_MESSAGES && preview !== '';
           return (
-            <Link
-              to={`/chat/${session.id}`}
-              title={title}
-              className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-zinc-100 hover:underline"
-            >
-              {session.pinned ? <Pin size={12} className="shrink-0 text-amber-400" aria-hidden /> : null}
-              <span className="truncate">{title}</span>
-            </Link>
+            <div className="min-w-0">
+              <Link
+                to={`/chat/${session.id}`}
+                title={title}
+                className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-zinc-100 hover:underline"
+              >
+                {session.pinned ? <Pin size={12} className="shrink-0 text-amber-400" aria-hidden /> : null}
+                <span className="truncate">{title}</span>
+              </Link>
+              {messageCount > 0 || preview !== '' ? (
+                <div className="mt-0.5 flex min-w-0 items-start gap-1 text-[10.5px] leading-4 text-zinc-500">
+                  <span className="shrink-0 tabular-nums text-zinc-600">
+                    {tr(`${messageCount} 条`, `${messageCount} msgs`)}
+                  </span>
+                  {preview !== '' ? (
+                    <>
+                      <span aria-hidden className="shrink-0 text-zinc-700">
+                        ·
+                      </span>
+                      <span
+                        className={cn(
+                          'min-w-0 flex-1 text-zinc-500',
+                          expanded ? 'whitespace-pre-line break-words' : 'line-clamp-1',
+                        )}
+                      >
+                        {preview}
+                      </span>
+                    </>
+                  ) : null}
+                  {collapsible ? (
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      aria-label={tr(
+                        expanded ? `收起摘要：${title}` : `展开摘要：${title}`,
+                        expanded ? `Collapse summary: ${title}` : `Expand summary: ${title}`,
+                      )}
+                      className="shrink-0 text-[10.5px] text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline"
+                      onClick={() => {
+                        setExpandedPreviews((prev) => ({ ...prev, [session.id]: !expanded }));
+                      }}
+                    >
+                      {tr(expanded ? '收起' : '展开', expanded ? 'Collapse' : 'Expand')}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           );
         },
       }),
@@ -432,7 +517,7 @@ export default function SessionsPage() {
         },
       }),
     ],
-    [tr, rowActions],
+    [tr, rowActions, expandedPreviews],
   );
 
   const table = useReactTable({
@@ -487,12 +572,21 @@ export default function SessionsPage() {
     [agents, tr],
   );
 
+  const modelSelectOptions = useMemo(
+    () => [
+      { value: '', label: tr('全部模型', 'All models') },
+      ...models.map((m) => ({ value: m, label: m })),
+    ],
+    [models, tr],
+  );
+
   useAssistantPage('会话管理', 'Sessions', {
     count: total,
     page,
     query,
     include_archived: includeArchived,
     agent_id: agentId,
+    model: modelFilter,
     time_preset: timePreset,
     sort: sorting[0] ? `${sorting[0].id}:${sorting[0].desc ? 'desc' : 'asc'}` : 'default',
     selected: selectedIds.length,
@@ -503,7 +597,10 @@ export default function SessionsPage() {
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">
       <PageHeader
         title={tr('会话', 'Sessions')}
-        subtitle={tr('搜索、排序、批量删除与分页管理', 'Search, sort, batch delete, and pagination')}
+        subtitle={tr(
+          '搜索、按助理/模型筛选、置顶归档、批量删除与分页',
+          'Search, filter by assistant/model, pin, archive, batch delete, and pagination',
+        )}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {selectedIds.length > 0 ? (
@@ -569,6 +666,27 @@ export default function SessionsPage() {
               setAgentId(v);
             }}
             options={agentOptions}
+            variant="ghost"
+            className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+          />
+        </FilterPill>
+        <FilterPill
+          label={tr('模型', 'Model')}
+          active={modelFilter !== ''}
+          onClear={() => {
+            resetFiltersToFirstPage();
+            setModelFilter('');
+          }}
+          width="w-[11.5rem]"
+        >
+          <Select
+            aria-label={tr('模型', 'Model')}
+            value={modelFilter}
+            onValueChange={(v) => {
+              resetFiltersToFirstPage();
+              setModelFilter(v);
+            }}
+            options={modelSelectOptions}
             variant="ghost"
             className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
           />
@@ -657,7 +775,7 @@ export default function SessionsPage() {
             <EmptyStateCard
               icon={MessageSquare}
               title={
-                query.trim() !== '' || agentId !== '' || timePreset !== 'all'
+                query.trim() !== '' || agentId !== '' || modelFilter !== '' || timePreset !== 'all'
                   ? tr('没有匹配的会话', 'No matching chats')
                   : tr('还没有会话', 'No sessions yet')
               }

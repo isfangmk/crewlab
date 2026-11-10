@@ -98,3 +98,44 @@ export async function request<T = unknown>(
   return parsed as T;
 }
 
+export type DownloadedFile = { blob: Blob; filename: string };
+
+// 导出类接口返回文件流而不是 JSON：单独走一次 fetch，错误仍按统一 ApiError 抛出。
+export async function requestFile(
+  path: string,
+  query?: URLSearchParams
+): Promise<DownloadedFile> {
+  const token = getToken();
+  const qs = query?.toString() ?? '';
+  const url = `${BASE}${path.startsWith('/') ? path : `/${path}`}${qs ? `?${qs}` : ''}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch (err) {
+    throw new ApiError((err as Error).message || 'Network error', 0);
+  }
+
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    let code: string | undefined;
+    if ((res.headers.get('content-type') ?? '').includes('application/json')) {
+      try {
+        const obj = (await res.json()) as Record<string, unknown>;
+        if (typeof obj.detail === 'string') msg = obj.detail;
+        else if (typeof obj.error === 'string') msg = obj.error;
+        if (typeof obj.code === 'string') code = obj.code;
+      } catch {
+        // 响应体不是合法 JSON：保留 HTTP 状态码提示。
+      }
+    }
+    throw new ApiError(msg, res.status, code);
+  }
+
+  const disposition = res.headers.get('content-disposition') ?? '';
+  const match = /filename="([^"]+)"/.exec(disposition);
+  return { blob: await res.blob(), filename: match ? match[1] : 'download' };
+}
+
