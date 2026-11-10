@@ -141,10 +141,18 @@ describe('SessionsPage', () => {
     await userEvent.click(checkboxes[0]);
     expect(await screen.findByRole('button', { name: /删除所选 \(1\)/ })).toBeInTheDocument();
 
+    // 删除走统一弹窗：先确认再发请求，不再用原生 confirm
     await userEvent.click(screen.getByRole('button', { name: /删除所选 \(1\)/ }));
+    expect(screen.queryByRole('dialog')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '删除' }));
     await waitFor(() => {
       expect(deletedIds).toEqual(['1']);
     });
+    // 弹窗确认后关闭
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(confirmSpy).not.toHaveBeenCalled();
 
     confirmSpy.mockRestore();
   });
@@ -187,7 +195,7 @@ describe('SessionsPage', () => {
     });
   });
 
-  it('展示运行信号：最近回合状态、累计 tokens 与待审批', async () => {
+  it('展示运行信号：轮数、工具/技能调用、tokens、待审批与分享/附件', async () => {
     server.use(
       agentsHandler,
       modelsHandler,
@@ -201,11 +209,15 @@ describe('SessionsPage', () => {
               agent_id: 'default',
               updated_at: '2026-11-09T04:00:00.000Z',
               last_message_at: '2026-11-09T06:00:00.000Z',
-              message_count: 4,
+              message_count: 8,
+              turn_count: 4,
               tool_call_count: 3,
+              skill_call_count: 1,
               total_tokens: 1234,
               last_turn_status: 'error',
               pending_approvals: 2,
+              attachment_count: 2,
+              shared: true,
             },
           ],
           total: 1,
@@ -220,13 +232,18 @@ describe('SessionsPage', () => {
     );
 
     expect(await screen.findByRole('link', { name: '失败回合' })).toBeInTheDocument();
-    // 消息数与工具调用次数分开口径
-    expect(screen.getByText('4 条 · 3 次工具')).toBeInTheDocument();
+    // 轮数按用户提问计；工具 / 技能调用次数分开列
+    expect(screen.getByText('4 轮 · 3 次工具 · 1 次技能')).toBeInTheDocument();
     expect(screen.getByText('1.2k tokens')).toBeInTheDocument();
-    expect(screen.getByText('失败')).toBeInTheDocument();
     expect(screen.getByText('待审 2')).toBeInTheDocument();
+    // 已分享 + 附件数徽标挂在标题行
+    expect(screen.getByLabelText('已分享')).toBeInTheDocument();
+    expect(screen.getByTitle('2 个附件')).toBeInTheDocument();
     // 最近活动优先取最后一条消息，而不是会话行更新时间
     expect(screen.getByTitle(/最后一条消息/)).toBeInTheDocument();
+    // 失败胶囊可点进观测页，并带上该会话筛选
+    const failed = screen.getByRole('link', { name: '失败' });
+    expect(failed).toHaveAttribute('href', '/observability?session_id=20');
   });
 
   it('长会话摘要默认折叠，可展开；短会话不出现折叠按钮', async () => {
@@ -245,6 +262,7 @@ describe('SessionsPage', () => {
               agent_id: 'default',
               updated_at: '2026-11-09T04:00:00.000Z',
               message_count: 88,
+              turn_count: 88,
               last_message_preview: longPreview,
             },
             {
@@ -253,7 +271,8 @@ describe('SessionsPage', () => {
               model: 'glm-flash',
               agent_id: 'default',
               updated_at: '2026-11-09T05:00:00.000Z',
-              message_count: 2,
+              message_count: 4,
+              turn_count: 2,
               last_message_preview: '简短的一条回复',
             },
           ],
@@ -269,8 +288,8 @@ describe('SessionsPage', () => {
     );
 
     expect(await screen.findByRole('link', { name: '长会话' })).toBeInTheDocument();
-    expect(screen.getByText('88 条')).toBeInTheDocument();
-    expect(screen.getByText('2 条')).toBeInTheDocument();
+    expect(screen.getByText('88 轮')).toBeInTheDocument();
+    expect(screen.getByText('2 轮')).toBeInTheDocument();
 
     // 短会话不给折叠按钮：一行摘要本来就够看。
     const expandButtons = screen.getAllByRole('button', { name: /展开摘要/ });

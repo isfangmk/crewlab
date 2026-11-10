@@ -3,7 +3,9 @@
 // 口径必须与后端运行时一致，否则预览就是骗人的：
 //   - MCP 挂载：`agent_service.filter_mcp_servers_for_agent`
 //       白名单为空 = 继承全部；非空 = 只挂载出现过的 mcp__<server>__* 所属 Server
-//   - 可用性：`mcp_service.build_searchable_mcp_toolsets` 会跳过未探测成功（status !== 'ok'）的 Server
+//   - 可用性：`mcp_service.build_searchable_mcp_toolsets` 会跳过未探测成功（status !== 'ok'）的 Server，
+//       白名单非空时 Server 内未勾选的工具不进检索目录（既搜不到也调不了）
+//   - MCP 工具一律不进初始上下文：装配的是 search_tools / load_tool，按需检索加载
 //   - 内置工具：`mount === 'always'` 随 SkillToolset 始终装配；`per_turn` 由对话开关决定
 //   - 技能：勾选的技能才装配（`skills_service.resolve_skills`）；`null` = 继承全部技能
 //   - 技能声明的工具：随技能自动并入白名单，且不允许屏蔽
@@ -43,9 +45,10 @@ export type CapabilityCatalog = {
 };
 
 export type CapabilityPreview = {
-  /** 实际会进入模型上下文的工具数（MCP 挂载 + 始终装配的内置工具） */
-  visibleTools: number;
-  mcpTools: number;
+  /** 进初始上下文的工具数（内置 always；MCP 工具只进检索目录，不算在内） */
+  contextTools: number;
+  /** 已装配进检索目录的 MCP 工具数（经 search_tools 发现后 load_tool 调用） */
+  searchableMcpTools: number;
   builtinTools: number;
   /** 按对话开关挂载的工具数（如 web_search） */
   perTurnTools: number;
@@ -62,7 +65,7 @@ export type CapabilityPreview = {
   whitelistHasMcp: boolean;
   mountedServers: string[];
   unmountedServers: string[];
-  /** 白名单只选了 Server 内部分工具，但挂载是按 Server 整台生效 */
+  /** 白名单只选了 Server 内部分工具（未勾选的那部分不会进检索目录） */
   partialServers: { server: string; selected: number; total: number }[];
   /** 白名单里当前目录已不存在的工具（MCP 工具缓存变更后容易残留） */
   unknownWhitelist: string[];
@@ -118,8 +121,18 @@ export function previewCapabilities(
     whitelistHasMcp = true;
   }
 
-  const mounted: McpServerCapability[] = [];
+  const builtinAlways = catalog.builtin.filter((tool) => tool.mount === 'always');
+  const perTurn = catalog.builtin.filter((tool) => tool.mount === 'per_turn');
+
+  // 装配口径与后端 build_searchable_mcp_toolsets 对齐：Server 启用 + 探测成功 + 有工具缓存，
+  // 且白名单（含技能声明）里至少还有一个属于它的工具；否则整台不装配。
+  const mountedServers: string[] = [];
   const unmounted: string[] = [];
+  // 「可执行 / 可屏蔽」的口径仍按工具名收集：MCP 工具虽不进上下文，但能检索加载后调用
+  const usableNames = new Set<string>(builtinAlways.map((tool) => tool.name));
+  for (const tool of perTurn) usableNames.add(tool.name);
+  let searchableMcpTools = 0;
+  const partialServers: { server: string; selected: number; total: number }[] = [];
   for (const server of catalog.mcpServers) {
     // 没有工具缓存的 Server 无法进入白名单（挂载以 mcp__<server>__<tool> 为载体）
     if (!server.enabled || server.status !== 'ok' || server.tools.length === 0) {
@@ -130,30 +143,33 @@ export function previewCapabilities(
       unmounted.push(server.name);
       continue;
     }
-    mounted.push(server);
-  }
-
-  const builtinAlways = catalog.builtin.filter((tool) => tool.mount === 'always');
-  const perTurn = catalog.builtin.filter((tool) => tool.mount === 'per_turn');
-
-  const visibleNames = new Set<string>(builtinAlways.map((tool) => tool.name));
-  for (const tool of perTurn) visibleNames.add(tool.name);
-  let mcpTools = 0;
-  const partialServers: { server: string; selected: number; total: number }[] = [];
-  for (const server of mounted) {
-    mcpTools += server.tools.length;
-    const selected = server.tools.filter(
-      (tool) => allowedTools.includes(tool.wire) || skillDeclaredMcp.includes(tool.wire),
-    ).length;
-    for (const tool of server.tools) visibleNames.add(tool.wire);
+    // 白名单启用时，Server 内没勾选的工具不进检索目录
+    // （后端 build_searchable_mcp_toolsets 按 allowed_tools 收口），不能算进「可检索」。
+    const permitted = whitelistActive
+      ? server.tools.filter(
+          (tool) => allowedTools.includes(tool.wire) || skillDeclaredMcp.includes(tool.wire),
+        )
+      : server.tools;
+    if (permitted.length === 0) {
+      // 白名单里的工具都已失效（改名 / 删除）：后端不装配这台 Server，预览也不该算挂载
+      unmounted.push(server.name);
+      continue;
+    }
+    mountedServers.push(server.name);
+    searchableMcpTools += permitted.length;
+    for (const tool of permitted) usableNames.add(tool.wire);
     // 白名单未启用时整台继承，不存在「只选了部分」的问题
-    if (whitelistActive && selected < server.tools.length) {
-      partialServers.push({ server: server.name, selected, total: server.tools.length });
+    if (whitelistActive && permitted.length < server.tools.length) {
+      partialServers.push({
+        server: server.name,
+        selected: permitted.length,
+        total: server.tools.length,
+      });
     }
   }
 
   const blockedTools = disallowedTools.filter(
-    (key) => visibleNames.has(key) && !lockedTools.includes(key),
+    (key) => usableNames.has(key) && !lockedTools.includes(key),
   ).length;
   const unknownWhitelist = whitelistActive
     ? allowedTools.filter((key) => {
@@ -167,8 +183,8 @@ export function previewCapabilities(
     : [];
 
   return {
-    visibleTools: mcpTools + builtinAlways.length,
-    mcpTools,
+    contextTools: builtinAlways.length,
+    searchableMcpTools,
     builtinTools: builtinAlways.length,
     perTurnTools: perTurn.length,
     skills: mountedSkills.length,
@@ -178,7 +194,7 @@ export function previewCapabilities(
     blockedTools,
     whitelistActive,
     whitelistHasMcp,
-    mountedServers: mounted.map((server) => server.name),
+    mountedServers,
     unmountedServers: unmounted,
     partialServers,
     unknownWhitelist,

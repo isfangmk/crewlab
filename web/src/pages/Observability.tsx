@@ -1,6 +1,6 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   ArrowUpRight,
@@ -147,6 +147,10 @@ export default function ObservabilityPage() {
   const [status, setStatus] = useState('');
   const [agentId, setAgentId] = useState('');
   const [model, setModel] = useState('');
+  // 会话筛选的唯一来源是 URL：会话列表点「失败」胶囊跳到这里时直接带 session_id，
+  // 用 state 复制一份会出现「清掉筛选但 URL 还留着」的不一致。
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sessionId = searchParams.get('session_id') ?? '';
   const [range, setRange] = useState<RangePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -161,10 +165,18 @@ export default function ObservabilityPage() {
   // 任一筛选变化都回到第一页，避免停在越界页看到空表。
   const resetToFirstPage = () => setPage(0);
 
+  const clearSessionFilter = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('session_id');
+    setSearchParams(next, { replace: true });
+    setPage(0);
+  }, [searchParams, setSearchParams]);
+
   const buildFilters = useCallback((): ObservationFilters => {
     const out: ObservationFilters = {};
     const keyword = q.trim();
     if (keyword !== '') out.q = keyword;
+    if (sessionId !== '') out.session_id = sessionId;
     if (status !== '') out.status = status;
     if (agentId !== '') out.agent_id = agentId;
     if (model !== '') out.model = model;
@@ -186,7 +198,7 @@ export default function ObservabilityPage() {
       out.min_duration_ms = Number.parseInt(minDuration, 10);
     }
     return out;
-  }, [q, status, agentId, model, range, customFrom, customTo, minDuration, tr]);
+  }, [q, sessionId, status, agentId, model, range, customFrom, customTo, minDuration, tr]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -262,6 +274,7 @@ export default function ObservabilityPage() {
     total,
     page,
     page_size: pageSize,
+    session_id: sessionId || 'all',
     status: status || 'all',
     agent_id: agentId || 'all',
     model: model || 'all',
@@ -289,6 +302,14 @@ export default function ObservabilityPage() {
   // 已生效的筛选条件：以可读文案列出，点击即撤销单个条件。
   const activeChips = useMemo(() => {
     const chips: { key: string; label: string; clear(): void }[] = [];
+    if (sessionId !== '') {
+      chips.push({
+        key: 'session',
+        // 会话 id 是 36 位 UUID，只显示前 8 位，完整值在 title 里
+        label: tr(`会话：${sessionId.slice(0, 8)}`, `Session: ${sessionId.slice(0, 8)}`),
+        clear: clearSessionFilter,
+      });
+    }
     if (status !== '') {
       const style = statusStyle(status);
       chips.push({
@@ -351,7 +372,7 @@ export default function ObservabilityPage() {
       });
     }
     return chips;
-  }, [status, agentId, model, range, minDuration, tr]);
+  }, [sessionId, status, agentId, model, range, minDuration, tr, clearSessionFilter]);
 
   return (
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">

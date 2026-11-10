@@ -484,8 +484,8 @@ export function SkillEditor({
                 )}
                 <div className="px-1.5 text-[11px] text-zinc-500">
                   {tr(
-                    '勾选的工具会随技能一起可用，并在助理里自动勾选、不可屏蔽；MCP 工具直接进入上下文（免检索），同 Server 其余工具仍可检索。不勾选 = 纯说明型技能。',
-                    'Checked tools open with the skill, are auto-selected in assistants and cannot be blocked; MCP tools mount their whole server. None = an instruction-only skill.',
+                    '勾选的工具会随技能一起可用，并在助理里自动勾选、不可屏蔽；MCP 工具进检索目录，模型按需 search/load 调用，同 Server 中未勾选的工具搜不到也调不了。不勾选 = 纯说明型技能。',
+                    'Checked tools open with the skill, are auto-selected in assistants and cannot be blocked; MCP tools join the search index and are loaded on demand, while unchecked tools of the same server stay unsearchable. None = an instruction-only skill.',
                   )}
                 </div>
               </div>

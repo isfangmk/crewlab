@@ -128,7 +128,7 @@ describe('AgentsPage', () => {
     expect(within(dialog).queryByRole('button', { name: /复制为自定义助理/ })).not.toBeInTheDocument();
   });
 
-  it('新建助理时按 Server 分组挂载 MCP 能力并预览实际可见工具数', async () => {
+  it('新建助理时按 Server 分组挂载 MCP 能力并预览可检索工具数', async () => {
     server.use(
       http.get(listURL, () => HttpResponse.json({ items: [{ key: 'query_promql' }], total: 1 })),
       http.get('/api/v1/tools/builtin', () => HttpResponse.json({ items: [], total: 0 })),
@@ -164,8 +164,8 @@ describe('AgentsPage', () => {
     // 白名单为空 = 继承全部，Server 直接显示为已挂载
     expect(await within(dialog).findByText('mcp · demo-operations')).toBeInTheDocument();
     expect(within(dialog).getByText('已挂载')).toBeInTheDocument();
-    // 实际可见按运行时口径统计：1 个 MCP 工具 + 0 个内置工具
-    expect(within(dialog).getByText('MCP 1')).toBeInTheDocument();
+    // 进上下文的只有内置工具；MCP 工具进检索目录，靠 search/load 调用
+    expect(within(dialog).getByText('MCP 可检索 1')).toBeInTheDocument();
     expect(within(dialog).getByText('内置 0')).toBeInTheDocument();
 
     // 工具清单默认折叠，展开后可见 wire 名

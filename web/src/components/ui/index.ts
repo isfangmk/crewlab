@@ -35,3 +35,5 @@ export { DetailSection } from './DetailSection';
 export { DetailStat, DetailStatGrid } from './DetailStat';
 export { CodeBlock } from './CodeBlock';
 export { MetaRow } from './MetaRow';
+export { Toast } from './Toast';
+export type { ToastTone } from './Toast';

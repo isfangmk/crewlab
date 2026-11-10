@@ -56,7 +56,11 @@ export type ChatSession = {
   archived?: boolean;
   // 列表摘要：正文消息数（仅 user/assistant，不含工具卡）与最近一条正文（后端已截断）
   message_count?: number;
+  // 对话轮数：用户提问次数（一问一答算一轮）
+  turn_count?: number;
+  // 工具 / 技能调用次数：来自观测的回合记账
   tool_call_count?: number;
+  skill_call_count?: number;
   // 最后一条消息时间：发消息不会 touch 会话行，和 updated_at 不是一回事
   last_message_at?: string | null;
   last_message_preview?: string | null;
@@ -64,6 +68,9 @@ export type ChatSession = {
   total_tokens?: number | null;
   last_turn_status?: string | null;
   pending_approvals?: number;
+  // 图片附件数与「存在未过期的只读分享」
+  attachment_count?: number;
+  shared?: boolean;
 };
 
 export type AssistantMessage = {

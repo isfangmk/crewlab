@@ -1,11 +1,13 @@
 // CapabilityBinding — 助理「能力绑定可视化」。
 //
 // 三组能力同屏：内置工具 / 技能 / MCP Server。勾选的是运行时真正生效的对象：
-//   - MCP 按 Server 整台挂载（后端 filter_mcp_servers_for_agent 的口径）；
-//     技能声明的工具直接进上下文，同 Server 的其余工具仍靠 search/load 检索
+//   - MCP 按 Server 筛选挂载，Server 内只把勾选的工具放进检索目录（后端
+//     filter_mcp_servers_for_agent + build_searchable_mcp_toolsets 的口径）；
+//     未勾选的工具搜不到也调不了
+//   - MCP 工具一律不进初始上下文：模型先用 search_tools 检索、再 load_tool 调用
 //   - 技能：勾选的才装配；技能声明的工具随技能自动并入白名单且不可屏蔽
 //   - 内置工具随 SkillToolset 始终装配，只能进「屏蔽」名单
-// 顶部的「实际可见」由 capabilityPreview 按运行时口径算出，勾选与可见数不一致时逐条说明。
+// 顶部的预览由 capabilityPreview 按运行时口径算出，勾选与装配数不一致时逐条说明。
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Lock } from 'lucide-react';
 
@@ -169,14 +171,21 @@ export function CapabilityBinding({
         </div>
       )}
 
-      {/* 实际可见预览 */}
+      {/* 装配预览：MCP 工具只进检索目录，不进上下文 */}
       <div className="rounded-md border border-indigo-500/30 bg-indigo-500/5 px-3 py-2">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span className="text-[12px] text-zinc-300">{tr('实际可见', 'Visible now')}</span>
-          <span className="text-[15px] font-semibold text-indigo-200">{preview.visibleTools}</span>
+          <span className="text-[12px] text-zinc-300">{tr('进上下文', 'In context')}</span>
+          <span className="text-[15px] font-semibold text-indigo-200">{preview.contextTools}</span>
           <span className="text-[12px] text-zinc-300">{tr('个工具', 'tools')}</span>
           <span className="ml-auto flex flex-wrap items-center gap-1">
-            <Chip dense>{tr(`MCP ${preview.mcpTools}`, `MCP ${preview.mcpTools}`)}</Chip>
+            <Hint
+              content={tr(
+                'MCP 工具不进初始上下文：模型用 search_tools 检索、load_tool 加载后调用',
+                'MCP tools are not injected: the model finds them with search_tools and calls load_tool',
+              )}
+            >
+              <Chip dense>{tr(`MCP 可检索 ${preview.searchableMcpTools}`, `MCP searchable ${preview.searchableMcpTools}`)}</Chip>
+            </Hint>
             <Chip dense>{tr(`内置 ${preview.builtinTools}`, `builtin ${preview.builtinTools}`)}</Chip>
             <Chip dense>{tr(`技能 ${preview.skills}`, `skills ${preview.skills}`)}</Chip>
             {preview.skillTools > 0 && (
@@ -209,16 +218,16 @@ export function CapabilityBinding({
           {preview.partialServers.map((item) => (
             <li key={item.server}>
               {tr(
-                `${item.server} 勾选 ${item.selected}/${item.total} 个工具（含技能声明），但 MCP 按 Server 整台挂载，同 Server 其余 ${item.total - item.selected} 个工具仍可检索调用`,
-                `${item.server} selects ${item.selected}/${item.total} tools (including skill-declared); MCP mounts per server, so the other ${item.total - item.selected} are still searchable`,
+                `${item.server} 勾选 ${item.selected}/${item.total} 个工具（含技能声明）；未勾选的 ${item.total - item.selected} 个不进检索目录，搜不到也调不了`,
+                `${item.server} selects ${item.selected}/${item.total} tools (including skill-declared); the other ${item.total - item.selected} are not searchable`,
               )}
             </li>
           ))}
           {preview.skillDeclaredServers.length > 0 && (
             <li>
               {tr(
-                `技能声明的 MCP 工具直接进入上下文（免检索）：${preview.skillDeclaredServers.join('、')}`,
-                `Skill-declared MCP tools are injected directly (no search): ${preview.skillDeclaredServers.join(', ')}`,
+                `技能声明的 MCP 工具随技能进入检索目录（仍需 search/load 调用）：${preview.skillDeclaredServers.join('、')}`,
+                `Skill-declared MCP tools are searchable with the skill (still need search/load): ${preview.skillDeclaredServers.join(', ')}`,
               )}
             </li>
           )}

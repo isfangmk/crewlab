@@ -8,9 +8,11 @@ import {
   ArrowUpDown,
   Download,
   MessageSquare,
+  Paperclip,
   Pin,
   PinOff,
   RefreshCw,
+  Share2,
   SquarePen,
   Trash2,
 } from 'lucide-react';
@@ -36,6 +38,7 @@ import {
 import { listAgents, localizedAgent, type AgentSummary } from '@/api/agents';
 import { ApiError } from '@/api/client';
 import { AgentBadge } from '@/components/AgentBadge';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Button,
   EmptyStateCard,
@@ -175,6 +178,9 @@ export default function SessionsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState('');
   const [batchBusy, setBatchBusy] = useState(false);
+  // 删除确认走统一弹窗：单条删除与批量删除共用，不再弹原生 confirm
+  const [deleteTarget, setDeleteTarget] = useState<ChatSession | null>(null);
+  const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -305,19 +311,13 @@ export default function SessionsPage() {
   };
 
   const runDelete = async (session: ChatSession) => {
-    if (!window.confirm(tr(`确定删除会话「${session.title || session.id}」？`, `Delete session "${session.title || session.id}"?`))) {
-      return;
-    }
-    setBusyId(session.id);
-    try {
-      await deleteSession(session.id);
-      invalidateChatSessions();
-      await load(true);
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
-    } finally {
-      setBusyId('');
-    }
+    await deleteSession(session.id);
+    invalidateChatSessions();
+    await load(true);
+  };
+
+  const openDelete = (session: ChatSession) => {
+    setDeleteTarget(session);
   };
 
   const runExport = async (session: ChatSession) => {
@@ -344,7 +344,7 @@ export default function SessionsPage() {
       onPin: (session) => void runFlag(session, { pinned: !session.pinned }),
       onArchive: (session) => void runFlag(session, { archived: !session.archived }),
       onExport: (session) => void runExport(session),
-      onDelete: (session) => void runDelete(session),
+      onDelete: (session) => openDelete(session),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 动作闭包依赖最新 busy/load
     [busyId, items],
@@ -381,28 +381,52 @@ export default function SessionsPage() {
           const session = row.original;
           const title = session.title || session.id;
           const messageCount = session.message_count ?? 0;
+          const turnCount = session.turn_count ?? 0;
           const toolCallCount = session.tool_call_count ?? 0;
+          const skillCallCount = session.skill_call_count ?? 0;
+          const attachmentCount = session.attachment_count ?? 0;
           const preview = (session.last_message_preview ?? '').trim();
           const expanded = expandedPreviews[session.id] === true;
           // 长会话的摘要默认只占一行；短会话一行本来就够看，不给折叠按钮。
           const collapsible = messageCount >= LONG_SESSION_MESSAGES && preview !== '';
-          // 对话条数与工具调用次数分开口径：工具卡不算「消息」
+          // 轮数按用户提问计；工具 / 技能调用来自观测的回合记账，与消息条数无关
           const meta = [
-            messageCount > 0 ? tr(`${messageCount} 条`, `${messageCount} msgs`) : '',
+            turnCount > 0 ? tr(`${turnCount} 轮`, `${turnCount} turns`) : '',
             toolCallCount > 0 ? tr(`${toolCallCount} 次工具`, `${toolCallCount} tools`) : '',
+            skillCallCount > 0 ? tr(`${skillCallCount} 次技能`, `${skillCallCount} skills`) : '',
           ]
             .filter((item) => item !== '')
             .join(' · ');
           return (
             <div className="min-w-0">
-              <Link
-                to={`/chat/${session.id}`}
-                title={title}
-                className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-zinc-100 hover:underline"
-              >
-                {session.pinned ? <Pin size={12} className="shrink-0 text-amber-400" aria-hidden /> : null}
-                <span className="truncate">{title}</span>
-              </Link>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Link
+                  to={`/chat/${session.id}`}
+                  title={title}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] font-medium text-zinc-100 hover:underline"
+                >
+                  {session.pinned ? <Pin size={12} className="shrink-0 text-amber-400" aria-hidden /> : null}
+                  <span className="truncate">{title}</span>
+                </Link>
+                {session.shared ? (
+                  <span
+                    className="shrink-0 text-accent"
+                    title={tr('已开启只读分享', 'Read-only share is active')}
+                    aria-label={tr('已分享', 'Shared')}
+                  >
+                    <Share2 size={12} aria-hidden />
+                  </span>
+                ) : null}
+                {attachmentCount > 0 ? (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-0.5 text-[10.5px] tabular-nums text-zinc-500"
+                    title={tr(`${attachmentCount} 个附件`, `${attachmentCount} attachments`)}
+                  >
+                    <Paperclip size={11} aria-hidden />
+                    {attachmentCount}
+                  </span>
+                ) : null}
+              </div>
               {meta !== '' || preview !== '' ? (
                 <div className="mt-0.5 flex min-w-0 items-start gap-1 text-[10.5px] leading-4 text-zinc-500">
                   {meta !== '' ? (
@@ -491,15 +515,28 @@ export default function SessionsPage() {
           if (status === undefined && pending === 0) {
             return <span className="text-[12px] text-zinc-600">—</span>;
           }
+          const pill =
+            status === undefined ? null : (
+              <StatusPill
+                tone={status.tone}
+                label={tr(status.zh, status.en)}
+                pulse={status.tone === 'info'}
+              />
+            );
           return (
             <div className="flex flex-wrap items-center gap-1">
-              {status !== undefined ? (
-                <StatusPill
-                  tone={status.tone}
-                  label={tr(status.zh, status.en)}
-                  pulse={status.tone === 'info'}
-                />
-              ) : null}
+              {/* 失败回合要能一键跳到该会话的 Trace，否则只能靠 session_id 手抄 */}
+              {status?.tone === 'danger' ? (
+                <Link
+                  to={`/observability?session_id=${encodeURIComponent(session.id)}`}
+                  title={tr('查看该会话的回合 Trace', 'View traces for this session')}
+                  className="rounded-full transition-opacity hover:opacity-80"
+                >
+                  {pill}
+                </Link>
+              ) : (
+                pill
+              )}
               {pending > 0 ? (
                 <StatusPill tone="warn" label={tr(`待审 ${pending}`, `${pending} pending`)} />
               ) : null}
@@ -615,13 +652,6 @@ export default function SessionsPage() {
     if (selectedIds.length === 0) {
       throw new Error('未选择会话');
     }
-    if (
-      !window.confirm(
-        tr(`确定删除选中的 ${selectedIds.length} 个会话？`, `Delete ${selectedIds.length} selected sessions?`),
-      )
-    ) {
-      return;
-    }
     setBatchBusy(true);
     try {
       const res = await batchDeleteSessions(selectedIds);
@@ -631,8 +661,6 @@ export default function SessionsPage() {
       setRowSelection({});
       invalidateChatSessions();
       await load(true);
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
     } finally {
       setBatchBusy(false);
     }
@@ -683,7 +711,7 @@ export default function SessionsPage() {
                 size="sm"
                 type="button"
                 disabled={batchBusy}
-                onClick={() => void runBatchDelete()}
+                onClick={() => setBatchConfirmOpen(true)}
                 className="inline-flex items-center gap-1.5"
               >
                 <Trash2 size={13} />
@@ -935,6 +963,60 @@ export default function SessionsPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={tr('删除会话', 'Delete chat')}
+        description={
+          deleteTarget === null ? null : (
+            <>
+              <p>
+                {tr('确定删除会话 ', 'Delete ')}
+                <span className="font-mono text-zinc-100">{deleteTarget.title || deleteTarget.id}</span>
+                {tr(' ？', '?')}
+              </p>
+              <p className="mt-2 text-zinc-500">
+                {tr(
+                  '消息、附件、分享链接与观测记录会一并清除，该操作不可撤销。',
+                  'Messages, attachments, share links and traces are removed too. This cannot be undone.',
+                )}
+              </p>
+            </>
+          )
+        }
+        onConfirm={async () => {
+          if (deleteTarget === null) return;
+          await runDelete(deleteTarget);
+          setDeleteTarget(null);
+        }}
+        onClose={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={batchConfirmOpen}
+        title={tr('批量删除会话', 'Delete selected chats')}
+        description={
+          <>
+            <p>
+              {tr(
+                `确定删除选中的 ${selectedIds.length} 个会话？`,
+                `Delete ${selectedIds.length} selected sessions?`,
+              )}
+            </p>
+            <p className="mt-2 text-zinc-500">
+              {tr(
+                '消息、附件、分享链接与观测记录会一并清除，该操作不可撤销。',
+                'Messages, attachments, share links and traces are removed too. This cannot be undone.',
+              )}
+            </p>
+          </>
+        }
+        onConfirm={async () => {
+          await runBatchDelete();
+          setBatchConfirmOpen(false);
+        }}
+        onClose={() => setBatchConfirmOpen(false)}
+      />
     </main>
   );
 }

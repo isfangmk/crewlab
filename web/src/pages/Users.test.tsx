@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
@@ -186,8 +186,14 @@ describe('UsersPage', () => {
     await screen.findByText('dev@local');
     await user.click(screen.getAllByRole('button', { name: '删除账号' })[1]);
 
+    // 删除走统一确认弹窗（不再用原生 confirm）
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('dev@local')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: '删除' }));
+
     await waitFor(() => expect(deletedIds).toEqual([2]));
     await waitFor(() => expect(screen.queryByText('dev@local')).not.toBeInTheDocument());
+    expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
   });
 

@@ -15,6 +15,7 @@ import {
 import { Hint } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/Modal';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ApiError } from '@/api/client';
 import {
   createUser,
@@ -83,6 +84,8 @@ export default function UsersPage() {
   const [roleBusy, setRoleBusy] = useState(false);
   const [roleErr, setRoleErr] = useState<string | null>(null);
   const [resetTarget, setResetTarget] = useState<ManagedUser | null>(null);
+  // 删除账号走统一确认弹窗，与助理/会话的删除版式一致
+  const [deleteTarget, setDeleteTarget] = useState<ManagedUser | null>(null);
   const [resetPassword, setResetPassword] = useState('');
   const [resetBusy, setResetBusy] = useState(false);
   const [resetErr, setResetErr] = useState<string | null>(null);
@@ -204,21 +207,14 @@ export default function UsersPage() {
     }
   };
 
-  const removeUser = async (user: ManagedUser) => {
-    const confirmed = window.confirm(
-      tr(
-        `确定删除账号「${user.email}」？该操作不可撤销。`,
-        `Delete "${user.email}"? This cannot be undone.`,
-      ),
-    );
-    if (!confirmed) return;
-    setBusyId(user.id);
+  const removeUser = async () => {
+    if (deleteTarget === null) return;
+    setBusyId(deleteTarget.id);
     try {
-      await deleteUser(user.id);
-      setItems((prev) => prev.filter((u) => u.id !== user.id));
+      await deleteUser(deleteTarget.id);
+      setItems((prev) => prev.filter((u) => u.id !== deleteTarget.id));
       setErr(null);
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setDeleteTarget(null);
     } finally {
       setBusyId(null);
     }
@@ -379,7 +375,7 @@ export default function UsersPage() {
                                 label={tr('删除账号', 'Delete account')}
                                 tone="danger"
                                 disabled={busy || isSelf}
-                                onClick={() => void removeUser(user)}
+                                onClick={() => setDeleteTarget(user)}
                               />
                             </Hint>
                           </div>
@@ -580,6 +576,25 @@ export default function UsersPage() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={tr('删除账号', 'Delete account')}
+        description={
+          <>
+            <p>
+              {tr('确定删除账号 ', 'Delete ')}
+              <span className="font-mono text-zinc-100">{deleteTarget?.email ?? ''}</span>
+              {tr(' ？', '?')}
+            </p>
+            <p className="mt-2 text-zinc-500">
+              {tr('该操作不可撤销。', 'This cannot be undone.')}
+            </p>
+          </>
+        }
+        onConfirm={removeUser}
+        onClose={() => setDeleteTarget(null)}
+      />
     </main>
   );
 }

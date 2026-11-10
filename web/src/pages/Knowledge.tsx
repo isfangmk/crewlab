@@ -34,7 +34,7 @@ import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/cn';
 import { splitFrontmatter, stripFrontmatter } from '@/lib/frontmatter';
 import { Modal } from '@/components/Modal';
-import { Button, Card, Chip, EmptyStateCard, PageHeader, RowAction, RowActionIcon } from '@/components/ui';
+import { Button, Card, Chip, EmptyStateCard, PageHeader, RowAction, RowActionIcon, Toast } from '@/components/ui';
 import {
   createDoc,
   deleteDoc,
@@ -108,6 +108,9 @@ export default function KnowledgePage() {
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<KnowledgeDoc | 'create' | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDoc | null>(null);
+  // 切块设置与轻提示：统一用 Modal / Toast，不再走 window.prompt / alert
+  const [chunkOpen, setChunkOpen] = useState(false);
+  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -134,6 +137,13 @@ export default function KnowledgePage() {
   useEffect(() => {
     void fetchAll();
   }, [fetchAll]);
+
+  // 轻提示 5 秒自动消失，与 MCP 页同一节奏
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 5000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
 
   // 上传 .md/.txt 到组织知识库，完成后切到 org 视图。
   const [uploading, setUploading] = useState(false);
@@ -277,24 +287,7 @@ export default function KnowledgePage() {
             {canMutate && (
               <RowAction
                 icon={Settings2}
-                onClick={() => {
-                  void (async () => {
-                    try {
-                      const settings = await listSettings('knowledge');
-                      const size = settings.items.find((i) => i.key === 'chunk_size')?.value ?? '800';
-                      const overlap = settings.items.find((i) => i.key === 'chunk_overlap')?.value ?? '100';
-                      const sizeNext = window.prompt(tr('切块大小 chunk_size', 'Chunk size'), size);
-                      if (sizeNext === null) return;
-                      const overlapNext = window.prompt(tr('切块重叠 chunk_overlap', 'Chunk overlap'), overlap);
-                      if (overlapNext === null) return;
-                      await setSetting('knowledge', 'chunk_size', sizeNext.trim());
-                      await setSetting('knowledge', 'chunk_overlap', overlapNext.trim());
-                      window.alert(tr('切块参数已保存；重建索引后生效', 'Chunk settings saved; reindex to apply'));
-                    } catch (e) {
-                      setErr(e instanceof ApiError ? e.message : (e as Error).message);
-                    }
-                  })();
-                }}
+                onClick={() => setChunkOpen(true)}
               >
                 {tr('切块设置', 'Chunk settings')}
               </RowAction>
@@ -306,7 +299,10 @@ export default function KnowledgePage() {
                   void (async () => {
                     try {
                       const r = await reindexKnowledge();
-                      window.alert(tr(`重建完成，切块数 ${r.chunks}`, `Reindex done, chunks=${r.chunks}`));
+                      setToast({
+                        kind: 'ok',
+                        text: tr(`重建完成，切块数 ${r.chunks}`, `Reindex done, chunks=${r.chunks}`),
+                      });
                     } catch (e) {
                       setErr(e instanceof ApiError ? e.message : (e as Error).message);
                     }
@@ -478,6 +474,19 @@ export default function KnowledgePage() {
           }}
         />
       )}
+      {chunkOpen && (
+        <ChunkSettingsDialog
+          onClose={() => setChunkOpen(false)}
+          onSaved={() => {
+            setChunkOpen(false);
+            setToast({
+              kind: 'ok',
+              text: tr('切块参数已保存；重建索引后生效', 'Chunk settings saved; reindex to apply'),
+            });
+          }}
+        />
+      )}
+      {toast && <Toast tone={toast.kind} text={toast.text} />}
     </main>
   );
 }
@@ -1192,6 +1201,131 @@ function DeleteDocDialog({
           </div>
         )}
         <p>{tr('确定删除这条文档？', 'Delete this document?')}</p>
+      </div>
+    </Modal>
+  );
+}
+
+/** 切块参数：两个正整数，重叠必须小于切块大小，否则每轮只前进 0 个字符。 */
+function ChunkSettingsDialog({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { tr } = useI18n();
+  const [size, setSize] = useState('');
+  const [overlap, setOverlap] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const settings = await listSettings('knowledge');
+        if (cancelled) return;
+        const read = (key: string, fallback: string) =>
+          settings.items.find((i) => i.key === key)?.value ?? fallback;
+        setSize(read('chunk_size', '800'));
+        setOverlap(read('chunk_overlap', '100'));
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const submit = async () => {
+    const sizeNext = size.trim();
+    const overlapNext = overlap.trim();
+    if (!/^\d+$/.test(sizeNext) || Number(sizeNext) <= 0) {
+      setErr(tr('切块大小必须是正整数', 'Chunk size must be a positive integer'));
+      return;
+    }
+    if (!/^\d+$/.test(overlapNext)) {
+      setErr(tr('切块重叠必须是非负整数', 'Chunk overlap must be a non-negative integer'));
+      return;
+    }
+    if (Number(overlapNext) >= Number(sizeNext)) {
+      setErr(tr('切块重叠必须小于切块大小', 'Chunk overlap must be smaller than chunk size'));
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await setSetting('knowledge', 'chunk_size', sizeNext);
+      await setSetting('knowledge', 'chunk_overlap', overlapNext);
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={() => {
+        if (busy) return;
+        onClose();
+      }}
+      title={tr('切块设置', 'Chunk settings')}
+      size="sm"
+      footer={
+        <>
+          <Button variant="outline" size="sm" type="button" onClick={onClose} disabled={busy} className="px-3 py-1.5">
+            {tr('取消', 'Cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            type="button"
+            onClick={() => void submit()}
+            disabled={busy || loading}
+            className="px-3 py-1.5 font-medium"
+          >
+            {busy ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-xs text-zinc-300">
+        {err && (
+          <div role="alert" className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-red-300">
+            {err}
+          </div>
+        )}
+        <label className="block space-y-1.5">
+          <Label htmlFor="chunk-size">{tr('切块大小 chunk_size', 'Chunk size')}</Label>
+          <Input
+            id="chunk-size"
+            inputMode="numeric"
+            value={size}
+            onChange={(e) => setSize(e.target.value)}
+            disabled={loading}
+          />
+        </label>
+        <label className="block space-y-1.5">
+          <Label htmlFor="chunk-overlap">{tr('切块重叠 chunk_overlap', 'Chunk overlap')}</Label>
+          <Input
+            id="chunk-overlap"
+            inputMode="numeric"
+            value={overlap}
+            onChange={(e) => setOverlap(e.target.value)}
+            disabled={loading}
+          />
+        </label>
+        <p className="text-[11px] text-zinc-500">
+          {tr('保存后需要重建索引才会生效。', 'Changes apply after a reindex.')}
+        </p>
       </div>
     </Modal>
   );

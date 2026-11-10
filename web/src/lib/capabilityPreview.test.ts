@@ -65,11 +65,12 @@ describe('previewCapabilities', () => {
     expect(preview.whitelistActive).toBe(false);
     expect(preview.mountedServers).toEqual(['ai-engine', 'observability']);
     expect(preview.unmountedServers).toEqual(['never-probed', 'disabled-one']);
-    expect(preview.mcpTools).toBe(3);
+    expect(preview.searchableMcpTools).toBe(3);
     // 始终装配的内置工具只有 query_knowledge；web_search 由对话开关决定
     expect(preview.builtinTools).toBe(1);
     expect(preview.perTurnTools).toBe(1);
-    expect(preview.visibleTools).toBe(4);
+    // MCP 工具不进上下文，只进检索目录
+    expect(preview.contextTools).toBe(1);
     expect(preview.skills).toBe(1);
     expect(preview.partialServers).toEqual([]);
   });
@@ -84,16 +85,18 @@ describe('previewCapabilities', () => {
     expect(preview.whitelistActive).toBe(true);
     expect(preview.whitelistHasMcp).toBe(true);
     expect(preview.mountedServers).toEqual(['observability']);
-    expect(preview.mcpTools).toBe(1);
-    expect(preview.visibleTools).toBe(2);
-    // 只勾了 server 内 1 个工具时整台挂载，提示口径差异
+    expect(preview.searchableMcpTools).toBe(1);
+    expect(preview.contextTools).toBe(1);
+    // 该 Server 只有一个工具且已勾选，不存在「只选了部分」的口径差异
     expect(preview.partialServers).toEqual([]);
   });
 
-  it('白名单只选部分工具时提示整台挂载', () => {
+  it('白名单只选部分工具时：未勾选的工具不进检索目录', () => {
     const preview = previewCapabilities(catalog(), ['mcp__ai-engine__ask'], []);
     expect(preview.partialServers).toEqual([{ server: 'ai-engine', selected: 1, total: 2 }]);
-    expect(preview.mcpTools).toBe(2);
+    // 未勾选的 rerank 搜不到；勾选的 ask 也仍要靠 search/load
+    expect(preview.searchableMcpTools).toBe(1);
+    expect(preview.contextTools).toBe(1);
   });
 
   it('白名单不含 MCP 工具时所有 Server 都不挂载', () => {
@@ -101,8 +104,8 @@ describe('previewCapabilities', () => {
 
     expect(preview.whitelistHasMcp).toBe(false);
     expect(preview.mountedServers).toEqual([]);
-    expect(preview.mcpTools).toBe(0);
-    expect(preview.visibleTools).toBe(1);
+    expect(preview.searchableMcpTools).toBe(0);
+    expect(preview.contextTools).toBe(1);
     expect(preview.partialServers).toEqual([]);
   });
 
@@ -161,7 +164,7 @@ describe('previewCapabilities', () => {
     expect(preview.lockedTools).toContain('mcp__observability__query_metrics');
     // 该 Server 只有一个工具且已由技能声明，不存在「只选了部分」的口径差异
     expect(preview.partialServers).toEqual([]);
-    expect(preview.mcpTools).toBe(1);
+    expect(preview.searchableMcpTools).toBe(1);
   });
 
   it('未装配技能时，声明带来的 Server 不再挂载', () => {
@@ -188,7 +191,8 @@ describe('previewCapabilities', () => {
       'mcp__gone__ask',
       'no_such_tool',
     ]);
-    // 失效工具仍按 Server 段挂载整台 ai-engine
-    expect(preview.mountedServers).toEqual(['ai-engine']);
+    // 白名单里的工具全部失效：后端不装配这台 Server，预览也不该算挂载
+    expect(preview.mountedServers).toEqual([]);
+    expect(preview.searchableMcpTools).toBe(0);
   });
 });

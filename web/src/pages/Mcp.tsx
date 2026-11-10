@@ -39,7 +39,7 @@ import {
 } from '@/api/mcp';
 import { listSecrets, type SecretView } from '@/api/secrets';
 import { Modal } from '@/components/Modal';
-import { Button, Card, Chip, DetailSection, EmptyStateCard, PageHeader, RowAction } from '@/components/ui';
+import { Button, Card, Chip, DetailSection, EmptyStateCard, PageHeader, RowAction, Toast } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
 
@@ -314,19 +314,7 @@ export default function McpPage() {
         </p>
       </Modal>
 
-      {toast && (
-        <div
-          role="status"
-          className={cn(
-            'fixed bottom-6 right-6 z-50 max-w-sm rounded-lg px-4 py-2.5 text-sm shadow-2xl ring-1 ring-inset',
-            toast.kind === 'ok'
-              ? 'bg-emerald-500/15 text-emerald-200 ring-emerald-500/40'
-              : 'bg-red-500/15 text-red-200 ring-red-500/40',
-          )}
-        >
-          {toast.text}
-        </div>
-      )}
+      {toast && <Toast tone={toast.kind} text={toast.text} />}
       </div>
     </main>
   );
