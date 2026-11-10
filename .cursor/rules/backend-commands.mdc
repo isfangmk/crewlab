@@ -1,0 +1,37 @@
+---
+description: 后端命令固定口径：测试用 uv run python -m pytest，类型检查走脚本，改代码必须重启
+alwaysApply: true
+---
+
+# 后端命令口径
+
+## 测试必须走 uv
+
+```powershell
+cd backend
+uv run python -m pytest            # 全量
+uv run python -m pytest tests/test_skills_api.py -q
+```
+
+- **禁止**直接 `python -m pytest` / `pytest`：系统 conda 的 `python` 是 ADK 2.11，
+  缺 `google.adk.utils._function_call_names`，`import app.adk_runtime.stream_bridge`
+  直接 `ModuleNotFoundError`，测试连收集阶段都过不去。
+- 项目真实环境是 `backend/.venv`（ADK 2.14），只有 `uv run` 会用它。
+
+## 类型检查
+
+```powershell
+.\scripts\backend-typecheck.ps1    # basedpyright，仓库根执行，0 错误才算完
+```
+
+## 改代码后重启
+
+```powershell
+.\scripts\backend-restart.ps1      # 禁止 --reload
+```
+
+## 失败用例的结论写法
+
+`tests/test_custom_thinking_stream.py` 打真实后端 + 真实模型，依赖上游吐
+`reasoning_content`；上游偶发不吐时失败。这类失败要在结论里写明「环境波动，
+非回归」，不要当成自己改坏了去改代码。

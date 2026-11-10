@@ -334,6 +334,21 @@ Agent 检索工具（ADK）→ 回填上下文 → 生成回答
 
 无法连接依赖时：`pytest.skip("原因")`，禁止 mock 冒充通过。
 
+### 执行方式（固定）
+
+```powershell
+cd backend
+uv run python -m pytest            # 全量
+uv run python -m pytest tests/test_skills_api.py -q
+```
+
+必须用 `uv run python -m pytest` 走 `backend/.venv`（ADK 2.14）。系统 conda 的
+`python` 是 ADK 2.11，缺 `google.adk.utils._function_call_names`，
+`import app.adk_runtime.stream_bridge` 直接 `ModuleNotFoundError`，测试连收集都过不去。
+
+`tests/test_custom_thinking_stream.py` 打真实后端 + 真实模型，依赖上游吐
+`reasoning_content`；上游偶发不吐时失败属于环境波动，需在结论里写明，不算回归。
+
 ---
 
 ## 10. 非目标（本阶段明确不做）
