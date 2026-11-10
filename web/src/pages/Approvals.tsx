@@ -53,7 +53,7 @@ import {
 import { ApiError } from '@/api/client';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
-import { fullDateTime, clockTime } from '@/lib/format';
+import { fullDateTime } from '@/lib/format';
 import { parseLocalDateTime, rangeForPreset, type TimePreset } from '@/lib/timeRange';
 
 // 审批列表：Agent 提出的危险工具调用，管理员在此批准或拒绝。
@@ -747,12 +747,10 @@ function ApprovalRow({
           )}
         </td>
         <td className="whitespace-nowrap px-3 py-2 text-[11px] leading-4 text-zinc-400">
-          <div className="tabular-nums" title={fullDateTime(a.created_at)}>
-            {fullDateTime(a.created_at)}
-          </div>
+          <div className="tabular-nums">{fullDateTime(a.created_at)}</div>
           {a.decided_at ? (
-            <div className="text-[10px] tabular-nums text-zinc-600" title={fullDateTime(a.decided_at)}>
-              {tr('决策', 'decided')} {clockTime(a.decided_at)}
+            <div className="text-[10px] tabular-nums text-zinc-600">
+              {tr('决策', 'decided')} {fullDateTime(a.decided_at)}
             </div>
           ) : null}
         </td>

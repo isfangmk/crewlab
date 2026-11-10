@@ -18,7 +18,12 @@ from app.services.web_search_service import deepseek_web_search, resolve_deepsee
 logger = logging.getLogger(__name__)
 
 
-async def _web_search_signature(query: str, count: int = 5) -> dict:
+async def _web_search_signature(
+    # 参数名与默认值就是前端运行表单的字段定义（tool_param_specs 读 inspect.signature），
+    # 函数体不读它们也不能改名 / 删除，因此逐参数标注忽略未使用告警。
+    query: str,  # pyright: ignore[reportUnusedParameter]
+    count: int = 5,  # pyright: ignore[reportUnusedParameter]
+) -> dict:
     """仅用于导出参数签名；真正执行走 run_builtin_tool。"""
 
     raise RuntimeError("web_search 须经 run_builtin_tool 注入 DeepSeek 凭证后执行")

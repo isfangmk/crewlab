@@ -1,30 +1,33 @@
+// Knowledge page — 知识库工作台。
+//
+// 骨架（与 docs/UI设计规范.md 一致）：
+//   PageHeader   标题 / 计数 / 检索设置 · 刷新
+//   FilterBar    统一搜索框（回车检索）+ 来源筛选胶囊 + 检索词胶囊
+//   aside        来源分组 + 目录树（组织 / 内置两棵树常驻）
+//   TableCard    文档表（文档 / 更新时间 / 参与检索 / 操作）+ 分页，检索后换成命中表
+//
+// 目录树由文档自身的 path 分段临时构建，不再依赖 /knowledge/paths 聚合接口；
+// 每个来源组各自一棵树，切换分组即切换右侧列表。
+// 建/改/上传文档时后端已同步重切块并重嵌入，因此页面不再提供「重建索引」手动入口。
 import { useAssistantPage } from '@/lib/assistantPage';
 import { usePermissions } from '@/store/me';
-import { FilterBar, Input, Label, SearchInput, Textarea } from '@/components/ui';
-import { Hint } from '@/components/ui/Tooltip';
-// Knowledge page — folder-tree view of the RAG knowledge base.
-//
-// Layout:
-//   header: title + buttons (同步内置知识库 / 刷新 / 新建文档)
-//   search bar: full-width, hits a ?path_prefix scoped /knowledge/search
-//   left sidebar: folder tree built from GET /knowledge/paths split on "/"
-//   right pane: doc grid filtered by selected folder (path_prefix)
-//
-// Tree rendering: paths are flat strings like "网络/DNS"; we parse each
-// into nodes and merge into a tree by walking the segments. Click any
-// folder to set the path_prefix filter; click "全部" to clear.
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   BookOpen,
   ChevronRight,
   Copy,
   Eye,
+  FileText,
   Folder,
   FolderOpen,
+  GripVertical,
   Pencil,
   Plus,
   RefreshCw,
-  RotateCw,
+  Search,
+  SearchX,
   Settings2,
   Trash2,
   Upload,
@@ -32,9 +35,31 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/cn';
-import { splitFrontmatter, stripFrontmatter } from '@/lib/frontmatter';
+import { splitFrontmatter } from '@/lib/frontmatter';
+import type { IconType } from '@/lib/icon';
 import { Modal } from '@/components/Modal';
-import { Button, Card, Chip, EmptyStateCard, PageHeader, RowAction, RowActionIcon, Toast } from '@/components/ui';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import {
+  Button,
+  Chip,
+  EmptyStateCard,
+  FilterBar,
+  FilterChip,
+  FilterPill,
+  Input,
+  PageHeader,
+  RowAction,
+  RowActionIcon,
+  SearchInput,
+  Select,
+  Switch,
+  TableCard,
+  TablePager,
+  Textarea,
+  Toast,
+} from '@/components/ui';
+import { Hint } from '@/components/ui/Tooltip';
+import { fullDateTime } from '@/lib/format';
 import {
   createDoc,
   deleteDoc,
@@ -43,11 +68,13 @@ import {
   localizedPath,
   localizedPathSegment,
   moveDoc,
+  reindexKnowledge,
   searchKnowledge,
+  setDocEnabled,
   updateDoc,
   uploadDoc,
-  reindexKnowledge,
   type KnowledgeDoc,
+  type DocSource,
   type PathRow,
   type SearchHit,
 } from '@/api/knowledge';
@@ -58,22 +85,22 @@ import { useI18n } from '@/i18n/locale';
 // 拖拽移动组织文档时的 dataTransfer MIME；值为文档 id。
 const DOC_DND_MIME = 'application/x-ongrid-doc-id';
 
+// 表头统一规格：11px、sticky、80% 表面。
+const TABLE_HEAD =
+  'sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur';
+
+type SourceGroup = 'org' | 'builtin';
+
 type TreeNode = {
   name: string;
-  path: string; // cumulative breadcrumb (matches payload.path_prefixes)
-  count: number; // doc count of this exact path
-  subtreeCount: number; // doc count rolled up over the whole subtree
+  path: string; // 累计路径（与文档 path 一致）
+  count: number; // 该目录直属文档数
+  subtreeCount: number; // 含子目录的文档数
   children: Map<string, TreeNode>;
 };
 
 function buildTree(rows: PathRow[]): TreeNode {
-  const root: TreeNode = {
-    name: '__root__',
-    path: '',
-    count: 0,
-    subtreeCount: 0,
-    children: new Map(),
-  };
+  const root: TreeNode = { name: '__root__', path: '', count: 0, subtreeCount: 0, children: new Map() };
   for (const r of rows) {
     if (!r.path) continue;
     const parts = r.path.split('/');
@@ -96,38 +123,109 @@ function buildTree(rows: PathRow[]): TreeNode {
   return root;
 }
 
+function isBuiltinDoc(doc: KnowledgeDoc): boolean {
+  return doc.source_type === 'vault';
+}
+
+function sourceLabel(doc: KnowledgeDoc, tr: (zh: string, en: string) => string): string {
+  if (doc.source_type === 'vault') return tr('内置', 'built-in');
+  if (doc.source_type === 'upload') return tr('上传', 'upload');
+  if (doc.source_type === 'repo') return 'repo';
+  return tr('手动', 'manual');
+}
+
+type ChipTone = 'default' | 'success' | 'warning' | 'info' | 'accent';
+
+// 来源胶囊按语义上色：内置=蓝（只读）、上传=绿（已入库文件）、手动=indigo、repo=琥珀
+function sourceTone(source: KnowledgeDoc['source_type']): ChipTone {
+  if (source === 'vault') return 'info';
+  if (source === 'upload') return 'success';
+  if (source === 'repo') return 'warning';
+  return 'accent';
+}
+
+// 标签颜色按标签名散列固定在三种语义色上：同名标签跨行同色，便于扫读，
+// 且不给「标签」引入红色 / 琥珀这类风险语义。
+const TAG_TONES: ChipTone[] = ['info', 'success', 'accent'];
+function tagTone(tag: string): ChipTone {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) hash = (hash * 33 + tag.charCodeAt(i)) % 1009;
+  return TAG_TONES[hash % TAG_TONES.length];
+}
+
+function errorText(e: unknown): string {
+  return e instanceof ApiError ? e.message : (e as Error).message;
+}
+
+/** 页面与弹窗共用的错误条；`role="alert"` 走无语义容器，避免与标题层级冲突。 */
+function ErrorBanner({ text }: { text: string }) {
+  return (
+    <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11.5px] leading-5 text-red-300">
+      {text}
+    </div>
+  );
+}
+
+/** 表单字段：说明文字用 `htmlFor` 关联控件，避免把控件内容并进可访问名。 */
+function Field({
+  label,
+  htmlFor,
+  children,
+  className,
+}: {
+  label: ReactNode;
+  htmlFor: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn('space-y-1.5', className)}>
+      <label htmlFor={htmlFor} className="block text-[11px] leading-4 text-zinc-500">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
 export default function KnowledgePage() {
   const { tr } = useI18n();
   const { canMutate } = usePermissions();
   const [items, setItems] = useState<KnowledgeDoc[]>([]);
-  // builtin=只读 vault；org=upload+manual，可增删改。
-  const [sourceScope, setSourceScope] = useState<'builtin' | 'org'>('org');
-  const [activePath, setActivePath] = useState<string>(''); // '' = 全部
+  const [group, setGroup] = useState<SourceGroup>('org');
+  const [activePath, setActivePath] = useState(''); // '' = 整个分组
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<KnowledgeDoc | 'create' | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDoc | null>(null);
-  // 切块设置与轻提示：统一用 Modal / Toast，不再走 window.prompt / alert
-  const [chunkOpen, setChunkOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
-  const [searching, setSearching] = useState(false);
+  // 文档列表前端分页；默认 20 条/页
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
+  // 来源筛选（空串 = 全部来源）；与侧边栏分组正交，只落在组织文档这一侧
+  const [sourceFilter, setSourceFilter] = useState<DocSource | ''>('');
+  // 更新时间排序方向；默认按最近更新在前
+  const [updatedSort, setUpdatedSort] = useState<'desc' | 'asc'>('desc');
+  // 已完成检索的关键词；非 null 时右侧进入结果态
+  const [searchedQuery, setSearchedQuery] = useState<string | null>(null);
+  // 打开文档时定位到的命中块；关闭编辑器即清空
+  const [locate, setLocate] = useState<{ chunkIndex: number; excerpt: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchAll = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
-      // The folder tree is derived per-scope from the docs themselves
-      // (each source has its own tree), so we no longer need the aggregate
-      // /knowledge/paths endpoint here.
-      const docsR = await listDocs();
-      setItems(docsR.items ?? []);
+      const res = await listDocs();
+      setItems(res.items ?? []);
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -138,75 +236,80 @@ export default function KnowledgePage() {
     void fetchAll();
   }, [fetchAll]);
 
-  // 轻提示 5 秒自动消失，与 MCP 页同一节奏
+  // 轻提示 5 秒自动消失，与 MCP / 技能页同一节奏
   useEffect(() => {
     if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 5000);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => setToast(null), 5000);
+    return () => window.clearTimeout(timer);
   }, [toast]);
 
-  // 上传 .md/.txt 到组织知识库，完成后切到 org 视图。
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const builtinItems = useMemo(() => items.filter(isBuiltinDoc), [items]);
+  const orgItems = useMemo(() => items.filter((d) => !isBuiltinDoc(d)), [items]);
+
+  const treeFrom = useCallback((docs: KnowledgeDoc[]): TreeNode => {
+    const counts = new Map<string, number>();
+    for (const d of docs) {
+      const p = d.path ?? '';
+      if (p) counts.set(p, (counts.get(p) ?? 0) + 1);
+    }
+    return buildTree([...counts.entries()].map(([path, count]) => ({ path, count })));
+  }, []);
+
+  const builtinTree = useMemo(() => treeFrom(builtinItems), [builtinItems, treeFrom]);
+  const orgTree = useMemo(() => treeFrom(orgItems), [orgItems, treeFrom]);
+
+  const scopedItems = group === 'builtin' ? builtinItems : orgItems;
+
+  // 右侧列表：当前分组 + 来源筛选 + 选中目录（含子目录）的文档，按更新时间排序
+  const visibleDocs = useMemo(() => {
+    const bySource = sourceFilter === '' ? scopedItems : scopedItems.filter((d) => d.source_type === sourceFilter);
+    const scoped = !activePath
+      ? bySource
+      : bySource.filter((d) => d.path === activePath || (d.path ?? '').startsWith(`${activePath}/`));
+    // 更新时间列可点排序；同一时刻按 id 兜底，保证顺序稳定可复现
+    return [...scoped].sort((a, b) => {
+      const diff = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
+      if (diff === 0) return a.id.localeCompare(b.id);
+      return updatedSort === 'asc' ? diff : -diff;
+    });
+  }, [scopedItems, activePath, sourceFilter, updatedSort]);
+
+  const counts = useMemo(
+    () => ({ builtin: builtinItems.length, org: orgItems.length, total: items.length }),
+    [builtinItems.length, orgItems.length, items.length],
+  );
+
+  // 选目录 = 切分组 + 切路径；旧检索结果的作用域已失效，退回文档列表
+  const pickFolder = useCallback((next: SourceGroup, path: string) => {
+    setGroup(next);
+    setActivePath(path);
+    setHits([]);
+    setSearchedQuery(null);
+    setLocate(null);
+  }, []);
+
   const onUploadFiles = useCallback(
     async (files: FileList | null) => {
       if (!files || files.length === 0) return;
       setUploading(true);
       setErr(null);
       try {
-        for (const f of Array.from(files)) {
-          await uploadDoc(f);
+        for (const file of Array.from(files)) {
+          await uploadDoc(file);
         }
-        setSourceScope('org');
-        setActivePath('');
+        pickFolder('org', '');
         await fetchAll(true);
+        setToast({ kind: 'ok', text: tr(`已上传 ${files.length} 个文件`, `Uploaded ${files.length} file(s)`) });
       } catch (e) {
-        setErr((e as Error).message || 'upload failed');
+        setErr(errorText(e));
       } finally {
         setUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     },
-    [fetchAll],
+    [fetchAll, pickFolder, tr],
   );
 
-  const isBuiltin = (d: KnowledgeDoc) => d.source_type === 'vault';
-
-  // Both source groups are shown side-by-side in the sidebar (two trees, no
-  // toggle). builtin = vault; org = everything else (upload + manual).
-  const builtinItems = useMemo(() => items.filter(isBuiltin), [items]);
-  const orgItems = useMemo(() => items.filter((d) => !isBuiltin(d)), [items]);
-
-  // Each group builds its own folder tree from its own docs' paths.
-  const treeFromItems = (docs: KnowledgeDoc[]): TreeNode => {
-    const m = new Map<string, number>();
-    for (const d of docs) {
-      const p = d.path ?? '';
-      if (p) m.set(p, (m.get(p) ?? 0) + 1);
-    }
-    const rows: PathRow[] = [...m.entries()].map(([path, count]) => ({ path, count }));
-    return buildTree(rows);
-  };
-  const builtinTree = useMemo(() => treeFromItems(builtinItems), [builtinItems]);
-  const orgTree = useMemo(() => treeFromItems(orgItems), [orgItems]);
-
-  const scopedItems = sourceScope === 'builtin' ? builtinItems : orgItems;
-
-  // Right pane shows docs in the selected group, filtered to the selected
-  // folder (exact path OR a descendant of it).
-  const visibleDocs = useMemo(() => {
-    if (!activePath) return scopedItems;
-    const prefix = `${activePath}/`;
-    return scopedItems.filter((d) => d.path === activePath || (d.path ?? '').startsWith(prefix));
-  }, [scopedItems, activePath]);
-
-  // Picking a folder in either tree selects that group + path.
-  const pickFolder = useCallback((scope: 'builtin' | 'org', path: string) => {
-    setSourceScope(scope);
-    setActivePath(path);
-  }, []);
-
-  // 拖放到目录以移动组织文档；成功后刷新列表。
   const onMoveDoc = useCallback(
     async (docId: string, targetPath: string) => {
       setErr(null);
@@ -214,69 +317,119 @@ export default function KnowledgePage() {
         await moveDoc(docId, targetPath);
         await fetchAll(true);
       } catch (e) {
-        setErr(e instanceof ApiError ? e.message : (e as Error).message);
+        setErr(errorText(e));
       }
     },
     [fetchAll],
   );
 
+  // 文档启停只影响检索：停用后切块保留，可随时恢复
+  const onToggleDocEnabled = useCallback(
+    async (doc: KnowledgeDoc, enabled: boolean) => {
+      setErr(null);
+      try {
+        const saved = await setDocEnabled(doc.id, enabled);
+        setItems((prev) => prev.map((d) => (d.id === saved.id ? saved : d)));
+        setToast({
+          kind: 'ok',
+          text: enabled ? tr('已启用，重新参与检索', 'Enabled for retrieval') : tr('已停用，不再参与检索', 'Excluded from retrieval'),
+        });
+      } catch (e) {
+        setErr(errorText(e));
+      }
+    },
+    [tr],
+  );
+
   const runSearch = async () => {
-    if (!query.trim()) {
+    const nextQuery = query.trim();
+    if (!nextQuery) {
       setHits([]);
+      setSearchedQuery(null);
       return;
     }
-    setSearching(true);
+    setLocate(null);
     try {
-      const r = await searchKnowledge(query.trim(), {
+      const res = await searchKnowledge(nextQuery, {
         limit: 10,
         pathPrefix: activePath || undefined,
+        builtin: group === 'builtin',
+        // 来源筛选只在组织文档下有意义；内置组的所有文档都是 vault
+        sourceType: group === 'org' && sourceFilter !== '' ? sourceFilter : undefined,
       });
-      setHits(r.items ?? []);
+      setHits(res.items ?? []);
+      setSearchedQuery(nextQuery);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
-    } finally {
-      setSearching(false);
+      setErr(errorText(e));
     }
   };
 
-  const counts = useMemo(() => {
-    let builtin = 0;
-    let org = 0;
-    for (const d of items) {
-      if (isBuiltin(d)) builtin++;
-      else org++;
-    }
-    return { builtin, org, total: items.length };
-  }, [items]);
+  const resetSearch = useCallback(() => {
+    setQuery('');
+    setHits([]);
+    setSearchedQuery(null);
+    setLocate(null);
+  }, []);
+
+  // 分页：列表在前端分页（文档量级有限，后端一次取回）；切换筛选时回到第 1 页
+  useEffect(() => {
+    setPage(0);
+  }, [group, activePath, sourceFilter, searchedQuery, pageSize]);
+
+  // 删除或筛选后页数变少，把页码夹回最后一页，避免停在空白页
+  useEffect(() => {
+    const lastPage = Math.max(0, Math.ceil(visibleDocs.length / pageSize) - 1);
+    if (page > lastPage) setPage(lastPage);
+  }, [visibleDocs.length, pageSize, page]);
+
+  const pageDocs = useMemo(
+    () => visibleDocs.slice(page * pageSize, page * pageSize + pageSize),
+    [visibleDocs, page, pageSize],
+  );
 
   useAssistantPage('知识库', 'Knowledge', {
-    source: sourceScope,
+    source: group,
     folder: activePath,
     visible_documents: visibleDocs.length,
-    sample_document_ids: visibleDocs.slice(0, 6).map(doc => doc.id).join(', '),
+    sample_document_ids: visibleDocs.slice(0, 6).map((doc) => doc.id).join(', '),
     loading,
   });
+
+  const searchPlaceholder = activePath
+    ? tr(`在「${localizedPath(activePath)}」下语义检索`, `Search under "${localizedPath(activePath)}"`)
+    : group === 'builtin'
+      ? tr('语义检索内置知识库', 'Search the built-in knowledge base')
+      : tr('语义检索组织知识库', 'Search organization knowledge');
+
+  // 已生效条件只保留检索词：分组与目录在左侧树里已经是可见的选中态，
+  // 再在输入框下面重复一遍只是噪音；来源筛选有独立的胶囊控件，不需要再列一遍。
+  const activeChips: ReactNode[] = [];
+  if (searchedQuery !== null) {
+    activeChips.push(
+      <FilterChip key="q" label={tr(`检索：${searchedQuery}`, `Search: ${searchedQuery}`)} onClear={resetSearch} />,
+    );
+  }
+
+  // 来源筛选：组织文档里 manual / upload / repo 混在一起，检索与列表都要能按来源收口；
+  // 内置组只有 vault，给筛选反而制造「选了也一样」的假控件，因此不显示。
+  const sourceOptions = [
+    { value: '', label: tr('全部来源', 'All sources') },
+    { value: 'manual', label: tr('手动', 'Manual') },
+    { value: 'upload', label: tr('上传', 'Uploaded') },
+    { value: 'repo', label: 'repo' },
+  ];
 
   return (
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">
       <PageHeader
         title={tr('知识库', 'Knowledge base')}
-        subtitle={
-          <>
-            {tr(`共 ${counts.total} 条 · 组织 ${counts.org} · 内置 ${counts.builtin}`, `${counts.total} total · ${counts.org} org · ${counts.builtin} built-in`)}
-            {activePath && (
-              <>
-                {tr(' · 当前目录 ', ' · current folder ')}
-                <span className="text-zinc-300">{localizedPath(activePath)}</span>
-              </>
-            )}
-          </>
-        }
+        subtitle={tr(
+          `共 ${counts.total} 篇 · 组织 ${counts.org} · 内置 ${counts.builtin}`,
+          `${counts.total} docs · ${counts.org} org · ${counts.builtin} built-in`,
+        )}
         actions={
           <>
-            {/* Group-scoped actions (upload / new / sync) live on the
-                sidebar section headers now; the toolbar keeps only refresh. */}
-            <Input
+            <input
               ref={fileInputRef}
               type="file"
               accept=".md,.txt,.pdf,.docx"
@@ -285,38 +438,15 @@ export default function KnowledgePage() {
               onChange={(e) => void onUploadFiles(e.target.files)}
             />
             {canMutate && (
-              <RowAction
-                icon={Settings2}
-                onClick={() => setChunkOpen(true)}
-              >
-                {tr('切块设置', 'Chunk settings')}
-              </RowAction>
-            )}
-            {canMutate && (
-              <RowAction
-                icon={RotateCw}
-                onClick={() => {
-                  void (async () => {
-                    try {
-                      const r = await reindexKnowledge();
-                      setToast({
-                        kind: 'ok',
-                        text: tr(`重建完成，切块数 ${r.chunks}`, `Reindex done, chunks=${r.chunks}`),
-                      });
-                    } catch (e) {
-                      setErr(e instanceof ApiError ? e.message : (e as Error).message);
-                    }
-                  })();
-                }}
-              >
-                {tr('重建索引', 'Reindex')}
+              <RowAction icon={Settings2} onClick={() => setSettingsOpen(true)}>
+                {tr('检索设置', 'Retrieval settings')}
               </RowAction>
             )}
             <RowAction
               icon={RefreshCw}
               iconClassName={refreshing ? 'animate-spin' : undefined}
               disabled={loading || refreshing}
-              onClick={() => fetchAll(true)}
+              onClick={() => void fetchAll(true)}
             >
               {tr('刷新', 'Refresh')}
             </RowAction>
@@ -324,132 +454,247 @@ export default function KnowledgePage() {
         }
       />
 
-      <FilterBar className="mx-6 mt-3">
+      <FilterBar
+        className="mx-6 mt-3"
+        footer={
+          activeChips.length > 0 ? (
+            <>
+              {activeChips}
+              <Button variant="ghost" size="sm" onClick={resetSearch}>
+                {tr('清除检索', 'Clear search')}
+              </Button>
+            </>
+          ) : null
+        }
+      >
         <SearchInput
           value={query}
           onChange={setQuery}
           onKeyDown={(e) => {
             if (e.key === 'Enter') void runSearch();
           }}
-          placeholder={
-            activePath
-              ? tr(`在「${activePath}」下语义检索`, `Semantic search under "${activePath}"`)
-              : tr('语义检索组织知识库', 'Semantic search across the knowledge base')
-          }
+          placeholder={searchPlaceholder}
           ariaLabel={tr('检索', 'Search')}
-          className="max-w-2xl flex-1"
+          className="min-w-[15rem] flex-1"
         />
-        <Button variant="primary" size="sm"
-          type="button"
-          onClick={() => void runSearch()}
-          disabled={searching || !query.trim()}
-        >
-          {searching ? tr('检索中…', 'Searching…') : tr('检索', 'Search')}
-        </Button>
-        {hits.length > 0 && (
-          <span className="text-[11px] text-zinc-500">{tr(`命中 ${hits.length} 条`, `${hits.length} hit(s)`)}</span>
+        {group === 'org' && (
+          <FilterPill
+            label={tr('来源', 'Source')}
+            active={sourceFilter !== ''}
+            onClear={() => setSourceFilter('')}
+            width="w-[8.5rem]"
+          >
+            <Select
+              aria-label={tr('来源', 'Source')}
+              value={sourceFilter}
+              onValueChange={(v) => setSourceFilter(v as DocSource | '')}
+              options={sourceOptions}
+              variant="ghost"
+              className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+            />
+          </FilterPill>
         )}
+        <span className="ml-auto shrink-0 pr-1 text-[11px] tabular-nums text-zinc-500">
+          {searchedQuery !== null
+            ? tr(`命中 ${hits.length} 条`, `${hits.length} hit(s)`)
+            : tr(`${visibleDocs.length} 篇`, `${visibleDocs.length} docs`)}
+        </span>
       </FilterBar>
-      {hits.length > 0 && (
-        <div className="mx-6 mt-2 grid max-h-60 shrink-0 gap-2 overflow-y-auto">
-          {hits.map((h) => (
-            <SearchHitCard key={h.doc.id} hit={h} />
-          ))}
-        </div>
-      )}
 
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-zinc-800 bg-zinc-950/40 px-2 py-3 md:block">
-          <ScopeTreeSection
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <aside className="hidden w-[15rem] shrink-0 flex-col overflow-y-auto border-r border-zinc-800/60 px-2 py-3 md:flex">
+          <SourceGroupSection
             label={tr('组织知识库', 'Organization')}
-            accent="text-sky-300"
+            icon={FileText}
             tree={orgTree}
             total={orgItems.length}
-            active={sourceScope === 'org'}
+            active={group === 'org'}
             activePath={activePath}
-            onPick={(p) => pickFolder('org', p)}
+            onPick={(path) => pickFolder('org', path)}
             onMoveDoc={onMoveDoc}
-            actions={canMutate && (
-              <>
-                <Hint content={tr('上传文件 (.md/.txt/.pdf/.docx)', 'Upload file (.md/.txt/.pdf/.docx)')}>
+            actions={
+              canMutate && (
+                <>
                   <RowActionIcon
                     icon={Upload}
                     label={tr('上传文件', 'Upload file')}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      fileInputRef.current?.click();
-                    }}
                     disabled={uploading}
+                    onClick={() => fileInputRef.current?.click()}
                   />
-                </Hint>
-                <Hint content={tr('新建文档', 'New doc')}>
                   <RowActionIcon
                     icon={Plus}
                     label={tr('新建文档', 'New doc')}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSourceScope('org');
+                    onClick={() => {
+                      setGroup('org');
                       setEditing('create');
                     }}
                   />
-                </Hint>
-              </>
-            )}
+                </>
+              )
+            }
           />
-          <div className="my-2 border-t border-zinc-800/60" />
-          <ScopeTreeSection
+          <div className="mx-2 my-2 h-px bg-zinc-800/60" />
+          <SourceGroupSection
             label={tr('内置知识库', 'Built-in')}
-            accent="text-amber-300"
+            icon={BookOpen}
             tree={builtinTree}
             total={builtinItems.length}
-            active={sourceScope === 'builtin'}
+            active={group === 'builtin'}
             activePath={activePath}
-            onPick={(p) => pickFolder('builtin', p)}
+            onPick={(path) => pickFolder('builtin', path)}
           />
+          {canMutate && (
+            <p className="mt-auto px-2 pt-6 text-[10px] leading-relaxed text-zinc-600">
+              {tr('拖动文档行首把手到目录上可移动。', 'Drag a doc handle onto a folder to move it.')}
+            </p>
+          )}
         </aside>
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+
+        <section className="flex min-w-0 flex-1 flex-col overflow-hidden px-6 pb-5 pt-3">
           {err && (
-            <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/5 px-4 py-3 text-sm text-red-300">
-              {err}
+            <div className="mb-3 shrink-0">
+              <ErrorBanner text={err} />
             </div>
           )}
+
           {loading ? (
-            <div className="flex h-40 items-center justify-center text-sm text-zinc-500">{tr('加载中…', 'Loading…')}</div>
-          ) : err && visibleDocs.length === 0 ? null : visibleDocs.length === 0 ? (
+            <div className="flex h-40 items-center justify-center text-[11.5px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
+          ) : searchedQuery !== null ? (
+            hits.length > 0 ? (
+              <TableCard className="min-h-0 flex-1">
+                <table className="og-action-table w-full text-sm">
+                  <thead className={TABLE_HEAD}>
+                    <tr className="whitespace-nowrap">
+                      <th className="w-12 px-3 py-2 text-left font-medium">#</th>
+                      <th className="w-full max-w-0 px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
+                      <th className="px-3 py-2 text-right font-medium">{tr('检索得分', 'Score')}</th>
+                      <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/40">
+                    {hits.map((hit, index) => (
+                      <SearchHitRow
+                        key={hit.doc.id}
+                        rank={index + 1}
+                        hit={hit}
+                        onOpen={() => {
+                          setLocate({ chunkIndex: hit.chunk_index, excerpt: hit.excerpt });
+                          setEditing(hit.doc);
+                        }}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </TableCard>
+            ) : (
+              <EmptyStateCard
+                icon={SearchX}
+                title={tr(`没有命中「${searchedQuery}」的切块`, `No chunks matched "${searchedQuery}"`)}
+                hint={
+                  activePath
+                    ? tr('换个更具体的说法，或把目录切回整个分组再试。', 'Try a more specific phrase, or search the whole group.')
+                    : tr('换个更具体的说法，或在「检索设置」里调低最低 RRF 分。', 'Try a more specific phrase, or lower the minimum RRF score in retrieval settings.')
+                }
+                action={
+                  <Button variant="outline" size="sm" onClick={resetSearch}>
+                    {tr('返回文档列表', 'Back to documents')}
+                  </Button>
+                }
+              />
+            )
+          ) : visibleDocs.length === 0 ? (
             <EmptyStateCard
               icon={BookOpen}
               title={
                 activePath
-                  ? tr(`「${activePath}」里还没有文档`, `No docs in "${activePath}" yet`)
-                  : sourceScope === 'builtin'
+                  ? tr(`「${localizedPath(activePath)}」里还没有文档`, `No docs in "${localizedPath(activePath)}" yet`)
+                  : group === 'builtin'
                     ? tr('内置知识库为空', 'Built-in knowledge base is empty')
                     : tr('组织知识库还没有内容', 'No organization docs yet')
               }
               hint={!canMutate ? tr('请联系管理员添加或同步知识库。', 'Ask an admin to add or sync knowledge.') : undefined}
-              action={canMutate && (
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                    <Upload size={12} /> {tr('上传文件', 'Upload')}
-                  </Button>
-                  <Button variant="primary" size="sm" onClick={() => setEditing('create')}>
-                    <Plus size={12} /> {tr('新建文档', 'New doc')}
-                  </Button>
-                </div>
-              )}
+              action={
+                canMutate && (
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                      <Upload size={12} /> {tr('上传文件', 'Upload')}
+                    </Button>
+                    <Button variant="primary" size="sm" onClick={() => setEditing('create')}>
+                      <Plus size={12} /> {tr('新建文档', 'New doc')}
+                    </Button>
+                  </div>
+                )
+              }
             />
           ) : (
-            <div className="flex flex-col gap-1.5">
-              {visibleDocs.map((d) => (
-                <DocCard
-                  key={d.id}
-                  doc={d}
-                  onEdit={() => setEditing(d)}
-                  onDelete={() => setDeleting(d)}
+            <TableCard
+              className="min-h-0 flex-1"
+              footer={
+                <TablePager
+                  page={page}
+                  pageSize={pageSize}
+                  total={visibleDocs.length}
+                  shown={pageDocs.length}
+                  loading={refreshing}
+                  onPageChange={setPage}
+                  pageSizeOptions={[10, 20, 50, 100]}
+                  onPageSizeChange={(size) => {
+                    setPage(0);
+                    setPageSize(size);
+                  }}
                 />
-              ))}
-            </div>
+              }
+            >
+              <table className="og-action-table w-full text-sm">
+                <thead className={TABLE_HEAD}>
+                  <tr className="whitespace-nowrap">
+                    <th className="w-6 px-2 py-2">
+                      <span className="sr-only">{tr('排序', 'Reorder')}</span>
+                    </th>
+                    <th className="w-full max-w-0 px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
+                    <th
+                      className="w-[10.5rem] px-3 py-2 text-left font-medium"
+                      aria-sort={updatedSort === 'asc' ? 'ascending' : 'descending'}
+                    >
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 hover:text-zinc-200"
+                        onClick={() => {
+                          setPage(0);
+                          setUpdatedSort((d) => (d === 'desc' ? 'asc' : 'desc'));
+                        }}
+                      >
+                        {tr('更新时间', 'Updated')}
+                        {updatedSort === 'desc' ? (
+                          <ArrowDown size={12} aria-hidden />
+                        ) : (
+                          <ArrowUp size={12} aria-hidden />
+                        )}
+                      </button>
+                    </th>
+                    <th className="w-24 px-3 py-2 text-left font-medium">{tr('参与检索', 'Retrieval')}</th>
+                    <th className="w-20 px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/40">
+                  {pageDocs.map((doc) => (
+                    <DocRow
+                      key={doc.id}
+                      doc={doc}
+                      canMutate={canMutate}
+                      onEdit={() => {
+                        setLocate(null);
+                        setEditing(doc);
+                      }}
+                      onDelete={() => setDeleting(doc)}
+                      onToggleEnabled={(enabled) => void onToggleDocEnabled(doc, enabled)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </TableCard>
           )}
-        </div>
+        </section>
       </div>
 
       {editing && (
@@ -457,47 +702,61 @@ export default function KnowledgePage() {
           mode={editing === 'create' ? 'create' : 'edit'}
           existing={editing === 'create' ? null : editing}
           defaultPath={editing === 'create' ? activePath : undefined}
-          onClose={() => setEditing(null)}
+          locate={locate}
+          onClose={() => {
+            setEditing(null);
+            setLocate(null);
+          }}
           onSaved={() => {
             setEditing(null);
+            setLocate(null);
             void fetchAll(true);
           }}
         />
       )}
+
       {deleting && (
-        <DeleteDocDialog
-          doc={deleting}
-          onClose={() => setDeleting(null)}
-          onDone={() => {
+        <ConfirmDialog
+          open
+          title={tr(`删除「${localizedDocTitle(deleting)}」`, `Delete "${localizedDocTitle(deleting)}"`)}
+          description={
+            <p>
+              {tr(
+                '删除后文档与切块一并移除，无法恢复。若只是暂时不想被检索到，可以改用「参与检索」开关停用。',
+                'The document and its chunks are removed permanently. To pause retrieval only, turn off "Include in retrieval" instead.',
+              )}
+            </p>
+          }
+          onConfirm={async () => {
+            await deleteDoc(deleting.id);
+            setToast({ kind: 'ok', text: tr('文档已删除', 'Document deleted') });
             setDeleting(null);
+            await fetchAll(true);
+          }}
+          onClose={() => setDeleting(null)}
+        />
+      )}
+
+      {settingsOpen && (
+        <RetrievalSettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(text) => {
+            setSettingsOpen(false);
+            setToast({ kind: 'ok', text });
             void fetchAll(true);
           }}
         />
       )}
-      {chunkOpen && (
-        <ChunkSettingsDialog
-          onClose={() => setChunkOpen(false)}
-          onSaved={() => {
-            setChunkOpen(false);
-            setToast({
-              kind: 'ok',
-              text: tr('切块参数已保存；重建索引后生效', 'Chunk settings saved; reindex to apply'),
-            });
-          }}
-        />
-      )}
+
       {toast && <Toast tone={toast.kind} text={toast.text} />}
     </main>
   );
 }
 
-// ScopeTreeSection renders one labeled source group's folder tree (no own
-// <aside> — the parent stacks two of these). Highlights are shown only when
-// this section's scope is the active one; the other section stays visible
-// and browsable but unhighlighted.
-function ScopeTreeSection({
+// 来源分组：分组头本身是「查看整个分组」的入口，也是拖放到根目录的放置区。
+function SourceGroupSection({
   label,
-  accent,
+  icon: Icon,
   tree,
   total,
   active,
@@ -507,69 +766,77 @@ function ScopeTreeSection({
   actions,
 }: {
   label: string;
-  accent: string;
+  icon: IconType;
   tree: TreeNode;
   total: number;
   active: boolean;
   activePath: string;
-  onPick: (p: string) => void;
-  // 组织树传入时，目录可接收拖放移动；内置树不传。
+  onPick(path: string): void;
   onMoveDoc?: (docId: string, path: string) => void;
-  // 分组标题右侧操作（上传 / 新建等）。
   actions?: ReactNode;
 }) {
-  // Feed FolderNode a path that matches nothing when this scope isn't
-  // active, so only the selected tree shows a highlight.
-  const childActivePath = active ? activePath : '';
-  const [rootDragOver, setRootDragOver] = useState(false);
-  const acceptDrop = (e: DragEvent) => {
-    if (!onMoveDoc || !e.dataTransfer.types.includes(DOC_DND_MIME)) return false;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    return true;
-  };
+  const [dragOver, setDragOver] = useState(false);
+  const accepts = (e: DragEvent) => !!onMoveDoc && e.dataTransfer.types.includes(DOC_DND_MIME);
+  const rootActive = active && activePath === '';
+
   return (
     <div>
-      {/* The section header IS the group root — clicking it shows the whole
-          group (no separate "全部" row); folders are the next level down.
-          It's also the drop target for "move to root". */}
-      <div className="flex items-center gap-1">
-        <Button variant="subtle" size="sm"
+      <div className="flex items-center gap-0.5">
+        <button
           type="button"
           onClick={() => onPick('')}
-          onDragOver={onMoveDoc ? (e) => setRootDragOver(acceptDrop(e)) : undefined}
-          onDragLeave={onMoveDoc ? () => setRootDragOver(false) : undefined}
+          onDragOver={
+            onMoveDoc
+              ? (e) => {
+                  if (!accepts(e)) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  setDragOver(true);
+                }
+              : undefined
+          }
+          onDragLeave={onMoveDoc ? () => setDragOver(false) : undefined}
           onDrop={
             onMoveDoc
               ? (e) => {
-                  setRootDragOver(false);
+                  setDragOver(false);
+                  if (!accepts(e)) return;
+                  e.preventDefault();
                   const id = e.dataTransfer.getData(DOC_DND_MIME);
                   if (id) onMoveDoc(id, '');
                 }
               : undefined
           }
           className={cn(
-            'flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs',
-            rootDragOver
-              ? 'ring-1 ring-sky-400/70 bg-sky-500/10'
-              : active && activePath === ''
-                ? 'bg-zinc-800'
-                : 'hover:bg-zinc-900',
+            'relative flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors',
+            dragOver
+              ? 'bg-sky-500/10 ring-1 ring-inset ring-sky-400/70'
+              : rootActive
+                ? 'bg-indigo-500/10 text-zinc-100'
+                : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200',
           )}
         >
-          <span className={cn('flex items-center gap-1.5 truncate font-semibold', accent)}>
-            <BookOpen size={12} />
-            {label}
+          {rootActive && <span aria-hidden className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-indigo-400" />}
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-zinc-800/60 bg-zinc-900/50 text-zinc-500">
+            <Icon size={11} aria-hidden />
           </span>
-          <span className="text-[10px] text-zinc-500">{total}</span>
-        </Button>
-        {actions && <div className="flex shrink-0 items-center gap-0.5 pr-1">{actions}</div>}
+          <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium">{label}</span>
+          <span className="shrink-0 font-mono text-[10px] tabular-nums text-zinc-500">{total}</span>
+        </button>
+        {actions && <div className="flex shrink-0 items-center gap-0.5 pr-0.5">{actions}</div>}
       </div>
       <div className="mt-0.5">
         {[...tree.children.values()]
           .sort((a, b) => a.name.localeCompare(b.name))
-          .map((n) => (
-            <FolderNode key={n.path} node={n} depth={0} activePath={childActivePath} onPick={onPick} onMoveDoc={onMoveDoc} />
+          .map((node) => (
+            <FolderNode
+              key={node.path}
+              node={node}
+              depth={0}
+              activePath={active ? activePath : ''}
+              onPick={onPick}
+              onMoveDoc={onMoveDoc}
+            />
           ))}
       </div>
     </div>
@@ -586,7 +853,7 @@ function FolderNode({
   node: TreeNode;
   depth: number;
   activePath: string;
-  onPick: (p: string) => void;
+  onPick(path: string): void;
   onMoveDoc?: (docId: string, path: string) => void;
 }) {
   const { tr } = useI18n();
@@ -594,14 +861,14 @@ function FolderNode({
   const isAncestor = activePath.startsWith(`${node.path}/`);
   const [expanded, setExpanded] = useState(isActive || isAncestor);
   const [dragOver, setDragOver] = useState(false);
+  const hasChildren = node.children.size > 0;
+  const ChevronIcon = expanded ? FolderOpen : Folder;
+
   useEffect(() => {
     if (isActive || isAncestor) setExpanded(true);
   }, [isActive, isAncestor]);
 
-  const hasChildren = node.children.size > 0;
-  const Icon = expanded ? FolderOpen : Folder;
-  const canDrop = (e: DragEvent) =>
-    !!onMoveDoc && e.dataTransfer.types.includes(DOC_DND_MIME);
+  const accepts = (e: DragEvent) => !!onMoveDoc && e.dataTransfer.types.includes(DOC_DND_MIME);
 
   return (
     <div>
@@ -609,11 +876,10 @@ function FolderNode({
         onDragOver={
           onMoveDoc
             ? (e) => {
-                if (canDrop(e)) {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = 'move';
-                  setDragOver(true);
-                }
+                if (!accepts(e)) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                setDragOver(true);
               }
             : undefined
         }
@@ -622,62 +888,63 @@ function FolderNode({
           onMoveDoc
             ? (e) => {
                 setDragOver(false);
-                if (!canDrop(e)) return;
+                if (!accepts(e)) return;
                 e.preventDefault();
                 const id = e.dataTransfer.getData(DOC_DND_MIME);
                 if (id) onMoveDoc(id, node.path);
               }
             : undefined
         }
+        style={{ paddingLeft: 6 + depth * 12 }}
         className={cn(
-          'group relative flex items-center gap-1 rounded-md px-1.5 py-1 text-xs',
+          'relative flex items-center gap-0.5 rounded-md pr-1 transition-colors',
           dragOver
-            ? 'ring-1 ring-sky-400/70 bg-sky-500/10 text-zinc-100'
+            ? 'bg-sky-500/10 ring-1 ring-inset ring-sky-400/70'
             : isActive
               ? 'bg-indigo-500/10 text-zinc-100'
               : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200',
         )}
-        style={{ paddingLeft: 6 + depth * 12 }}
       >
-        {isActive ? (
-          <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 rounded-full bg-indigo-400" />
-        ) : null}
-        <Button variant="subtle" size="sm"
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          disabled={!hasChildren}
-          className={cn(
-            'flex h-4 w-4 shrink-0 items-center justify-center rounded text-zinc-500',
-            hasChildren ? 'hover:text-zinc-200' : 'opacity-0',
-          )}
-          aria-label={expanded ? tr('折叠', 'Collapse') : tr('展开', 'Expand')}
-        >
-          <ChevronRight
-            size={11}
-            className={cn('transition-transform', expanded && 'rotate-90')}
-          />
-        </Button>
-        <Hint content={localizedPath(node.path)}><Button variant="subtle" size="sm"
+        {isActive && <span aria-hidden className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-indigo-400" />}
+        {hasChildren ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-label={expanded ? tr('折叠', 'Collapse') : tr('展开', 'Expand')}
+            className="inline-flex h-6 w-5 shrink-0 items-center justify-center rounded text-zinc-600 transition-colors hover:text-zinc-300"
+          >
+            <ChevronRight size={11} className={cn('transition-transform', expanded && 'rotate-90')} aria-hidden />
+          </button>
+        ) : (
+          <span aria-hidden className="h-6 w-5 shrink-0" />
+        )}
+        <button
           type="button"
           onClick={() => onPick(node.path)}
-          className="flex flex-1 items-center justify-between gap-1.5 truncate"
-
+          title={localizedPath(node.path)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left text-[11.5px]"
         >
-          <span className="flex items-center gap-1.5 truncate">
-            <Icon size={12} className="shrink-0" />
-            <span className="truncate">{localizedPathSegment(node.name)}</span>
+          <ChevronIcon size={11.5} className={cn('shrink-0', isActive ? 'text-indigo-300' : 'text-zinc-500')} aria-hidden />
+          <span className="truncate">{localizedPathSegment(node.name)}</span>
+          <span
+            className={cn(
+              'ml-auto shrink-0 font-mono text-[10px] tabular-nums',
+              isActive ? 'text-indigo-300' : 'text-zinc-600',
+            )}
+          >
+            {node.subtreeCount}
           </span>
-          <Chip dense tone={isActive ? 'accent' : 'default'} className="shrink-0">{node.subtreeCount}</Chip>
-        </Button></Hint>
+        </button>
       </div>
       {expanded && hasChildren && (
         <div>
           {[...node.children.values()]
             .sort((a, b) => a.name.localeCompare(b.name))
-            .map((c) => (
+            .map((child) => (
               <FolderNode
-                key={c.path}
-                node={c}
+                key={child.path}
+                node={child}
                 depth={depth + 1}
                 activePath={activePath}
                 onPick={onPick}
@@ -690,128 +957,195 @@ function FolderNode({
   );
 }
 
-function DocCard({
+// 文档行：主信息一行（来源胶囊 + 标题），元信息一行（目录 / 来源地址）；
+// 标签单独成列用彩色胶囊，便于扫读；整行不响应点击，打开文档只走行内「编辑 / 查看」。
+function DocRow({
   doc,
+  canMutate,
   onEdit,
   onDelete,
+  onToggleEnabled,
 }: {
   doc: KnowledgeDoc;
-  onEdit: () => void;
-  onDelete: () => void;
+  canMutate: boolean;
+  onEdit(): void;
+  onDelete(): void;
+  onToggleEnabled(enabled: boolean): void;
 }) {
   const { tr } = useI18n();
-  // manual/upload 可编辑；vault 只读。
   const editable = doc.source_type === 'manual' || doc.source_type === 'upload';
-  const sourceBadge =
-    doc.source_type === 'vault'
-      ? { label: tr('内置', 'built-in'), tone: 'warning' as const }
-      : doc.source_type === 'upload'
-        ? { label: tr('上传', 'upload'), tone: 'info' as const }
-        : doc.source_type === 'repo'
-          ? { label: 'repo', tone: 'success' as const }
-          : { label: tr('手动', 'manual'), tone: 'accent' as const };
+  const title = localizedDocTitle(doc);
+  const DocIcon = isBuiltinDoc(doc) ? BookOpen : FileText;
+  const tags = doc.tags ?? [];
+
+  // 拖拽预览只保留标题胶囊，避免把整行的开关与操作按钮一起拎起
+  const onDragStart = (e: DragEvent<HTMLSpanElement>) => {
+    e.dataTransfer.setData(DOC_DND_MIME, doc.id);
+    e.dataTransfer.effectAllowed = 'move';
+    const ghost = document.createElement('div');
+    ghost.className =
+      'pointer-events-none fixed -left-[9999px] top-0 max-w-[280px] truncate rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-[11.5px] font-medium text-zinc-100 shadow-xl';
+    ghost.textContent = title;
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 12, 12);
+    window.setTimeout(() => ghost.remove(), 0);
+  };
+
   return (
-    <Card
-      compact
-      // 组织文档可拖到目录节点移动。
-      draggable={editable}
-      onDragStart={
-        editable
-          ? (e) => {
-              e.dataTransfer.setData(DOC_DND_MIME, doc.id);
-              e.dataTransfer.effectAllowed = 'move';
-            }
-          : undefined
-      }
-      className="flex cursor-pointer flex-col py-2.5 transition-colors hover:bg-zinc-800/40"
-      onClick={onEdit}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <Hint content={localizedDocTitle(doc)}><div className="truncate text-[12.5px] font-medium text-zinc-100" >
-            {localizedDocTitle(doc)}
-          </div></Hint>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-500">
-            <Chip tone={sourceBadge.tone} dense>{sourceBadge.label}</Chip>
-            {doc.path && <Chip dense className="font-mono">{localizedPath(doc.path)}</Chip>}
-          </div>
-          {doc.tags && doc.tags.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {doc.tags.map((t) => (
-                <Chip key={t} dense>{t}</Chip>
-              ))}
-            </div>
+    <tr className={cn('group', !doc.enabled && 'opacity-60')}>
+      <td className="w-6 py-2 pl-2 pr-0">
+        {editable ? (
+          <span
+            draggable
+            onDragStart={onDragStart}
+            aria-hidden
+            title={tr('拖动到左侧目录移动', 'Drag onto a folder to move')}
+            className="inline-flex h-7 w-4 cursor-grab items-center justify-center text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 active:cursor-grabbing"
+          >
+            <GripVertical size={12} />
+          </span>
+        ) : (
+          <span aria-hidden className="inline-block h-7 w-4" />
+        )}
+      </td>
+      <td className="px-3 py-[7px]">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-zinc-800/60 bg-zinc-900/50 text-zinc-500">
+            <DocIcon size={12} aria-hidden />
+          </span>
+          <span className="truncate text-[12.5px] font-medium text-zinc-100" title={title}>
+            {title}
+          </span>
+          {!doc.enabled && <Chip dense tone="warning">{tr('已停用', 'Disabled')}</Chip>}
+        </div>
+        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pl-8 text-[10.5px] leading-4">
+          <Chip dense tone={sourceTone(doc.source_type)}>
+            {sourceLabel(doc, tr)}
+          </Chip>
+          {doc.path ? (
+            <span className="inline-flex min-w-0 items-center gap-1 text-zinc-500" title={localizedPath(doc.path)}>
+              <Folder size={10} className="shrink-0 text-zinc-600" aria-hidden />
+              <span className="truncate font-mono">{localizedPath(doc.path)}</span>
+            </span>
+          ) : (
+            <span className="text-zinc-600">{tr('未归目录', 'No folder')}</span>
+          )}
+          {tags.slice(0, 3).map((tag) => (
+            <Chip key={tag} dense tone={tagTone(tag)} className="max-w-[9rem] truncate" title={`#${tag}`}>
+              #{tag}
+            </Chip>
+          ))}
+          {tags.length > 3 && (
+            <Chip dense title={tags.slice(3).map((t) => `#${t}`).join(' ')}>
+              +{tags.length - 3}
+            </Chip>
           )}
           {doc.url && (
-            <Hint content={doc.url}><div className="mt-1 truncate font-mono text-[10px] text-zinc-600" >
+            <span className="max-w-[18rem] truncate font-mono text-zinc-600" title={doc.url}>
               {doc.url}
-            </div></Hint>
+            </span>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+      </td>
+      <td className="px-3 py-[7px]">
+        {/* 完整日期时间：相对时间无法核对与排序，列表里一律不用 */}
+        <span className="whitespace-nowrap text-[11.5px] tabular-nums text-zinc-500">
+          {fullDateTime(doc.updated_at)}
+        </span>
+      </td>
+      <td className="px-3 py-[7px]">
+        <Switch
+          checked={doc.enabled}
+          onCheckedChange={onToggleEnabled}
+          disabled={!canMutate}
+          aria-label={tr(`参与检索 ${title}`, `Include ${title} in retrieval`)}
+        />
+      </td>
+      <td className="px-3 py-[7px]">
+        <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           {editable ? (
             <>
-              <Hint content={tr('编辑', 'Edit')}>
-                <RowActionIcon
-                  icon={Pencil}
-                  label={tr('编辑', 'Edit')}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEdit();
-                  }}
-                />
-              </Hint>
-              <Hint content={tr('删除', 'Delete')}>
-                <RowActionIcon
-                  icon={Trash2}
-                  label={tr('删除', 'Delete')}
-                  tone="danger"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete();
-                  }}
-                />
-              </Hint>
+              <RowActionIcon
+                icon={Pencil}
+                label={tr('编辑', 'Edit')}
+                aria-label={tr(`编辑 ${title}`, `Edit ${title}`)}
+                onClick={onEdit}
+              />
+              <RowActionIcon
+                icon={Trash2}
+                label={tr('删除', 'Delete')}
+                aria-label={tr(`删除 ${title}`, `Delete ${title}`)}
+                tone="danger"
+                onClick={onDelete}
+              />
             </>
           ) : (
-            <Hint content={tr('查看', 'View')}>
-              <RowActionIcon
-                icon={Eye}
-                label={tr('查看', 'View')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEdit();
-                }}
-              />
-            </Hint>
+            <RowActionIcon
+              icon={Eye}
+              label={tr('查看', 'View')}
+              aria-label={tr(`查看 ${title}`, `View ${title}`)}
+              onClick={onEdit}
+            />
           )}
         </div>
-      </div>
-    </Card>
+      </td>
+    </tr>
   );
 }
 
-function SearchHitCard({ hit }: { hit: SearchHit }) {
+function SearchHitRow({ hit, rank, onOpen }: { hit: SearchHit; rank: number; onOpen(): void }) {
+  const { tr } = useI18n();
+  const title = localizedDocTitle(hit.doc);
   return (
-    <div className="rounded-md border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
-      <div className="flex items-center justify-between gap-3 text-[11px] text-zinc-500">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <span className="truncate text-[12.5px] font-medium text-zinc-100">{localizedDocTitle(hit.doc)}</span>
-          {hit.doc.path && <Chip dense className="font-mono">{localizedPath(hit.doc.path)}</Chip>}
-          {hit.doc.source_type === 'repo' && <Chip dense tone="success">repo</Chip>}
+    <tr>
+      <td className="px-3 py-2.5 align-top font-mono text-[10.5px] tabular-nums text-zinc-600">
+        {String(rank).padStart(2, '0')}
+      </td>
+      <td className="px-3 py-2.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="truncate text-[12.5px] font-medium text-zinc-100" title={title}>
+            {title}
+          </span>
+          {hit.doc.path && (
+            <span className="max-w-[14rem] truncate font-mono text-[10px] text-zinc-500">
+              {localizedPath(hit.doc.path)}
+            </span>
+          )}
+          <Chip dense>{tr(`命中块 ${hit.chunk_index + 1}`, `chunk ${hit.chunk_index + 1}`)}</Chip>
         </div>
-        <span className="shrink-0 tabular-nums">score {hit.score.toFixed(2)}</span>
-      </div>
-      {/* 预览只给正文：frontmatter 占满 3 行预览毫无信息量 */}
-      <div className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-zinc-300">
-        {stripFrontmatter(hit.doc.content ?? '')}
-      </div>
-    </div>
+        <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-[11.5px] leading-5 text-zinc-400">
+          {hit.excerpt}
+        </p>
+      </td>
+      <td className="whitespace-nowrap px-3 py-2.5 text-right align-top font-mono text-[10px] leading-4 text-zinc-500">
+        <span className="block">
+          RRF <span className="text-zinc-300">{hit.score.toFixed(4)}</span>
+        </span>
+        {hit.vector_score !== null && (
+          <span className="block">
+            {tr('向量相似度', 'vector sim')} <span className="text-zinc-300">{hit.vector_score.toFixed(3)}</span>
+          </span>
+        )}
+        {hit.keyword_rank !== null && (
+          <span className="block">
+            {tr('关键词排名', 'keyword rank')} <span className="text-zinc-300">#{hit.keyword_rank}</span>
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-2.5 text-right align-top">
+        <RowAction
+          icon={Search}
+          onClick={onOpen}
+          aria-label={tr(`打开并定位 ${title}`, `Open & locate ${title}`)}
+        >
+          {tr('打开并定位', 'Open & locate')}
+        </RowAction>
+      </td>
+    </tr>
   );
 }
 
-// 阅读态正文：先剥离 YAML frontmatter 再渲染 —— 否则 `title: …\n---`
-// 会按 setext 标题渲染成粗体大字。元信息以弱化的 key/value 行单独展示。
+// 阅读态正文：先剥离 YAML frontmatter 再渲染；元信息以弱化键值行单独展示。
 function DocBody({ content }: { content: string }) {
   const fm = useMemo(() => splitFrontmatter(content), [content]);
   return (
@@ -824,9 +1158,7 @@ function DocBody({ content }: { content: string }) {
               {Array.isArray(value) ? (
                 <dd className="flex flex-wrap gap-1">
                   {value.map((v) => (
-                    <span key={v} className="rounded bg-zinc-800/60 px-1.5 py-0.5 text-[11px] text-zinc-400">
-                      {v}
-                    </span>
+                    <Chip key={v}>{v}</Chip>
                   ))}
                 </dd>
               ) : (
@@ -836,9 +1168,34 @@ function DocBody({ content }: { content: string }) {
           ))}
         </dl>
       )}
-      {/* remark-gfm：表格 / 删除线 / 任务列表等 GFM 语法，
-          缺了它表格按普通段落渲染成一行竖线文本 */}
+      {/* remark-gfm：表格 / 删除线 / 任务列表等 GFM 语法 */}
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{fm ? fm.body : content}</ReactMarkdown>
+    </div>
+  );
+}
+
+function LocateBanner({
+  locate,
+  readOnly,
+}: {
+  locate: { chunkIndex: number; excerpt: string } | null | undefined;
+  readOnly: boolean;
+}) {
+  const { tr } = useI18n();
+  if (!locate) return null;
+  return (
+    <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-3 py-2 text-[11.5px] leading-5 text-zinc-300">
+      {readOnly
+        ? tr(`检索命中块 ${locate.chunkIndex + 1}`, `Matched chunk ${locate.chunkIndex + 1}`)
+        : tr(
+            `检索命中块 ${locate.chunkIndex + 1}，已在正文中选中`,
+            `Matched chunk ${locate.chunkIndex + 1}, selected in the body`,
+          )}
+      {readOnly && (
+        <div className="mt-1 line-clamp-4 whitespace-pre-wrap break-words font-mono text-[10.5px] text-zinc-400">
+          {locate.excerpt}
+        </div>
+      )}
     </div>
   );
 }
@@ -847,14 +1204,16 @@ function DocEditor({
   mode,
   existing,
   defaultPath,
+  locate,
   onClose,
   onSaved,
 }: {
   mode: 'create' | 'edit';
   existing: KnowledgeDoc | null;
   defaultPath?: string;
-  onClose: () => void;
-  onSaved: () => void;
+  locate?: { chunkIndex: number; excerpt: string } | null;
+  onClose(): void;
+  onSaved(): void;
 }) {
   const { tr } = useI18n();
   const [title, setTitle] = useState(existing?.title ?? '');
@@ -866,19 +1225,15 @@ function DocEditor({
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  // Vault (built-in) and repo docs are read-only — both are regenerated
-  // on sync, so in-place edits would be silently lost (the backend PATCH
-  // rejects them too). Users can still open them to read the rendered
-  // body; the modal switches to a markdown viewer instead of the form.
-  // "复制为组织文档" forks the body into an editable org doc (manual),
-  // which is the supported way to customize built-in content.
-  const sourceReadOnly =
-    existing?.source_type === 'repo' || existing?.source_type === 'vault';
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const locatedRef = useRef(false);
+
+  // 内置（vault）与 repo 文档随同步刷新，就地修改会被覆盖（后端 PATCH 也会拒绝）；
+  // 只读查看 + 「复制为组织文档」是受支持的自定义方式。
+  const sourceReadOnly = existing?.source_type === 'repo' || existing?.source_type === 'vault';
   const [forked, setForked] = useState(false);
   const readOnly = mode === 'edit' && sourceReadOnly && !forked;
-  // An uploaded file's url is its identity (the filename); it can't be
-  // re-pointed from the editor — the backend keeps it fixed. Show it but
-  // lock the field so editing it isn't silently ignored.
+  // 上传文档的 url 是它的身份（文件名），后端不允许改，这里只读展示
   const urlLocked = mode === 'edit' && existing?.source_type === 'upload';
 
   useEffect(() => {
@@ -886,10 +1241,10 @@ function DocEditor({
       setLoading(true);
       void (async () => {
         try {
-          const r = await import('@/api/knowledge').then((m) => m.getDoc(existing.id));
-          setContent(r.content ?? '');
+          const res = await import('@/api/knowledge').then((m) => m.getDoc(existing.id));
+          setContent(res.content ?? '');
         } catch (e) {
-          setErr(e instanceof ApiError ? e.message : (e as Error).message);
+          setErr(errorText(e));
         } finally {
           setLoading(false);
         }
@@ -897,6 +1252,20 @@ function DocEditor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, existing?.id]);
+
+  // 命中块定位：正文加载完成后选中 excerpt，并把编辑框滚到对应行
+  useEffect(() => {
+    if (!locate || !content || readOnly || locatedRef.current) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = content.indexOf(locate.excerpt);
+    if (start < 0) return;
+    locatedRef.current = true;
+    el.focus();
+    el.setSelectionRange(start, start + locate.excerpt.length);
+    const line = content.slice(0, start).split('\n').length;
+    el.scrollTop = Math.max(0, (line - 3) * 19);
+  }, [locate, content, readOnly]);
 
   const submit = async () => {
     setSubmitting(true);
@@ -912,8 +1281,6 @@ function DocEditor({
         .filter(Boolean)
         .join('/');
       if (mode === 'create' || forked) {
-        // forked: a read-only vault/repo doc copied into the org scope —
-        // lands as a brand-new manual doc, the original stays untouched.
         await createDoc({
           title: title.trim(),
           title_en: titleEN.trim() || undefined,
@@ -933,100 +1300,92 @@ function DocEditor({
       }
       onSaved();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Read-only viewer for vault/repo docs — render markdown body, show
-  // metadata in a header strip. Manual/upload docs continue to the editor
-  // form below.
+  // 只读查看器：渲染 markdown 正文 + 顶部元信息条
   if (readOnly) {
     const isVault = existing?.source_type === 'vault';
     return (
       <Modal
         open
         onClose={onClose}
-        // 阅读态默认给到 max-w-4xl，并允许拖左右边缘自行调宽 ——
-        // 内置 runbook 普遍带宽表格，md(448px) 下表格没法看。
+        // 内置 runbook 普遍带宽表格，md(448px) 下没法看，默认给 max-w-4xl 且可拖宽
         size="xl"
         resizable
         title={existing ? localizedDocTitle(existing) : tr('文档', 'Document')}
         footer={
           <>
-            <Button variant="outline" size="sm"
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5"
-            >
+            <Button variant="outline" size="sm" onClick={onClose}>
               {tr('关闭', 'Close')}
             </Button>
-            <Hint content={
+            <Hint
+              content={
                 isVault
-                  ? tr('内置文档随同步更新、不可直接修改；复制一份到组织知识库后即可编辑', 'Built-in docs are refreshed on sync and not directly editable; copy into the org knowledge base to edit')
-                  : tr('repo 文档随同步更新、不可直接修改；复制一份到组织知识库后即可编辑', 'Repo docs are refreshed on sync and not directly editable; copy into the org knowledge base to edit')
-              }><Button variant="primary" size="sm"
-              type="button"
-              onClick={() => {
-                // The copy is a fresh org doc — drop the source url
-                // (builtin://… / repo path) so it isn't carried over.
-                setUrl('');
-                setForked(true);
-              }}
-              disabled={loading || !content}
-
-              className="flex items-center gap-1.5 px-3 py-1.5 font-medium text-accent-fg"
+                  ? tr(
+                      '内置文档随同步更新、不可直接修改；复制一份到组织知识库后即可编辑',
+                      'Built-in docs are refreshed on sync and not directly editable; copy into the org knowledge base to edit',
+                    )
+                  : tr(
+                      'repo 文档随同步更新、不可直接修改；复制一份到组织知识库后即可编辑',
+                      'Repo docs are refreshed on sync and not directly editable; copy into the org knowledge base to edit',
+                    )
+              }
             >
-              <Copy size={11} />
-              {tr('复制为组织文档', 'Copy as org doc')}
-            </Button></Hint>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  // 副本是新组织文档，不带内置/repo 的来源地址
+                  setUrl('');
+                  setForked(true);
+                }}
+                disabled={loading || !content}
+              >
+                <Copy size={11} />
+                {tr('复制为组织文档', 'Copy as org doc')}
+              </Button>
+            </Hint>
           </>
         }
       >
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
-            {isVault ? (
-              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-300">{tr('内置', 'built-in')}</span>
-            ) : (
-              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-300">repo</span>
-            )}
-            {existing?.path && (
-              <span className="rounded bg-zinc-800/60 px-1.5 py-0.5 text-zinc-300">{localizedPath(existing.path)}</span>
-            )}
-            {existing?.tags?.map((t) => (
-              <span key={t} className="rounded bg-zinc-800/60 px-1.5 py-0.5 text-zinc-400">
-                {t}
-              </span>
+          <LocateBanner locate={locate} readOnly />
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <Chip>{isVault ? tr('内置', 'built-in') : 'repo'}</Chip>
+            {existing?.path && <Chip>{localizedPath(existing.path)}</Chip>}
+            {(existing?.tags ?? []).map((tag) => (
+              <Chip key={tag}>{tag}</Chip>
             ))}
             {existing?.url &&
               (existing.url.startsWith('http') ? (
-                <Hint content={existing.url}><a
+                <a
                   href={existing.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="ml-auto truncate font-mono text-[10px] text-zinc-500 hover:text-zinc-300 underline-offset-2 hover:underline"
-
+                  title={existing.url}
+                  className="ml-auto max-w-[24rem] truncate font-mono text-[10px] text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
                 >
                   {existing.url}
-                </a></Hint>
+                </a>
               ) : (
-                <Hint content={existing.url}><span className="ml-auto truncate font-mono text-[10px] text-zinc-500" >
+                <span className="ml-auto max-w-[24rem] truncate font-mono text-[10px] text-zinc-500" title={existing.url}>
                   {existing.url}
-                </span></Hint>
+                </span>
               ))}
           </div>
-          {/* 不再自限 60vh：Modal 本体已 max-h-90vh + 内部滚动，
-              嵌套两层滚动条阅读体验差 */}
-          <div className="rounded-md border border-zinc-800 bg-zinc-950/40 p-4">
+          <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 p-4">
             {loading ? (
-              <div className="text-xs text-zinc-500">{tr('加载中…', 'Loading…')}</div>
+              <div className="text-[11.5px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
             ) : err ? (
-              <div className="text-xs text-red-300">{err}</div>
+              <ErrorBanner text={err} />
             ) : content ? (
               <DocBody content={content} />
             ) : (
-              <div className="text-xs text-zinc-500">{tr('该文档没有正文内容', 'This document has no body content')}</div>
+              <div className="text-[11.5px] text-zinc-500">{tr('该文档没有正文内容', 'This document has no body content')}</div>
             )}
           </div>
         </div>
@@ -1038,201 +1397,149 @@ function DocEditor({
     <Modal
       open
       onClose={onClose}
+      size="xl"
+      resizable
       title={
         mode === 'create'
           ? tr('新建知识文档', 'New knowledge doc')
           : forked
-            ? tr(`复制「${existing ? localizedDocTitle(existing) : ''}」为组织文档`, `Copy "${existing ? localizedDocTitle(existing) : ''}" as org doc`)
+            ? tr(
+                `复制「${existing ? localizedDocTitle(existing) : ''}」为组织文档`,
+                `Copy "${existing ? localizedDocTitle(existing) : ''}" as org doc`,
+              )
             : tr(`编辑 ${existing ? localizedDocTitle(existing) : ''}`, `Edit ${existing ? localizedDocTitle(existing) : ''}`)
       }
       footer={
         <>
-          <Button variant="outline" size="sm"
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5"
-          >
+          <Button variant="outline" size="sm" onClick={onClose}>
             {tr('取消', 'Cancel')}
           </Button>
-          <Button variant="primary" size="sm"
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => void submit()}
             disabled={submitting || title.trim() === '' || content.trim() === ''}
-            className="px-3 py-1.5 font-medium text-accent-fg"
           >
             {submitting ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
           </Button>
         </>
       }
     >
-      <div className="space-y-3 text-xs text-zinc-300">
-        {err && (
-          <div className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-red-300">{err}</div>
-        )}
-        <Label className="block">
-          <div className="mb-1 text-[11px] text-zinc-500">{tr('标题 *', 'Title *')}</div>
-          <Input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder={tr('例：nginx 重启 SOP', 'e.g. nginx restart SOP')}
-            maxLength={256}
-            className="w-full"
-          />
-        </Label>
-        <Label className="block">
-          <div className="mb-1 text-[11px] text-zinc-500">
-            {tr('英文标题（可选；en-US locale 下显示）', 'English title (optional; shown in en-US locale)')}
-          </div>
-          <Input
-            type="text"
-            value={titleEN}
-            onChange={(e) => setTitleEN(e.target.value)}
-            placeholder={tr('例：nginx restart SOP', 'e.g. nginx restart SOP')}
-            maxLength={256}
-            className="w-full"
-          />
-        </Label>
-        <div className="grid grid-cols-2 gap-2">
-          <Label className="block">
-            <div className="mb-1 text-[11px] text-zinc-500">{tr('目录路径（用 / 分隔）', 'Folder path (separated by /)')}</div>
+      <div className="space-y-4">
+        {err && <ErrorBanner text={err} />}
+        <LocateBanner locate={locate} readOnly={false} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label={tr('标题 *', 'Title *')} htmlFor="knowledge-doc-title">
             <Input
-              type="text"
+              id="knowledge-doc-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={tr('例：nginx 重启 SOP', 'e.g. nginx restart SOP')}
+              maxLength={256}
+            />
+          </Field>
+          <Field
+            label={tr('英文标题（en-US 下显示，可选）', 'English title (shown in en-US, optional)')}
+            htmlFor="knowledge-doc-title-en"
+          >
+            <Input
+              id="knowledge-doc-title-en"
+              value={titleEN}
+              onChange={(e) => setTitleEN(e.target.value)}
+              placeholder={tr('例：nginx restart SOP', 'e.g. nginx restart SOP')}
+              maxLength={256}
+            />
+          </Field>
+          <Field label={tr('目录（用 / 分隔，可选）', 'Folder (separated by /, optional)')} htmlFor="knowledge-doc-path">
+            <Input
+              id="knowledge-doc-path"
               value={path}
               onChange={(e) => setPath(e.target.value)}
               placeholder={tr('网络/DNS', 'Network/DNS')}
-              className="w-full"
             />
-          </Label>
-          <Label className="block">
-            <div className="mb-1 text-[11px] text-zinc-500">{tr('标签（逗号分隔）', 'Tags (comma separated)')}</div>
+          </Field>
+          <Field label={tr('标签（逗号分隔，可选）', 'Tags (comma separated, optional)')} htmlFor="knowledge-doc-tags">
             <Input
-              type="text"
+              id="knowledge-doc-tags"
               value={tagsText}
               onChange={(e) => setTagsText(e.target.value)}
               placeholder="dns, resolv"
-              className="w-full"
             />
-          </Label>
+          </Field>
         </div>
-        <Label className="block">
-          <div className="mb-1 text-[11px] text-zinc-500">
-            {urlLocked ? tr('来源文件（不可修改）', 'Source file (read-only)') : tr('来源 URL（可选）', 'Source URL (optional)')}
-          </div>
+        <Field
+          htmlFor="knowledge-doc-url"
+          label={
+            urlLocked
+              ? tr('来源文件（不可修改）', 'Source file (read-only)')
+              : tr('来源 URL（可选）', 'Source URL (optional)')
+          }
+        >
           <Input
-            type="text"
+            id="knowledge-doc-url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             readOnly={urlLocked}
             placeholder="https://wiki.internal/runbook/nginx-restart"
-            className={cn(
-              "w-full",
-              urlLocked && "cursor-not-allowed",
-            )}
+            className={cn('font-mono text-[11.5px]', urlLocked && 'cursor-not-allowed')}
           />
-        </Label>
-        <Label className="block">
-          <div className="mb-1 text-[11px] text-zinc-500">{tr('内容（markdown）*', 'Content (markdown) *')}</div>
+        </Field>
+        <Field label={tr('内容（markdown） *', 'Content (markdown) *')} htmlFor="knowledge-doc-content">
           <Textarea
+            id="knowledge-doc-content"
+            ref={textareaRef}
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder={tr('支持 Markdown；助手按标题与正文做语义匹配', 'Markdown supported; the assistant matches on title and content semantically')}
-            className="h-72 w-full resize-y font-mono"
+            placeholder={tr(
+              '支持 Markdown；助手按标题与正文做语义匹配',
+              'Markdown supported; the assistant matches on title and content semantically',
+            )}
+            className="h-80 w-full resize-y font-mono text-[11.5px] leading-5"
           />
-        </Label>
+        </Field>
       </div>
     </Modal>
   );
 }
 
-function DeleteDocDialog({
-  doc,
-  onClose,
-  onDone,
-}: {
-  doc: KnowledgeDoc;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const { tr } = useI18n();
-  const [submitting, setSubmitting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const submit = async () => {
-    setSubmitting(true);
-    setErr(null);
-    try {
-      await deleteDoc(doc.id);
-      onDone();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={tr(`删除 ${localizedDocTitle(doc)}`, `Delete ${localizedDocTitle(doc)}`)}
-      footer={
-        <>
-          <Button variant="outline" size="sm"
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5"
-          >
-            {tr('取消', 'Cancel')}
-          </Button>
-          <Button variant="danger" size="sm"
-            type="button"
-            onClick={() => void submit()}
-            disabled={submitting}
-            className="px-3 py-1.5 font-medium"
-          >
-            {submitting ? tr('删除中…', 'Deleting…') : tr('删除', 'Delete')}
-          </Button>
-        </>
-      }
-    >
-      <div className="text-xs text-zinc-300">
-        {err && (
-          <div className="mb-3 rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-red-300">
-            {err}
-          </div>
-        )}
-        <p>{tr('确定删除这条文档？', 'Delete this document?')}</p>
-      </div>
-    </Modal>
-  );
-}
-
-/** 切块参数：两个正整数，重叠必须小于切块大小，否则每轮只前进 0 个字符。 */
-function ChunkSettingsDialog({
+/** 检索设置：切块参数（改动后自动重建索引）+ 检索阈值（保存即生效）。 */
+function RetrievalSettingsDialog({
   onClose,
   onSaved,
 }: {
-  onClose: () => void;
-  onSaved: () => void;
+  onClose(): void;
+  onSaved(text: string): void;
 }) {
   const { tr } = useI18n();
   const [size, setSize] = useState('');
   const [overlap, setOverlap] = useState('');
+  const [minScore, setMinScore] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // 打开时读到的切块参数：只有它变了才需要重建索引
+  const loaded = useRef<{ size: string; overlap: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const settings = await listSettings('knowledge');
+        const res = await listSettings('knowledge');
         if (cancelled) return;
-        const read = (key: string, fallback: string) =>
-          settings.items.find((i) => i.key === key)?.value ?? fallback;
-        setSize(read('chunk_size', '800'));
-        setOverlap(read('chunk_overlap', '100'));
+        const read = (key: string) => {
+          const found = res.items.find((i) => i.key === key);
+          // 三项都是知识库运行必需配置，缺一项显式报错而不是填默认值
+          if (!found) throw new Error(tr(`缺少配置项 ${key}`, `Missing setting ${key}`));
+          return found.value;
+        };
+        const sizeValue = read('chunk_size');
+        const overlapValue = read('chunk_overlap');
+        loaded.current = { size: sizeValue, overlap: overlapValue };
+        setSize(sizeValue);
+        setOverlap(overlapValue);
+        setMinScore(read('rrf_min_score'));
       } catch (e) {
-        if (!cancelled) setErr(e instanceof ApiError ? e.message : (e as Error).message);
+        if (!cancelled) setErr(errorText(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1240,11 +1547,13 @@ function ChunkSettingsDialog({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const submit = async () => {
     const sizeNext = size.trim();
     const overlapNext = overlap.trim();
+    const minScoreNext = minScore.trim();
     if (!/^\d+$/.test(sizeNext) || Number(sizeNext) <= 0) {
       setErr(tr('切块大小必须是正整数', 'Chunk size must be a positive integer'));
       return;
@@ -1257,75 +1566,128 @@ function ChunkSettingsDialog({
       setErr(tr('切块重叠必须小于切块大小', 'Chunk overlap must be smaller than chunk size'));
       return;
     }
+    const minScoreNum = Number(minScoreNext);
+    if (minScoreNext === '' || !Number.isFinite(minScoreNum) || minScoreNum < 0) {
+      setErr(tr('最低 RRF 分必须是非负数字', 'Minimum RRF score must be a non-negative number'));
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
       await setSetting('knowledge', 'chunk_size', sizeNext);
       await setSetting('knowledge', 'chunk_overlap', overlapNext);
-      onSaved();
+      await setSetting('knowledge', 'rrf_min_score', minScoreNext);
+      // 切块参数变了就必须按新参数重新切块；阈值改动即时生效，无需重建
+      const chunkChanged =
+        loaded.current === null ||
+        loaded.current.size !== sizeNext ||
+        loaded.current.overlap !== overlapNext;
+      if (chunkChanged) {
+        const res = await reindexKnowledge();
+        onSaved(
+          tr(
+            `设置已保存，已按新参数重建索引（切块数 ${res.chunks}）`,
+            `Saved; reindexed with the new params (${res.chunks} chunks)`,
+          ),
+        );
+      } else {
+        onSaved(tr('设置已保存', 'Settings saved'));
+      }
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusy(false);
     }
   };
 
+  const close = () => {
+    if (busy) return;
+    onClose();
+  };
+
   return (
     <Modal
       open
-      onClose={() => {
-        if (busy) return;
-        onClose();
-      }}
-      title={tr('切块设置', 'Chunk settings')}
+      onClose={close}
+      title={tr('检索设置', 'Retrieval settings')}
       size="sm"
       footer={
         <>
-          <Button variant="outline" size="sm" type="button" onClick={onClose} disabled={busy} className="px-3 py-1.5">
+          <Button variant="outline" size="sm" onClick={close} disabled={busy}>
             {tr('取消', 'Cancel')}
           </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            type="button"
-            onClick={() => void submit()}
-            disabled={busy || loading}
-            className="px-3 py-1.5 font-medium"
-          >
+          <Button variant="primary" size="sm" onClick={() => void submit()} disabled={busy || loading}>
             {busy ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
           </Button>
         </>
       }
     >
-      <div className="space-y-3 text-xs text-zinc-300">
-        {err && (
-          <div role="alert" className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-red-300">
-            {err}
-          </div>
+      <div className="space-y-5 text-xs text-zinc-300">
+        {err && <ErrorBanner text={err} />}
+        {busy && (
+          <p className="text-[10.5px] leading-4 text-zinc-500">
+            {tr('切块参数变更时会重切全部文档，可能耗时数十秒。', 'Changing chunk params re-chunks every document; this can take a while.')}
+          </p>
         )}
-        <label className="block space-y-1.5">
-          <Label htmlFor="chunk-size">{tr('切块大小 chunk_size', 'Chunk size')}</Label>
-          <Input
-            id="chunk-size"
-            inputMode="numeric"
-            value={size}
-            onChange={(e) => setSize(e.target.value)}
-            disabled={loading}
-          />
-        </label>
-        <label className="block space-y-1.5">
-          <Label htmlFor="chunk-overlap">{tr('切块重叠 chunk_overlap', 'Chunk overlap')}</Label>
-          <Input
-            id="chunk-overlap"
-            inputMode="numeric"
-            value={overlap}
-            onChange={(e) => setOverlap(e.target.value)}
-            disabled={loading}
-          />
-        </label>
-        <p className="text-[11px] text-zinc-500">
-          {tr('保存后需要重建索引才会生效。', 'Changes apply after a reindex.')}
-        </p>
+
+        <section className="space-y-3">
+          <div>
+            <h3 className="text-[11.5px] font-medium text-zinc-200">{tr('切块参数', 'Chunking')}</h3>
+            <p className="mt-0.5 text-[10.5px] leading-4 text-zinc-500">
+              {tr('改动后保存即自动重建索引', 'Changed values trigger a reindex on save')}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <Field label={tr('切块大小（字符）', 'Chunk size (chars)')} htmlFor="knowledge-chunk-size">
+              <Input
+                id="knowledge-chunk-size"
+                inputMode="numeric"
+                value={size}
+                onChange={(e) => setSize(e.target.value)}
+                disabled={loading}
+                className="font-mono text-[12px]"
+              />
+            </Field>
+            <Field label={tr('切块重叠（字符）', 'Chunk overlap (chars)')} htmlFor="knowledge-chunk-overlap">
+              <Input
+                id="knowledge-chunk-overlap"
+                inputMode="numeric"
+                value={overlap}
+                onChange={(e) => setOverlap(e.target.value)}
+                disabled={loading}
+                className="font-mono text-[12px]"
+              />
+            </Field>
+          </div>
+          <p className="text-[10.5px] leading-4 text-zinc-500">
+            {tr('重叠必须小于切块大小。', 'Overlap must be smaller than the chunk size.')}
+          </p>
+        </section>
+
+        <section className="space-y-3 border-t border-zinc-800/60 pt-4">
+          <div>
+            <h3 className="text-[11.5px] font-medium text-zinc-200">{tr('检索阈值', 'Retrieval threshold')}</h3>
+            <p className="mt-0.5 text-[10.5px] leading-4 text-zinc-500">
+              {tr('保存后立即生效', 'Applies immediately')}
+            </p>
+          </div>
+          <Field
+            label={tr('最低 RRF 分（0 = 不过滤）', 'Minimum RRF score (0 = no filter)')}
+            htmlFor="knowledge-rrf-min-score"
+          >
+            <Input
+              id="knowledge-rrf-min-score"
+              inputMode="decimal"
+              value={minScore}
+              onChange={(e) => setMinScore(e.target.value)}
+              disabled={loading}
+              className="font-mono text-[12px]"
+            />
+          </Field>
+          <p className="text-[10.5px] leading-4 text-zinc-500">
+            {tr('低于该分数的命中直接丢弃。', 'Hits below this score are dropped.')}
+          </p>
+        </section>
       </div>
     </Modal>
   );

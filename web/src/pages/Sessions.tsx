@@ -60,7 +60,7 @@ import { Select } from '@/components/ui/Select';
 import { Hint } from '@/components/ui/Tooltip';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
-import { formatNumber, fullDateTime, relativeTime } from '@/lib/format';
+import { formatNumber, fullDateTime } from '@/lib/format';
 import { invalidateChatSessions } from '@/store/chatSessions';
 
 const PAGE_SIZE = 20;
@@ -553,16 +553,16 @@ export default function SessionsPage() {
           if (!raw) {
             return <span className="text-[12px] text-zinc-600">—</span>;
           }
-          // 精确时间挂 title：相对时间只负责扫读。
+          // 一律显示完整日期时间：相对时间（「3 小时前」）无法用于核对与排序
           const label = row.original.last_message_at
             ? tr('最后一条消息', 'Last message')
             : tr('会话更新时间', 'Session updated');
           return (
             <span
               className="whitespace-nowrap text-[12px] tabular-nums text-zinc-500"
-              title={`${label}：${fullDateTime(raw)}`}
+              title={label}
             >
-              {relativeTime(raw)}
+              {fullDateTime(raw)}
             </span>
           );
         },

@@ -37,7 +37,7 @@ def _payload_from_in(body: SkillPayloadIn) -> SkillPayload:
         metadata=metadata,
         references=skill_bundle.files_from_wire([f.model_dump() for f in body.references]),
         assets=skill_bundle.files_from_wire([f.model_dump() for f in body.assets]),
-        scripts=skill_bundle.files_from_wire([f.model_dump() for f in body.scripts]),
+        scripts=skill_bundle.scripts_from_wire([f.model_dump() for f in body.scripts]),
     )
 
 

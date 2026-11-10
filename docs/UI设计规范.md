@@ -1,8 +1,9 @@
 # AI 工作台 UI 设计规范（列表与详情改造）
 
-> 版本：v1.0 · 2026-11-09  
+> 版本：v1.1 · 2026-11-10  
 > 来源：可观测页（`/observability`）与 Trace 详情改造后形成的视觉语言。  
-> 目标：所有管理页使用同一套骨架、字阶、状态语义与分页交互，减少页面间的「换个页面换种风格」。
+> 目标：所有管理页使用同一套骨架、字阶、状态语义与分页交互，减少页面间的「换个页面换种风格」。  
+> v1.1 变更：同步批次 10–12 与进度行；组件清单补 `Toast` / `ConfirmDialog`；修正会话摘要口径；**列表时间一律 `fullDateTime`，取消相对时间**。
 
 ---
 
@@ -97,7 +98,7 @@ TablePager            分页（客户端分页时才需要）
 
 ## 4. 组件清单
 
-全部从 `@/components/ui` 导入，页面禁止再复制粘贴同类 class。
+组件一律从 `@/components/ui` 导入（唯一例外是 `ConfirmDialog`，见下表）；页面禁止再复制粘贴同类 class。
 
 | 组件 | 用途 |
 | --- | --- |
@@ -120,6 +121,8 @@ TablePager            分页（客户端分页时才需要）
 | `MetaRow` | 等宽键值行（可复制） |
 | `Card` | 通用卡片（卡片网格 / 详情分组） |
 | `EmptyStateCard` | 空状态 |
+| `Toast` | 右下角轻提示（成功 / 失败反馈，5 秒自动消失）；不需要用户决策的反馈用它，替代 `window.alert` |
+| `ConfirmDialog` | 破坏性操作二次确认：`Modal` + 取消 / 危险按钮 + 行内错误，执行中禁关闭；位于 `components/ConfirmDialog.tsx`，不从 ui 导出 |
 | `Select` / `Input` / `Checkbox` / `Switch` | 表单控件 |
 | `PersonaFields` / `KnowledgeScopePicker` | 助理编辑页专用复合块（人设四段 / 目录与文档范围），只在 `Agents.tsx` 使用，不进 ui 原语 |
 | `Field` / `FieldGroup`（`Agents.tsx` 内部） | 单控件字段 / 复合控件字段。复合控件（一组按钮、列表、多选）必须用 `FieldGroup`（只渲染分组标题的 `<div>`）；用 `<label>` 的 `Field` 包裹会把全部子文本并进第一个按钮的可访问名，读屏与 Testing Library 都取不到唯一目标 |
@@ -198,7 +201,7 @@ TablePager            分页（客户端分页时才需要）
 | 技能 `/skills` | FilterBar + 共享 ChoiceChip + 类别胶囊 + TableCard + 技能等级改用状态胶囊 |
 | 助理 `/agents` | 搜索区改为 FilterBar；卡片沿用统一 `Card` 表面 |
 | MCP `/mcp` | 搜索区改为 FilterBar（服务列表仍为卡片） |
-| 知识库 `/knowledge` | 检索区改为 FilterBar；命中结果区独立滚动 |
+| 知识库 `/knowledge` | 双栏工作台：左侧来源分组 + 目录树常驻，右侧 `FilterBar`（统一搜索框，回车触发；右侧「来源」胶囊按 manual / upload / repo 收口，与侧栏分组正交）+ `TableCard` 文档表（来源 / 标签彩色胶囊、更新时间列）+ `TablePager` 客户端分页；提交检索后结果表替换文档表，可一键清除回目录 |
 
 ### 已完成（第二阶段：指标卡 + 双层列表）
 
@@ -211,7 +214,7 @@ TablePager            分页（客户端分页时才需要）
 
 原则：先抽共享原语，再按「页头 → 详情 → 列表/卡片 → 设置 → 对话」顺序批量替换；每个批次独立可验收、可回滚，不改数据层。
 
-**进度：批次 0–9 已完成。**
+**进度：批次 0–12 已完成。**
 
 | 已完成项 | 结果 |
 | --- | --- |
@@ -220,12 +223,13 @@ TablePager            分页（客户端分页时才需要）
 | 可观测详情 | 内部 `DetailMetric` / `SectionTitle` / `MetaRow` / `CopyButton` 换成共享原语；「打开会话」链接复用 `rowActionClass` |
 | 审批详情 | 改为 `leading` 返回 + 状态胶囊 + 4 格元信息 + 操作内容 / 执行结果 / 决策说明三段 + 底部 sticky 操作条；批准 primary、拒绝 `RowAction danger`、刷新 `RowAction` |
 | 详情弹窗 | 工具 / 技能 / 助理详情统一 `DetailSection`；参数表统一 11px 表头 + `px-3 py-2` 单元格，并套 `og-action-table` 让浅色模式表头落到 `rgb(248 250 252)`；系统提示与返回示意改用 `CodeBlock`；助理弹窗底部按钮统一 28px |
-| 列表与卡片 | 技能表头与工具页对齐；MCP 服务器卡头部与参数表统一 `Chip` / sticky 表头；知识库 `DocCard` 来源/路径/标签全改 `Chip`，目录计数改 `Chip`，空态动作 28px；助理卡来源与工具/只读改 `Chip`，标题 12.5px |
+| 列表与卡片 | 技能表头与工具页对齐；MCP 服务器卡头部与参数表统一 `Chip` / sticky 表头；知识库文档列表收进单容器 `divide-y` 行（中性图标 + 标题 + 一行元信息，来源文字统一用次级灰），目录计数改等宽数字、空态动作 28px；助理卡来源与工具/只读改 `Chip`，标题 12.5px |
 | 设置页 | `SettingsLayout` rail 12.5px + indigo 选中态、权限不足改 `EmptyStateCard`；`Preferences` / `Agent` / `LLM` / `Secrets` / `About` 全部改用 `SectionCard`（保存按钮进 footer、28px）；凭据表格套 `TableCard` 表头 |
 | 对话页 | 页头标题/副标题改为 `PageHeader` 标准结构，导出/分享改 `RowAction`（28px）；工具卡与审批卡表面统一 `rounded-lg border-zinc-800/60 bg-zinc-900/40`，参数/结果/命令/输出改用 `CodeBlock`，状态改 `StatusPill`，host/凭证/来源改 `Chip`；`ChatInput` 附件与发送按钮统一 28px |
 | 边角页 | 首页错误条统一、`PromptCard` 标题 12.5px / 描述 11px；分享页 `PageHeader` 去双内边距；登录页卡片 `rounded-xl` + 统一错误条 |
-| 排序与时间 | 分页列表只保留时间列排序（会话 `updated_at`、审批 `created_at`）；审批新增 `sort_dir`；可观测时间改 `fullDateTime`；会话标题列固定 17rem |
-| 测试 | `DesignSystem.test.tsx` 增加 RowAction / RowActionIcon / SectionCard 规格断言（139 项通过） |
+| 排序与时间 | 分页列表只保留时间列排序（会话 `updated_at`、审批 `created_at`、知识库文档 `updated_at`）；审批新增 `sort_dir`；列表时间统一 `fullDateTime`，不再使用相对时间；会话标题列固定 17rem |
+| 测试 | `DesignSystem.test.tsx` 覆盖 RowAction / RowActionIcon / SectionCard 规格断言；通过数不写进文档，以实际运行结果为准 |
+| 批次 10–12 | 助理人设与知识范围、技能包创建 / 导入导出 / 工具声明、技能调用 MCP 工具、`ConfirmDialog` / `Toast` 统一弹窗（细则见下方各批） |
 
 #### 批次 0 · 共享原语（后续所有页面的前置）
 
@@ -249,7 +253,7 @@ TablePager            分页（客户端分页时才需要）
 | 技能 | 重载/刷新从 FilterBar 右侧移到 `PageHeader actions`，改用 `RowAction`；FilterBar 只留搜索 + 类别 + 计数 | `Skills.tsx` |
 | 助理 | 刷新 → `RowAction`；新建助理 `primary size="sm"` | `Agents.tsx` |
 | MCP | 页头「刷新 / 接入 MCP」统一为 `RowAction` + `primary size="sm"` | `Mcp.tsx` |
-| 知识库 | 切块设置 / 重建索引 / 刷新 / 检索收成页头右侧按钮组，统一 `h-7` | `Knowledge.tsx` |
+| 知识库 | 切块设置 / 刷新收成页头右侧按钮组，统一 `h-7`；建/改/上传文档时后端已自动重切块，页面不再提供「重建索引」入口；检索台移到右侧内容区顶部，不再占页头 | `Knowledge.tsx` |
 | 工具 / 可观测 | 已符合，仅替换为共享原语 | 无 |
 
 约定：页头次要动作 = `RowAction`（28px）；主操作 = `Button variant="primary" size="sm"`；破坏性 = `danger size="sm"`；同一页头最多 1 个 primary。
@@ -270,7 +274,7 @@ TablePager            分页（客户端分页时才需要）
 | --- | --- |
 | 技能 | 表头对齐工具页（sticky、`whitespace-nowrap`、描述列 `w-full max-w-0`）；「仅 AI 调用」改为右侧 `Chip tone="info"`；技能分组行折叠图标换 `RowActionIcon` 风格（20px 热区） |
 | MCP | `ServerRow` 卡片头部：图标块 + 名称 12.5px + 状态/工具数 `Chip` + 地址等宽 11px；错误条与说明条统一 `rounded-lg border … px-3 py-2` |
-| 知识库 | `DocCard` 压成两行（标题 + 路径/来源元信息），右侧 `RowActionIcon`；目录树选中态用 indigo 底 + 左侧 2px 条，计数用 `Chip` |
+| 知识库 | 文档目录改为单容器行列表（标题 + 来源/路径/标签元信息），来源文字与图标统一中性灰，不按来源类型上色；行内动作降到 60% 透明度、悬停/聚焦恢复；行首 16px 把手是唯一拖拽源（整行不设 `draggable`），拖拽预览用标题胶囊；整行不响应点击，只有行内「编辑 / 查看」动作打开文档；目录树选中态用 indigo 底 + 左侧 2px 条，分组头用中性色块图标 + 等宽计数；检索结果按 `01` 起编号，元信息行保留 `向量相似度 / 关键词排名 / RRF`；检索区复用 `FilterBar`，只放默认 `SearchInput`，回车检索，不额外加按钮和范围 footer |
 | 助理 | 卡片加来源 `Chip`（内置/自定义）与工具/技能计数；标题 12.5px；详情入口整卡可点，右侧只留编辑/删除/使用 |
 | 会话 | 表头与审批一致（sticky；标题列固定 `17rem`，批次 7 起不再自适应吃满整行）；列设置/排序按钮 `RowActionIcon` |
 | 工具 | 表格滚动容器与审批一致（sticky thead、`bg-zinc-900/95`） |
@@ -305,7 +309,7 @@ TablePager            分页（客户端分页时才需要）
 | --- | --- |
 | 分页列表排序 | 只开放时间列：会话页仅「更新」（`updated_at`）可排序，标题 / 助理 / 模型列 `enableSorting: false`；后端 `sort_by` 白名单保留，前端只发时间字段 |
 | 审批列表 | 「提交时间」表头改为排序开关（`ArrowUp` / `ArrowDown`，`th[aria-sort]`），默认 `desc` 最新在前；后端 `/approvals` 新增 `sort_dir=asc\|desc`，非法值 400；切换排序回到第 1 页 |
-| 可观测列表 | 时间列改用 `fullDateTime`（与审批 / 会话一致），去掉「xx 小时前」相对时间；悬停 `title` 仍是完整时间 |
+| 可观测列表 | 时间列改用 `fullDateTime`（与审批 / 会话一致），去掉「xx 小时前」相对时间 |
 | 会话列宽 | 标题列由自适应改为固定 `17rem`，其余列收窄（助理 `8rem`、模型 `9rem`），表格加 `min-w-[60rem]`，窄屏走 `TableCard` 横向滚动，避免标题挤占整行 |
 | 详情参数表 | 工具 / 技能详情弹窗参数表套 `og-action-table`，去掉硬编码表头底色 |
 
@@ -313,10 +317,10 @@ TablePager            分页（客户端分页时才需要）
 
 | 区域 | 改动 |
 | --- | --- |
-| 会话列表·标题列 | 标题下加一行元信息（10.5px / `leading-4`）：`N 条`（仅 user/assistant 正文，不含工具卡）+ 可选 `M 次工具` + 「·」+ 最近一条正文摘要，`line-clamp-1` 单行截断；标题仍是唯一可点击的跳转目标，摘要不参与链接文案 |
+| 会话列表·标题列 | 标题下加一行元信息（10.5px / `leading-4`）：`N 轮`（用户提问次数，不含工具卡）+ 可选 `M 次工具` / `K 次技能` + 「·」+ 最近一条正文摘要（服务端截断 240 字符），`line-clamp-1` 单行截断；标题仍是唯一可点击的跳转目标，摘要不参与链接文案 |
 | 会话列表·模型列 | 模型名下方补 `1.7k tokens`（累计用量，精确值挂 `title`）；没有观测数据时不显示，不写 0 |
 | 会话列表·运行列 | 最近一回合状态胶囊：`正常`（ok）/ `进行中`（running，脉冲点）/ `失败`（error，danger）/ `已停止`（stopped，warn）；有待审批时并列 `待审 N` 胶囊，无状态显示 `—` |
-| 会话列表·最近活动列 | 用相对时间（`刚刚 / N 分钟前 / N 小时前 / N 天前`，超过 7 天回落本地日期），`title` 挂绝对时间；按 `last_message_at` 排序（空会话 `NULLS LAST`，不会在倒序时顶到第一页） |
+| 会话列表·最近活动列 | 显示完整日期时间（`fullDateTime`），按 `last_message_at` 排序（空会话 `NULLS LAST`，不会在倒序时顶到第一页）；不使用「xx 分钟前」相对时间 |
 | 会话列表·状态列 | 非置顶/非归档显示 `普通`，避免与运行列的「进行中」混淆 |
 | 长会话摘要折叠 | `message_count >= 40` 的会话额外给「展开 / 收起」文字按钮（`aria-expanded`，`aria-label` 带会话标题）；展开后摘要 `whitespace-pre-line` 最多铺满单元格宽度。短会话不给按钮——一行本来就够看 |
 | 模型筛选 | FilterBar 新增「模型」胶囊，`FilterPill` + `Select` 与助理筛选同规格；**精确匹配**，选项来自 `GET /chat/sessions/models`（会话里真实出现过的模型），不取模型目录，避免选到查不到结果的值 |
@@ -376,7 +380,8 @@ TablePager            分页（客户端分页时才需要）
 | 助理编辑·技能声明 MCP | 技能分组里声明的 MCP 工具显示 `mcp` 胶囊（目录外为 `warning`）；预览面板在「进上下文」下方说明「技能声明的 MCP 工具随技能进入检索目录（仍需 search/load 调用）」 |
 | 助理编辑·整台挂载口径 | 部分勾选提示把技能声明计入已选数（`勾选 X/Y 个工具（含技能声明）`），并说明未勾选的工具不进检索目录、搜不到也调不了，避免「一个都没勾却显示已挂载」的困惑 |
 | 二次确认 | 会话/账号等破坏性操作统一用 `ConfirmDialog`（`Modal` + 取消/危险按钮 + 行内错误），不使用 `window.confirm`；执行中禁用关闭与确认 |
-| 知识库·切块设置 | `RowAction` 打开 `Modal size="sm"` 表单（`chunk_size` / `chunk_overlap` 正整数，重叠必须小于大小）；保存成功用右下角 `Toast` 提示「重建索引后生效」，不再用 `window.prompt` / `window.alert` |
+| 知识库·检索设置 | `RowAction` 打开 `Modal size="sm"`，分「切块参数」（`chunk_size` / `chunk_overlap`，字符单位，重叠必须小于大小；改动后保存即自动重建索引）与「检索阈值」（`rrf_min_score`，0 不过滤，保存即生效）两组；保存成功用右下角 `Toast` 提示，切块参数未改动则不重建 |
+| 知识库·新建/编辑文档 | `Modal size="xl"`（`max-w-4xl` 896px）+ `resizable`；标题/英文标题、目录/标签两列，来源 URL 与 Markdown 正文通栏 |
 | 轻提示 | 成功/失败的操作反馈统一 `Toast`（右下角浮层，5 秒自动消失）；替代 `window.alert`，需要决策的走 `ConfirmDialog` / `Modal` |
 
 #### 每批验收
@@ -384,7 +389,7 @@ TablePager            分页（客户端分页时才需要）
 1. `npx tsc -b --noEmit`、`npx eslint src --max-warnings 0`、`npx vitest run`。
 2. 暗色 + 亮色各截一张目标页；页头按钮高度、行内按钮高度用 CDP 量到 28px。
 3. `DesignSystem.test.tsx` 增加断言：`RowAction` 固定 `h-7 text-[11px]`、`RowActionIcon` 固定 `h-7 w-7`、`SectionCard` 标题字阶。
-4. 守卫 grep：`src/pages` 内不允许出现 `h-8 items-center gap-1.5 px-2.5`、`className="p-1"`、手写 `rounded-xl border border-zinc-800`。
+4. 守卫 grep：`src/pages` 内不允许出现 `h-8 items-center gap-1.5 px-2.5`、`className="p-1"`、手写 `rounded-xl border border-zinc-800`（管理页的列表 / 详情卡一律走 `TableCard` / `Card`）。登录页的整页品牌卡（`Login.tsx`：60% 表面 + 阴影 + 模糊撑住渐变底）不属于列表卡，不在守卫范围内。
 
 ### 不建议强行套用的区域
 
@@ -406,8 +411,8 @@ TablePager            分页（客户端分页时才需要）
 - [ ] 行内操作只用 `RowAction` / `RowActionIcon`，没有手写 `h-7 px-2` 或 `p-1` 按钮。
 - [ ] 空状态、错误提示使用统一卡片样式，错误文案不溢出。
 - [ ] 有分页时使用 `TablePager`，区间文案为 `起-止 / 共 N 条`。
-- [ ] 分页列表只开放时间列排序（会话 `updated_at`、审批 `created_at`），其他列不出现排序箭头。
-- [ ] 列表时间统一 `fullDateTime`，不使用「xx 分钟前」相对时间。
+- [ ] 分页列表只开放时间列排序（会话 `updated_at`、审批 `created_at`、知识库文档 `updated_at`），其他列不出现排序箭头。
+- [ ] 列表时间统一 `fullDateTime`，不使用「xx 分钟前」相对时间，也不提供相对时间格式化工具。
 - [ ] 暗色与亮色主题都验证过对比度。
 - [ ] `npx eslint` 与页面测试通过。
 

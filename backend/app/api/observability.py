@@ -170,5 +170,9 @@ async def get_observation_turn(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ObservationTurnDetailOut(
         **observation_service.turn_to_wire(row),
-        tool_calls=[observation_service.tool_call_to_wire(t) for t in tool_calls],
+        # 逐条过 pydantic：出参契约（字段集合 / 类型）在服务层还是裸 dict
+        tool_calls=[
+            ObservationToolCallOut(**observation_service.tool_call_to_wire(t))
+            for t in tool_calls
+        ],
     )

@@ -10,9 +10,10 @@ import base64
 import inspect
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Union
 
 from google.adk.skills import Script, Skill, load_skills_from_dir
 from google.adk.tools.skill_toolset import SkillDiscoveryMode, SkillToolset
@@ -116,7 +117,7 @@ def declared_tools_of_skills(skills: list[Skill]) -> set[str]:
 
 
 def _resource_wire(
-    files: dict[str, str | bytes | Script], include_contents: bool
+    files: Mapping[str, Union[str, bytes, Script]], include_contents: bool
 ) -> list[dict[str, Any]]:
     """资源目录出参：默认只给路径与字节数；详情/编辑时才带正文。
 
@@ -127,16 +128,14 @@ def _resource_wire(
     for path, value in sorted(files.items()):
         if isinstance(value, Script):
             value = value.src
-        is_bytes = isinstance(value, bytes)
-        item: dict[str, Any] = {
-            "path": path,
-            "size": len(value) if is_bytes else len(value.encode("utf-8")),
-            "binary": is_bytes,
-        }
-        if include_contents:
-            if is_bytes:
+        # 直接判断 bytes 而不是先存成布尔量：pyright 只认 isinstance 在条件里的收窄
+        if isinstance(value, bytes):
+            item: dict[str, Any] = {"path": path, "size": len(value), "binary": True}
+            if include_contents:
                 item["base64"] = base64.b64encode(value).decode("ascii")
-            else:
+        else:
+            item = {"path": path, "size": len(value.encode("utf-8")), "binary": False}
+            if include_contents:
                 item["text"] = value
         items.append(item)
     return items

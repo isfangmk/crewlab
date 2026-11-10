@@ -26,6 +26,10 @@ class DocMoveIn(BaseModel):
     path: str
 
 
+class DocEnabledIn(BaseModel):
+    enabled: bool
+
+
 class ScopePreviewIn(BaseModel):
     """编辑器预览助理知识范围：目录 + 文档集。"""
 

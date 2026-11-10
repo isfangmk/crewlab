@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth
 from app.db import get_db
-from app.schemas.knowledge import DocCreateIn, DocMoveIn, DocUpdateIn, ScopePreviewIn
+from app.schemas.knowledge import DocCreateIn, DocEnabledIn, DocMoveIn, DocUpdateIn, ScopePreviewIn
 from app.services import knowledge_service
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["knowledge"])
 
 _ALLOWED_UPLOAD_SUFFIX = (".md", ".txt", ".pdf", ".docx")
+
+# 检索可按来源收口；与文档入库时的 source_type 取值集合一致
+DOC_SOURCE_TYPES = frozenset({"manual", "upload", "vault", "repo"})
 
 
 @router.get("/knowledge/docs")
@@ -119,6 +122,30 @@ async def update_doc(
         detail={"title": doc.title, "path": doc.path},
     )
     return knowledge_service.doc_to_wire(doc, include_content=True)
+
+
+@router.patch("/knowledge/docs/{doc_id}/enabled")
+async def set_doc_enabled(
+    doc_id: str,
+    body: DocEnabledIn,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_auth),
+) -> dict:
+    """切换文档是否参与检索；停用不删切块。"""
+
+    try:
+        doc = await knowledge_service.set_doc_enabled(db, doc_id, body.enabled)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="knowledge.doc_toggle",
+        resource_type="knowledge_doc",
+        resource_id=doc.id,
+        detail={"title": doc.title, "enabled": doc.enabled},
+    )
+    return knowledge_service.doc_to_wire(doc, include_content=False)
 
 
 @router.patch("/knowledge/docs/{doc_id}/move")
@@ -254,9 +281,15 @@ async def search_knowledge(
     tag: list[str] | None = Query(None),
     scope_path: list[str] | None = Query(None),
     scope_doc: list[str] | None = Query(None),
+    # 来源组：前端按侧边栏分组检索，不传 = 全库
+    builtin: bool | None = Query(None),
+    # 来源类型：组织文档里 manual / upload / repo 混排，前端按「来源」筛选收口
+    source_type: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    if source_type is not None and source_type not in DOC_SOURCE_TYPES:
+        raise HTTPException(status_code=400, detail=f"不支持的 source_type: {source_type}")
     try:
         scope = parse_scope(
             {"paths": scope_path or [], "doc_ids": scope_doc or []}
@@ -269,16 +302,22 @@ async def search_knowledge(
             path_prefix=path_prefix,
             tags=tag,
             scope=scope,
+            builtin=builtin,
+            source_type=source_type,
         )
     except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "items": [
             {
-                "doc": knowledge_service.doc_to_wire(doc, include_content=False),
-                "score": score,
+                "doc": knowledge_service.doc_to_wire(hit.doc, include_content=False),
+                "score": hit.score,
+                "vector_score": hit.vector_score,
+                "keyword_rank": hit.keyword_rank,
+                "chunk_index": hit.chunk_index,
+                "excerpt": hit.content,
             }
-            for doc, score in hits
+            for hit in hits
         ],
         "total": len(hits),
     }

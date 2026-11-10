@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import math
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, func, select
@@ -18,6 +20,20 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CHUNK_SIZE = 800
 _DEFAULT_CHUNK_OVERLAP = 100
 _RRF_K = 60
+
+
+@dataclass(frozen=True)
+class KnowledgeHit:
+    """一条检索命中：文档、RRF 得分、命中的切块与分道信息。"""
+
+    doc: KnowledgeDoc
+    score: float
+    chunk_index: int
+    content: str
+    # 向量分道余弦相似度；仅关键词命中时为 None
+    vector_score: float | None
+    # 关键词分道内的排名（1 起）；仅向量命中时为 None
+    keyword_rank: int | None
 
 
 async def resolve_chunk_params(db: AsyncSession) -> tuple[int, int]:
@@ -102,6 +118,7 @@ def doc_to_wire(doc: KnowledgeDoc, *, include_content: bool) -> dict:
         "title": doc.title,
         "path": doc.path,
         "tags": list(doc.tags),
+        "enabled": doc.enabled,
         "created_at": doc.created_at.isoformat(),
         "updated_at": doc.updated_at.isoformat(),
     }
@@ -234,6 +251,18 @@ async def update_doc(
     return doc
 
 
+async def set_doc_enabled(db: AsyncSession, doc_id: str, enabled: bool) -> KnowledgeDoc:
+    """切换文档是否参与检索；只改开关，不重建切块。"""
+
+    doc = await get_doc(db, doc_id)
+    doc.enabled = enabled
+    doc.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(doc)
+    logger.info("设置文档启停 doc_id=%s enabled=%s", doc.id, enabled)
+    return doc
+
+
 async def move_doc(db: AsyncSession, doc_id: str, path: str) -> KnowledgeDoc:
     doc = await get_doc(db, doc_id)
     if doc.source_type == "vault":
@@ -274,11 +303,14 @@ def _apply_doc_filters(
     path_prefix: str | None,
     tags: list[str] | None,
     scope: KnowledgeScope | None = None,
+    source_type: str | None = None,
 ):
     if path is not None:
         stmt = stmt.where(KnowledgeDoc.path == path)
     if path_prefix is not None:
         stmt = stmt.where(KnowledgeDoc.path.startswith(path_prefix))
+    if source_type is not None:
+        stmt = stmt.where(KnowledgeDoc.source_type == source_type)
     if tags:
         for t in tags:
             stmt = stmt.where(KnowledgeDoc.tags.contains([t]))
@@ -287,6 +319,36 @@ def _apply_doc_filters(
     if scope_cond is not None:
         stmt = stmt.where(scope_cond)
     return stmt
+
+
+def _source_condition(builtin: bool):
+    """来源组过滤：内置 = vault，组织 = 其余来源（manual / upload / repo）。
+
+    与前端侧边栏的分组口径一致，避免「在组织分组里检索却连通内置文档」。
+    """
+
+    return (
+        KnowledgeDoc.source_type == "vault"
+        if builtin
+        else KnowledgeDoc.source_type != "vault"
+    )
+
+
+async def resolve_rrf_min_score(db: AsyncSession) -> float:
+    """读取 RRF 最低分阈值；缺配置或非法值显式失败。"""
+
+    from app.models_orm.llm import AppSetting
+
+    row = await db.get(AppSetting, "knowledge.rrf_min_score")
+    if row is None:
+        raise ValueError("缺少 knowledge.rrf_min_score")
+    try:
+        value = float(row.value)
+    except ValueError as exc:
+        raise ValueError(f"knowledge.rrf_min_score 不是数字: {row.value}") from exc
+    if not math.isfinite(value) or value < 0:
+        raise ValueError("knowledge.rrf_min_score 必须 >= 0")
+    return value
 
 
 async def search_docs(
@@ -298,7 +360,9 @@ async def search_docs(
     path_prefix: str | None,
     tags: list[str] | None,
     scope: KnowledgeScope | None = None,
-) -> list[tuple[KnowledgeDoc, float]]:
+    builtin: bool | None = None,
+    source_type: str | None = None,
+) -> list[KnowledgeHit]:
     """混合检索：向量余弦 + 关键词 ILIKE，RRF 融合后聚合到文档。"""
 
     if query == "":
@@ -312,47 +376,98 @@ async def search_docs(
     vec_stmt = (
         select(KnowledgeChunk, KnowledgeDoc, distance.label("distance"))
         .join(KnowledgeDoc, KnowledgeDoc.id == KnowledgeChunk.doc_id)
+        .where(KnowledgeDoc.enabled.is_(True))
         .order_by(distance)
         .limit(pool)
     )
+    if builtin is not None:
+        vec_stmt = vec_stmt.where(_source_condition(builtin))
     vec_stmt = _apply_doc_filters(
-        vec_stmt, path=path, path_prefix=path_prefix, tags=tags, scope=scope
+        vec_stmt,
+        path=path,
+        path_prefix=path_prefix,
+        tags=tags,
+        scope=scope,
+        source_type=source_type,
     )
     vec_rows = (await db.execute(vec_stmt)).all()
 
     kw_stmt = (
         select(KnowledgeChunk, KnowledgeDoc)
         .join(KnowledgeDoc, KnowledgeDoc.id == KnowledgeChunk.doc_id)
+        .where(KnowledgeDoc.enabled.is_(True))
         .where(KnowledgeChunk.content.ilike(f"%{query}%"))
+        # 关键词分道没有相关性打分，固定按切块 id 排序保证排名可复现
+        .order_by(KnowledgeChunk.id)
         .limit(pool)
     )
+    if builtin is not None:
+        kw_stmt = kw_stmt.where(_source_condition(builtin))
     kw_stmt = _apply_doc_filters(
-        kw_stmt, path=path, path_prefix=path_prefix, tags=tags, scope=scope
+        kw_stmt,
+        path=path,
+        path_prefix=path_prefix,
+        tags=tags,
+        scope=scope,
+        source_type=source_type,
     )
     kw_rows = (await db.execute(kw_stmt)).all()
 
-    # RRF：按文档聚合排名分
-    rrf: dict[str, float] = {}
+    # RRF 按文档聚合：每个通道只取该文档最优排名，避免长文档靠切块数量累加分数；
+    # 同时保留该文档排序最靠前的命中块与分道信息
     docs: dict[str, KnowledgeDoc] = {}
-    for rank, (_chunk, doc, _dist) in enumerate(vec_rows, start=1):
+    best_chunk: dict[str, KnowledgeChunk] = {}
+    vector_score: dict[str, float] = {}
+    vector_rank: dict[str, int] = {}
+    keyword_rank: dict[str, int] = {}
+    for rank, (chunk, doc, dist) in enumerate(vec_rows, start=1):
         docs[doc.id] = doc
-        rrf[doc.id] = rrf.get(doc.id, 0.0) + 1.0 / (_RRF_K + rank)
-    for rank, (_chunk, doc) in enumerate(kw_rows, start=1):
+        best_chunk.setdefault(doc.id, chunk)
+        vector_score.setdefault(doc.id, 1.0 - float(dist))
+        vector_rank.setdefault(doc.id, rank)
+    for rank, (chunk, doc) in enumerate(kw_rows, start=1):
         docs[doc.id] = doc
-        rrf[doc.id] = rrf.get(doc.id, 0.0) + 1.0 / (_RRF_K + rank)
+        best_chunk.setdefault(doc.id, chunk)
+        keyword_rank.setdefault(doc.id, rank)
+    rrf: dict[str, float] = {}
+    for doc_id in docs:
+        score = 0.0
+        if doc_id in vector_rank:
+            score += 1.0 / (_RRF_K + vector_rank[doc_id])
+        if doc_id in keyword_rank:
+            score += 1.0 / (_RRF_K + keyword_rank[doc_id])
+        rrf[doc_id] = score
 
-    ranked_ids = sorted(rrf.keys(), key=lambda i: rrf[i], reverse=True)[:limit]
-    ranked = [(docs[i], rrf[i]) for i in ranked_ids]
+    min_score = await resolve_rrf_min_score(db)
+    ranked_ids = sorted(
+        (i for i in rrf if rrf[i] >= min_score),
+        key=lambda i: rrf[i],
+        reverse=True,
+    )[:limit]
+    hits = [
+        KnowledgeHit(
+            doc=docs[i],
+            score=rrf[i],
+            chunk_index=best_chunk[i].chunk_index,
+            content=best_chunk[i].content,
+            vector_score=vector_score.get(i),
+            keyword_rank=keyword_rank.get(i),
+        )
+        for i in ranked_ids
+    ]
     logger.info(
-        "知识库混合检索 q_len=%s limit=%s vec=%s kw=%s hits=%s top_score=%s",
+        "知识库混合检索 q_len=%s limit=%s builtin=%s source=%s vec=%s kw=%s min_score=%s hits=%s top_score=%s",
         len(query),
         limit,
+        builtin,
+        source_type,
         len(vec_rows),
         len(kw_rows),
-        len(ranked),
-        ranked[0][1] if ranked else None,
+        min_score,
+        len(hits),
+        hits[0].score if hits else None,
     )
-    return ranked
+    return hits
 
 
 async def reindex_all_docs(db: AsyncSession) -> int:
@@ -437,26 +552,15 @@ async def search_for_agent(
             tags=None,
             scope=scope,
         )
-        items = []
-        for doc, score in hits:
-            # 取该文档第一块作为引用摘要；无切块则失败
-            result = await db.execute(
-                select(KnowledgeChunk)
-                .where(KnowledgeChunk.doc_id == doc.id)
-                .order_by(KnowledgeChunk.chunk_index)
-                .limit(1)
-            )
-            chunk = result.scalar_one_or_none()
-            if chunk is None:
-                raise RuntimeError(f"文档缺少切块 doc_id={doc.id}")
-            items.append(
-                {
-                    "doc_id": doc.id,
-                    "title": doc.title,
-                    "path": doc.path,
-                    "chunk_index": chunk.chunk_index,
-                    "score": score,
-                    "excerpt": chunk.content,
-                }
-            )
+        items = [
+            {
+                "doc_id": hit.doc.id,
+                "title": hit.doc.title,
+                "path": hit.doc.path,
+                "chunk_index": hit.chunk_index,
+                "score": hit.score,
+                "excerpt": hit.content,
+            }
+            for hit in hits
+        ]
         return {"items": items, "total": len(items)}

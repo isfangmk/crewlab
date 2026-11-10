@@ -494,7 +494,7 @@ async def _decide(
     *,
     approval_id: str,
     confirmed: bool,
-    reason: str | None,
+    reason: str,
 ) -> Approval:
     async for _frame in stream_decide(
         db,

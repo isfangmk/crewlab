@@ -18,6 +18,7 @@ import io
 import json
 import logging
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Union
 
@@ -92,8 +93,12 @@ def _safe_relative_path(path: str) -> bool:
     )
 
 
-def encode_files(files: dict[str, Union[str, bytes]]) -> str:
-    """资源目录序列化：文本存 text，二进制存 base64。"""
+def encode_files(files: Mapping[str, Union[str, bytes]]) -> str:
+    """资源目录序列化：文本存 text，二进制存 base64。
+
+    入参用 Mapping：references/assets 是 dict[str, str | bytes]，scripts 是
+    dict[str, str]，dict 的值类型不协变，直接用 dict 参数会拒绝其中之一。
+    """
 
     items: list[dict[str, str]] = []
     for path, value in sorted(files.items()):
@@ -130,32 +135,58 @@ def decode_files(raw: str) -> dict[str, Union[str, bytes]]:
     return out
 
 
-def files_from_wire(items: list[dict[str, Any]]) -> dict[str, Union[str, bytes]]:
-    """接口入参 [{path, text|base64}] → 资源映射；同一路径重复直接报错。
+def _wire_items(items: list[dict[str, Any]]) -> list[tuple[str, Union[str, bytes]]]:
+    """校验接口入参 [{path, text|base64}]，解出 (路径, 内容) 列表。
 
     接口层用 pydantic 序列化时 text / base64 都会出现（另一个是 None），
     所以按「值是否为 None」判断来源，不能按「键是否存在」。
     """
 
-    out: dict[str, Union[str, bytes]] = {}
+    out: list[tuple[str, Union[str, bytes]]] = []
+    seen: set[str] = set()
     for item in items:
         path = item.get("path")
         if not isinstance(path, str) or path == "":
             raise ValueError("资源条目必须带非空 path")
         if not _safe_relative_path(path):
             raise ValueError(f"资源路径非法（必须是相对路径，且不含 . / ..）: {path}")
-        if path in out:
+        if path in seen:
             raise ValueError(f"资源路径重复: {path}")
+        seen.add(path)
         text = item.get("text")
         encoded = item.get("base64")
         if text is not None and encoded is not None:
             raise ValueError(f"资源条目 text 与 base64 只能二选一: {path}")
         if text is not None:
-            out[path] = str(text)
+            out.append((path, str(text)))
         elif encoded is not None:
-            out[path] = base64.b64decode(str(encoded))
+            out.append((path, base64.b64decode(str(encoded))))
         else:
             raise ValueError(f"资源条目既没有 text 也没有 base64: {path}")
+    return out
+
+
+def files_from_wire(items: list[dict[str, Any]]) -> dict[str, Union[str, bytes]]:
+    """接口入参 → references/ assets/ 资源映射（文本原样，二进制解 base64）。"""
+
+    return dict(_wire_items(items))
+
+
+def scripts_from_wire(items: list[dict[str, Any]]) -> dict[str, str]:
+    """接口入参 → scripts/ 资源映射；脚本必须是 UTF-8 文本。
+
+    二进制脚本在这里显式拒绝，而不是存进去等到执行时才失败。
+    """
+
+    out: dict[str, str] = {}
+    for path, value in _wire_items(items):
+        if isinstance(value, bytes):
+            try:
+                out[path] = value.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError(f"scripts/{path} 必须是 UTF-8 文本") from exc
+        else:
+            out[path] = value
     return out
 
 

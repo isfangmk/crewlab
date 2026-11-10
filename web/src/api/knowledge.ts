@@ -17,11 +17,24 @@ export type KnowledgeDoc = {
   content?: string;
   path?: string; // 以 / 分段的目录路径
   tags?: string[];
+  // false = 停用：不参与检索，切块保留
+  enabled: boolean;
   created_at: string;
   updated_at: string;
 };
 
-export type SearchHit = { doc: KnowledgeDoc; score: number };
+export type SearchHit = {
+  doc: KnowledgeDoc;
+  // RRF 融合得分
+  score: number;
+  // 向量分道余弦相似度；仅关键词命中时为 null
+  vector_score: number | null;
+  // 关键词分道排名（1 起）；仅向量命中时为 null
+  keyword_rank: number | null;
+  // 命中切块的序号（从 0 开始）与正文，供检索面板预览与定位
+  chunk_index: number;
+  excerpt: string;
+};
 
 export type PathRow = { path: string; count: number };
 
@@ -76,6 +89,11 @@ export function moveDoc(id: string, path: string) {
   return request<KnowledgeDoc>('PATCH', `/knowledge/docs/${id}/move`, { path });
 }
 
+// 切换文档是否参与检索；只改开关，不重建切块。
+export function setDocEnabled(id: string, enabled: boolean) {
+  return request<KnowledgeDoc>('PATCH', `/knowledge/docs/${id}/enabled`, { enabled });
+}
+
 export function searchKnowledge(
   q: string,
   opts?: {
@@ -84,6 +102,10 @@ export function searchKnowledge(
     pathPrefix?: string;
     tags?: string[];
     scope?: { paths?: string[]; doc_ids?: string[] };
+    // 来源组：true = 只在内置（vault）里检索，false = 只在组织文档里检索
+    builtin?: boolean;
+    // 来源类型：与侧边栏分组正交，用于组织文档内按 manual / upload / repo 收口
+    sourceType?: DocSource;
   },
 ) {
   const params = new URLSearchParams();
@@ -91,6 +113,8 @@ export function searchKnowledge(
   params.set('limit', String(opts?.limit ?? 10));
   if (opts?.path) params.set('path', opts.path);
   if (opts?.pathPrefix) params.set('path_prefix', opts.pathPrefix);
+  if (opts?.builtin !== undefined) params.set('builtin', String(opts.builtin));
+  if (opts?.sourceType) params.set('source_type', opts.sourceType);
   for (const t of opts?.tags ?? []) params.append('tag', t);
   for (const p of opts?.scope?.paths ?? []) params.append('scope_path', p);
   for (const d of opts?.scope?.doc_ids ?? []) params.append('scope_doc', d);

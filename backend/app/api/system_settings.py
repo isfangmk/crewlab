@@ -43,7 +43,7 @@ async def list_settings(
     if category == "llm":
         items = await llm_admin.list_llm_settings(db)
         return {"items": items, "total": len(items)}
-    if category in {"agent", "observability"}:
+    if category in {"agent", "observability", "knowledge"}:
         try:
             items = await app_settings_service.list_category(db, category)
         except ValueError as exc:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -33,7 +34,9 @@ SYSTEM_TIMEZONES: dict[str, timezone] = {
 }
 DEFAULT_SYSTEM_TIMEZONE = "UTC+08:00"
 _OBSERVABILITY_KEYS = frozenset({"timezone"})
-_KNOWLEDGE_KEYS = frozenset({"chunk_size", "chunk_overlap", "approval_timeout_hours"})
+_KNOWLEDGE_KEYS = frozenset(
+    {"chunk_size", "chunk_overlap", "approval_timeout_hours", "rrf_min_score"}
+)
 _SUPPORTED_CATEGORIES = frozenset({"agent", "observability", "knowledge"})
 
 
@@ -81,6 +84,7 @@ _KNOWLEDGE_SEEDS: dict[str, str] = {
     "chunk_size": "800",
     "chunk_overlap": "100",
     "approval_timeout_hours": "72",
+    "rrf_min_score": "0",
 }
 
 
@@ -209,6 +213,13 @@ async def put_setting(
     elif category == "knowledge":
         if key not in _KNOWLEDGE_KEYS:
             raise ValueError(f"不支持的 knowledge key: {key}")
+        if key == "rrf_min_score":
+            try:
+                score = float(value)
+            except ValueError as exc:
+                raise ValueError("rrf_min_score 必须是数字") from exc
+            if not math.isfinite(score) or score < 0:
+                raise ValueError("rrf_min_score 必须 >= 0")
         if key in ("chunk_size", "chunk_overlap", "approval_timeout_hours"):
             number = int(value)
             if key == "chunk_size" and number < 64:
