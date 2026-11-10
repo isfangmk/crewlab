@@ -43,9 +43,18 @@ class ChatSessionOut(BaseModel):
     page_context: PageContextIn | None = None
     pinned: bool = False
     archived: bool = False
-    # 列表页摘要：消息条数与最近一条正文（已截断）；新建会话为 0 / None
+    # 列表摘要：正文消息数（仅 user/assistant，不含工具卡）与最近一条正文（已截断）
     message_count: int = 0
+    # 工具卡条数：工具/技能调用次数的可展示口径
+    tool_call_count: int = 0
+    # 最后一条消息时间；发消息不会 touch 会话行，和 updated_at 不是一回事
+    last_message_at: str | None = None
     last_message_preview: str | None = None
+    # 运行信号：累计 tokens 与最近一回合状态（running/ok/error/stopped）；无观测时为 None
+    total_tokens: int | None = None
+    last_turn_status: str | None = None
+    # 该会话当前待人工确认的工具调用数
+    pending_approvals: int = 0
 
 
 class UpdateSessionFlagsRequest(BaseModel):

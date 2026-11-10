@@ -252,6 +252,21 @@ async def test_session_sort_and_batch_delete(env: dict[str, str], api_base: str)
         desc_titles = [i["title"] for i in desc.json()["items"]]
         assert desc_titles == sorted(desc_titles, reverse=True)
 
+        # 最近活动列：空会话没有 last_message_at，DESC 下必须排最后而不是顶到第一页
+        by_activity = await client.get(
+            "/api/v1/chat/sessions",
+            headers=headers,
+            params={
+                "q": f"sort-batch-{stamp}",
+                "sort_by": "last_message_at",
+                "sort_dir": "desc",
+                "limit": 20,
+                "offset": 0,
+            },
+        )
+        assert by_activity.status_code == 200, by_activity.text
+        assert len(by_activity.json()["items"]) == 3
+
         bad_sort = await client.get(
             "/api/v1/chat/sessions",
             headers=headers,
@@ -292,7 +307,7 @@ async def test_session_sort_and_batch_delete(env: dict[str, str], api_base: str)
 async def test_session_model_filter_and_summary_stats(
     env: dict[str, str], api_base: str
 ) -> None:
-    """模型精确筛选 + 列表摘要（消息条数 / 最近一条正文）。
+    """模型精确筛选 + 列表摘要（消息条数 / 工具调用 / 最近活动）。
 
     消息直接写库而不是跑一轮真实对话：这里验的是列表聚合口径，
     不是模型输出；用真实对话会让断言依赖上游。
@@ -334,7 +349,12 @@ async def test_session_model_filter_and_summary_stats(
         sid = cr.json()["id"]
         # 新建会话没有任何消息：统计不能凭空造数
         assert cr.json()["message_count"] == 0
+        assert cr.json()["tool_call_count"] == 0
+        assert cr.json()["last_message_at"] is None
         assert cr.json()["last_message_preview"] is None
+        assert cr.json()["total_tokens"] is None
+        assert cr.json()["last_turn_status"] is None
+        assert cr.json()["pending_approvals"] == 0
 
         engine = create_async_engine(get_settings().database_url)
         try:
@@ -381,7 +401,10 @@ async def test_session_model_filter_and_summary_stats(
         items = listed.json()["items"]
         assert len(items) == 1, items
         row = items[0]
-        assert row["message_count"] == 3
+        # 只数正文消息：user + assistant 两条，工具卡不算「消息」
+        assert row["message_count"] == 2
+        assert row["tool_call_count"] == 1
+        assert row["last_message_at"] is not None
         # 摘要是最近一条有正文的消息，并按固定长度截断
         assert row["last_message_preview"] == long_answer[:240]
         assert len(row["last_message_preview"]) == 240
@@ -413,7 +436,8 @@ async def test_session_model_filter_and_summary_stats(
 
         detail = await client.get(f"/api/v1/chat/sessions/{sid}", headers=headers)
         assert detail.status_code == 200, detail.text
-        assert detail.json()["message_count"] == 3
+        assert detail.json()["message_count"] == 2
+        assert detail.json()["tool_call_count"] == 1
 
         cleaned = await client.delete(f"/api/v1/chat/sessions/{sid}", headers=headers)
         assert cleaned.status_code == 200, cleaned.text

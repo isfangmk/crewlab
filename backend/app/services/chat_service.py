@@ -19,6 +19,7 @@ from app.adk_runtime.stream_bridge import APP_NAME, SseFrame, stream_adk_turn
 from app.adk_runtime.web_search_tool import build_web_search_tool
 from app.models_orm.approval import Approval
 from app.models_orm.chat import ChatMessage, ChatSession
+from app.models_orm.observation import ObservationTurn
 from app.schemas.chat import PageContextIn
 from app.services import (
     agent_service,
@@ -292,10 +293,20 @@ async def get_session(db: AsyncSession, session_id: str) -> ChatSession:
     return session
 
 
+# 「最后一条消息时间」是相关子查询：发消息只写 chat_messages，不会 touch 会话行，
+# 直接用 chat_sessions.updated_at 会把「置顶/改名」当成「最近对话」。
+_LAST_MESSAGE_AT = (
+    select(func.max(ChatMessage.created_at))
+    .where(ChatMessage.session_id == ChatSession.id)
+    .correlate(ChatSession)
+    .scalar_subquery()
+)
+
 _SESSION_SORT_COLUMNS = {
     "title": ChatSession.title,
     "model": ChatSession.model,
     "updated_at": ChatSession.updated_at,
+    "last_message_at": _LAST_MESSAGE_AT,
     "agent_id": ChatSession.agent_id,
     "created_at": ChatSession.created_at,
 }
@@ -307,32 +318,54 @@ _SESSION_PREVIEW_MAX_CHARS = 240
 
 @dataclass(frozen=True)
 class SessionStats:
-    """会话列表附带的统计：消息条数与最近一条正文摘要。"""
+    """会话列表附带的统计：对话条数、工具调用、最近活动与运行信号。
+
+    message_count 只统计 user / assistant 的正文消息：tool_card / tool_intent
+    也是 chat_messages 的行，混进来会让「消息数」随工具调用次数虚高。
+    """
 
     message_count: int
+    tool_call_count: int
+    last_message_at: datetime | None
     last_message_preview: str | None
+    total_tokens: int | None
+    last_turn_status: str | None
+    pending_approvals: int
 
 
 async def list_session_stats(
     db: AsyncSession, session_ids: list[str]
 ) -> dict[str, SessionStats]:
-    """批量取会话统计，两条聚合查询覆盖整页，避免逐行 N+1。
+    """批量取会话统计，四条聚合查询覆盖整页，避免逐行 N+1。
 
     预览取「最近一条有正文的消息」：tool_card / tool_intent 的 content 为空，
-    用它们当摘要只会显示空行。
+    用它们当摘要只会显示空行。运行信号（tokens / 最近回合状态）来自
+    observation_turns；观测未开启时这些字段保持 None，列表不会瞎编。
     """
 
     if not session_ids:
         return {}
 
-    count_rows = (
+    message_rows = (
         await db.execute(
-            select(ChatMessage.session_id, func.count())
+            select(
+                ChatMessage.session_id,
+                func.count()
+                .filter(ChatMessage.role.in_(("user", "assistant")))
+                .label("message_count"),
+                func.count()
+                .filter(ChatMessage.kind == "tool_card")
+                .label("tool_call_count"),
+                func.max(ChatMessage.created_at).label("last_message_at"),
+            )
             .where(ChatMessage.session_id.in_(session_ids))
             .group_by(ChatMessage.session_id)
         )
     ).all()
-    counts = {sid: int(n) for sid, n in count_rows}
+    message_stats = {
+        sid: (int(message_count), int(tool_call_count), last_message_at)
+        for sid, message_count, tool_call_count, last_message_at in message_rows
+    }
 
     # DISTINCT ON：按 seq 倒序取每个会话的第一条，结果集只等于会话数。
     preview_rows = (
@@ -353,13 +386,73 @@ async def list_session_stats(
         if content is not None and content.strip() != ""
     }
 
-    return {
-        sid: SessionStats(
-            message_count=counts.get(sid, 0),
-            last_message_preview=previews.get(sid),
+    # 一条窗口查询同时拿「累计 tokens」与「最近一回合状态」：
+    # 直接 group by 只能给聚合值，拿不到最新状态那一行。
+    observation_window = (
+        select(
+            ObservationTurn.session_id.label("session_id"),
+            ObservationTurn.status.label("status"),
+            func.sum(ObservationTurn.total_tokens)
+            .over(partition_by=ObservationTurn.session_id)
+            .label("total_tokens"),
+            func.row_number()
+            .over(
+                partition_by=ObservationTurn.session_id,
+                order_by=(
+                    ObservationTurn.started_at.desc(),
+                    ObservationTurn.id.desc(),
+                ),
+            )
+            .label("rn"),
         )
-        for sid in session_ids
+        .where(ObservationTurn.session_id.in_(session_ids))
+        .subquery()
+    )
+    observation_rows = (
+        await db.execute(
+            select(
+                observation_window.c.session_id,
+                observation_window.c.status,
+                observation_window.c.total_tokens,
+            ).where(observation_window.c.rn == 1)
+        )
+    ).all()
+    observations = {
+        sid: (
+            None if total_tokens is None else int(total_tokens),
+            str(status),
+        )
+        for sid, status, total_tokens in observation_rows
     }
+
+    approval_rows = (
+        await db.execute(
+            select(Approval.session_id, func.count())
+            .where(
+                Approval.session_id.in_(session_ids),
+                Approval.status == "pending",
+            )
+            .group_by(Approval.session_id)
+        )
+    ).all()
+    pending = {sid: int(n) for sid, n in approval_rows}
+
+    stats: dict[str, SessionStats] = {}
+    for sid in session_ids:
+        message_count, tool_call_count, last_message_at = message_stats.get(
+            sid, (0, 0, None)
+        )
+        total_tokens, last_turn_status = observations.get(sid, (None, None))
+        stats[sid] = SessionStats(
+            message_count=message_count,
+            tool_call_count=tool_call_count,
+            last_message_at=last_message_at,
+            last_message_preview=previews.get(sid),
+            total_tokens=total_tokens,
+            last_turn_status=last_turn_status,
+            pending_approvals=pending.get(sid, 0),
+        )
+    return stats
 
 
 async def list_sessions(
@@ -425,10 +518,20 @@ async def list_sessions(
     total = int(raw_total)
 
     if sort_by is None:
-        order = (ChatSession.pinned.desc(), ChatSession.updated_at.desc())
+        # 默认按「最近活动」倒序：没有消息的新会话回落到创建时间
+        order = (
+            ChatSession.pinned.desc(),
+            func.coalesce(_LAST_MESSAGE_AT, ChatSession.created_at).desc(),
+        )
     else:
         col = _SESSION_SORT_COLUMNS[sort_by]
-        order = (col.asc() if sort_dir == "asc" else col.desc(),)
+        if sort_by == "last_message_at":
+            # 没有消息的会话排最后，不能让 NULL 在 DESC 下顶到第一页
+            order = (
+                col.asc().nulls_last() if sort_dir == "asc" else col.desc().nulls_last(),
+            )
+        else:
+            order = (col.asc() if sort_dir == "asc" else col.desc(),)
 
     list_stmt = list_stmt.order_by(*order).offset(offset).limit(limit)
     items = list(await db.scalars(list_stmt))
