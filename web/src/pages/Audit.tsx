@@ -1,6 +1,6 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, RefreshCw, ScrollText, Shield } from 'lucide-react';
+import { ArrowDown, ArrowUp, Download, RefreshCw, ScrollText, Shield } from 'lucide-react';
 import {
   Button,
   CodeBlock,
@@ -17,7 +17,7 @@ import {
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/Modal';
 import { ApiError } from '@/api/client';
-import { listAudit, type AuditItem } from '@/api/audit';
+import { exportAudit, listAudit, type AuditItem } from '@/api/audit';
 import { useI18n } from '@/i18n/locale';
 import { fullDateTime } from '@/lib/format';
 import { parseLocalDateTime, rangeForPreset, type TimePreset } from '@/lib/timeRange';
@@ -37,8 +37,26 @@ const ACTION_LABELS: Record<string, { zh: string; en: string }> = {
   'approval.batch_reject': { zh: '批量拒绝', en: 'Batch reject' },
   'tool.run': { zh: '运行内置工具', en: 'Run builtin tool' },
   'mcp.tool_run': { zh: '运行 MCP 工具', en: 'Run MCP tool' },
+  'mcp.server_create': { zh: '新增 MCP Server', en: 'Create MCP server' },
+  'mcp.server_update': { zh: '修改 MCP Server', en: 'Update MCP server' },
+  'mcp.server_delete': { zh: '删除 MCP Server', en: 'Delete MCP server' },
   'secret.create': { zh: '创建凭证', en: 'Create credential' },
   'secret.delete': { zh: '删除凭证', en: 'Delete credential' },
+  'agent.create': { zh: '新建助理', en: 'Create assistant' },
+  'agent.update': { zh: '修改助理', en: 'Update assistant' },
+  'agent.delete': { zh: '删除助理', en: 'Delete assistant' },
+  'knowledge.doc_create': { zh: '新增文档', en: 'Create document' },
+  'knowledge.doc_update': { zh: '修改文档', en: 'Update document' },
+  'knowledge.doc_move': { zh: '移动文档', en: 'Move document' },
+  'knowledge.doc_delete': { zh: '删除文档', en: 'Delete document' },
+  'knowledge.doc_upload': { zh: '上传文档', en: 'Upload document' },
+  'knowledge.reindex': { zh: '重建知识索引', en: 'Reindex knowledge' },
+  'setting.update': { zh: '修改系统设置', en: 'Update setting' },
+  'setting.reveal': { zh: '查看密钥明文', en: 'Reveal secret' },
+  'llm.save': { zh: '保存模型配置', en: 'Save LLM config' },
+  'session.share': { zh: '创建会话分享', en: 'Share session' },
+  'session.delete': { zh: '删除会话', en: 'Delete session' },
+  'session.batch_delete': { zh: '批量删除会话', en: 'Batch delete sessions' },
 };
 
 const RESOURCE_LABELS: Record<string, { zh: string; en: string }> = {
@@ -47,6 +65,12 @@ const RESOURCE_LABELS: Record<string, { zh: string; en: string }> = {
   builtin_tool: { zh: '内置工具', en: 'Builtin tool' },
   mcp_server: { zh: 'MCP Server', en: 'MCP server' },
   secret: { zh: '凭证', en: 'Credential' },
+  agent: { zh: '助理', en: 'Assistant' },
+  knowledge_doc: { zh: '知识文档', en: 'Knowledge doc' },
+  knowledge: { zh: '知识库', en: 'Knowledge' },
+  setting: { zh: '系统设置', en: 'Setting' },
+  llm_provider: { zh: '模型厂商', en: 'LLM provider' },
+  chat_session: { zh: '会话', en: 'Session' },
 };
 
 function summary(text: string, limit = 96): string {
@@ -72,6 +96,7 @@ export default function AuditPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [detail, setDetail] = useState<AuditItem | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const resetFiltersToFirstPage = () => setPage(0);
 
@@ -110,6 +135,33 @@ export default function AuditPage() {
   useEffect(() => {
     if (isAdmin) void load();
   }, [isAdmin, load]);
+
+  const runExport = async () => {
+    setExporting(true);
+    try {
+      const presetRange = rangeForPreset(timePreset);
+      const createdFrom = timePreset === 'custom' ? parseLocalDateTime(customFrom) : presetRange.from;
+      const createdTo = timePreset === 'custom' ? parseLocalDateTime(customTo) : presetRange.to;
+      const blob = await exportAudit({
+        action: action || undefined,
+        resource_type: resourceType || undefined,
+        created_from: createdFrom,
+        created_to: createdTo,
+        sort_dir: sortDir,
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'audit-log.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useAssistantPage('审计日志', 'Audit logs', {
     total,
@@ -166,14 +218,24 @@ export default function AuditPage() {
         title={tr('审计日志', 'Audit logs')}
         subtitle={tr('用户、审批、工具与凭证的关键动作留痕', 'Trail for users, approvals, tools, and credentials')}
         actions={
-          <RowAction
-            icon={RefreshCw}
-            iconClassName={refreshing ? 'animate-spin' : undefined}
-            disabled={loading || refreshing}
-            onClick={() => void load(true)}
-          >
-            {tr('刷新', 'Refresh')}
-          </RowAction>
+          <div className="flex flex-wrap items-center gap-2">
+            <RowAction
+              icon={Download}
+              iconClassName={exporting ? 'animate-pulse' : undefined}
+              disabled={loading || exporting || items.length === 0}
+              onClick={() => void runExport()}
+            >
+              {tr('导出 CSV', 'Export CSV')}
+            </RowAction>
+            <RowAction
+              icon={RefreshCw}
+              iconClassName={refreshing ? 'animate-spin' : undefined}
+              disabled={loading || refreshing}
+              onClick={() => void load(true)}
+            >
+              {tr('刷新', 'Refresh')}
+            </RowAction>
+          </div>
         }
       />
 

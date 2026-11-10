@@ -112,6 +112,42 @@ describe('AuditPage', () => {
     expect(screen.getByText(/"reason": "ok"/)).toBeInTheDocument();
   });
 
+  it('exports the filtered rows as CSV', async () => {
+    const user = userEvent.setup();
+    const exportReqs: URLSearchParams[] = [];
+    server.use(
+      http.get('/api/v1/audit/export', ({ request }) => {
+        exportReqs.push(new URL(request.url).searchParams);
+        return new HttpResponse('\ufeff时间,操作者,动作\n2026-11-09,admin@local,user.create\n', {
+          headers: { 'content-type': 'text/csv; charset=utf-8' },
+        });
+      }),
+    );
+    // jsdom 没有 blob URL 实现，这里只验证导出链路被触发。
+    const createObjectURL = vi.fn(() => 'blob:audit');
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    // jsdom 不支持真实下载导航：拦掉 anchor.click 避免未实现告警。
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    render(
+      <MemoryRouter>
+        <AuditPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('批准审批');
+    await user.click(screen.getByRole('button', { name: /导出 CSV/ }));
+
+    await waitFor(() => expect(exportReqs).toHaveLength(1));
+    expect(exportReqs[0].get('sort_dir')).toBe('desc');
+    expect(exportReqs[0].get('action')).toBeNull();
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1);
+    anchorClick.mockRestore();
+  });
+
   it('gates the page behind admin permission', async () => {
     perms.isAdmin = false;
     render(
