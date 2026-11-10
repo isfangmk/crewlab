@@ -76,8 +76,8 @@ describe('SessionsPage', () => {
     expect(await screen.findByRole('link', { name: /排查 MCP 配置/ })).toHaveAttribute('href', '/chat/1');
     expect(screen.getByRole('link', { name: /数据库状态/ })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: '分页' })).toBeInTheDocument();
-    // 绝对时间，不再出现「xx 前」
-    expect(screen.queryByText(/分钟前|小时前|刚刚|秒前/)).not.toBeInTheDocument();
+    // 最近活动列用相对时间扫读，精确时间挂在 title 上
+    expect(screen.getByRole('columnheader', { name: /最近活动/ })).toBeInTheDocument();
 
     await userEvent.type(screen.getByPlaceholderText('搜索标题或模型…'), 'deepseek');
     await waitFor(() => {
@@ -131,10 +131,10 @@ describe('SessionsPage', () => {
 
     expect(await screen.findByRole('link', { name: '会话甲' })).toBeInTheDocument();
 
-    // 只有时间列可排序：点击「更新」表头按 updated_at 排序。
-    await userEvent.click(screen.getByRole('button', { name: /更新/ }));
+    // 只有时间列可排序：点击「最近活动」表头按 last_message_at 排序。
+    await userEvent.click(screen.getByRole('button', { name: /最近活动/ }));
     await waitFor(() => {
-      expect(urls.some((u) => u.includes('sort_by=updated_at'))).toBe(true);
+      expect(urls.some((u) => u.includes('sort_by=last_message_at'))).toBe(true);
     });
 
     const checkboxes = screen.getAllByRole('checkbox', { name: '选择会话' });
@@ -185,6 +185,48 @@ describe('SessionsPage', () => {
       expect(screen.getByRole('link', { name: '数据库状态' })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: '排查 MCP 配置' })).not.toBeInTheDocument();
     });
+  });
+
+  it('展示运行信号：最近回合状态、累计 tokens 与待审批', async () => {
+    server.use(
+      agentsHandler,
+      modelsHandler,
+      http.get('/api/v1/chat/sessions', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: '20',
+              title: '失败回合',
+              model: 'glm-flash',
+              agent_id: 'default',
+              updated_at: '2026-11-09T04:00:00.000Z',
+              last_message_at: '2026-11-09T06:00:00.000Z',
+              message_count: 4,
+              tool_call_count: 3,
+              total_tokens: 1234,
+              last_turn_status: 'error',
+              pending_approvals: 2,
+            },
+          ],
+          total: 1,
+        }),
+      ),
+    );
+
+    render(
+      <MemoryRouter>
+        <SessionsPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('link', { name: '失败回合' })).toBeInTheDocument();
+    // 消息数与工具调用次数分开口径
+    expect(screen.getByText('4 条 · 3 次工具')).toBeInTheDocument();
+    expect(screen.getByText('1.2k tokens')).toBeInTheDocument();
+    expect(screen.getByText('失败')).toBeInTheDocument();
+    expect(screen.getByText('待审 2')).toBeInTheDocument();
+    // 最近活动优先取最后一条消息，而不是会话行更新时间
+    expect(screen.getByTitle(/最后一条消息/)).toBeInTheDocument();
   });
 
   it('长会话摘要默认折叠，可展开；短会话不出现折叠按钮', async () => {

@@ -57,7 +57,7 @@ import { Select } from '@/components/ui/Select';
 import { Hint } from '@/components/ui/Tooltip';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
-import { fullDateTime } from '@/lib/format';
+import { formatNumber, fullDateTime, relativeTime } from '@/lib/format';
 import { invalidateChatSessions } from '@/store/chatSessions';
 
 const PAGE_SIZE = 20;
@@ -68,8 +68,23 @@ const LONG_SESSION_MESSAGES = 40;
 
 type TimePreset = 'all' | 'today' | '7d' | '30d' | 'custom';
 
-/** 分页列表只开放「更新」这一时间列排序；其他列保持服务端默认顺序。 */
-const SORTABLE_IDS = new Set<SessionSortBy>(['updated_at']);
+/** 分页列表只开放时间列排序；其他列保持服务端默认顺序。 */
+const SORTABLE_IDS = new Set<SessionSortBy>(['updated_at', 'last_message_at']);
+
+/** 最近一回合状态 → 胶囊文案；未知状态不猜，直接不显示。 */
+const TURN_STATUS: Record<string, { tone: StatusTone; zh: string; en: string }> = {
+  ok: { tone: 'ok', zh: '正常', en: 'OK' },
+  running: { tone: 'info', zh: '进行中', en: 'Running' },
+  error: { tone: 'danger', zh: '失败', en: 'Failed' },
+  stopped: { tone: 'warn', zh: '已停止', en: 'Stopped' },
+};
+
+/** 列表里的 token 量级只用于扫读，精确值挂在 title 上。 */
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
 
 /** 把本地日界/datetime-local 转成 ISO，供 updated_from/to 查询。 */
 function toIso(date: Date): string {
@@ -366,10 +381,18 @@ export default function SessionsPage() {
           const session = row.original;
           const title = session.title || session.id;
           const messageCount = session.message_count ?? 0;
+          const toolCallCount = session.tool_call_count ?? 0;
           const preview = (session.last_message_preview ?? '').trim();
           const expanded = expandedPreviews[session.id] === true;
           // 长会话的摘要默认只占一行；短会话一行本来就够看，不给折叠按钮。
           const collapsible = messageCount >= LONG_SESSION_MESSAGES && preview !== '';
+          // 对话条数与工具调用次数分开口径：工具卡不算「消息」
+          const meta = [
+            messageCount > 0 ? tr(`${messageCount} 条`, `${messageCount} msgs`) : '',
+            toolCallCount > 0 ? tr(`${toolCallCount} 次工具`, `${toolCallCount} tools`) : '',
+          ]
+            .filter((item) => item !== '')
+            .join(' · ');
           return (
             <div className="min-w-0">
               <Link
@@ -380,16 +403,18 @@ export default function SessionsPage() {
                 {session.pinned ? <Pin size={12} className="shrink-0 text-amber-400" aria-hidden /> : null}
                 <span className="truncate">{title}</span>
               </Link>
-              {messageCount > 0 || preview !== '' ? (
+              {meta !== '' || preview !== '' ? (
                 <div className="mt-0.5 flex min-w-0 items-start gap-1 text-[10.5px] leading-4 text-zinc-500">
-                  <span className="shrink-0 tabular-nums text-zinc-600">
-                    {tr(`${messageCount} 条`, `${messageCount} msgs`)}
-                  </span>
+                  {meta !== '' ? (
+                    <span className="shrink-0 whitespace-nowrap tabular-nums text-zinc-600">{meta}</span>
+                  ) : null}
                   {preview !== '' ? (
                     <>
-                      <span aria-hidden className="shrink-0 text-zinc-700">
-                        ·
-                      </span>
+                      {meta !== '' ? (
+                        <span aria-hidden className="shrink-0 text-zinc-700">
+                          ·
+                        </span>
+                      ) : null}
                       <span
                         className={cn(
                           'min-w-0 flex-1 text-zinc-500',
@@ -435,23 +460,72 @@ export default function SessionsPage() {
         id: 'model',
         header: tr('模型', 'Model'),
         enableSorting: false,
-        cell: ({ getValue }) => {
-          const model = getValue();
+        cell: ({ row }) => {
+          const model = row.original.model;
+          const tokens = row.original.total_tokens;
           return (
-            <span className="block truncate font-mono text-[11px] text-zinc-500" title={model || undefined}>
-              {model || '—'}
-            </span>
+            <div className="min-w-0">
+              <span className="block truncate font-mono text-[11px] text-zinc-500" title={model || undefined}>
+                {model || '—'}
+              </span>
+              {tokens !== null && tokens !== undefined ? (
+                <span
+                  className="mt-0.5 block truncate text-[10.5px] tabular-nums text-zinc-600"
+                  title={tr(`累计 ${formatNumber(tokens)} tokens`, `${formatNumber(tokens)} tokens total`)}
+                >
+                  {formatTokens(tokens)} tokens
+                </span>
+              ) : null}
+            </div>
           );
         },
       }),
-      columnHelper.accessor((row) => row.updated_at || row.created_at, {
-        id: 'updated_at',
-        header: tr('更新', 'Updated'),
-        cell: ({ getValue }) => {
-          const raw = getValue();
+      columnHelper.display({
+        id: 'runtime',
+        header: tr('运行', 'Runtime'),
+        enableSorting: false,
+        cell: ({ row }) => {
+          const session = row.original;
+          const status = session.last_turn_status ? TURN_STATUS[session.last_turn_status] : undefined;
+          const pending = session.pending_approvals ?? 0;
+          if (status === undefined && pending === 0) {
+            return <span className="text-[12px] text-zinc-600">—</span>;
+          }
           return (
-            <span className="whitespace-nowrap text-[12px] tabular-nums text-zinc-500">
-              {raw ? fullDateTime(raw) : '—'}
+            <div className="flex flex-wrap items-center gap-1">
+              {status !== undefined ? (
+                <StatusPill
+                  tone={status.tone}
+                  label={tr(status.zh, status.en)}
+                  pulse={status.tone === 'info'}
+                />
+              ) : null}
+              {pending > 0 ? (
+                <StatusPill tone="warn" label={tr(`待审 ${pending}`, `${pending} pending`)} />
+              ) : null}
+            </div>
+          );
+        },
+      }),
+      columnHelper.accessor((row) => row.last_message_at ?? row.updated_at ?? row.created_at, {
+        id: 'last_message_at',
+        header: tr('最近活动', 'Last activity'),
+        cell: ({ row }) => {
+          const raw =
+            row.original.last_message_at ?? row.original.updated_at ?? row.original.created_at;
+          if (!raw) {
+            return <span className="text-[12px] text-zinc-600">—</span>;
+          }
+          // 精确时间挂 title：相对时间只负责扫读。
+          const label = row.original.last_message_at
+            ? tr('最后一条消息', 'Last message')
+            : tr('会话更新时间', 'Session updated');
+          return (
+            <span
+              className="whitespace-nowrap text-[12px] tabular-nums text-zinc-500"
+              title={`${label}：${fullDateTime(raw)}`}
+            >
+              {relativeTime(raw)}
             </span>
           );
         },
@@ -466,7 +540,7 @@ export default function SessionsPage() {
             ? { tone: 'warn', zh: '已归档', en: 'Archived' }
             : session.pinned
               ? { tone: 'info', zh: '已置顶', en: 'Pinned' }
-              : { tone: 'ok', zh: '进行中', en: 'Active' };
+              : { tone: 'ok', zh: '普通', en: 'Normal' };
           return <StatusPill tone={state.tone} label={tr(state.zh, state.en)} />;
         },
       }),
@@ -798,15 +872,16 @@ export default function SessionsPage() {
                 />
               }
             >
-                <table className="og-action-table w-full min-w-[60rem] table-fixed text-sm">
+                <table className="og-action-table w-full min-w-[61rem] table-fixed text-sm">
                   <colgroup>
                     <col className="w-[2.5rem]" />
-                    <col className="w-[17rem]" />
+                    <col className="w-[16rem]" />
+                    <col className="w-[7rem]" />
                     <col className="w-[8rem]" />
-                    <col className="w-[9rem]" />
-                    <col className="w-[9.5rem]" />
-                    <col className="w-[5.5rem]" />
-                    <col className="w-[8.5rem]" />
+                    <col className="w-[7rem]" />
+                    <col className="w-[7.5rem]" />
+                    <col className="w-[5rem]" />
+                    <col className="w-[8rem]" />
                   </colgroup>
                   <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
                     {table.getHeaderGroups().map((hg) => (

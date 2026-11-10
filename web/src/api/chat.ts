@@ -54,9 +54,16 @@ export type ChatSession = {
   updated_at?: string;
   pinned?: boolean;
   archived?: boolean;
-  // 列表摘要：消息条数与最近一条正文（后端已截断到固定长度）
+  // 列表摘要：正文消息数（仅 user/assistant，不含工具卡）与最近一条正文（后端已截断）
   message_count?: number;
+  tool_call_count?: number;
+  // 最后一条消息时间：发消息不会 touch 会话行，和 updated_at 不是一回事
+  last_message_at?: string | null;
   last_message_preview?: string | null;
+  // 运行信号：累计 tokens / 最近一回合状态（running/ok/error/stopped）/ 待审批数
+  total_tokens?: number | null;
+  last_turn_status?: string | null;
+  pending_approvals?: number;
 };
 
 export type AssistantMessage = {
@@ -79,7 +86,13 @@ export type PostMessageResponse = {
   iterations: number;
 };
 
-export type SessionSortBy = 'title' | 'model' | 'updated_at' | 'agent_id' | 'created_at';
+export type SessionSortBy =
+  | 'title'
+  | 'model'
+  | 'updated_at'
+  | 'last_message_at'
+  | 'agent_id'
+  | 'created_at';
 export type SessionSortDir = 'asc' | 'desc';
 
 export function listSessions(params?: {
