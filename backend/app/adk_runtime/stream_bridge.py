@@ -21,6 +21,7 @@ from google.adk.utils._function_call_names import REQUEST_CONFIRMATION_FUNCTION_
 from google.genai import types
 
 from app.adk_runtime.agent_factory import build_chat_agent
+from app.services.knowledge_scope import KnowledgeScope
 
 logger = logging.getLogger(__name__)
 
@@ -599,6 +600,8 @@ async def stream_adk_turn(
     disallowed_tool_names: set[str] | None = None,
     max_turns: int = 0,
     image_parts: list[tuple[bytes, str]] | None = None,
+    knowledge_scope: KnowledgeScope | None = None,
+    skills: list[Any] | None = None,
 ) -> AsyncIterator[SseFrame]:
     """跑一轮用户对话；可附带图片多模态 parts。"""
 
@@ -618,6 +621,8 @@ async def stream_adk_turn(
         provider_extra_body=provider_extra_body,
         disallowed_tool_names=disallowed_tool_names,
         max_turns=max_turns,
+        knowledge_scope=knowledge_scope,
+        skills=skills,
     )
     runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
     existing = await session_service.get_session(
@@ -675,6 +680,8 @@ async def stream_adk_confirmation(
     provider_extra_body: dict[str, Any] | None = None,
     disallowed_tool_names: set[str] | None = None,
     max_turns: int = 0,
+    knowledge_scope: KnowledgeScope | None = None,
+    skills: list[Any] | None = None,
 ) -> AsyncIterator[SseFrame]:
     """用 ADK FunctionResponse 恢复被确认闸门拦住的回合。"""
 
@@ -696,6 +703,8 @@ async def stream_adk_confirmation(
         provider_extra_body=provider_extra_body,
         disallowed_tool_names=disallowed_tool_names,
         max_turns=max_turns,
+        knowledge_scope=knowledge_scope,
+        skills=skills,
     )
     runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
     existing = await session_service.get_session(

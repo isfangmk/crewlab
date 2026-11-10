@@ -9,10 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth
 from app.db import get_db
-from app.schemas.knowledge import DocCreateIn, DocMoveIn, DocUpdateIn
+from app.schemas.knowledge import DocCreateIn, DocMoveIn, DocUpdateIn, ScopePreviewIn
 from app.services import knowledge_service
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
+from app.services.knowledge_scope import parse_scope, scope_preview
 
 logger = logging.getLogger(__name__)
 
@@ -251,10 +252,15 @@ async def search_knowledge(
     path: str | None = None,
     path_prefix: str | None = None,
     tag: list[str] | None = Query(None),
+    scope_path: list[str] | None = Query(None),
+    scope_doc: list[str] | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
     try:
+        scope = parse_scope(
+            {"paths": scope_path or [], "doc_ids": scope_doc or []}
+        )
         hits = await knowledge_service.search_docs(
             db,
             query=q,
@@ -262,6 +268,7 @@ async def search_knowledge(
             path=path,
             path_prefix=path_prefix,
             tags=tag,
+            scope=scope,
         )
     except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -284,3 +291,18 @@ async def list_paths(
 ) -> dict:
     items = await knowledge_service.list_paths(db)
     return {"items": items, "total": len(items)}
+
+
+@router.post("/knowledge/scope-preview")
+async def preview_scope(
+    body: ScopePreviewIn,
+    db: AsyncSession = Depends(get_db),
+    _user: str = Depends(require_auth),
+) -> dict:
+    """助理编辑器实时预览：命中多少篇、哪些目录/文档已不存在。"""
+
+    try:
+        scope = parse_scope({"paths": body.paths, "doc_ids": body.doc_ids})
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await scope_preview(db, scope)

@@ -24,3 +24,10 @@ class DocUpdateIn(BaseModel):
 
 class DocMoveIn(BaseModel):
     path: str
+
+
+class ScopePreviewIn(BaseModel):
+    """编辑器预览助理知识范围：目录 + 文档集。"""
+
+    paths: list[str] = Field(default_factory=list)
+    doc_ids: list[str] = Field(default_factory=list)

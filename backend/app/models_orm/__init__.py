@@ -12,6 +12,7 @@ from app.models_orm.mcp import McpServer, McpToolEmbedding
 from app.models_orm.observation import ObservationToolCall, ObservationTurn
 from app.models_orm.secret import SecretCredential
 from app.models_orm.share import ShareToken
+from app.models_orm.skill import UserSkill
 from app.models_orm.user import ApiToken, User
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "ShareToken",
     "ObservationTurn",
     "ObservationToolCall",
+    "UserSkill",
 ]

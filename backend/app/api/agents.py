@@ -13,8 +13,20 @@ from app.db import get_db
 from app.services import agent_service
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
+from app.services.knowledge_scope import KnowledgeScope, parse_scope, validate_scope
 
 router = APIRouter(tags=["agents"])
+
+
+class AgentExampleInput(BaseModel):
+    # 空值与长度上限由 agent_service.parse_examples 统一校验，保证错误口径一致（400）
+    input: str
+    output: str
+
+
+class KnowledgeScopeInput(BaseModel):
+    paths: list[str] = Field(default_factory=list)
+    doc_ids: list[str] = Field(default_factory=list)
 
 
 class UserAgentInput(BaseModel):
@@ -28,11 +40,17 @@ class UserAgentInput(BaseModel):
     permission_mode: str
     model: str
     max_turns: int
+    output_format: str
+    examples: list[AgentExampleInput]
+    knowledge_scope: KnowledgeScopeInput
+    # None = 继承全部技能；数组 = 只装配这些（可为空数组 = 不装配任何技能）
+    skills: list[str] | None = None
 
 
 def _agent_audit_detail(agent: object) -> dict:
     """审计只记录装配结果，不落 system_prompt 全文（可能很长且含业务语料）。"""
 
+    scope = getattr(agent, "knowledge_scope")
     return {
         "model": getattr(agent, "model"),
         "permission_mode": getattr(agent, "permission_mode"),
@@ -40,7 +58,48 @@ def _agent_audit_detail(agent: object) -> dict:
         "tools": list(getattr(agent, "tools")),
         "disallowed_tools": list(getattr(agent, "disallowed_tools")),
         "system_prompt_chars": len(getattr(agent, "system_prompt")),
+        "output_format": getattr(agent, "output_format"),
+        "examples": len(getattr(agent, "examples")),
+        "knowledge_scope_paths": list(scope.paths),
+        "knowledge_scope_docs": len(scope.doc_ids),
+        "skills": getattr(agent, "skills"),
     }
+
+
+async def _resolve_agent_scope(
+    db: AsyncSession, body: UserAgentInput
+) -> KnowledgeScope:
+    """解析并校验知识范围；不存在的目录/文档直接 400，不做静默降级。"""
+
+    scope = parse_scope(
+        {
+            "paths": body.knowledge_scope.paths,
+            "doc_ids": body.knowledge_scope.doc_ids,
+        }
+    )
+    try:
+        await validate_scope(db, scope)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return scope
+
+
+async def _resolve_agent_tools(
+    db: AsyncSession, body: UserAgentInput
+) -> tuple[list[str], list[str]]:
+    """校验技能勾选并把技能声明的工具并入白名单；违规直接 400。"""
+
+    try:
+        return await agent_service.validate_skill_binding(
+            db,
+            body.skills,
+            body.allowed_tools,
+            body.disallowed_tools,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TypeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/agents")
@@ -76,6 +135,8 @@ async def create_user_agent(
 ) -> dict:
     if body.name is None or body.name == "":
         raise HTTPException(status_code=400, detail="创建助理必须提供 name")
+    scope = await _resolve_agent_scope(db, body)
+    allowed_tools, disallowed_tools = await _resolve_agent_tools(db, body)
     try:
         agent = await agent_service.create_user_agent(
             db,
@@ -84,11 +145,15 @@ async def create_user_agent(
             when_to_use=body.when_to_use,
             system_prompt=body.system_prompt,
             critical_reminder=body.critical_reminder,
-            allowed_tools=body.allowed_tools,
-            disallowed_tools=body.disallowed_tools,
+            allowed_tools=allowed_tools,
+            disallowed_tools=disallowed_tools,
             permission_mode=body.permission_mode,
             model=body.model,
             max_turns=body.max_turns,
+            output_format=body.output_format,
+            examples=tuple(item.model_dump() for item in body.examples),
+            knowledge_scope=scope,
+            skills=body.skills,
         )
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -110,6 +175,8 @@ async def update_user_agent(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
+    scope = await _resolve_agent_scope(db, body)
+    allowed_tools, disallowed_tools = await _resolve_agent_tools(db, body)
     try:
         agent = await agent_service.update_user_agent(
             db,
@@ -118,11 +185,15 @@ async def update_user_agent(
             when_to_use=body.when_to_use,
             system_prompt=body.system_prompt,
             critical_reminder=body.critical_reminder,
-            allowed_tools=body.allowed_tools,
-            disallowed_tools=body.disallowed_tools,
+            allowed_tools=allowed_tools,
+            disallowed_tools=disallowed_tools,
             permission_mode=body.permission_mode,
             model=body.model,
             max_turns=body.max_turns,
+            output_format=body.output_format,
+            examples=tuple(item.model_dump() for item in body.examples),
+            knowledge_scope=scope,
+            skills=body.skills,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

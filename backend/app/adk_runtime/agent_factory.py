@@ -10,6 +10,7 @@ from google.adk.models.lite_llm import LiteLlm
 
 from app.adk_runtime.builtin_tools import build_builtin_tools
 from app.adk_runtime.tool_approval import build_before_tool_callback
+from app.services.knowledge_scope import KnowledgeScope
 from app.services.llm_config import compose_litellm_model
 from app.services.skills_service import build_skill_toolset
 
@@ -44,6 +45,8 @@ def build_chat_agent(
     provider_extra_body: dict[str, Any] | None = None,
     disallowed_tool_names: set[str] | None = None,
     max_turns: int = 0,
+    knowledge_scope: KnowledgeScope | None = None,
+    skills: list[Any] | None = None,
 ) -> LlmAgent:
     """按配置-模型与助理人设装配 LlmAgent；extra_tools 挂 MCP SearchableToolset 等。
 
@@ -101,7 +104,14 @@ def build_chat_agent(
     )
     tools: list[Any] = list(build_builtin_tools())
     # SkillToolset(EAGER)：目录可见，正文仍 load_skill 按需加载
-    tools.append(build_skill_toolset())
+    tools.append(build_skill_toolset(knowledge_scope, skills))
+    if knowledge_scope is not None and not knowledge_scope.is_empty:
+        logger.info(
+            "装配知识范围 agent=%s paths=%s doc_ids=%s",
+            agent_name,
+            list(knowledge_scope.paths),
+            len(knowledge_scope.doc_ids),
+        )
     if extra_tools is not None:
         tools.extend(extra_tools)
     # ADK Runner 侧固定 agent 名；业务助理标识只进日志与人设 instruction。

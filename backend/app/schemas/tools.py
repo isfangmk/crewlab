@@ -20,6 +20,8 @@ class BuiltinToolOut(BaseModel):
     name: str
     description: str
     risk: str
+    # always = 随 SkillToolset 始终装配；per_turn = 由对话开关决定
+    mount: str
     params: list[BuiltinToolParamOut] = Field(default_factory=list)
 
 

@@ -14,7 +14,7 @@ from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.stream_bridge import SseFrame, stream_adk_confirmation
 from app.models_orm.approval import Approval
 from app.models_orm.chat import ChatSession
-from app.services import agent_service, chat_service, mcp_service
+from app.services import agent_service, chat_service, mcp_service, skills_service
 from app.services.llm_config import resolve_model
 
 logger = logging.getLogger(__name__)
@@ -334,8 +334,11 @@ async def stream_decide(
         raise TypeError(f"turn_context.provider_extra_body 必须是 dict: {row.id}")
     llm = await resolve_model(db, provider_id, model)
 
+    # 助理勾选的技能：审批恢复回合必须与发起时装配同一套 SKILL.md
+    runtime_skills = await skills_service.resolve_skills(db, resolved_agent.skills)
+    allowed_tools = agent_service.effective_allowed_tools(resolved_agent, runtime_skills)
     mcp_servers = await mcp_service.list_enabled_servers(db)
-    mcp_servers = agent_service.filter_mcp_servers_for_agent(mcp_servers, resolved_agent)
+    mcp_servers = agent_service.filter_mcp_servers_by_tools(mcp_servers, allowed_tools)
     from app.services.tool_search_index import warm_vector_cache_from_db
 
     await warm_vector_cache_from_db(db)
@@ -343,6 +346,13 @@ async def stream_decide(
     confirm_tool_names = mcp_service.confirm_tool_names_for_servers(mcp_servers)
     # 助理级禁用名单与只读模式：恢复回合必须沿用发起时的助理约束
     disallowed_tool_names = agent_service.agent_disallowed_tool_names(resolved_agent)
+    drift = disallowed_tool_names & skills_service.declared_tools_of_skills(runtime_skills)
+    if drift:
+        logger.warning(
+            "技能声明的工具被助理禁用名单拦截 agent=%s tools=%s",
+            resolved_agent.name,
+            sorted(drift),
+        )
     if resolved_agent.permission_mode == "read-only":
         confirm_tool_names = confirm_tool_names | set(
             mcp_service.all_business_tool_names_for_servers(mcp_servers)
@@ -392,7 +402,7 @@ async def stream_decide(
             session_service=get_adk_session_service(),
             agent_name=resolved_agent.name,
             agent_description=resolved_agent.description,
-            persona_instruction=resolved_agent.system_prompt,
+            persona_instruction=agent_service.compose_persona(resolved_agent),
             thinking_enabled=thinking_enabled,
             extra_tools=extra_tools,
             llm_timeout_seconds=llm_timeout_seconds,
@@ -401,6 +411,8 @@ async def stream_decide(
             provider_extra_body=provider_extra_body,
             disallowed_tool_names=disallowed_tool_names,
             max_turns=resolved_agent.max_turns,
+            knowledge_scope=resolved_agent.knowledge_scope,
+            skills=runtime_skills,
         ):
             await persister.persist(frame)
             if frame.event == "tool_end" and frame.data.get("tool_call_id") == row.tool_call_id:

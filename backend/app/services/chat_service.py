@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 
@@ -26,6 +27,7 @@ from app.services import (
     llm_config,
     mcp_service,
     observation_service,
+    skills_service,
 )
 from app.services.llm_config import resolve_model
 from app.services import turn_control
@@ -298,6 +300,67 @@ _SESSION_SORT_COLUMNS = {
     "created_at": ChatSession.created_at,
 }
 
+# 列表里的「最近一条摘要」只用于辨认会话，长度下限必须固定：
+# 超长回答整段塞进列表响应会把 20 条的分页变成几百 KB。
+_SESSION_PREVIEW_MAX_CHARS = 240
+
+
+@dataclass(frozen=True)
+class SessionStats:
+    """会话列表附带的统计：消息条数与最近一条正文摘要。"""
+
+    message_count: int
+    last_message_preview: str | None
+
+
+async def list_session_stats(
+    db: AsyncSession, session_ids: list[str]
+) -> dict[str, SessionStats]:
+    """批量取会话统计，两条聚合查询覆盖整页，避免逐行 N+1。
+
+    预览取「最近一条有正文的消息」：tool_card / tool_intent 的 content 为空，
+    用它们当摘要只会显示空行。
+    """
+
+    if not session_ids:
+        return {}
+
+    count_rows = (
+        await db.execute(
+            select(ChatMessage.session_id, func.count())
+            .where(ChatMessage.session_id.in_(session_ids))
+            .group_by(ChatMessage.session_id)
+        )
+    ).all()
+    counts = {sid: int(n) for sid, n in count_rows}
+
+    # DISTINCT ON：按 seq 倒序取每个会话的第一条，结果集只等于会话数。
+    preview_rows = (
+        await db.execute(
+            select(ChatMessage.session_id, ChatMessage.content)
+            .where(
+                ChatMessage.session_id.in_(session_ids),
+                ChatMessage.content.is_not(None),
+                ChatMessage.content != "",
+            )
+            .order_by(ChatMessage.session_id, ChatMessage.seq.desc())
+            .distinct(ChatMessage.session_id)
+        )
+    ).all()
+    previews = {
+        sid: content.strip()[:_SESSION_PREVIEW_MAX_CHARS]
+        for sid, content in preview_rows
+        if content is not None and content.strip() != ""
+    }
+
+    return {
+        sid: SessionStats(
+            message_count=counts.get(sid, 0),
+            last_message_preview=previews.get(sid),
+        )
+        for sid in session_ids
+    }
+
 
 async def list_sessions(
     db: AsyncSession,
@@ -305,6 +368,7 @@ async def list_sessions(
     q: str | None = None,
     include_archived: bool = False,
     agent_id: str | None = None,
+    model: str | None = None,
     updated_from: datetime | None = None,
     updated_to: datetime | None = None,
     sort_by: str | None = None,
@@ -322,6 +386,8 @@ async def list_sessions(
         raise ValueError("updated_from 不能晚于 updated_to")
     if agent_id is not None and agent_id == "":
         raise ValueError("agent_id 不能为空字符串")
+    if model is not None and model == "":
+        raise ValueError("model 不能为空字符串")
     if sort_dir not in ("asc", "desc"):
         raise ValueError("sort_dir 只能是 asc 或 desc")
     if sort_by is not None and sort_by not in _SESSION_SORT_COLUMNS:
@@ -339,6 +405,9 @@ async def list_sessions(
         )
     if agent_id is not None:
         filters.append(ChatSession.agent_id == agent_id)
+    if model is not None:
+        # 模型筛选是精确匹配：q 的模糊匹配会同时命中标题含模型名的会话，选不准。
+        filters.append(ChatSession.model == model)
     if updated_from is not None:
         filters.append(ChatSession.updated_at >= updated_from)
     if updated_to is not None:
@@ -364,9 +433,10 @@ async def list_sessions(
     list_stmt = list_stmt.order_by(*order).offset(offset).limit(limit)
     items = list(await db.scalars(list_stmt))
     logger.info(
-        "列出会话 q=%s agent_id=%s archived=%s from=%s to=%s sort=%s/%s limit=%s offset=%s total=%s page=%s",
+        "列出会话 q=%s agent_id=%s model=%s archived=%s from=%s to=%s sort=%s/%s limit=%s offset=%s total=%s page=%s",
         q,
         agent_id,
+        model,
         include_archived,
         updated_from.isoformat() if updated_from else None,
         updated_to.isoformat() if updated_to else None,
@@ -378,6 +448,19 @@ async def list_sessions(
         len(items),
     )
     return items, total
+
+
+async def list_session_models(db: AsyncSession) -> list[str]:
+    """会话里实际出现过的模型名，供列表筛选项使用。
+
+    含归档会话：筛选与「含归档」开关是正交的，隐藏归档会让选项随开关跳变。
+    模型筛选是精确匹配，选项必须来自真实数据，否则选了也查不到。
+    """
+
+    rows = await db.scalars(
+        select(ChatSession.model).distinct().order_by(ChatSession.model)
+    )
+    return [m for m in rows.all() if m != ""]
 
 
 async def update_session_flags(
@@ -1131,7 +1214,7 @@ async def stream_session_message(
         runtime["llm_timeout_seconds"],
         runtime["output_locale"],
     )
-    persona = resolved_agent.system_prompt
+    persona = agent_service.compose_persona(resolved_agent)
     # 本回合 locale 覆盖设置页 output_locale；前端传 en-US / zh-CN
     if locale is None:
         effective_locale = runtime["output_locale"]
@@ -1158,8 +1241,13 @@ async def stream_session_message(
         )
         persona = page_hint if persona == "" else f"{persona}\n\n{page_hint}"
 
+    # 助理勾选的技能：None = 继承全部；勾选集合决定装配哪些 SKILL.md。
+    # 先解析技能，再按「白名单 + 技能声明的工具」筛选 MCP Server：技能可以先建后改，
+    # 只依赖保存助理时并入的那份白名单会漏掉后来新增的 MCP 工具。
+    runtime_skills = await skills_service.resolve_skills(db, resolved_agent.skills)
+    allowed_tools = agent_service.effective_allowed_tools(resolved_agent, runtime_skills)
     mcp_servers = await mcp_service.list_enabled_servers(db)
-    mcp_servers = agent_service.filter_mcp_servers_for_agent(mcp_servers, resolved_agent)
+    mcp_servers = agent_service.filter_mcp_servers_by_tools(mcp_servers, allowed_tools)
     from app.services.tool_search_index import warm_vector_cache_from_db
 
     await warm_vector_cache_from_db(db)
@@ -1167,6 +1255,14 @@ async def stream_session_message(
     confirm_tool_names = mcp_service.confirm_tool_names_for_servers(mcp_servers)
     # 助理级禁用名单：命中的工具直接拒绝执行
     disallowed_tool_names = agent_service.agent_disallowed_tool_names(resolved_agent)
+    # 技能要靠声明的工具工作，配置漂移（技能后加声明、助理已屏蔽）必须留痕
+    drift = disallowed_tool_names & skills_service.declared_tools_of_skills(runtime_skills)
+    if drift:
+        logger.warning(
+            "技能声明的工具被助理禁用名单拦截 agent=%s tools=%s",
+            resolved_agent.name,
+            sorted(drift),
+        )
     # 助理级只读模式：该助理用到的 MCP 工具一律要人工确认
     if resolved_agent.permission_mode == "read-only":
         confirm_tool_names = confirm_tool_names | set(
@@ -1247,6 +1343,8 @@ async def stream_session_message(
             provider_extra_body=llm_config.provider_extra_body(llm),
             disallowed_tool_names=disallowed_tool_names,
             max_turns=resolved_agent.max_turns,
+            knowledge_scope=resolved_agent.knowledge_scope,
+            skills=runtime_skills,
         ):
             if turn_control.is_stopped(session_id):
                 logger.info("回合被停止 session_id=%s", session_id)

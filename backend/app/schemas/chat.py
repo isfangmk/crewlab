@@ -43,6 +43,9 @@ class ChatSessionOut(BaseModel):
     page_context: PageContextIn | None = None
     pinned: bool = False
     archived: bool = False
+    # 列表页摘要：消息条数与最近一条正文（已截断）；新建会话为 0 / None
+    message_count: int = 0
+    last_message_preview: str | None = None
 
 
 class UpdateSessionFlagsRequest(BaseModel):

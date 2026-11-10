@@ -36,7 +36,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
 
-def _session_out(s) -> ChatSessionOut:
+def _session_out(s, stats: chat_service.SessionStats | None = None) -> ChatSessionOut:
+    """会话出参；stats 缺失时按「新会话」处理（0 条消息、无摘要）。"""
+
     return ChatSessionOut(
         id=s.id,
         title=s.title,
@@ -48,6 +50,8 @@ def _session_out(s) -> ChatSessionOut:
         page_context=chat_service.session_page_context(s),
         pinned=bool(s.pinned),
         archived=bool(s.archived),
+        message_count=0 if stats is None else stats.message_count,
+        last_message_preview=None if stats is None else stats.last_message_preview,
     )
 
 
@@ -56,6 +60,7 @@ async def list_sessions(
     q: str | None = Query(None),
     include_archived: bool = Query(False),
     agent_id: str | None = Query(None),
+    model: str | None = Query(None),
     updated_from: datetime | None = Query(None),
     updated_to: datetime | None = Query(None),
     sort_by: str | None = Query(None),
@@ -71,6 +76,7 @@ async def list_sessions(
             q=q,
             include_archived=include_archived,
             agent_id=agent_id,
+            model=model,
             updated_from=updated_from,
             updated_to=updated_to,
             sort_by=sort_by,
@@ -80,7 +86,21 @@ async def list_sessions(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"items": [_session_out(s) for s in items], "total": total}
+    stats = await chat_service.list_session_stats(db, [s.id for s in items])
+    return {
+        "items": [_session_out(s, stats.get(s.id)) for s in items],
+        "total": total,
+    }
+
+
+@router.get("/chat/sessions/models")
+async def list_session_models(
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    """会话列表的模型筛选项；必须声明在 /chat/sessions/{id} 之前，否则会被当成 session_id。"""
+
+    return {"items": await chat_service.list_session_models(db)}
 
 
 @router.post("/chat/sessions/batch-delete")
@@ -116,7 +136,8 @@ async def get_session(
         session = await chat_service.get_session(db, session_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return _session_out(session)
+    stats = await chat_service.list_session_stats(db, [session.id])
+    return _session_out(session, stats.get(session.id))
 
 
 @router.post("/chat/sessions", response_model=ChatSessionOut)
@@ -196,7 +217,9 @@ async def fork_session(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _session_out(session)
+    # fork 会把消息复制到新会话，统计必须按新会话 id 重新算，不能沿用源会话。
+    stats = await chat_service.list_session_stats(db, [session.id])
+    return _session_out(session, stats.get(session.id))
 
 
 @router.get("/chat/sessions/{session_id}/export")
@@ -272,7 +295,7 @@ async def put_session_model(
     session_id: str,
     body: UpdateSessionModelRequest,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     """切换会话模型；provider+model 必须在「配置-模型」中可反查。"""
 
@@ -282,6 +305,15 @@ async def put_session_model(
         )
     except LookupError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # 切模型等于改变数据流向哪家厂商，属于治理动作。
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="session.model",
+        resource_type="chat_session",
+        resource_id=session_id,
+        detail={"provider": body.provider, "model": body.model},
+    )
     return {}
 
 
@@ -290,12 +322,21 @@ async def patch_session_agent(
     session_id: str,
     body: UpdateSessionAgentRequest,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     try:
         await chat_service.update_session_agent(db, session_id, body.agent_id)
     except LookupError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # 换助理会改变该会话可见的工具/技能面，属于能力变更。
+    await write_audit(
+        db,
+        actor_user_id=user.id,
+        action="session.agent",
+        resource_type="chat_session",
+        resource_id=session_id,
+        detail={"agent_id": body.agent_id},
+    )
     return {}
 
 

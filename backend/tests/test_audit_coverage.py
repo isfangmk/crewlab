@@ -63,6 +63,11 @@ async def test_agent_crud_is_audited(env: dict[str, str], api_base: str) -> None
         "permission_mode": "",
         "model": "",
         "max_turns": 8,
+        "output_format": "checklist",
+        "examples": [{"input": "巡检怎么开始？", "output": "- 先看黄金四信号"}],
+        "knowledge_scope": {"paths": [], "doc_ids": []},
+        # 不装配技能：技能的声明工具会自动并入白名单，会让本用例的工具断言随目录漂移
+        "skills": [],
     }
     async with httpx.AsyncClient(base_url=api_base, timeout=60.0) as client:
         if (await client.get("/healthz")).status_code != 200:
@@ -88,8 +93,10 @@ async def test_agent_crud_is_audited(env: dict[str, str], api_base: str) -> None
         assert rows[0]["resource_type"] == "agent"
         assert rows[0]["detail"]["max_turns"] == 8
         assert rows[0]["detail"]["tools"] == ["get_current_time"]
-        # 审计只记 prompt 长度，不落全文
+        # 审计只记 prompt 长度，不落全文；示例只记条数
         assert rows[0]["detail"]["system_prompt_chars"] == len(payload["system_prompt"])
+        assert rows[0]["detail"]["output_format"] == "checklist"
+        assert rows[0]["detail"]["examples"] == 1
 
         upd = await _audit_rows(client, headers, action="agent.update", resource_id=name)
         assert len(upd) == 1, upd

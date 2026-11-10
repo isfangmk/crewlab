@@ -43,6 +43,7 @@ def list_builtin_tools() -> list[dict]:
                 "name": name,
                 "description": spec["description"],
                 "risk": spec["risk"],
+                "mount": spec["mount"],
                 "params": tool_param_specs(_param_source(name)),
             }
         )

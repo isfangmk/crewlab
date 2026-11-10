@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any, cast
 
 from google.adk.tools.mcp_tool import McpToolset
@@ -403,6 +404,105 @@ async def get_server(db: AsyncSession, server_id: int) -> McpServer:
     if row is None:
         raise LookupError(f"MCP Server 不存在: {server_id}")
     return row
+
+
+@dataclass(frozen=True)
+class McpToolRef:
+    """技能可以声明的 MCP 工具引用（wire 名为准）。"""
+
+    server_name: str
+    tool_name: str
+    wire_name: str
+    description: str
+    input_schema: dict[str, Any]
+    # Server 被停用 / 探测失败时为 False：声明仍然合法，但运行时不会挂载
+    available: bool
+
+
+async def mcp_tool_catalog(db: AsyncSession) -> dict[str, McpToolRef]:
+    """全部已登记 Server 的工具目录：wire 名 -> 引用。
+
+    口径：目录来自 tools_cache（探测结果），不在这里连远程。可用性单独标注，
+    因为技能声明是配置（Server 临时停用不该让技能无法保存 / 无法编辑）。
+    """
+
+    catalog: dict[str, McpToolRef] = {}
+    for server in await list_servers(db):
+        if server.tools_cache_json.strip() == "":
+            continue
+        data = json.loads(server.tools_cache_json)
+        if not isinstance(data, list):
+            raise TypeError(f"MCP Server {server.name} tools_cache_json 必须是数组")
+        available = server.enabled and server.status == "ok"
+        for index, item in enumerate(data):
+            if not isinstance(item, dict):
+                raise TypeError(f"MCP Server {server.name} tools_cache[{index}] 必须是对象")
+            tool_name = item.get("name")
+            if not isinstance(tool_name, str) or tool_name == "":
+                raise ValueError(f"MCP Server {server.name} tools_cache[{index}].name 无效")
+            schema = item.get("input_schema")
+            if not isinstance(schema, dict):
+                raise TypeError(
+                    f"MCP Server {server.name} 工具 {tool_name} 缺少 input_schema，请重新测试连接"
+                )
+            description = item.get("description")
+            wire = mcp_tool_wire_name(server.name, tool_name)
+            catalog[wire] = McpToolRef(
+                server_name=server.name,
+                tool_name=tool_name,
+                wire_name=wire,
+                description=description if isinstance(description, str) else "",
+                input_schema=schema,
+                available=available,
+            )
+    return catalog
+
+
+# JSON Schema 基本类型 -> 平台参数类型（与 builtin_tools.tool_param_specs 同集合）
+_SCHEMA_TYPE_TO_PARAM: dict[str, str] = {
+    "string": "string",
+    "integer": "int",
+    "number": "float",
+    "boolean": "bool",
+}
+
+
+def skill_params_from_schema(schema: dict[str, Any]) -> list[dict]:
+    """把 MCP input_schema 压成技能目录的参数表（name/type/required/default/desc）。"""
+
+    properties = schema.get("properties")
+    if properties is None:
+        return []
+    if not isinstance(properties, dict):
+        raise TypeError("MCP input_schema.properties 必须是对象")
+    required = schema.get("required")
+    required_names = set(required) if isinstance(required, list) else set()
+
+    specs: list[dict] = []
+    for name, prop in properties.items():
+        if not isinstance(name, str) or name == "":
+            raise TypeError("MCP input_schema.properties 的键必须是非空字符串")
+        if not isinstance(prop, dict):
+            raise TypeError(f"MCP input_schema.properties.{name} 必须是对象")
+        raw_type = prop.get("type")
+        if isinstance(raw_type, list):
+            # ["string", "null"] 这类联合类型取第一个非 null
+            raw_type = next((item for item in raw_type if item != "null"), None)
+        param_type = _SCHEMA_TYPE_TO_PARAM.get(str(raw_type), "string")
+        spec: dict[str, Any] = {
+            "name": name,
+            "type": param_type,
+            "required": name in required_names,
+        }
+        if "default" in prop:
+            spec["default"] = prop["default"]
+        if param_type == "string" and isinstance(prop.get("enum"), list):
+            spec["enum"] = [str(item) for item in prop["enum"]]
+        description = prop.get("description")
+        if isinstance(description, str) and description != "":
+            spec["desc"] = description
+        specs.append(spec)
+    return specs
 
 
 async def create_server(

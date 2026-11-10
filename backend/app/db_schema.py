@@ -30,6 +30,15 @@ _REQUIRED_COLUMNS: list[tuple[str, str, str]] = [
     ("approvals", "decision_reason", "TEXT"),
     ("observation_turns", "tool_call_count", "INTEGER NOT NULL DEFAULT 0"),
     ("observation_turns", "skill_call_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("user_agents", "output_format", "VARCHAR(32) NOT NULL DEFAULT 'free'"),
+    ("user_agents", "examples_json", "TEXT NOT NULL DEFAULT '[]'"),
+    (
+        "user_agents",
+        "knowledge_scope_json",
+        "TEXT NOT NULL DEFAULT '{\"paths\": [], \"doc_ids\": []}'",
+    ),
+    # 技能勾选：NULL = 继承全部技能（老库升级后的默认行为不变）
+    ("user_agents", "skills_json", "TEXT"),
 ]
 
 

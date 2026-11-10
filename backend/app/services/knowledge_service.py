@@ -10,6 +10,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.services.embedding_client import embed_text, embed_texts
+from app.services.knowledge_scope import KnowledgeScope, scope_condition
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +267,14 @@ async def list_paths(db: AsyncSession) -> list[dict]:
     return [{"path": path, "count": count} for path, count in rows]
 
 
-def _apply_doc_filters(stmt, *, path: str | None, path_prefix: str | None, tags: list[str] | None):
+def _apply_doc_filters(
+    stmt,
+    *,
+    path: str | None,
+    path_prefix: str | None,
+    tags: list[str] | None,
+    scope: KnowledgeScope | None = None,
+):
     if path is not None:
         stmt = stmt.where(KnowledgeDoc.path == path)
     if path_prefix is not None:
@@ -274,6 +282,10 @@ def _apply_doc_filters(stmt, *, path: str | None, path_prefix: str | None, tags:
     if tags:
         for t in tags:
             stmt = stmt.where(KnowledgeDoc.tags.contains([t]))
+    # 助理范围：与上面的 path/tags 过滤是 AND 关系
+    scope_cond = scope_condition(scope)
+    if scope_cond is not None:
+        stmt = stmt.where(scope_cond)
     return stmt
 
 
@@ -285,6 +297,7 @@ async def search_docs(
     path: str | None,
     path_prefix: str | None,
     tags: list[str] | None,
+    scope: KnowledgeScope | None = None,
 ) -> list[tuple[KnowledgeDoc, float]]:
     """混合检索：向量余弦 + 关键词 ILIKE，RRF 融合后聚合到文档。"""
 
@@ -303,7 +316,7 @@ async def search_docs(
         .limit(pool)
     )
     vec_stmt = _apply_doc_filters(
-        vec_stmt, path=path, path_prefix=path_prefix, tags=tags
+        vec_stmt, path=path, path_prefix=path_prefix, tags=tags, scope=scope
     )
     vec_rows = (await db.execute(vec_stmt)).all()
 
@@ -313,7 +326,9 @@ async def search_docs(
         .where(KnowledgeChunk.content.ilike(f"%{query}%"))
         .limit(pool)
     )
-    kw_stmt = _apply_doc_filters(kw_stmt, path=path, path_prefix=path_prefix, tags=tags)
+    kw_stmt = _apply_doc_filters(
+        kw_stmt, path=path, path_prefix=path_prefix, tags=tags, scope=scope
+    )
     kw_rows = (await db.execute(kw_stmt)).all()
 
     # RRF：按文档聚合排名分
@@ -395,8 +410,15 @@ def extract_upload_text(*, filename: str, raw: bytes) -> str:
     raise ValueError("仅支持 .md / .txt / .pdf / .docx")
 
 
-async def search_for_agent(query: str, limit: int = 5) -> dict:
-    """供 ADK Tool 调用：自建短会话检索并返回可引用片段。"""
+async def search_for_agent(
+    query: str,
+    limit: int = 5,
+    scope: KnowledgeScope | None = None,
+) -> dict:
+    """供 ADK Tool 调用：自建短会话检索并返回可引用片段。
+
+    scope 由助理的知识范围决定；为空表示继承全部知识库。
+    """
 
     from app.db import SessionLocal
 
@@ -413,6 +435,7 @@ async def search_for_agent(query: str, limit: int = 5) -> dict:
             path=None,
             path_prefix=None,
             tags=None,
+            scope=scope,
         )
         items = []
         for doc, score in hits:
@@ -431,6 +454,7 @@ async def search_for_agent(query: str, limit: int = 5) -> dict:
                     "doc_id": doc.id,
                     "title": doc.title,
                     "path": doc.path,
+                    "chunk_index": chunk.chunk_index,
                     "score": score,
                     "excerpt": chunk.content,
                 }
