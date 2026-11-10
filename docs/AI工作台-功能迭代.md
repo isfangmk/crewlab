@@ -266,7 +266,7 @@ EMBEDDING_DIM=2560
 
 - [x] 设置·模型：`/system-settings?category=llm` + `/integrations/llm/{test,validate-and-save,models,invalidate}` 已对接 `llm_providers`  
 - [x] 设置·助理：`/system-settings?category=agent` + PUT  
-- [x] 设置·凭证：`/secrets` + `/credential-types`（Fernet 由 AUTH_TOKEN 派生）  
+- [x] 设置·凭证：`/secrets` + `/credential-types`（Fernet 密钥来自 `CREDENTIAL_ENCRYPTION_KEY`，与登录口令解耦；G3 起支持轮换向导与脱敏导出）  
 - [x] 日志脱敏（Bearer / api_key / sk- 片段）  
 - [x] 对话 stop、`GET /version`、助理 output_locale / llm_timeout 生效  
 - [x] Skills 页去掉 Marketplace 扩展安装（P0 不做）  
