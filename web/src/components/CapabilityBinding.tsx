@@ -1,7 +1,8 @@
 // CapabilityBinding — 助理「能力绑定可视化」。
 //
 // 三组能力同屏：内置工具 / 技能 / MCP Server。勾选的是运行时真正生效的对象：
-//   - MCP 按 Server 整台挂载（后端 filter_mcp_servers_for_agent 的口径）
+//   - MCP 按 Server 整台挂载（后端 filter_mcp_servers_for_agent 的口径）；
+//     技能声明的工具直接进上下文，同 Server 的其余工具仍靠 search/load 检索
 //   - 技能：勾选的才装配；技能声明的工具随技能自动并入白名单且不可屏蔽
 //   - 内置工具随 SkillToolset 始终装配，只能进「屏蔽」名单
 // 顶部的「实际可见」由 capabilityPreview 按运行时口径算出，勾选与可见数不一致时逐条说明。
@@ -208,16 +209,16 @@ export function CapabilityBinding({
           {preview.partialServers.map((item) => (
             <li key={item.server}>
               {tr(
-                `${item.server} 勾选 ${item.selected}/${item.total} 个工具（含技能声明），但 MCP 按 Server 整台挂载，实际 ${item.total} 个工具都可见`,
-                `${item.server} selects ${item.selected}/${item.total} tools (including skill-declared); MCP mounts per server, so all ${item.total} are visible`,
+                `${item.server} 勾选 ${item.selected}/${item.total} 个工具（含技能声明），但 MCP 按 Server 整台挂载，同 Server 其余 ${item.total - item.selected} 个工具仍可检索调用`,
+                `${item.server} selects ${item.selected}/${item.total} tools (including skill-declared); MCP mounts per server, so the other ${item.total - item.selected} are still searchable`,
               )}
             </li>
           ))}
           {preview.skillDeclaredServers.length > 0 && (
             <li>
               {tr(
-                `技能声明的 MCP 工具会自动挂载这些 Server：${preview.skillDeclaredServers.join('、')}`,
-                `Skill-declared MCP tools auto-mount these servers: ${preview.skillDeclaredServers.join(', ')}`,
+                `技能声明的 MCP 工具直接进入上下文（免检索）：${preview.skillDeclaredServers.join('、')}`,
+                `Skill-declared MCP tools are injected directly (no search): ${preview.skillDeclaredServers.join(', ')}`,
               )}
             </li>
           )}
