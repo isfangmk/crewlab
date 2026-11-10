@@ -332,20 +332,27 @@ def all_business_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
 
 
 async def build_searchable_mcp_toolsets(
-    db: AsyncSession, servers: list[McpServer]
+    db: AsyncSession,
+    servers: list[McpServer],
+    always_visible_tools: set[str] | None = None,
 ) -> list:
-    """MCP 工具不进初始上下文：经 SearchableToolset 搜索后再加载调用。
+    """MCP 工具默认不进初始上下文：经 SearchableToolset 搜索后再加载调用。
 
     目录来自 DB tools_cache（CachedMcpCatalogToolset），发现阶段不连远程；
     检索用 EmbeddingToolIndex。
+
+    always_visible_tools 是「直接可见」的 wire 名集合（技能声明的工具）：
+    这些工具不参与检索，直接进模型上下文；其余工具仍走 search/load。
+    未挂载的 Server 根本不会进入本函数，因此它的工具既不可见也搜不到。
     """
 
-    from app.services.mcp_catalog_toolset import CachedMcpCatalogToolset
+    from app.services.mcp_catalog_toolset import CachedMcpCatalogToolset, McpToolsView
     from app.services.tool_search_index import (
         EmbeddingToolIndex,
         PrefetchingEmbeddingToolset,
     )
 
+    visible = set() if always_visible_tools is None else set(always_visible_tools)
     toolsets = []
     skipped: list[str] = []
     for server in servers:
@@ -364,10 +371,30 @@ async def build_searchable_mcp_toolsets(
         # 业务工具 wire 名在 source 上；SearchableToolset 不再叠前缀
         source = await CachedMcpCatalogToolset.create(db, server)
         prefix = mcp_toolset_name_prefix(server.name)
+        source_tools = await source.get_tools()
+        catalog_names = {tool.name for tool in source_tools}
+        declared = catalog_names & visible
+        if len(declared) == len(catalog_names):
+            # 整台 Server 的工具都被技能声明：全部直接可见，不再保留空的检索入口
+            toolsets.append(McpToolsView(source, visible=declared))
+            logger.info(
+                "MCP toolset 全部直接可见 id=%s name=%s tools=%s",
+                server.id,
+                server.name,
+                sorted(declared),
+            )
+            continue
+        # 被声明的工具从检索目录里摘掉，其余工具仍可 search/load
+        deferred_source = (
+            source if len(declared) == 0 else McpToolsView(source, hidden=declared)
+        )
         searchable = PrefetchingEmbeddingToolset(
             namespace=f"mcp__{server.name}",
-            source=source,
+            source=deferred_source,
             tool_name_prefix=None,
+            always_available=[
+                tool for tool in source_tools if tool.name in declared
+            ],
             # EmbeddingToolIndex 与 BM25 同契约；上游类型写死了 BM25
             index_factory=cast(Any, EmbeddingToolIndex),
         )
@@ -376,11 +403,14 @@ async def build_searchable_mcp_toolsets(
             _bind_tool_wire_name(discovery, f"{prefix}{discovery.name}")
         toolsets.append(searchable)
         logger.info(
-            "装配可搜索 MCP toolset id=%s name=%s prefix=%s trusted=%s index=embedding source=cache",
+            "装配可搜索 MCP toolset id=%s name=%s prefix=%s trusted=%s "
+            "direct_tools=%s searchable_tools=%s index=embedding source=cache",
             server.id,
             server.name,
             prefix,
             server.trusted,
+            sorted(declared),
+            len(catalog_names) - len(declared),
         )
     if skipped:
         logger.warning("本次装配跳过不可用的 MCP Server names=%s", skipped)

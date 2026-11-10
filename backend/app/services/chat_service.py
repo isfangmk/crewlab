@@ -1251,7 +1251,14 @@ async def stream_session_message(
     from app.services.tool_search_index import warm_vector_cache_from_db
 
     await warm_vector_cache_from_db(db)
-    extra_tools: list = list(await mcp_service.build_searchable_mcp_toolsets(db, mcp_servers))
+    extra_tools: list = list(
+        await mcp_service.build_searchable_mcp_toolsets(
+            db,
+            mcp_servers,
+            # 技能声明的 MCP 工具直接进上下文；其余工具仍靠 search/load
+            always_visible_tools=skills_service.declared_tools_of_skills(runtime_skills),
+        )
+    )
     confirm_tool_names = mcp_service.confirm_tool_names_for_servers(mcp_servers)
     # 助理级禁用名单：命中的工具直接拒绝执行
     disallowed_tool_names = agent_service.agent_disallowed_tool_names(resolved_agent)

@@ -342,7 +342,12 @@ async def stream_decide(
     from app.services.tool_search_index import warm_vector_cache_from_db
 
     await warm_vector_cache_from_db(db)
-    extra_tools = await mcp_service.build_searchable_mcp_toolsets(db, mcp_servers)
+    extra_tools = await mcp_service.build_searchable_mcp_toolsets(
+        db,
+        mcp_servers,
+        # 审批恢复回合沿用同一套「技能声明工具直接可见」口径
+        always_visible_tools=skills_service.declared_tools_of_skills(runtime_skills),
+    )
     confirm_tool_names = mcp_service.confirm_tool_names_for_servers(mcp_servers)
     # 助理级禁用名单与只读模式：恢复回合必须沿用发起时的助理约束
     disallowed_tool_names = agent_service.agent_disallowed_tool_names(resolved_agent)

@@ -6,10 +6,22 @@
 
 from __future__ import annotations
 
+import json
+
 from google.adk.skills import Frontmatter, Skill
 
-from app.services.agent_service import ResolvedAgent, effective_allowed_tools
-from app.services.mcp_service import McpToolRef, mcp_tool_wire_name, skill_params_from_schema
+from app.models_orm.mcp import McpServer
+from app.services.agent_service import (
+    ResolvedAgent,
+    effective_allowed_tools,
+    filter_mcp_servers_by_tools,
+)
+from app.services.mcp_service import (
+    McpToolRef,
+    build_searchable_mcp_toolsets,
+    mcp_tool_wire_name,
+    skill_params_from_schema,
+)
 from app.services.skills_service import SkillEntry, declared_tools_of_skills, skill_to_wire
 
 _WIRE = mcp_tool_wire_name("ai-engine", "get_host_load")
@@ -127,3 +139,91 @@ def test_effective_allowed_tools_merges_skill_declared_mcp() -> None:
 def test_effective_allowed_tools_keeps_inherit_all() -> None:
     # 空白名单 = 继承全部，不展开成显式列表
     assert effective_allowed_tools(_agent([]), [_skill([_WIRE])]) == []
+
+
+def _server(
+    *,
+    name: str = "ai-engine",
+    tools: list[str] | None = None,
+    status: str = "ok",
+) -> McpServer:
+    names = ["get_host_load", "list_hosts"] if tools is None else tools
+    return McpServer(
+        name=name,
+        transport="http",
+        endpoint="http://127.0.0.1:9999/mcp",
+        credential="",
+        header_template_json="{}",
+        trusted=False,
+        approval_policy="never",
+        enabled=True,
+        status=status,
+        last_error="",
+        tools_cache_json=json.dumps(
+            [
+                {
+                    "name": item,
+                    "description": f"{item} 工具",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"host": {"type": "string"}},
+                    },
+                }
+                for item in names
+            ],
+            ensure_ascii=False,
+        ),
+    )
+
+
+async def test_declared_mcp_tool_is_directly_visible() -> None:
+    """技能声明的工具直接进上下文，其余工具仍留在检索目录里。"""
+
+    from app.services import tool_search_index
+
+    server = _server()
+    deferred_wire = mcp_tool_wire_name("ai-engine", "list_hosts")
+    # 检索目录构建只读进程内向量缓存（线上由 warm_vector_cache_from_db 预热）
+    tool_search_index._VECTOR_CACHE[deferred_wire] = [0.0, 1.0]  # noqa: SLF001
+    toolsets = await build_searchable_mcp_toolsets(
+        None, [server], always_visible_tools={_WIRE}
+    )
+    assert len(toolsets) == 1
+    toolset = toolsets[0]
+    try:
+        visible = {tool.name for tool in await toolset.get_tools()}
+        assert _WIRE in visible
+        # 已直接可见的工具不能再被检索，否则 SearchableToolset 会拒绝装配
+        deferred = {tool.name for tool in await toolset._source.get_tools()}  # noqa: SLF001
+        assert _WIRE not in deferred
+        assert deferred_wire in deferred
+    finally:
+        await toolset.close()
+        tool_search_index._VECTOR_CACHE.pop(deferred_wire, None)  # noqa: SLF001
+
+
+async def test_all_declared_mcp_tools_drop_search_entry() -> None:
+    """整台 Server 的工具都被声明时，不再暴露 search/load 空入口。"""
+
+    server = _server(tools=["get_host_load"])
+    toolsets = await build_searchable_mcp_toolsets(
+        None, [server], always_visible_tools={_WIRE}
+    )
+    assert len(toolsets) == 1
+    toolset = toolsets[0]
+    try:
+        assert {tool.name for tool in await toolset.get_tools()} == {_WIRE}
+    finally:
+        await toolset.close()
+
+
+async def test_unmounted_mcp_server_is_not_searchable() -> None:
+    """未挂载（白名单不含该 Server）或探测失败的 Server 不装配 toolset，自然也搜不到。"""
+
+    server = _server()
+    unmounted = filter_mcp_servers_by_tools([server], ["query_knowledge"])
+    assert unmounted == []
+    assert await build_searchable_mcp_toolsets(None, unmounted, always_visible_tools={_WIRE}) == []
+
+    broken = _server(status="error")
+    assert await build_searchable_mcp_toolsets(None, [broken], always_visible_tools={_WIRE}) == []

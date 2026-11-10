@@ -111,3 +111,41 @@ class CachedMcpCatalogToolset(BaseToolset):
             self._server_id,
             self._server_name,
         )
+
+
+class McpToolsView(BaseToolset):
+    """按 wire 名裁剪一份 MCP 目录视图，生命周期仍归底层 toolset。
+
+    用途：技能可以把部分（或全部）MCP 工具声明为「直接可见」。
+    直接可见的工具不能同时出现在检索目录里（SearchableToolset 会拒绝
+    既 always_available 又可检索的同名工具），所以先把它们从底层视图里
+    摘掉；全部被声明时只剩这个视图，连 search/load 都不再暴露。
+    close 必须透传，否则 MCP session manager 不会被释放。
+    """
+
+    def __init__(
+        self,
+        source: BaseToolset,
+        *,
+        visible: set[str] | None = None,
+        hidden: set[str] | None = None,
+    ) -> None:
+        super().__init__()
+        if visible is None and hidden is None:
+            raise ValueError("McpToolsView 至少要给 visible 或 hidden")
+        if visible is not None and hidden is not None:
+            raise ValueError("McpToolsView 的 visible 与 hidden 只能二选一")
+        self._source = source
+        self._visible = visible
+        self._hidden = set() if hidden is None else set(hidden)
+
+    async def get_tools(
+        self, readonly_context: Optional[ReadonlyContext] = None
+    ) -> list[BaseTool]:
+        tools = await self._source.get_tools(readonly_context)
+        if self._visible is not None:
+            return [tool for tool in tools if tool.name in self._visible]
+        return [tool for tool in tools if tool.name not in self._hidden]
+
+    async def close(self) -> None:
+        await self._source.close()
