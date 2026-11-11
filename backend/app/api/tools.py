@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth
 from app.db import get_db
 from app.schemas.tools import (
+    BuiltinToolGroupOut,
     BuiltinToolListOut,
     BuiltinToolOut,
     BuiltinToolRunIn,
@@ -34,7 +35,11 @@ def _detail_summary(value: object) -> str:
 @router.get("/tools/builtin", response_model=BuiltinToolListOut)
 async def list_builtin_tools(_user: str = Depends(require_auth)) -> BuiltinToolListOut:
     items = [BuiltinToolOut(**row) for row in builtin_tool_service.list_builtin_tools()]
-    return BuiltinToolListOut(items=items, total=len(items))
+    groups = [
+        BuiltinToolGroupOut(**row)
+        for row in builtin_tool_service.list_builtin_tool_groups()
+    ]
+    return BuiltinToolListOut(items=items, groups=groups, total=len(items))
 
 
 @router.post("/tools/builtin/{name}/run", response_model=BuiltinToolRunOut)

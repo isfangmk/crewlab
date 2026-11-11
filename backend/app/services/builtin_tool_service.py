@@ -17,6 +17,11 @@ from app.services.web_search_service import deepseek_web_search, resolve_deepsee
 
 logger = logging.getLogger(__name__)
 
+# 目录分组由后端提供，前端只按 key 渲染；标题同时给中英文，跟随 UI 语言。
+_BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
+    "builtin": {"title": "内置工具", "title_en": "Built-in tools"},
+}
+
 
 async def _web_search_signature(
     # 参数名与默认值就是前端运行表单的字段定义（tool_param_specs 读 inspect.signature），
@@ -46,6 +51,7 @@ def list_builtin_tools() -> list[dict]:
         items.append(
             {
                 "name": name,
+                "group": spec["group"],
                 "description": spec["description"],
                 "risk": spec["risk"],
                 "mount": spec["mount"],
@@ -53,6 +59,23 @@ def list_builtin_tools() -> list[dict]:
             }
         )
     return items
+
+
+def list_builtin_tool_groups() -> list[dict[str, str]]:
+    """按注册顺序返回目录实际使用的分组及其标题。"""
+
+    groups: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for spec in BUILTIN_TOOL_SPECS:
+        key = spec["group"]
+        if key in seen:
+            continue
+        meta = _BUILTIN_TOOL_GROUPS.get(key)
+        if meta is None:
+            raise RuntimeError(f"内置工具分组缺少标题: {key}")
+        groups.append({"key": key, "title": meta["title"], "title_en": meta["title_en"]})
+        seen.add(key)
+    return groups
 
 
 def _validate_params(name: str, params: dict[str, Any]) -> dict[str, Any]:

@@ -33,12 +33,14 @@ async def query_knowledge(query: str, limit: int = 5) -> dict:
 BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
     {
         "name": "query_knowledge",
+        "group": "builtin",
         "description": "语义检索组织知识库",
         "risk": "safe",
         "mount": "always",
     },
     {
         "name": "web_search",
+        "group": "builtin",
         "description": "DeepSeek 官方网页搜索（对话开启联网时可用）",
         "risk": "safe",
         "mount": "per_turn",

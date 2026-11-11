@@ -16,8 +16,15 @@ class BuiltinToolParamOut(BaseModel):
     enum: list[str] | None = None
 
 
+class BuiltinToolGroupOut(BaseModel):
+    key: str
+    title: str
+    title_en: str
+
+
 class BuiltinToolOut(BaseModel):
     name: str
+    group: str
     description: str
     risk: str
     # always = 随 SkillToolset 始终装配；per_turn = 由对话开关决定
@@ -27,6 +34,7 @@ class BuiltinToolOut(BaseModel):
 
 class BuiltinToolListOut(BaseModel):
     items: list[BuiltinToolOut]
+    groups: list[BuiltinToolGroupOut]
     total: int
 
 

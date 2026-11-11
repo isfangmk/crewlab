@@ -22,8 +22,16 @@ async def test_run_query_knowledge(env: dict[str, str], api_base: str) -> None:
         headers = {"Authorization": f"Bearer {token}"}
         catalog = await client.get("/api/v1/tools/builtin", headers=headers)
         assert catalog.status_code == 200, catalog.text
-        names = [i["name"] for i in catalog.json()["items"]]
+        body = catalog.json()
+        names = [i["name"] for i in body["items"]]
         assert "query_knowledge" in names
+        groups = {g["key"]: g for g in body["groups"]}
+        assert groups["builtin"] == {
+            "key": "builtin",
+            "title": "内置工具",
+            "title_en": "Built-in tools",
+        }
+        assert all(i["group"] == "builtin" for i in body["items"])
 
         run = await client.post(
             "/api/v1/tools/builtin/query_knowledge/run",
