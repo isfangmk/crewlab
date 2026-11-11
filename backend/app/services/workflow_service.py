@@ -10,23 +10,28 @@ import json
 import logging
 import time
 from datetime import UTC, datetime
+from collections.abc import Awaitable, Callable
 from typing import Any, Sequence
 from uuid import uuid4
 
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adk_runtime import workflow_graph
-from app.adk_runtime.workflow_nodes import RunContext, preview
+from app.adk_runtime.workflow_nodes import (
+    WorkflowStopped,
+    preview,
+    preview_input,
+)
 from app.models_orm.workflow import Workflow as WorkflowRow
 from app.models_orm.workflow import WorkflowNodeRun, WorkflowRun
+from app.services import run_control
 from app.schemas.workflow import (
     WorkflowDefinition,
     WorkflowNode,
-    declared_variables,
     parse_definition,
 )
 
@@ -118,8 +123,12 @@ async def execute_run(
     workflow: WorkflowRow,
     payload: dict[str, Any],
     triggered_by: str,
+    on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> WorkflowRun:
-    """创建运行记录并执行到结束 / 等待人工。"""
+    """创建运行记录并执行到结束 / 等待人工。
+
+    on_event 非空时边跑边推事件（流式运行），用于前端实时点亮节点。
+    """
 
     definition = parse_definition(workflow.definition_json)
     run_uid = f"run_{uuid4().hex[:12]}"
@@ -129,6 +138,8 @@ async def execute_run(
         run_uid=run_uid,
         definition_json=workflow.definition_json,
         workflow_version=workflow.version,
+        # 发起时的画布状态：草稿运行与已发布运行在列表里必须分得清
+        workflow_status=workflow.status,
         status=RUN_RUNNING,
         trigger=RUN_TRIGGER_MANUAL,
         triggered_by=triggered_by,
@@ -146,7 +157,12 @@ async def execute_run(
         sorted(initial_state),
     )
     return await _drive(
-        db, run=run, definition=definition, state=initial_state, resumed_state=None
+        db,
+        run=run,
+        definition=definition,
+        state=initial_state,
+        resumed_state=None,
+        on_event=on_event,
     )
 
 
@@ -179,6 +195,7 @@ async def run_single_node(
         # 试跑跑的是请求里这份定义（可能还没保存），快照按它存，别存库里那份旧的
         definition_json=definition.model_dump_json(),
         workflow_version=workflow.version,
+        workflow_status=workflow.status,
         status=RUN_RUNNING,
         trigger=RUN_TRIGGER_DEBUG,
         triggered_by=triggered_by,
@@ -256,6 +273,9 @@ async def run_single_node(
                     "node_kind": target_failed.node_kind,
                     "attempt": target_failed.attempt,
                     "status": target_failed.status,
+                    "input": ""
+                    if target_failed.node_input is None
+                    else preview_input(target_failed.node_input),
                     "output": ""
                     if target_failed.output is None
                     else preview(target_failed.output),
@@ -311,6 +331,7 @@ async def run_single_node(
         "node_kind": outcome.node_kind,
         "attempt": outcome.attempt,
         "status": outcome.status,
+        "input": "" if outcome.node_input is None else preview_input(outcome.node_input),
         "output": "" if outcome.output is None else preview(outcome.output),
         "error": outcome.error,
         "duration_ms": outcome.duration_ms,
@@ -364,6 +385,7 @@ async def _replace_node_runs(
                 node_kind=outcome.node_kind,
                 attempt=outcome.attempt,
                 status=outcome.status,
+                input_json="" if outcome.node_input is None else preview_input(outcome.node_input),
                 output_json="" if outcome.output is None else preview(outcome.output),
                 error=outcome.error,
                 duration_ms=outcome.duration_ms,
@@ -380,8 +402,12 @@ async def _drive(
     state: dict[str, Any],
     resumed_state: dict[str, Any] | None,
     approved: set[str] | None = None,
+    on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> WorkflowRun:
-    """真正跑 ADK 图；把节点记录与最终状态落库。"""
+    """真正跑 ADK 图；把节点记录与最终状态落库。
+
+    on_event 非空时会把节点开始/结束即时推给订阅者（流式运行用）。
+    """
 
     started_at = time.monotonic()
     status = RUN_SUCCEEDED
@@ -395,6 +421,21 @@ async def _drive(
     # 恢复时要带着已提交的人工输入与审批记录重跑，必须写回 input_json；
     # 否则下一次恢复会从最初的输入开始，丢掉中间几次提交的内容。
     run.input_json = json.dumps(run_values, ensure_ascii=False)
+    # 登记为进行中：前端点「停止运行」时才有地方置标记
+    run_control.begin_run(run.run_uid)
+
+    async def emit(event: dict[str, Any]) -> None:
+        if on_event is not None:
+            await on_event(event)
+
+    await emit(
+        {
+            "event": "run_started",
+            "run_uid": run.run_uid,
+            "workflow_id": run.workflow_id,
+            "values": run_values,
+        }
+    )
 
     try:
         assembly = await workflow_graph.assemble(
@@ -403,6 +444,7 @@ async def _drive(
             run_values=run_values,
             # 恢复时已经确认过的人工节点不再拦路
             approved_gates=approved,
+            on_event=on_event,
         )
         runner = Runner(
             app_name=WORKFLOW_APP_NAME,
@@ -449,14 +491,20 @@ async def _drive(
                 gate.id,
                 gate.kind,
             )
+        elif _is_interrupted(exc):
+            # 用户主动停止：已跑过的节点照样落库，方便看跑到哪一步
+            status = RUN_FAILED
+            error = "运行被用户停止"
+            logger.info("运行被用户停止 run_uid=%s", run.run_uid)
         else:
             status = RUN_FAILED
             error = f"{type(exc).__name__}: {exc}"
             logger.exception("工作流运行失败 run_uid=%s", run.run_uid)
     finally:
+        # Runner.close() 是唯一会关闭 toolset（MCP session manager）的路径
         if runner is not None:
-            # Runner.close() 是唯一会关闭 toolset（MCP session manager）的路径
             await runner.close()
+        run_control.end_run(run.run_uid)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     run.status = status
@@ -477,6 +525,24 @@ async def _drive(
         duration_ms,
         [] if assembly is None else [(o.node_id, o.status, o.attempt) for o in assembly.run_ctx.outcomes],
     )
+    # 运行级收尾事件：前端据此解冻画布、显示结果或跳人工等待
+    gate = (
+        None
+        if assembly is None or assembly.run_ctx.gate_hit is None
+        else _node_by_id(definition, assembly.run_ctx.gate_hit)
+    )
+    await emit(
+        {
+            "event": "run_finished",
+            "run_uid": run.run_uid,
+            "status": status,
+            "error": error,
+            "output": "" if output is None else preview(output),
+            "duration_ms": duration_ms,
+            "gate": None if gate is None else gate.id,
+            "gate_kind": None if gate is None else gate.kind,
+        }
+    )
     return run
 
 
@@ -494,6 +560,10 @@ async def _run_graph(
         session_id=session_id,
         new_message=_first_message(run_values),
     ):
+        # 每个事件边界检查一次停止信号：不打断正在进行的模型调用，
+        # 但也不会让「停止」按钮等到整条链路跑完才生效。
+        if run_control.is_stopped(run.run_uid):
+            raise WorkflowStopped(f"运行被用户停止: {run.run_uid}")
         if event.output is not None:
             logger.info(
                 "工作流事件 run_uid=%s node=%s output_type=%s",
@@ -508,15 +578,27 @@ def _is_gate_blocked(exc: BaseException) -> bool:
 
     from app.adk_runtime.workflow_nodes import WorkflowGateBlocked
 
+    return _wrapped_in(exc, WorkflowGateBlocked)
+
+
+def _is_interrupted(exc: BaseException) -> bool:
+    """判断中止是否来自用户点「停止运行」。"""
+
+    return _wrapped_in(exc, WorkflowStopped)
+
+
+def _wrapped_in(exc: BaseException, kind: type[BaseException]) -> bool:
+    """ADK 会把节点内异常层层包装，沿 __cause__ / __context__ 找原始异常。"""
+
     seen: set[int] = set()
     current: BaseException | None = exc
     while current is not None and id(current) not in seen:
-        if isinstance(current, WorkflowGateBlocked):
+        if isinstance(current, kind):
             return True
         seen.add(id(current))
         nested = current.__cause__ or current.__context__
         current = nested if isinstance(nested, BaseException) else None
-    return "WorkflowGateBlocked" in repr(exc)
+    return kind.__name__ in repr(exc)
 
 
 def _is_stop_after(exc: BaseException) -> bool:
@@ -524,15 +606,7 @@ def _is_stop_after(exc: BaseException) -> bool:
 
     from app.adk_runtime.workflow_nodes import WorkflowStopAfter
 
-    seen: set[int] = set()
-    current: BaseException | None = exc
-    while current is not None and id(current) not in seen:
-        if isinstance(current, WorkflowStopAfter):
-            return True
-        seen.add(id(current))
-        nested = current.__cause__ or current.__context__
-        current = nested if isinstance(nested, BaseException) else None
-    return "WorkflowStopAfter" in repr(exc)
+    return _wrapped_in(exc, WorkflowStopAfter)
 
 
 def _render_prompt(gate: WorkflowNode, state: dict[str, Any]) -> str:
@@ -583,13 +657,38 @@ def _collect_output(definition: WorkflowDefinition, state: dict[str, Any]) -> An
 
 
 async def list_runs(
-    db: AsyncSession, *, workflow_id: int | None, limit: int, offset: int
+    db: AsyncSession,
+    *,
+    workflow_id: int | None,
+    status: str,
+    keyword: str,
+    limit: int,
+    offset: int,
 ) -> tuple[list[WorkflowRun], int]:
+    """运行记录列表：按工作流、运行状态、关键字筛选，按时间倒序分页。
+
+    关键字同时匹配工作流名、run_uid 和触发人：用户找一次运行可能记得任何一个。
+    """
+
+    conditions: list[Any] = []
+    if workflow_id is not None:
+        conditions.append(WorkflowRun.workflow_id == workflow_id)
+    if status != "":
+        conditions.append(WorkflowRun.status == status)
+    if keyword != "":
+        matching = select(WorkflowRow.id).where(WorkflowRow.name.ilike(f"%{keyword}%"))
+        conditions.append(
+            or_(
+                WorkflowRun.run_uid.ilike(f"%{keyword}%"),
+                WorkflowRun.triggered_by.ilike(f"%{keyword}%"),
+                WorkflowRun.workflow_id.in_(matching),
+            )
+        )
     stmt = select(WorkflowRun)
     count_stmt = select(func.count()).select_from(WorkflowRun)
-    if workflow_id is not None:
-        stmt = stmt.where(WorkflowRun.workflow_id == workflow_id)
-        count_stmt = count_stmt.where(WorkflowRun.workflow_id == workflow_id)
+    for condition in conditions:
+        stmt = stmt.where(condition)
+        count_stmt = count_stmt.where(condition)
     stmt = stmt.order_by(WorkflowRun.id.desc()).limit(limit).offset(offset)
     rows = list((await db.scalars(stmt)).all())
     total = await db.scalar(count_stmt)
@@ -612,6 +711,22 @@ async def list_node_runs(db: AsyncSession, run_id: int) -> list[WorkflowNodeRun]
     return list((await db.scalars(stmt)).all())
 
 
+def run_inputs(definition: WorkflowDefinition, state: dict[str, Any]) -> dict[str, Any]:
+    """整次运行的输入：用户提交给开始节点与人工输入节点的值。
+
+    input_json 存的是引擎状态，恢复运行时还得原样喂回去；各节点产出和以 __
+    开头的内部记账都不是「运行输入」，不能直接摆到运行详情页上。
+    """
+
+    names = [item.name for item in definition.require_start().variables]
+    names += [
+        node.output_key
+        for node in definition.nodes
+        if node.kind == "input" and node.output_key != ""
+    ]
+    return {name: state[name] for name in names if name in state}
+
+
 def node_run_to_wire(row: WorkflowNodeRun) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -619,6 +734,7 @@ def node_run_to_wire(row: WorkflowNodeRun) -> dict[str, Any]:
         "node_kind": row.node_kind,
         "attempt": row.attempt,
         "status": row.status,
+        "input": row.input_json,
         "output": row.output_json,
         "error": row.error,
         "duration_ms": row.duration_ms,
@@ -639,7 +755,7 @@ async def resume_run(
     if run.status != RUN_WAITING:
         raise ValueError(f"运行不在等待状态，无法恢复: {run.run_uid} status={run.status}")
     definition = parse_definition(run.definition_json)
-    gate = _pending_gate(definition, run)
+    gate = pending_gate(definition, run)
     if gate is None:
         raise ValueError(f"运行没有待处理的人工节点: {run.run_uid}")
 
@@ -692,7 +808,7 @@ def _approved_gates(run: WorkflowRun) -> set[str]:
     return {str(n) for n in names}
 
 
-def _pending_gate(definition: WorkflowDefinition, run: WorkflowRun) -> WorkflowNode | None:
+def pending_gate(definition: WorkflowDefinition, run: WorkflowRun) -> WorkflowNode | None:
     """从运行的输出里读回停住的节点。"""
 
     if run.output_json == "":

@@ -140,6 +140,59 @@ async def test_list_workflows_filters_and_paginates(
             assert latest[created[0]]["run_uid"] == run_uid
             assert latest[created[0]]["status"] in {"running", "succeeded"}
             assert latest[created[1]] is None
+
+            # 运行记录列表：草稿跑出来的记录必须带 workflow_status=draft，
+            # 否则和已发布的同版本号运行分不出来
+            runs = await client.get(
+                "/api/v1/workflows/runs/list",
+                headers=headers,
+                params={"workflow_id": created[0], "limit": 20},
+            )
+            assert runs.status_code == 200, runs.text
+            rows = runs.json()["items"]
+            assert [row["run_uid"] for row in rows] == [run_uid]
+            assert rows[0]["workflow_status"] == "draft"
+            assert rows[0]["workflow_version"] == 1
+
+            # 状态筛选：这次运行不会是 failed，按 failed 筛应当是 0 条
+            failed = await client.get(
+                "/api/v1/workflows/runs/list",
+                headers=headers,
+                params={"workflow_id": created[0], "status": "failed"},
+            )
+            assert failed.status_code == 200, failed.text
+            assert failed.json()["total"] == 0
+
+            # 关键字筛选：run_uid 与工作流名都能命中，随便给个串则命中 0 条
+            by_uid = await client.get(
+                "/api/v1/workflows/runs/list",
+                headers=headers,
+                params={"q": run_uid},
+            )
+            assert by_uid.status_code == 200, by_uid.text
+            assert [row["run_uid"] for row in by_uid.json()["items"]] == [run_uid]
+            by_name = await client.get(
+                "/api/v1/workflows/runs/list",
+                headers=headers,
+                params={"q": names[0]},
+            )
+            assert by_name.status_code == 200, by_name.text
+            assert run_uid in {row["run_uid"] for row in by_name.json()["items"]}
+            nothing = await client.get(
+                "/api/v1/workflows/runs/list",
+                headers=headers,
+                params={"q": f"找不到的关键字-{prefix}"},
+            )
+            assert nothing.status_code == 200, nothing.text
+            assert nothing.json()["total"] == 0
+
+            # 非法状态直接拒绝，不静默忽略
+            bad_status = await client.get(
+                "/api/v1/workflows/runs/list",
+                headers=headers,
+                params={"status": "cancelled"},
+            )
+            assert bad_status.status_code == 400, bad_status.text
         finally:
             for workflow_id in created:
                 await client.delete(

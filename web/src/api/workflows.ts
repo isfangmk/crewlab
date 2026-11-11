@@ -3,7 +3,8 @@
 // 契约与后端 app/schemas/workflow.py 一一对应；节点字段按 kind 分权，
 // 不属于该 kind 的字段必须保持空值，否则后端会显式拒绝保存。
 
-import { request } from './client';
+import { ApiError, request } from './client';
+import { getToken } from '@/store/auth';
 
 export type NodeKind =
   | 'start'
@@ -154,6 +155,8 @@ export type WorkflowRun = {
   /** 列表/详情都带上工作流名，列表分页后不依赖本地映射。 */
   workflow_name: string;
   workflow_version: number;
+  /** 发起这次运行时的画布状态：draft 说明跑的是未发布的改动。 */
+  workflow_status: WorkflowStatus;
   status: RunStatus;
   trigger: string;
   triggered_by: string;
@@ -175,6 +178,8 @@ export type WorkflowNodeRun = {
   node_kind: NodeKind;
   attempt: number;
   status: NodeRunStatus;
+  /** 节点执行前看到的状态快照，面板上的「输入」。 */
+  input: string;
   output: string;
   error: string;
   duration_ms: number;
@@ -296,12 +301,92 @@ export function runWorkflow(id: number, values: Record<string, unknown>) {
   return request<WorkflowRun>('POST', `/workflows/${id}/runs`, { values });
 }
 
+/** 流式运行事件：与后端 SSE 的 event 字段一一对应。 */
+export type RunStreamEvent =
+  | { event: 'run_started'; run_uid: string; workflow_id: number; values: Record<string, unknown> }
+  | { event: 'node_started'; node_id: string; node_kind: string; label: string; attempt: number }
+  | {
+      event: 'node_finished';
+      node_id: string;
+      node_kind: string;
+      status: 'succeeded' | 'failed';
+      output?: unknown;
+      route?: string;
+      error?: string;
+      duration_ms: number;
+    }
+  | {
+      event: 'run_finished';
+      run_uid: string;
+      status: RunStatus;
+      error: string;
+      output: string;
+      duration_ms: number;
+      gate: string | null;
+      /** 停在人工节点时区分审批与填写，节点上要显示不同文案。 */
+      gate_kind: 'approval' | 'input' | null;
+    }
+  | { event: 'run_failed'; error: string };
+
+/**
+ * 流式运行：用 fetch 读 SSE，每读到一条事件就回调一次。
+ *
+ * 不用 EventSource 是因为它只支持 GET，而运行需要 POST 提交输入。
+ * abortSignal 让用户能中途取消（关掉页面/点停止）。
+ */
+export async function streamWorkflowRun(
+  id: number,
+  values: Record<string, unknown>,
+  onEvent: (event: RunStreamEvent) => void,
+  abortSignal?: AbortSignal,
+): Promise<void> {
+  const token = getToken();
+  const response = await fetch(`/api/v1/workflows/${id}/runs/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ values }),
+    signal: abortSignal,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new ApiError(text || `HTTP ${response.status}`, response.status);
+  }
+  if (response.body === null) throw new ApiError('运行流没有响应体', 0);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // SSE 以空行分隔帧；半截帧留在 buffer 里等下一块数据
+    let split = buffer.indexOf('\n\n');
+    while (split >= 0) {
+      const frame = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      const dataLine = frame
+        .split('\n')
+        .find((line) => line.startsWith('data: '));
+      if (dataLine !== undefined) {
+        onEvent(JSON.parse(dataLine.slice(6)) as RunStreamEvent);
+      }
+      split = buffer.indexOf('\n\n');
+    }
+  }
+}
+
 /** 单节点试跑：后端从开始节点真实执行到该节点为止，返回这一步的结果。 */
 export type NodeProbeResult = {
   node_id: string;
   node_kind: NodeKind;
   attempt: number;
   status: NodeRunStatus;
+  /** 节点执行前看到的状态快照（JSON 文本）。 */
+  input: string;
   /** JSON 文本，可能是纯文本预览。 */
   output: string;
   error: string;
@@ -313,9 +398,13 @@ export function runNode(workflowId: number, nodeId: string, values: Record<strin
   return request<NodeProbeResult>('POST', `/workflows/${workflowId}/nodes/${encodeURIComponent(nodeId)}/run`, { values });
 }
 
-export function listRuns(params: { workflowId?: number; limit?: number; offset?: number } = {}) {
+export function listRuns(
+  params: { workflowId?: number; status?: RunStatus | ''; query?: string; limit?: number; offset?: number } = {},
+) {
   const q = new URLSearchParams();
   if (params.workflowId != null) q.set('workflow_id', String(params.workflowId));
+  if (params.status != null && params.status !== '') q.set('status', params.status);
+  if (params.query != null && params.query.trim() !== '') q.set('q', params.query.trim());
   q.set('limit', String(params.limit ?? 20));
   q.set('offset', String(params.offset ?? 0));
   return request<{ items: WorkflowRun[]; total: number }>('GET', `/workflows/runs/list?${q.toString()}`);
@@ -327,6 +416,43 @@ export function getRun(runUid: string) {
 
 export function resumeRun(runUid: string, decision: 'approve' | 'reject', values: Record<string, unknown> = {}) {
   return request<WorkflowRunDetail>('POST', `/workflows/runs/${runUid}/resume`, { decision, values });
+}
+
+/** 最近一次运行里执行过的节点：画布进入时按它恢复每个节点的状态。 */
+export type LatestRunNode = {
+  node_id: string;
+  status: NodeRunStatus;
+};
+
+/** 最近一次运行快照：只带节点状态与停住的人工节点，不带输入输出。 */
+export type LatestRunSnapshot = {
+  run_uid: string;
+  status: RunStatus;
+  trigger: string;
+  /** 发起时的版本与画布状态：草稿运行要在横幅上说明。 */
+  workflow_version: number;
+  workflow_status: WorkflowStatus;
+  /** 停在人工节点时是节点 ID；gate_kind 决定显示「待审批」还是「待填写」。 */
+  gate: string | null;
+  gate_kind: 'approval' | 'input' | null;
+  created_at: string;
+  finished_at: string | null;
+  nodes: LatestRunNode[];
+};
+
+/** 画布首屏恢复运行状态：从没跑过时 run 为 null。 */
+export function getLatestRun(workflowId: number) {
+  return request<{ run: LatestRunSnapshot | null }>('GET', `/workflows/${workflowId}/runs/latest`);
+}
+
+/**
+ * 真正中断后端那一次运行。
+ *
+ * 前端 abort 只断开 SSE，后端还会继续跑；必须再发这一枪，否则用户点了停止，
+ * 数据库里的运行却仍然在推进、甚至改掉共享状态。
+ */
+export function stopWorkflowRun(runUid: string) {
+  return request<{ stopped: boolean }>('POST', `/workflows/runs/${runUid}/stop`);
 }
 
 /** 解析后端下发的 JSON 文本字段（input / output / node output）。 */

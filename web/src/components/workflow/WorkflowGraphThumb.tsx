@@ -13,6 +13,8 @@ type Props = {
   graph: WorkflowPreview;
   /** 运行快照：node_id → 执行结果。 */
   statuses?: Record<string, NodeRunStatus>;
+  /** 停在人工节点等审批/填写：这个节点染成警示色，而不是成功色。 */
+  gateId?: string | null;
   selectedId?: string | null;
   onSelect?(nodeId: string): void;
   className?: string;
@@ -33,7 +35,7 @@ function clampLabel(label: string): string {
   return text.length > 9 ? `${text.slice(0, 9)}…` : text;
 }
 
-export function WorkflowGraphThumb({ graph, statuses, selectedId, onSelect, className }: Props) {
+export function WorkflowGraphThumb({ graph, statuses, gateId, selectedId, onSelect, className }: Props) {
   const { resolved } = useThemeMode();
   const colors = PALETTE[resolved];
 
@@ -108,7 +110,14 @@ export function WorkflowGraphThumb({ graph, statuses, selectedId, onSelect, clas
         if (!position) return null;
         const tone = toneOf(node.kind);
         const status = statuses?.[node.id];
-        const stroke = status === 'succeeded' ? '#10b981' : status === 'failed' ? '#ef4444' : colors.stroke;
+        const stroke =
+          node.id === gateId
+            ? '#f59e0b'
+            : status === 'succeeded'
+              ? '#10b981'
+              : status === 'failed'
+                ? '#ef4444'
+                : colors.stroke;
         const active = selectedId === node.id;
         const Icon = iconOf(node.kind);
         return (

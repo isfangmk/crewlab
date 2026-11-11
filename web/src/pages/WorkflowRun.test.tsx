@@ -51,6 +51,7 @@ function runDetail(overrides: Record<string, unknown> = {}) {
     workflow_id: 12,
     workflow_name: '磁盘告警处置',
     workflow_version: 3,
+    workflow_status: 'published',
     status: 'waiting',
     trigger: 'manual',
     triggered_by: 'admin',
@@ -68,6 +69,7 @@ function runDetail(overrides: Record<string, unknown> = {}) {
         node_kind: 'start',
         attempt: 1,
         status: 'succeeded',
+        input: '{"question":"磁盘告警"}',
         output: '{"question":"磁盘告警"}',
         error: '',
         duration_ms: 3,
@@ -169,6 +171,7 @@ describe('WorkflowRunPage', () => {
                 node_kind: 'start',
                 attempt: 1,
                 status: 'succeeded',
+                input: '{"question":"磁盘告警"}',
                 output: '{"question":"磁盘告警"}',
                 error: '',
                 duration_ms: 3,
@@ -181,6 +184,7 @@ describe('WorkflowRunPage', () => {
                 node_kind: 'agent',
                 attempt: 2,
                 status: 'failed',
+                input: '{"question":"磁盘告警"}',
                 output: '',
                 error: 'provider 超时',
                 duration_ms: 1500,
@@ -203,6 +207,11 @@ describe('WorkflowRunPage', () => {
     // 重试过的节点标出轮次（attempt 2）
     expect(screen.getByText('第 2 轮')).toBeInTheDocument();
 
+    // 输入 / 输出两块对每个节点都在：失败节点没有输出，块本身不能消失
+    expect(screen.getAllByRole('button', { name: /展开输入/ })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /展开输出/ })).toHaveLength(2);
+    expect(screen.getByText('无输出')).toBeInTheDocument();
+
     // 输出默认收起，点开后展示完整文本（JSON 会格式化，不比较整串）
     expect(screen.queryByText('收起输出')).not.toBeInTheDocument();
     await userEvent.click(screen.getAllByRole('button', { name: /展开输出/ })[0]);
@@ -210,8 +219,53 @@ describe('WorkflowRunPage', () => {
     expect(document.body.textContent).toContain('"question": "磁盘告警"');
   });
 
-  it('运行记录不存在：给出空态与返回入口', async () => {
+  it('停在人工节点：时间线把该节点标成待填写，而不是跟着库里的成功', async () => {
     server.use(
+      http.get(runURL, () =>
+        HttpResponse.json(
+          runDetail({
+            nodes: [
+              {
+                id: 1,
+                node_id: 'start',
+                node_kind: 'start',
+                attempt: 1,
+                status: 'succeeded',
+                input: '{"question":"磁盘告警"}',
+                output: '{"question":"磁盘告警"}',
+                error: '',
+                duration_ms: 3,
+                route: '',
+                created_at: '2026-08-02T03:04:00Z',
+              },
+              {
+                id: 2,
+                node_id: 'gate',
+                node_kind: 'input',
+                attempt: 1,
+                status: 'succeeded',
+                input: '{"question":"磁盘告警"}',
+                output: '{"gate":"gate"}',
+                error: '',
+                duration_ms: 0,
+                route: '',
+                created_at: '2026-08-02T03:04:01Z',
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    renderPage();
+
+    // 人工节点在库里是「已执行完」，但这次运行还停在这里，必须显示待填写
+    expect((await screen.findAllByText('待填写')).length).toBeGreaterThan(0);
+    // 只有开始节点显示成功
+    expect(screen.getAllByText('成功')).toHaveLength(1);
+  });
+
+  it('运行记录不存在：给出空态与返回入口', async () => {    server.use(
       http.get(runURL, () => HttpResponse.json({ error: 'run not found' }, { status: 404 })),
     );
 

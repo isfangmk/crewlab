@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from google.adk.workflow import Workflow
@@ -126,14 +127,18 @@ async def assemble(
     run_values: dict[str, Any],
     approved_gates: set[str] | None = None,
     stop_after: str | None = None,
+    on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> RunAssembly:
     """装配可执行的 ADK 图；run_values 交给开始节点写进共享状态。
 
     approved_gates 是已确认过的人工节点，恢复时把它们换成直通节点。
     stop_after 用于单节点试跑：跑到该节点就收工。
+    on_event 为流式订阅者：节点开始/结束会即时推出去。
     """
 
-    run_ctx = RunContext(definition=definition, db=db, stop_after=stop_after)
+    run_ctx = RunContext(
+        definition=definition, db=db, stop_after=stop_after, on_event=on_event
+    )
     tools = await _load_tools(db, definition)
     tools["run_values"] = run_values
     approved = set() if approved_gates is None else approved_gates

@@ -17,7 +17,16 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from app.adk_runtime.workflow_nodes import CanvasNode, Routed, serialize
+from pydantic import PrivateAttr
+
+from app.adk_runtime.workflow_nodes import (
+    CanvasNode,
+    Routed,
+    serialize,
+    template_input,
+    template_values,
+    upstream_outputs,
+)
 from app.schemas.workflow import WorkflowNode  # noqa: F401 — 供 builder 签名使用
 from app.services import workflow_vars
 
@@ -29,6 +38,13 @@ CODE_NODE_CONTRACT = "在代码里定义 run(state) -> Any，返回值的 JSON �
 
 class StartNode(CanvasNode):
     """开始节点：把运行输入写进共享状态，后续节点用 {{变量}} 读取。"""
+
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        # 开始节点没有上游：它的输入就是这一轮提交的全部参数
+        values = self._tools.get("run_values")
+        if values is None:
+            return {}
+        return dict(values)
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         from app.services.workflow_service import initial_state
@@ -51,6 +67,15 @@ class StartNode(CanvasNode):
 class EndNode(CanvasNode):
     """结束节点：把上游结果作为整次运行的输出。"""
 
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        key = self.node_def.output_key
+        if key == "":
+            # 没选输出变量时结束节点把整份状态当成输出，它读的确实就是全部
+            return {name: state[name] for name in sorted(state)}
+        if key not in state:
+            return {}
+        return {key: state[key]}
+
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         if self.node_def.output_key != "":
             return workflow_vars.render_value(
@@ -70,12 +95,27 @@ class JoinNodeImpl(CanvasNode):
     def _requires_all_predecessors(self) -> bool:
         return True
 
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        """汇合点的输入是各条入边带过来的产出，不是整份状态。
+
+        前驱节点都没声明结果变量时汇合点确实只是把整份状态继续往下带，
+        此时按全量展示，不假装它只读了几个键。
+        """
+
+        merged = upstream_outputs(self.node_def, self.run_ctx.definition, state)
+        if merged != {}:
+            return merged
+        return {name: state[name] for name in sorted(state)}
+
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         return {key: state[key] for key in sorted(state)}
 
 
 class KnowledgeNode(CanvasNode):
     """知识检索：查询语句支持 {{变量}}。"""
+
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        return template_input(self.node_def.query, state, "query")
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         from app.services.knowledge_service import search_for_agent
@@ -101,6 +141,9 @@ class KnowledgeNode(CanvasNode):
 class SearchNode(CanvasNode):
     """联网搜索：固定走 DeepSeek 搜索凭证。"""
 
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        return template_input(self.node_def.query, state, "query")
+
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         from app.services.web_search_service import deepseek_web_search
 
@@ -117,6 +160,14 @@ class SearchNode(CanvasNode):
 
 class McpNode(CanvasNode):
     """MCP 工具调用：按 server + tool 直接调，不等 LLM 决策。"""
+
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        node = self.node_def
+        # 调用目标与参数从哪来，是这一步最该被看清的东西
+        inputs: dict[str, Any] = {"server": node.mcp_server, "tool": node.mcp_tool}
+        for template in node.arguments.values():
+            inputs.update(template_values(template, state))
+        return inputs
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         node = self.node_def
@@ -150,6 +201,16 @@ class McpNode(CanvasNode):
 
 class HttpNode(CanvasNode):
     """HTTP 请求：只允许 http/https，超时由节点 timeout 兜底。"""
+
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        node = self.node_def
+        # 方法、URL 与各字段里引用的变量：这就是这一条请求的全部输入
+        inputs: dict[str, Any] = {"method": node.method}
+        inputs.update(template_input(node.url, state, "url"))
+        for value in node.headers.values():
+            inputs.update(template_values(value, state))
+        inputs.update(template_values(node.body, state))
+        return inputs
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         node = self.node_def
@@ -204,6 +265,54 @@ def _maybe_json(text: str) -> Any:
         return text
 
 
+class _TrackedState(dict[str, Any]):
+    """记录下来代码实际读了哪些键。
+
+    代码节点拿到的本来就是整份 state，静态扫描只能猜：遍历一下、转手传给别的
+    函数，读的键就说不清了。运行时记录是实测结果，也没得猜。
+    """
+
+    def __init__(self, source: dict[str, Any]) -> None:
+        super().__init__(source)
+        self.reads: dict[str, Any] = {}
+
+    def _hit(self, key: Any) -> Any:
+        value = dict.__getitem__(self, key)
+        self.reads[str(key)] = value
+        return value
+
+    def __getitem__(self, key: Any) -> Any:
+        return self._hit(key)
+
+    def __iter__(self) -> Any:
+        # 故意覆盖迭代器：dict(state) / {**state} 只有在不走 C 层快速路径时才会
+        # 逐个键取值，否则整份复制不会被记录，面板就看不到它读了什么。
+        return dict.__iter__(self)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        if dict.__contains__(self, key):
+            return self._hit(key)
+        # 没取到值也记一笔：代码确实按这个名字找过，只是当时状态里没有
+        self.reads[str(key)] = default
+        return default
+
+    def values(self) -> Any:
+        self._hit_all()
+        return dict.values(self)
+
+    def items(self) -> Any:
+        self._hit_all()
+        return dict.items(self)
+
+    def copy(self) -> dict[str, Any]:
+        self._hit_all()
+        return dict(self)
+
+    def _hit_all(self) -> None:
+        for key in dict.keys(self):
+            self.reads[str(key)] = dict.__getitem__(self, key)
+
+
 class CodeNode(CanvasNode):
     """代码节点：在受限命名空间里执行 run(state)。
 
@@ -211,7 +320,14 @@ class CodeNode(CanvasNode):
     需要用外部服务请改用 HTTP / MCP 节点。
     """
 
+    _reads: dict[str, Any] = PrivateAttr(default_factory=dict)
+
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        # execute 里登记的实测读取；还没跑就失败的话，确实什么都没读到
+        return dict(self._reads)
+
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
+        self._reads = {}
         code = self.node_def.code
         namespace: dict[str, Any] = {
             "json": json,
@@ -237,15 +353,27 @@ class CodeNode(CanvasNode):
         run = namespace.get("run")
         if not callable(run):
             raise ValueError(f"代码节点必须定义 run(state): {self.node_def.id}")
-        result: Any = run(dict(state))
-        if inspect.isawaitable(result):
-            result = await result
-        json.dumps(result, ensure_ascii=False, default=str)
+        tracked = _TrackedState(state)
+        try:
+            result: Any = run(tracked)
+            if inspect.isawaitable(result):
+                result = await result
+            json.dumps(result, ensure_ascii=False, default=str)
+        finally:
+            # 抛错时也留下已经读到的键：失败原因往往就出在这些值上
+            self._reads = dict(tracked.reads)
         return result
 
 
 class AssignNode(CanvasNode):
     """变量赋值：按顺序写多个状态变量。"""
+
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        # 赋值节点读的是模板里引用到的上游变量；纯固定值赋值确实不读任何变量
+        inputs: dict[str, Any] = {}
+        for template in self.node_def.assignments.values():
+            inputs.update(template_values(template, state))
+        return inputs
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         assigned: dict[str, Any] = {}
@@ -262,6 +390,12 @@ class AssignNode(CanvasNode):
 
 class SwitchNode(CanvasNode):
     """条件分支：返回 route 让 ADK 选择出边。"""
+
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        # 判定依据与被判定的值一起给：只看路由看不出为什么走这条
+        inputs: dict[str, Any] = {"expression": self.node_def.expression}
+        inputs.update(template_values(self.node_def.expression, state))
+        return inputs
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         node = self.node_def
@@ -333,6 +467,16 @@ LOOP_ROUTE_EXIT = "exit"
 class LoopNode(CanvasNode):
     """循环条件：判断是否继续下一轮，返回 loop / exit 路由。"""
 
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        node = self.node_def
+        iteration = int(state.get(f"__loop_{node.id}", 0)) + 1
+        inputs: dict[str, Any] = {
+            "iteration": iteration,
+            "max_iterations": node.max_iterations,
+        }
+        inputs.update(template_values(node.expression, state))
+        return inputs
+
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         node = self.node_def
         # 轮次记在状态里，避免依赖 ADK 内部计数
@@ -364,6 +508,10 @@ class GateNode(CanvasNode):
     执行到这里就把运行置为 waiting：节点本身只负责把“等什么”记到状态与结果里，
     真正的暂停与恢复由运行服务控制（ADK 图会继续跑，但下游不会被用户看到）。
     """
+
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        # 人工节点要人看的就是这条待确认的提示，以及里面引用的上游变量
+        return template_input(self.node_def.prompt, state, "prompt")
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         node = self.node_def

@@ -13,9 +13,12 @@ import {
   Panel,
   ReactFlow,
   ReactFlowProvider,
+  getNodesBounds,
+  getViewportForBounds,
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useStoreApi,
   useViewport,
   type Connection,
   type EdgeChange,
@@ -29,26 +32,35 @@ import { ApiError } from '@/api/client';
 import {
   deleteWorkflow,
   getCatalog,
+  getLatestRun,
   getWorkflow,
   publishWorkflow,
+  stopWorkflowRun,
+  streamWorkflowRun,
   updateWorkflow,
   validateDefinition,
   type CatalogGroup,
   type CatalogKind,
+  type LatestRunSnapshot,
   type NodeKind,
   type NodeProbeResult,
+  type RunStatus,
+  type RunStreamEvent,
   type ValidationResult,
   type WorkflowCatalog,
   type WorkflowDefinition,
   type WorkflowDetail,
   type WorkflowNode,
-  type WorkflowRun,
 } from '@/api/workflows';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { NodeRunDialog } from '@/components/workflow/NodeRunDialog';
 import { RunWorkflowDialog } from '@/components/workflow/RunWorkflowDialog';
 import { WorkflowInspector, type PanelTabKey, type WorkflowMeta } from '@/components/workflow/WorkflowInspector';
-import { WorkflowNodeCard, type CanvasFlowNode } from '@/components/workflow/WorkflowNodeCard';
+import {
+  WorkflowNodeCard,
+  type CanvasFlowNode,
+  type NodeExecutionStatus,
+} from '@/components/workflow/WorkflowNodeCard';
 import { WorkflowConnectionLine, WorkflowEdge, type CanvasFlowEdge } from '@/components/workflow/WorkflowEdge';
 import { WorkflowPalette } from '@/components/workflow/WorkflowPalette';
 import { Button, PageHeader, RowAction, Toast, type ToastTone } from '@/components/ui';
@@ -67,7 +79,7 @@ import {
   toneOf,
   withAutoOutputKeys,
 } from '@/lib/workflowMeta';
-import { AlertTriangle, ArrowLeft, Check, LayoutTemplate, Minus, Pencil, Play, Plus, RefreshCw, Rocket, Save, ShieldCheck, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, Clock, LayoutTemplate, Minus, Pencil, Play, Plus, RefreshCw, Rocket, Save, ShieldCheck, Square, Trash2, X } from 'lucide-react';
 
 const KIND_MIME = 'application/x-workflow-kind';
 const NODE_TYPES = { workflow: WorkflowNodeCard };
@@ -108,7 +120,8 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
   const zh = locale === 'zh-CN';
   const navigate = useNavigate();
   const { resolved } = useThemeMode();
-  const { screenToFlowPosition, zoomIn, zoomOut, fitView } = useReactFlow();
+  const { screenToFlowPosition, zoomIn, zoomOut, zoomTo, setViewport } = useReactFlow();
+  const flowStore = useStoreApi();
   const { zoom } = useViewport();
   const canvasRef = useRef<HTMLDivElement | null>(null);
   // 最新定义的引用：异步保存回来时判断画布有没有被继续改动。
@@ -136,8 +149,51 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
   // 单节点试跑：待填输入的节点 id、正在跑的节点 id、最近一次试跑结果。
   const [probeNodeId, setProbeNodeId] = useState<string | null>(null);
   const [runningNodeId, setRunningNodeId] = useState<string | null>(null);
+  // ---- 运行状态（实时 + 持久化）------------------------------------------
+  // 画布上的状态有两个来源：本次运行的 SSE 事件，以及进入页面时拉取的
+  // /runs/latest 快照。两者写进同一张表，用户刷新/第二天再进来依然看得到
+  // 上次跑到哪、停在哪个人工节点。
+  const [nodeStatuses, setNodeStatuses] = useState<Record<string, NodeExecutionStatus>>({});
+  const [runningRunUid, setRunningRunUid] = useState<string | null>(null);
+  // 最近一次运行（含停住的人工节点）：用于「等待处理」横幅与停止按钮。
+  const [lastRun, setLastRun] = useState<{
+    runUid: string;
+    status: RunStatus;
+    gate: string | null;
+    gateKind: 'approval' | 'input' | null;
+  } | null>(null);
+  const [gateBannerOpen, setGateBannerOpen] = useState(true);
+  const [stopping, setStopping] = useState(false);
+  const runAbortRef = useRef<AbortController | null>(null);
+  const { setCenter, getZoom } = useReactFlow();
+  const runStreamRef = useRef<((values: Record<string, unknown>) => Promise<void>) | null>(null);
   const [probe, setProbe] = useState<NodeProbeResult | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTabKey>('settings');
+
+  // 快照 → 画布状态：执行过的节点按库里的结果上色；停在人工节点时，
+  // 那个节点在库里是「已执行完」，但画布上必须显示「等待审批/填写」。
+  const applySnapshot = useCallback((snapshot: LatestRunSnapshot | null) => {
+    if (snapshot === null) {
+      setNodeStatuses({});
+      setLastRun(null);
+      return;
+    }
+    const next: Record<string, NodeExecutionStatus> = {};
+    for (const row of snapshot.nodes) {
+      next[row.node_id] = row.status;
+    }
+    if (snapshot.status === 'waiting' && snapshot.gate !== null) {
+      next[snapshot.gate] = 'waiting';
+    }
+    setNodeStatuses(next);
+    setLastRun({
+      runUid: snapshot.run_uid,
+      status: snapshot.status,
+      gate: snapshot.gate,
+      gateKind: snapshot.gate_kind,
+    });
+    setGateBannerOpen(true);
+  }, []);
 
   const flash = useCallback((tone: ToastTone, text: string) => {
     setToast({ tone, text });
@@ -148,19 +204,25 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [workflow, catalogResult] = await Promise.all([getWorkflow(workflowId), getCatalog()]);
+      const [workflow, catalogResult, snapshot] = await Promise.all([
+        getWorkflow(workflowId),
+        getCatalog(),
+        getLatestRun(workflowId),
+      ]);
       setDetail(workflow);
       // 老定义里的 output_key 是空的，这里补成节点 ID，用户不用再自己起变量名。
       setDefinition(withAutoOutputKeys(workflow.definition));
       setMeta({ name: workflow.name, description: workflow.description, status: workflow.status });
       setCatalog(catalogResult);
+      // 上次运行的状态随首屏一起回来：不用等用户再点一次运行才看得到
+      applySnapshot(snapshot.run);
       setLoadError(null);
     } catch (error) {
       setLoadError(error instanceof ApiError ? error.message : (error as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [workflowId]);
+  }, [applySnapshot, workflowId]);
 
   useEffect(() => {
     void load();
@@ -188,6 +250,10 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
   const issueCount = definition.nodes.filter((node) => nodeIssue(node, zh) !== null).length;
   // 自动保存的前提：有名字且节点都填全，半成品定义后端必填校验会直接拒绝。
   const canAutoSave = detail !== null && meta.name.trim() !== '' && issueCount === 0;
+  // 停在人工节点时，横幅要说清停在哪个节点、等的是审批还是填写。
+  const gateNode = lastRun?.gate == null ? null : (definition.nodes.find((node) => node.id === lastRun.gate) ?? null);
+  const gateName = gateNode === null ? (lastRun?.gate ?? '') : gateNode.label.trim() === '' ? gateNode.id : gateNode.label;
+  const gateLabel = lastRun?.gateKind === 'input' ? tr('人工填写', 'user input') : tr('人工审批', 'approval');
 
   // ---- 保存草稿 / 自动保存 / 发布 -------------------------------------------
   // 画布保存只落草稿：不动版本号，也不改发布状态；升版本只发生在「发布」。
@@ -423,12 +489,14 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
           issue: nodeIssue(node, zh),
           onRun: () => void startNodeRun(node.id),
           running: runningNodeId === node.id,
+          status: nodeStatuses[node.id],
+          waitingKind: lastRun?.gate === node.id ? (lastRun.gateKind ?? 'approval') : undefined,
           onDuplicate: () => duplicateNode(node.id),
           onDelete: () => removeNode(node.id),
         },
       })),
     );
-  }, [definition, kinds, removeNode, duplicateNode, runningNodeId, selectedId, setRfNodes, startNodeRun, zh]);
+  }, [definition, kinds, removeNode, duplicateNode, runningNodeId, nodeStatuses, lastRun, selectedId, setRfNodes, startNodeRun, zh]);
 
   // 连线中间只允许插入「普通执行节点」：开始节点全图唯一，结束节点必须是叶子。
   const insertableKinds = useMemo(
@@ -526,6 +594,28 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
     [definition.edges, definition.nodes, flash, tr],
   );
 
+  // 适应画布：不走 useReactFlow().fitView()。
+  // 画布用的是受控 nodes，React Flow 的 fitView 只是把请求排进队列，真正的执行
+  // 挂在「节点集合被重新 setNodes / 重新测量」那一拍上；单纯点一下按钮没有任何
+  // 节点变化，队列里的请求永远不会被 resolve——表现就是点了完全没反应。
+  // 这里直接算包围盒与目标视口再写回去，缩放上下限也由我们自己定。
+  const fitAll = useCallback(() => {
+    const state = flowStore.getState();
+    const { width, height } = state;
+    if (width === 0 || height === 0) return;
+    const bounds = getNodesBounds(state.nodes, {
+      nodeLookup: state.nodeLookup,
+      nodeOrigin: state.nodeOrigin,
+    });
+    const viewport = getViewportForBounds(bounds, width, height, 0.1, 1, 0.2);
+    void setViewport(viewport, { duration: 240 });
+  }, [flowStore, setViewport]);
+
+  // 缩放百分比按钮回到 1:1：图上字太小的时候，这是唯一能直接读清节点的动作。
+  const zoomToActual = useCallback(() => {
+    void zoomTo(1, { duration: 200 });
+  }, [zoomTo]);
+
   const autoLayout = useCallback(() => {
     const positions = layeredLayout(definition);
     setDefinition((current) => ({
@@ -533,8 +623,8 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       nodes: current.nodes.map((node) => ({ ...node, x: positions[node.id]?.x ?? node.x, y: positions[node.id]?.y ?? node.y })),
     }));
     setDirty(true);
-    window.setTimeout(() => void fitView({ padding: 0.22, minZoom: 0.7, duration: 300 }), 30);
-  }, [definition, fitView]);
+    window.setTimeout(fitAll, 30);
+  }, [definition, fitAll]);
 
   // ---- 校验 / 运行 ---------------------------------------------------------
   const check = useCallback(async () => {
@@ -557,12 +647,130 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
     setRunOpen(true);
   }, [dirty, save]);
 
+  // 流式运行：把后端的 node_started / node_finished 映射成画布上的实时状态
+  useEffect(() => {
+    runStreamRef.current = async (values: Record<string, unknown>) => {
+      runAbortRef.current?.abort();
+      const controller = new AbortController();
+      runAbortRef.current = controller;
+      // 新一轮开始：清掉上一轮的痕迹，避免旧的成功标记干扰这一轮判断
+      setNodeStatuses({});
+      setRunningRunUid(null);
+      setLastRun(null);
+      setGateBannerOpen(true);
+
+      const handle = (event: RunStreamEvent) => {
+        switch (event.event) {
+          case 'run_started':
+            setRunningRunUid(event.run_uid);
+            break;
+          case 'node_started': {
+            setNodeStatuses((current) => ({ ...current, [event.node_id]: 'running' }));
+            // 画布始终跟随当前节点：找到它并把视口居中过去
+            const target = rfNodes.find((node) => node.id === event.node_id);
+            if (target !== undefined) {
+              const width = target.measured?.width ?? 240;
+              const height = target.measured?.height ?? 80;
+              void setCenter(
+                target.position.x + width / 2,
+                target.position.y + height / 2,
+                { zoom: getZoom(), duration: 400 },
+              );
+            }
+            break;
+          }
+          case 'node_finished':
+            setNodeStatuses((current) => ({
+              ...current,
+              [event.node_id]: event.status === 'failed' ? 'failed' : 'succeeded',
+            }));
+            break;
+          case 'run_finished':
+            setRunningRunUid(null);
+            setLastRun({
+              runUid: event.run_uid,
+              status: event.status,
+              gate: event.gate,
+              gateKind: event.gate_kind,
+            });
+            if (event.gate !== null) {
+              // 停住的人工节点在事件里是「执行完」（GateNode 自己返回了），
+              // 但它实际在等人：画布必须显示待审批/待填写，不能是成功。
+              const gateId = event.gate;
+              setNodeStatuses((current) => ({ ...current, [gateId]: 'waiting' }));
+              setGateBannerOpen(true);
+            }
+            if (event.status === 'failed') {
+              setToast({ tone: 'err', text: tr(`运行失败：${event.error}`, `Run failed: ${event.error}`) });
+            } else if (event.status === 'succeeded') {
+              setToast({ tone: 'ok', text: tr('运行完成', 'Run finished') });
+            }
+            // 停在人工节点不弹 toast：顶部横幅已经在说同一件事并给了处理入口。
+            break;
+          case 'run_failed':
+            setRunningRunUid(null);
+            setToast({ tone: 'err', text: event.error });
+            break;
+        }
+      };
+
+      try {
+        await streamWorkflowRun(workflowId, values, handle, controller.signal);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setRunningRunUid(null);
+        setToast({
+          tone: 'err',
+          text: error instanceof ApiError ? error.message : (error as Error).message,
+        });
+      } finally {
+        if (runAbortRef.current === controller) runAbortRef.current = null;
+      }
+    };
+  }, [definition.nodes, getZoom, rfNodes, setCenter, tr, workflowId]);
+
+  // 离开页面时中断流，避免后台继续跑
+  useEffect(() => () => runAbortRef.current?.abort(), []);
+
+  // 停止运行：先断 SSE，再让后端真正中断。
+  // 只 abort 是不够的——流断了后端照跑，这里必须显式通知一次。
+  const stopRun = useCallback(async () => {
+    const runUid = runningRunUid;
+    runAbortRef.current?.abort();
+    runAbortRef.current = null;
+    setRunningRunUid(null);
+    // 还在跑的那一步已经中断，不再继续转圈；已完成节点保留结果
+    setNodeStatuses((current) => {
+      const next: Record<string, NodeExecutionStatus> = {};
+      for (const [id, value] of Object.entries(current)) {
+        if (value !== 'running') next[id] = value;
+      }
+      return next;
+    });
+    if (runUid === null) return;
+    setStopping(true);
+    try {
+      const result = await stopWorkflowRun(runUid);
+      if (result.stopped) {
+        setLastRun(null);
+        flash('ok', tr('已停止运行', 'Run stopped'));
+      } else {
+        flash('err', tr('这次运行已经结束，无需停止', 'The run had already finished'));
+      }
+    } catch (error) {
+      flash('err', error instanceof ApiError ? error.message : (error as Error).message);
+    } finally {
+      setStopping(false);
+    }
+  }, [flash, runningRunUid, tr]);
+
   const onStarted = useCallback(
-    (run: WorkflowRun) => {
+    async (values: Record<string, unknown>) => {
       setRunOpen(false);
-      navigate(`/workflows/runs/${run.run_uid}`);
+      // 流式运行：边跑边点亮画布，结束后留在本页让用户看结果，而不是直接跳走
+      await runStreamRef.current?.(values);
     },
-    [navigate],
+    [],
   );
 
   useEffect(() => {
@@ -671,9 +879,15 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
             <RowAction icon={ShieldCheck} onClick={() => void check()} disabled={checking || saving} iconClassName={cn(checking && 'animate-pulse')}>
               {tr('校验', 'Validate')}
             </RowAction>
-            <RowAction icon={Play} onClick={() => void openRun()} disabled={saving}>
-              {tr('运行', 'Run')}
-            </RowAction>
+            {runningRunUid !== null ? (
+              <RowAction icon={Square} tone="danger" onClick={() => void stopRun()} disabled={stopping}>
+                {stopping ? tr('停止中…', 'Stopping…') : tr('停止运行', 'Stop run')}
+              </RowAction>
+            ) : (
+              <RowAction icon={Play} onClick={() => void openRun()} disabled={saving}>
+                {tr('运行', 'Run')}
+              </RowAction>
+            )}
             <RowAction icon={Trash2} tone="danger" onClick={() => setConfirmDelete(true)} disabled={saving}>
               {tr('删除', 'Delete')}
             </RowAction>
@@ -741,9 +955,12 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
               addNode(kind as NodeKind, screenToFlowPosition({ x: event.clientX, y: event.clientY }));
             }}
             fitView
-            // 缩到 0.7 以下节点文字就看不清了：宁可让大图横向可拖，也不默认整图缩小。
-            fitViewOptions={{ padding: 0.24, minZoom: 0.7, maxZoom: 1 }}
-            minZoom={0.25}
+            // 进画布先让整张图都在视野里：下限只保住了「文字可读」，代价是
+            // 大半节点被挤到视口外，用户还以为画布坏了。
+            fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+            // 长链路工作流横向能铺到五六千像素，下限卡在 0.25 时「适应画布」根本装不下；
+            // 缩到 0.1 只为了先看清全局，要读内容有 100% 按钮。
+            minZoom={0.1}
             maxZoom={1.6}
             proOptions={{ hideAttribution: false }}
             className="bg-bg"
@@ -784,9 +1001,9 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
                 </IconButton>
                 <button
                   type="button"
-                  onClick={() => void fitView({ padding: 0.22, minZoom: 0.7, duration: 240 })}
+                  onClick={zoomToActual}
                   className="h-7 min-w-[44px] rounded-md px-1 text-[11px] tabular-nums text-text-muted transition-colors hover:bg-zinc-500/10 hover:text-text"
-                  title={tr('适应画布', 'Fit view')}
+                  title={tr('缩放到 100%', 'Zoom to 100%')}
                 >
                   {Math.round(zoom * 100)}%
                 </button>
@@ -794,7 +1011,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
                   <Plus size={13} aria-hidden />
                 </IconButton>
                 <span className="mx-0.5 h-4 w-px bg-border/70" aria-hidden />
-                <IconButton label={tr('适应画布', 'Fit view')} onClick={() => void fitView({ padding: 0.22, minZoom: 0.7, duration: 240 })}>
+                <IconButton label={tr('适应画布', 'Fit view')} onClick={fitAll}>
                   <RefreshCw size={12} aria-hidden />
                 </IconButton>
                 <span className="mx-0.5 h-4 w-px bg-border/70" aria-hidden />
@@ -812,6 +1029,36 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
             {validation !== null && (
               <Panel position="bottom-center" className="!mb-16 !max-w-[min(640px,90%)]">
                 <ValidationBanner result={validation} onClose={() => setValidation(null)} />
+              </Panel>
+            )}
+
+            {/* 停在人工节点：横幅说明这一轮还没跑完，并给出处理入口 */}
+            {lastRun !== null && lastRun.status === 'waiting' && lastRun.gate !== null && gateBannerOpen && (
+              <Panel position="top-center" className="!m-3">
+                <div className="flex items-center gap-2 rounded-xl border border-warn/30 bg-card/95 py-1.5 pl-2.5 pr-1.5 text-[11px] text-warn shadow-lg backdrop-blur">
+                  <Clock size={12} className="shrink-0" aria-hidden />
+                  <span className="max-w-[320px] truncate">
+                    {tr(
+                      `停在「${gateName}」等待${lastRun.gateKind === 'input' ? '填写' : '审批'}`,
+                      `Waiting for ${gateLabel} at "${gateName}"`,
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/workflows/runs/${lastRun.runUid}`)}
+                    className="rounded-md bg-warn/15 px-2 py-0.5 text-[10.5px] font-medium text-warn transition-colors hover:bg-warn/25"
+                  >
+                    {tr('去处理', 'Review')}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={tr('关闭提示', 'Dismiss')}
+                    onClick={() => setGateBannerOpen(false)}
+                    className="flex h-5 w-5 items-center justify-center rounded-md text-warn/70 transition-colors hover:bg-warn/10 hover:text-warn"
+                  >
+                    <X size={11} aria-hidden />
+                  </button>
+                </div>
               </Panel>
             )}
           </ReactFlow>

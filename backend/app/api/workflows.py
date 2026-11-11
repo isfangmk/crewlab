@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.models_orm.workflow import Workflow as WorkflowRow
 from app.models_orm.workflow import WorkflowRun as WorkflowRunRow
 from app.schemas.workflow import (
@@ -24,7 +28,7 @@ from app.schemas.workflow import (
     node_kind_title,
     parse_definition,
 )
-from app.services import workflow_service
+from app.services import run_control, workflow_service
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
 
@@ -92,16 +96,22 @@ def _row_to_wire(
 
 
 def _run_to_wire(row: Any, workflow_name: str) -> dict[str, Any]:
+    definition = parse_definition(row.definition_json)
     return {
         "id": row.id,
         "run_uid": row.run_uid,
         "workflow_id": row.workflow_id,
         "workflow_name": workflow_name,
         "workflow_version": row.workflow_version,
+        # draft 说明这次跑的是未发布的画布，版本号不作为「已发布」的依据
+        "workflow_status": row.workflow_status,
         "status": row.status,
         "trigger": row.trigger,
         "triggered_by": row.triggered_by,
-        "input": row.input_json,
+        "input": json.dumps(
+            workflow_service.run_inputs(definition, json.loads(row.input_json)),
+            ensure_ascii=False,
+        ),
         "output": row.output_json,
         "error": row.error,
         "duration_ms": row.duration_ms,
@@ -325,13 +335,24 @@ async def validate_workflow(body: WorkflowDefinitionInput) -> dict:
 @router.get("/workflows/runs/list")
 async def list_runs(
     workflow_id: int | None = None,
+    status: str = "",
+    q: str = "",
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    """运行记录列表：工作流/状态/关键字筛选 + 分页，total 是筛选后的总数。"""
+
+    if status not in ("", "running", "waiting", "succeeded", "failed"):
+        raise HTTPException(status_code=400, detail=f"status 非法: {status}")
     rows, total = await workflow_service.list_runs(
-        db, workflow_id=workflow_id, limit=limit, offset=offset
+        db,
+        workflow_id=workflow_id,
+        status=status,
+        keyword=q.strip(),
+        limit=limit,
+        offset=offset,
     )
     names = await _workflow_names(db, {row.workflow_id for row in rows})
     return {
@@ -391,6 +412,22 @@ async def resume_run(
     return payload
 
 
+@router.post("/workflows/runs/{run_uid}/stop")
+async def stop_run(
+    run_uid: str,
+    db: AsyncSession = Depends(get_db),
+    _user: str = Depends(require_auth),
+) -> dict:
+    """停止正在跑的运行：图执行到下一个事件边界收工，已跑过的节点照常落库。"""
+
+    try:
+        await workflow_service.get_run(db, run_uid)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    stopped = run_control.request_stop(run_uid)
+    return {"stopped": stopped}
+
+
 @router.post("/workflows/{workflow_id}/nodes/{node_id}/run")
 async def run_single_node(
     workflow_id: int,
@@ -421,6 +458,42 @@ async def run_single_node(
         "节点试跑 workflow=%s node=%s status=%s", workflow_id, node_id, result["status"]
     )
     return result
+
+
+@router.get("/workflows/{workflow_id}/runs/latest")
+async def latest_run_snapshot(
+    workflow_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: str = Depends(require_auth),
+) -> dict:
+    """最近一次运行：画布进入时用它恢复每个节点的执行状态。
+
+    只回节点状态与停住的人工节点，不带输入输出——画布不需要，别把首屏拖慢。
+    """
+
+    row = await _get_row(db, workflow_id)
+    run = await _latest_run(db, row.id)
+    if run is None:
+        return {"run": None}
+    definition = parse_definition(run.definition_json)
+    gate = workflow_service.pending_gate(definition, run)
+    nodes = await workflow_service.list_node_runs(db, run.id)
+    return {
+        "run": {
+            "run_uid": run.run_uid,
+            "status": run.status,
+            "trigger": run.trigger,
+            # 草稿运行也落库：画布要能说明「这次跑的是未发布的画布」
+            "workflow_version": run.workflow_version,
+            "workflow_status": run.workflow_status,
+            # 停在人工节点时，节点上要显示「待审批 / 待填写」而不是「成功」
+            "gate": None if gate is None else gate.id,
+            "gate_kind": None if gate is None else gate.kind,
+            "created_at": run.created_at.isoformat(),
+            "finished_at": None if run.finished_at is None else run.finished_at.isoformat(),
+            "nodes": [{"node_id": n.node_id, "status": n.status} for n in nodes],
+        }
+    }
 
 
 @router.get("/workflows/{workflow_id}")
@@ -562,3 +635,91 @@ async def run_workflow(
     except (ValueError, LookupError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _run_to_wire(run, row.name)
+
+
+@router.post("/workflows/{workflow_id}/runs/stream")
+async def stream_workflow_run(
+    workflow_id: int,
+    body: RunInput,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_auth),
+) -> StreamingResponse:
+    """流式运行：SSE 逐条推送节点开始/结束，前端据此实时点亮画布。
+
+    与同步接口的差别只在传输方式：运行记录、落库、人工等待逻辑完全一致。
+    """
+
+    row = await _get_row(db, workflow_id)
+    try:
+        parse_definition(row.definition_json)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"工作流定义无效: {exc}") from exc
+
+    async def event_source() -> AsyncIterator[str]:
+        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
+        async def on_event(event: dict[str, Any]) -> None:
+            queue.put_nowait(event)
+
+        async def produce() -> None:
+            # 运行自己开会话：客户端中途断开时它仍要把结果落库，
+            # 不能跟着请求级会话一起被回收。
+            async with SessionLocal() as run_db:
+                workflow_row = await run_db.get(WorkflowRow, workflow_id)
+                if workflow_row is None:
+                    queue.put_nowait(
+                        {"event": "run_failed", "error": f"工作流不存在: {workflow_id}"}
+                    )
+                    queue.put_nowait(None)
+                    return
+                try:
+                    await workflow_service.execute_run(
+                        run_db,
+                        workflow=workflow_row,
+                        payload=body.values,
+                        triggered_by=user.email,
+                        on_event=on_event,
+                    )
+                except Exception as exc:
+                    logger.exception("流式运行失败 workflow_id=%s", workflow_id)
+                    queue.put_nowait(
+                        {"event": "run_failed", "error": f"{type(exc).__name__}: {exc}"}
+                    )
+                finally:
+                    queue.put_nowait(None)
+
+        task = asyncio.create_task(produce())
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                # SSE 帧：event 名与数据分离，前端可直接按 event 分发
+                payload = json.dumps(item, ensure_ascii=False, default=str)
+                yield f"event: {item.get('event', 'message')}\ndata: {payload}\n\n"
+        finally:
+            # 客户端断开时不能取消运行：它有自己的会话，会继续跑完并落库。
+            # 这里只接管任务的异常，避免「Task exception was never retrieved」。
+            if not task.done():
+                task.add_done_callback(_log_detached_run)
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # 关掉 nginx 等反代的缓冲，否则事件会被攒着一起发
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _log_detached_run(task: asyncio.Task[None]) -> None:
+    """客户端断开后运行仍在后台收尾：异常只记日志，不往外抛。"""
+
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logger.error("后台运行收尾失败: %s", error)

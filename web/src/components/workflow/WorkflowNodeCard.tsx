@@ -6,19 +6,24 @@
 // 颜色只出现在图标块上：整张画布保持中性，节点类型靠图标和名称区分。
 
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { AlertTriangle, Check, ClipboardCopy, Copy, Loader2, Play, Trash2, X } from 'lucide-react';
-import type { NodeRunStatus, WorkflowNode } from '@/api/workflows';
+import { AlertTriangle, ClipboardCopy, Clock, Copy, Loader2, Play, Trash2 } from 'lucide-react';
+import type { WorkflowNode } from '@/api/workflows';
 import { cn } from '@/lib/cn';
 import { iconOf, toneOf } from '@/lib/workflowMeta';
 import { useI18n } from '@/i18n/locale';
+
+/** 画布上节点的一种执行状态：来自实时事件或进入页面时恢复的上次运行。 */
+export type NodeExecutionStatus = 'running' | 'succeeded' | 'failed' | 'waiting';
 
 export type CanvasNodeData = {
   node: WorkflowNode;
   title: string;
   summary: string;
   issue: string | null;
-  /** 运行快照里复用它显示节点执行结果。 */
-  runStatus?: NodeRunStatus | 'pending';
+  /** 执行状态：running 正在跑，waiting 停在人工节点等审批/填写。 */
+  status?: NodeExecutionStatus;
+  /** waiting 时区分「待审批」与「待填写」，决定文案与配色。 */
+  waitingKind?: 'approval' | 'input';
   /** 节点上方悬浮工具条：试跑 / 复制 / 删除，交给编辑器处理定义变更。 */
   onRun?: () => void;
   running?: boolean;
@@ -28,21 +33,36 @@ export type CanvasNodeData = {
 
 export type CanvasFlowNode = Node<CanvasNodeData, 'workflow'>;
 
+// 状态只用于三处：卡片描边、标题行的圆点 + 文案、人工节点的底部提示条。
+// 用语义令牌而不是固定色值，浅色/深色主题下都能站得住。
+const STATUS_STYLE: Record<
+  NodeExecutionStatus,
+  { border: string; ring: string; dot: string; text: string }
+> = {
+  running: { border: 'border-accent/50', ring: 'ring-2 ring-accent/10', dot: 'bg-accent', text: 'text-accent' },
+  succeeded: { border: 'border-ok/45', ring: 'ring-1 ring-ok/10', dot: 'bg-ok', text: 'text-ok' },
+  failed: { border: 'border-danger/50', ring: 'ring-1 ring-danger/10', dot: 'bg-danger', text: 'text-danger' },
+  waiting: { border: 'border-warn/50', ring: 'ring-2 ring-warn/10', dot: 'bg-warn', text: 'text-warn' },
+};
+
 export function WorkflowNodeCard({ data, selected }: NodeProps<CanvasFlowNode>) {
   const { tr } = useI18n();
-  const { node, title, summary, issue, runStatus, onRun, running, onDuplicate, onDelete } = data;
+  const { node, title, summary, issue, status, waitingKind, onRun, running, onDuplicate, onDelete } = data;
   const tone = toneOf(node.kind);
   const Icon = iconOf(node.kind);
   const heading = node.label.trim() === '' ? title : node.label;
-
-  const statusBorder =
-    runStatus === 'succeeded'
-      ? 'border-ok/60'
-      : runStatus === 'failed'
-        ? 'border-danger/60'
-        : selected
-          ? 'border-indigo-500'
-          : 'border-border/70';
+  const style = status === undefined ? null : STATUS_STYLE[status];
+  const waiting = waitingKind === 'input' ? tr('待填写', 'Waiting input') : tr('待审批', 'Waiting approval');
+  const statusLabel =
+    status === 'running'
+      ? tr('运行中', 'Running')
+      : status === 'succeeded'
+        ? tr('成功', 'Succeeded')
+        : status === 'failed'
+          ? tr('失败', 'Failed')
+          : status === 'waiting'
+            ? waiting
+            : '';
 
   return (
     <div className="group relative w-[240px]">
@@ -118,11 +138,17 @@ export function WorkflowNodeCard({ data, selected }: NodeProps<CanvasFlowNode>) 
 
       <div
         className={cn(
-          'rounded-[15px] border bg-card shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-[box-shadow,border-color] duration-150',
-          statusBorder,
-          // 选中与运行态用投影而不是粗描边，避免缩放后边缘发糊。
-          (selected || runStatus === 'succeeded' || runStatus === 'failed') && 'shadow-lg',
-          !selected && 'hover:shadow-md',
+          'overflow-hidden rounded-[15px] border bg-card shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-[box-shadow,border-color] duration-150',
+          style === null
+            ? selected
+              ? 'border-accent/60'
+              : 'border-border/70'
+            : style.border,
+          style !== null && style.ring,
+          // 只有「还在动」或「需要人处理」的节点加重投影；成功节点保持安静，
+          // 否则整张画布 18 个节点全是重投影，反而看不出重点。
+          (selected || status === 'running' || status === 'waiting' || status === 'failed') && 'shadow-lg',
+          selected || style !== null ? '' : 'hover:shadow-md',
         )}
       >
         <div className="flex items-center gap-2 px-3 pb-1.5 pt-2.5">
@@ -143,11 +169,28 @@ export function WorkflowNodeCard({ data, selected }: NodeProps<CanvasFlowNode>) 
               ↻{node.retry_count}
             </span>
           )}
+          {/* 状态：一个小圆点 + 文案，跟随主题令牌；运行中/等待中的点会呼吸 */}
+          {status !== undefined && style !== null && (
+            <span
+              className={cn('ml-auto inline-flex shrink-0 items-center gap-1 text-[10px] font-medium leading-4', style.text)}
+              title={statusLabel}
+            >
+              <span
+                className={cn(
+                  'h-1.5 w-1.5 rounded-full',
+                  style.dot,
+                  (status === 'running' || status === 'waiting') && 'animate-pulse-dot',
+                )}
+                aria-hidden
+              />
+              {statusLabel}
+            </span>
+          )}
         </div>
 
         <div className="line-clamp-2 min-h-[18px] px-3 pb-2 text-[11px] leading-[15px] text-text-muted">{summary}</div>
 
-        {(node.output_key !== '' || issue !== null || runStatus !== undefined) && (
+        {(node.output_key !== '' || issue !== null) && (
           <div className="flex items-center gap-1 px-3 pb-2">
             {node.output_key !== '' && (
               <span className="inline-flex items-center rounded border border-border/70 bg-bg/60 px-1 py-[1px] font-mono text-[9.5px] leading-3 text-text-faint">
@@ -160,23 +203,27 @@ export function WorkflowNodeCard({ data, selected }: NodeProps<CanvasFlowNode>) 
                 {issue}
               </span>
             )}
-            {runStatus !== undefined && (
-              <span
-                className={cn(
-                  'ml-auto inline-flex items-center gap-0.5 rounded-full px-1.5 text-[9.5px] leading-4',
-                  runStatus === 'succeeded' && 'bg-ok/10 text-ok',
-                  runStatus === 'failed' && 'bg-danger/10 text-danger',
-                  runStatus === 'pending' && 'bg-zinc-500/10 text-text-faint',
-                )}
-              >
-                {runStatus === 'succeeded' ? <Check size={9} aria-hidden /> : null}
-                {runStatus === 'failed' ? <X size={9} aria-hidden /> : null}
-                {runStatus === 'succeeded' ? tr('完成', 'Done') : runStatus === 'failed' ? tr('失败', 'Failed') : tr('未执行', 'Skipped')}
-              </span>
+          </div>
+        )}
+
+        {/* 人工节点：整条卡片底部加一条提示，明确「这一轮停在这里等人」，区别于跑成功 */}
+        {status === 'waiting' && (
+          <div
+            className={cn(
+              'flex items-center gap-1.5 border-t px-3 py-1.5 text-[10px] font-medium',
+              waitingKind === 'input'
+                ? 'border-info/25 bg-info/[0.07] text-info'
+                : 'border-warn/25 bg-warn/[0.07] text-warn',
             )}
+          >
+            <Clock size={11} aria-hidden />
+            {waitingKind === 'input'
+              ? tr('等待人工填写，运行已暂停', 'Waiting for input; run paused')
+              : tr('等待人工审批，运行已暂停', 'Waiting for approval; run paused')}
           </div>
         )}
       </div>
     </div>
   );
 }
+

@@ -41,8 +41,12 @@ _REQUIRED_COLUMNS: list[tuple[str, str, str]] = [
     ("user_agents", "skills_json", "TEXT"),
     ("knowledge_docs", "enabled", "BOOLEAN NOT NULL DEFAULT TRUE"),
     ("workflow_node_runs", "route", "VARCHAR(64) NOT NULL DEFAULT ''"),
+    # 节点执行前看到的状态快照，面板据此同时展示输入与输出
+    ("workflow_node_runs", "input_json", "TEXT NOT NULL DEFAULT ''"),
     # 发布语义改造：状态不再手配，只有发布才升版本
     ("workflows", "published_at", "TIMESTAMPTZ"),
+    # 运行记录要能区分「草稿运行」与「已发布运行」：同版本号下定义可能不同
+    ("workflow_runs", "workflow_status", "VARCHAR(16) NOT NULL DEFAULT 'draft'"),
 ]
 
 

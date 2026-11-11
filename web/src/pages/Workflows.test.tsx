@@ -371,6 +371,7 @@ describe('WorkflowsPage', () => {
           run_uid: 'run-abc',
           workflow_id: 12,
           workflow_version: 3,
+          workflow_status: 'published',
           status: 'running',
           trigger: 'manual',
           triggered_by: 'admin',
@@ -415,6 +416,7 @@ describe('WorkflowsPage', () => {
               workflow_id: 12,
               workflow_name: '新画布',
               workflow_version: 3,
+              workflow_status: 'published',
               status: 'succeeded',
               trigger: 'manual',
               triggered_by: 'admin',
@@ -433,8 +435,11 @@ describe('WorkflowsPage', () => {
 
     renderPage('/workflows?tab=runs');
     expect(await screen.findByText('新画布')).toBeInTheDocument();
-    expect(screen.getByText('成功')).toBeInTheDocument();
-    expect(screen.getByText('1.2 s')).toBeInTheDocument();
+    // 「成功 / 失败」也是状态筛选按钮的文案，断言要落在表格里
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('成功')).toBeInTheDocument();
+    expect(within(table).getByText('v3')).toBeInTheDocument();
+    expect(within(table).getByText('1.2 s')).toBeInTheDocument();
     expect(screen.getByText(fullDateTime('2026-08-02T03:04:00Z'))).toBeInTheDocument();
     expect(screen.getByText('共 1 次运行')).toBeInTheDocument();
   });

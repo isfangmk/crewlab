@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { ApiError } from '@/api/client';
-import { validateDefinition, type WorkflowDefinition, type WorkflowRun, runWorkflow } from '@/api/workflows';
+import { validateDefinition, type WorkflowDefinition } from '@/api/workflows';
 import { Modal } from '@/components/Modal';
 import { Button } from '@/components/ui';
 import { buildPayload, initialValues, VariableFields } from '@/components/workflow/RunInputs';
@@ -16,7 +16,8 @@ type Props = {
   workflowName: string;
   definition: WorkflowDefinition;
   onClose(): void;
-  onStarted(run: WorkflowRun): void;
+  /** 校验通过后把输入交给调用方：真正的执行走流式，由编辑器接管画布。 */
+  onStarted(values: Record<string, unknown>): void;
 };
 
 export function RunWorkflowDialog({ workflowId, workflowName, definition, onClose, onStarted }: Props) {
@@ -45,8 +46,7 @@ export function RunWorkflowDialog({ workflowId, workflowName, definition, onClos
         setErr(tr(`画布校验不通过：${validation.error}`, `Canvas validation failed: ${validation.error}`));
         return;
       }
-      const run = await runWorkflow(workflowId, buildPayload(variables, values, tr));
-      onStarted(run);
+      onStarted(buildPayload(variables, values, tr));
     } catch (error) {
       setErr(error instanceof ApiError ? error.message : (error as Error).message);
     } finally {

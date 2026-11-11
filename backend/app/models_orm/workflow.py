@@ -58,6 +58,9 @@ class WorkflowRun(Base):
     # 运行时的定义快照：节点被删除后仍能回看这次运行
     definition_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     workflow_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # 发起这次运行时的画布状态：draft | published。版本号相同也可能是草稿，
+    # 光看 workflow_version 分不出跑的是已发布版本还是未发布的改动。
+    workflow_status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
     # running | succeeded | failed
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
     trigger: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
@@ -92,6 +95,8 @@ class WorkflowNodeRun(Base):
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     # succeeded | failed
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="succeeded")
+    # 节点本次执行看到的状态快照（即它的「输入」），供面板对照输入与输出
+    input_json: Mapped[str] = mapped_column(Text, nullable=False, default="")
     output_json: Mapped[str] = mapped_column(Text, nullable=False, default="")
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

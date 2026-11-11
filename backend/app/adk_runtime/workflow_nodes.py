@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -35,6 +35,8 @@ class NodeOutcome:
     node_kind: str
     attempt: int
     status: str
+    # 节点执行前看到的状态快照，即面板上的「输入」
+    node_input: Any
     output: Any
     error: str
     duration_ms: int
@@ -54,11 +56,87 @@ class RunContext:
     # 单节点试跑：跑到 stop_after 这个节点就收工，下游不执行
     stop_after: str | None = None
     stopped: bool = False
+    # 实时事件回调：节点开始/结束即时推给运行服务，未订阅时为 None
+    on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None
 
     def next_attempt(self, node_id: str) -> int:
         attempt = self.attempts.get(node_id, 0) + 1
         self.attempts[node_id] = attempt
         return attempt
+
+    async def emit(self, event: dict[str, Any]) -> None:
+        """推送一条运行事件；没有订阅者时什么都不做。"""
+
+        if self.on_event is None:
+            return
+        await self.on_event(event)
+
+
+def state_snapshot(ctx: Any) -> dict[str, Any]:
+    """取 ADK 上下文的共享状态快照。
+
+    ctx.state 是自定义映射而不是 dict，必须用 to_dict() 取全量快照，
+    直接 dict(state) 会按迭代协议报错。
+    """
+
+    state = getattr(ctx, "state", None)
+    if state is None:
+        raise RuntimeError("上下文缺少 state")
+    to_dict = getattr(state, "to_dict", None)
+    if not callable(to_dict):
+        raise TypeError(f"state 无法快照: {type(state).__name__}")
+    raw = to_dict()
+    if not isinstance(raw, dict):
+        raise TypeError("state.to_dict() 必须返回 dict")
+    return raw
+
+
+def upstream_outputs(
+    node: WorkflowNode, definition: WorkflowDefinition, state: dict[str, Any]
+) -> dict[str, Any]:
+    """入边带过来的上游产出：按前驱节点的结果变量取值。
+
+    ADK 往下游节点传的就是上游节点的输出，所以这就是这一步真正拿到的输入。
+    前驱没声明结果变量时拿不到可命名的值，返回空交由调用方决定展示什么。
+    """
+
+    by_id = {item.id: item for item in definition.nodes}
+    merged: dict[str, Any] = {}
+    for edge in definition.edges:
+        if edge.target != node.id:
+            continue
+        source = by_id.get(edge.source)
+        key = "" if source is None else source.output_key
+        if key != "" and key in state:
+            merged[key] = state[key]
+    return merged
+
+
+def template_values(text: str, state: dict[str, Any]) -> dict[str, Any]:
+    """模板里引用到的变量及其当前值。
+
+    只按名字取值，缺的变量不硬凑成空值——面板要的是「这一步实际吃到了什么」，
+    而不是一份补全过的参数表。
+    """
+
+    return {
+        name: state[name]
+        for name in workflow_vars.referenced_names(text)
+        if name in state
+    }
+
+
+def template_input(text: str, state: dict[str, Any], literal_key: str) -> dict[str, Any]:
+    """模板类节点的输入：引用变量时列出变量值，固定文本时列出这段文本。
+
+    与 Dify 的做法一致：节点自己声明这次读了什么，面板照着渲染；
+    固定文本没有引用任何变量，把原文放出来，才不至于整块输入是空的。
+    """
+
+    values = template_values(text, state)
+    if values != {} or text.strip() == "":
+        return values
+    return {literal_key: text}
 
 
 def serialize(value: Any) -> str:
@@ -76,6 +154,10 @@ class WorkflowStopAfter(Exception):
     """单节点试跑跑到目标节点后主动收工，下游未执行（不是失败）。"""
 
 
+class WorkflowStopped(Exception):
+    """用户点了「停止运行」，这一次运行在下一个事件边界收工。"""
+
+
 @dataclass
 class Routed:
     """带路由的节点输出：route 由 ADK 用来匹配 Edge.route。"""
@@ -89,9 +171,9 @@ def build_llm_callbacks(
 ) -> tuple[Any, Any, Any]:
     """LLM 节点的结果写回与执行记录。
 
-    agent 节点是 ADK 的 LlmAgent，不是 CanvasNode，不走统一的 output_key 写回，
-    所以用它的回调补上；否则画布上的 {{节点}} 变量永远是空的，节点执行记录里
-    也看不到这一步。
+    agent 节点是 ADK 的 LlmAgent，不是 CanvasNode，不走统一的 output_key 写回、
+    也不会自己发运行事件，所以这两件事都在回调里补上；否则画布上的 {{节点}}
+    变量永远是空的，面板看不到这一步的输入，流式运行时这个节点也不会亮。
 
     after_agent_callback 只拿得到上下文、拿不到本次模型响应，因此写回放在
     after_model_callback：那里能拿到 LlmResponse 的正文。
@@ -99,23 +181,42 @@ def build_llm_callbacks(
 
     started_at: dict[str, float] = {}
     attempt: dict[str, int] = {}
+    node_input: dict[str, Any] = {}
 
-    async def before(_callback_context: Any) -> None:
+    async def before(callback_context: Any) -> None:
         attempt["value"] = run_ctx.next_attempt(node.id)
         started_at["value"] = asyncio.get_running_loop().time()
+        state = state_snapshot(callback_context)
+        # 模型节点拿到的是上游节点的产出（ADK 把它当成本轮用户消息）；
+        # 上游没留下可命名的结果变量时，退到指令里引用的变量。
+        inputs = upstream_outputs(node, run_ctx.definition, state)
+        if inputs == {}:
+            inputs = template_input(node.instruction, state, "instruction")
+        node_input["value"] = inputs
+        await run_ctx.emit(
+            {
+                "event": "node_started",
+                "node_id": node.id,
+                "node_kind": node.kind,
+                "label": node.label,
+                "attempt": attempt["value"],
+            }
+        )
         return None
 
-    def _record(status: str, text: str, error: str) -> None:
+    async def _record(status: str, text: str, error: str) -> None:
         now = asyncio.get_running_loop().time()
         current = attempt.get("value", 1)
+        duration_ms = int((now - started_at.get("value", now)) * 1000)
         outcome = NodeOutcome(
             node_id=node.id,
             node_kind=node.kind,
             attempt=current,
             status=status,
+            node_input=node_input.get("value", {}),
             output=text,
             error=error,
-            duration_ms=int((now - started_at.get("value", now)) * 1000),
+            duration_ms=duration_ms,
         )
         existing = next(
             (o for o in run_ctx.outcomes if o.node_id == node.id and o.attempt == current),
@@ -123,12 +224,23 @@ def build_llm_callbacks(
         )
         if existing is None:
             run_ctx.outcomes.append(outcome)
-            return
-        # 同一次执行可能产生多段响应，只保留最后一段，避免记录里出现重复行
-        existing.status = outcome.status
-        existing.output = outcome.output
-        existing.error = outcome.error
-        existing.duration_ms = outcome.duration_ms
+        else:
+            # 同一次执行可能产生多段响应，只保留最后一段，避免记录里出现重复行
+            existing.status = outcome.status
+            existing.output = outcome.output
+            existing.error = outcome.error
+            existing.duration_ms = outcome.duration_ms
+        await run_ctx.emit(
+            {
+                "event": "node_finished",
+                "node_id": node.id,
+                "node_kind": node.kind,
+                "status": status,
+                "output": text if status == "succeeded" else None,
+                "error": error,
+                "duration_ms": duration_ms,
+            }
+        )
 
     async def after_model(callback_context: Any, response: Any) -> None:
         content = getattr(response, "content", None)
@@ -145,7 +257,7 @@ def build_llm_callbacks(
         )
         if node.output_key != "":
             callback_context.state[node.output_key] = text
-        _record("succeeded", text, "")
+        await _record("succeeded", text, "")
         logger.info(
             "工作流 LLM 节点完成 node=%s output_key=%s chars=%s",
             node.id,
@@ -155,7 +267,7 @@ def build_llm_callbacks(
         return None
 
     async def on_error(_callback_context: Any, _request: Any, error: Exception) -> None:
-        _record("failed", "", f"{type(error).__name__}: {error}")
+        await _record("failed", "", f"{type(error).__name__}: {error}")
         return None
 
     return before, after_model, on_error
@@ -204,22 +316,25 @@ class CanvasNode(Node):
         return cls(node=node, run_ctx=run_ctx, tools=tools, **kwargs)
 
     def _state(self, ctx: Any) -> dict[str, Any]:
-        """读取共享状态快照。
+        """读取共享状态快照；出错时带上节点 id，便于定位是哪一步。"""
 
-        ADK 的 ctx.state 是自定义映射而不是 dict，必须用 to_dict() 取全量快照，
-        直接 dict(state) 会按迭代协议报错。
+        try:
+            return state_snapshot(ctx)
+        except (RuntimeError, TypeError) as exc:
+            raise RuntimeError(f"节点 {self._node_def.id} 状态读取失败: {exc}") from exc
+
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        """这一步的输入：节点自己给出读了哪些变量、值是什么。
+
+        每个节点类型都声明自己的输入（画布上它读的是它配置里/代码里真正用到的
+        东西），而不是把整份共享状态倒给用户。代码节点要跑起来才知道读了哪些键，
+        由 execute 记录后从这里返回。
         """
 
-        state = getattr(ctx, "state", None)
-        if state is None:
-            raise RuntimeError(f"节点缺少 state: {self._node_def.id}")
-        to_dict = getattr(state, "to_dict", None)
-        if not callable(to_dict):
-            raise TypeError(f"节点状态无法快照: {self._node_def.id}")
-        raw = to_dict()
-        if not isinstance(raw, dict):
-            raise TypeError(f"state.to_dict() 必须返回 dict: {self._node_def.id}")
-        return raw
+        raise NotImplementedError(
+            f"节点未声明输入: {self._node_def.id} kind={self._node_def.kind} "
+            f"state_keys={sorted(state)}"
+        )
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         """子类实现节点逻辑；默认抛错，避免漏实现被静默跳过。"""
@@ -251,22 +366,46 @@ class CanvasNode(Node):
         loop = asyncio.get_running_loop()
         started_at = loop.time()
         state = self._state(ctx)
+        # 节点开始：前端据此把节点点亮并跟动画布
+        await self._run_ctx.emit(
+            {
+                "event": "node_started",
+                "node_id": node.id,
+                "node_kind": node.kind,
+                "label": node.label,
+                "attempt": attempt,
+            }
+        )
         try:
             raw = await self.execute(ctx=ctx, state=state)
         except Exception as exc:
+            duration_ms = int((loop.time() - started_at) * 1000)
+            # 输入在执行后收集：这一步读了什么，跑过才知道（代码节点尤其如此）
+            node_input = self.input_snapshot(state)
             self._run_ctx.outcomes.append(
                 NodeOutcome(
                     node_id=node.id,
                     node_kind=node.kind,
                     attempt=attempt,
                     status="failed",
+                    node_input=node_input,
                     output=None,
                     error=f"{type(exc).__name__}: {exc}",
-                    duration_ms=int((loop.time() - started_at) * 1000),
+                    duration_ms=duration_ms,
                 )
             )
             logger.exception(
                 "工作流节点失败 node=%s kind=%s attempt=%s", node.id, node.kind, attempt
+            )
+            await self._run_ctx.emit(
+                {
+                    "event": "node_finished",
+                    "node_id": node.id,
+                    "node_kind": node.kind,
+                    "status": "failed",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "duration_ms": duration_ms,
+                }
             )
             raise
 
@@ -278,6 +417,7 @@ class CanvasNode(Node):
             value = raw.value
         if node.output_key != "":
             ctx.state[node.output_key] = value
+        node_input = self.input_snapshot(state)
 
         self._run_ctx.outcomes.append(
             NodeOutcome(
@@ -285,6 +425,7 @@ class CanvasNode(Node):
                 node_kind=node.kind,
                 attempt=attempt,
                 status="succeeded",
+                node_input=node_input,
                 output=value,
                 error="",
                 duration_ms=duration_ms,
@@ -298,6 +439,18 @@ class CanvasNode(Node):
             attempt,
             route,
             duration_ms,
+        )
+        # 节点结束：前端用状态码上色；route 让条件分支只亮实际走的那条边
+        await self._run_ctx.emit(
+            {
+                "event": "node_finished",
+                "node_id": node.id,
+                "node_kind": node.kind,
+                "status": "succeeded",
+                "output": value,
+                "route": route,
+                "duration_ms": duration_ms,
+            }
         )
         # 单节点试跑：目标节点跑完就收工，不再往下游推进
         if self._run_ctx.stop_after == node.id:
@@ -336,6 +489,14 @@ def build_edges(definition: WorkflowDefinition, node_map: dict[str, Any]) -> lis
 
 class PassThroughNode(CanvasNode):
     """已确认过的人工节点：恢复时直接透传，不再停一次。"""
+
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        # 确认过的节点：输入就是当初问的问题加上这次提交的答案
+        inputs = template_input(self._node_def.prompt, state, "prompt")
+        key = self._node_def.output_key
+        if key != "" and key in state:
+            inputs[key] = state[key]
+        return inputs
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         key = self._node_def.output_key
@@ -401,3 +562,35 @@ def render_text(text: str, state: dict[str, Any]) -> str:
 def preview(value: Any, limit: int = 4000) -> str:
     text = serialize(value)
     return text if len(text) <= limit else text[:limit] + "…"
+
+
+# 落库的输入保留「变量」结构，只把单个值收口：
+# 直接截断整段 JSON 会把它切成非法文本，前端就只能退化成一段纯文本，
+# 没法按变量逐行展示这一步到底读了什么。
+INPUT_VALUE_LIMIT = 600
+INPUT_LIST_LIMIT = 20
+
+
+def _shrink(value: Any) -> Any:
+    if isinstance(value, str):
+        return value if len(value) <= INPUT_VALUE_LIMIT else value[:INPUT_VALUE_LIMIT] + "…"
+    if isinstance(value, list):
+        return [_shrink(item) for item in value[:INPUT_LIST_LIMIT]]
+    if isinstance(value, dict):
+        return {str(key): _shrink(item) for key, item in value.items()}
+    return value
+
+
+def preview_input(value: dict[str, Any]) -> str:
+    """节点输入的落库格式：键还在，值按上限截断，结果仍是合法 JSON。
+
+    以 __ 开头的是运行服务自己的记账（已确认的人工节点、循环轮次、人工占位），
+    不是节点读的数据，落库前剔掉，免得面板里冒出用户看不懂的键。
+    """
+
+    visible = {
+        str(key): _shrink(item)
+        for key, item in value.items()
+        if not str(key).startswith("__")
+    }
+    return serialize(visible)

@@ -34,6 +34,17 @@ def _lookup(state: dict[str, Any], name: str) -> Any:
     return state[name]
 
 
+def referenced_names(text: str) -> list[str]:
+    """列出文本里引用到的变量名，按出现顺序去重。"""
+
+    seen: list[str] = []
+    for match in _PLACEHOLDER.finditer(text):
+        name = match.group(1)
+        if name not in seen:
+            seen.append(name)
+    return seen
+
+
 def _to_text(value: Any) -> str:
     if isinstance(value, str):
         return value

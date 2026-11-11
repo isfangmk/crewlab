@@ -26,6 +26,8 @@ import {
   getWorkflow,
   listRuns,
   listWorkflows,
+  runWorkflow,
+  type RunStatus,
   type WorkflowCatalog,
   type WorkflowDefinition,
   type WorkflowLastRun,
@@ -34,7 +36,7 @@ import {
 } from '@/api/workflows';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
-import { RunStatusPill, formatDuration } from '@/components/workflow/RunStatusPill';
+import { DraftTag, RunStatusPill, formatDuration } from '@/components/workflow/RunStatusPill';
 import { RunWorkflowDialog } from '@/components/workflow/RunWorkflowDialog';
 import {
   Button,
@@ -46,6 +48,7 @@ import {
   RowAction,
   RowActionIcon,
   SearchInput,
+  Select,
   TableCard,
   TablePager,
   Textarea,
@@ -60,6 +63,18 @@ import { emptyNode, layeredLayout } from '@/lib/workflowMeta';
 
 type Tab = 'canvas' | 'runs';
 type TemplateKey = 'blank' | 'knowledge' | 'approval';
+
+// 运行状态筛选：与后端 RunStatus 一一对应，空值表示全部。
+const RUN_STATUS_FILTERS: {
+  value: '' | RunStatus;
+  label: (tr: (zh: string, en: string) => string) => string;
+}[] = [
+  { value: '', label: (tr) => tr('全部', 'All') },
+  { value: 'running', label: (tr) => tr('运行中', 'Running') },
+  { value: 'waiting', label: (tr) => tr('等待人工', 'Waiting') },
+  { value: 'succeeded', label: (tr) => tr('成功', 'Succeeded') },
+  { value: 'failed', label: (tr) => tr('失败', 'Failed') },
+];
 
 export default function WorkflowsPage() {
   const { tr, locale } = useI18n();
@@ -365,16 +380,18 @@ export default function WorkflowsPage() {
                             <RowAction icon={Pencil} onClick={() => navigate(`/workflows/${item.id}`)}>
                               {tr('编排', 'Edit')}
                             </RowAction>
-                            <RowActionIcon
+                            {/* 图标按钮在这里说不清点下去会发生什么，改成和「运行 / 编排」同款文字操作 */}
+                            <RowAction
                               icon={History}
-                              label={tr('运行记录', 'Run history')}
                               onClick={() => {
                                 const draft = new URLSearchParams();
                                 draft.set('tab', 'runs');
                                 draft.set('workflow', String(item.id));
                                 setParams(draft);
                               }}
-                            />
+                            >
+                              {tr('历史', 'History')}
+                            </RowAction>
                             {canMutate && (
                               <RowActionIcon icon={Trash2} label={tr('删除', 'Delete')} tone="danger" onClick={() => setDeleting(item)} />
                             )}
@@ -392,6 +409,12 @@ export default function WorkflowsPage() {
         <RunsTab
           workflowFilter={workflowFilter}
           firstWorkflowId={items[0]?.id ?? null}
+          onWorkflowFilterChange={(id) => {
+            const draft = new URLSearchParams(params);
+            if (id === null) draft.delete('workflow');
+            else draft.set('workflow', String(id));
+            setParams(draft, { replace: true });
+          }}
           onClearFilter={() => {
             const draft = new URLSearchParams(params);
             draft.delete('workflow');
@@ -421,9 +444,20 @@ export default function WorkflowsPage() {
           workflowName={running.name}
           definition={running.definition}
           onClose={() => setRunning(null)}
-          onStarted={(run) => {
+          onStarted={(values) => {
+            // 列表页没有画布可点亮，直接发起一次普通运行，进详情页看结果。
+            // 弹窗只负责收集输入，真正的执行请求必须在这里发出去。
+            const target = running;
+            if (target === null) return;
             setRunning(null);
-            navigate(`/workflows/runs/${run.run_uid}`);
+            void (async () => {
+              try {
+                const run = await runWorkflow(target.id, values);
+                navigate(`/workflows/runs/${run.run_uid}`);
+              } catch (error) {
+                flash('err', error instanceof ApiError ? error.message : (error as Error).message);
+              }
+            })();
           }}
         />
       )}
@@ -478,6 +512,7 @@ function ErrorBar({ message }: { message: string }) {
 function RunsTab({
   workflowFilter,
   firstWorkflowId,
+  onWorkflowFilterChange,
   onClearFilter,
   onOpenWorkflow,
   onRerun,
@@ -487,6 +522,8 @@ function RunsTab({
   workflowFilter: string;
   /** 运行记录为空时用它打开第一个工作流。 */
   firstWorkflowId: number | null;
+  /** 切换工作流筛选：空值表示看全部工作流。 */
+  onWorkflowFilterChange(id: number | null): void;
   onClearFilter(): void;
   onOpenWorkflow(id: number): void;
   onRerun(id: number): void;
@@ -500,13 +537,36 @@ function RunsTab({
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
+  // 关键字、状态、工作流都交给后端筛：筛完的 total 才是「共 N 次运行」的口径。
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState<'' | RunStatus>('');
+  // 工作流下拉的候选：不分页取一批名字，够用且不跟画布列表的分页联动。
+  const [workflowOptions, setWorkflowOptions] = useState<{ value: string; label: string }[]>([]);
 
   const workflowId = workflowFilter === '' ? undefined : Number(workflowFilter);
+  const hasFilter = query.trim() !== '' || status !== '' || workflowId !== undefined;
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const result = await listWorkflows({ limit: 200, sort: 'asc' });
+        setWorkflowOptions(result.items.map((item) => ({ value: String(item.id), label: item.name })));
+      } catch (err) {
+        setFailure(err instanceof ApiError ? err.message : (err as Error).message);
+      }
+    })();
+  }, []);
 
   const fetchRuns = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await listRuns({ workflowId, limit: pageSize, offset: page * pageSize });
+      const result = await listRuns({
+        workflowId,
+        status,
+        query,
+        limit: pageSize,
+        offset: page * pageSize,
+      });
       setRuns(result.items);
       setTotal(result.total);
       setFailure(null);
@@ -515,30 +575,47 @@ function RunsTab({
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, workflowId]);
+  }, [page, pageSize, query, status, workflowId]);
 
   useEffect(() => {
     void fetchRuns();
   }, [fetchRuns]);
 
-  const filterName =
-    workflowId === undefined
-      ? null
-      : runs.find((run) => run.workflow_id === workflowId)?.workflow_name ?? `#${workflowId}`;
-
   return (
     <>
       <FilterBar className="mx-6 mt-3">
-        <span className="text-[11.5px] text-zinc-400">
-          {filterName === null
-            ? tr('全部工作流的运行记录', 'Runs across all workflows')
-            : tr(`仅看「${filterName}」的运行`, `Runs of "${filterName}"`)}
-        </span>
-        {filterName !== null && (
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={onClearFilter}>
-            {tr('清除筛选', 'Clear filter')}
-          </Button>
-        )}
+        <SearchInput
+          value={query}
+          onChange={(next) => {
+            setQuery(next);
+            setPage(0);
+          }}
+          placeholder={tr('搜索工作流名 / run_id / 触发人', 'Search workflow / run_id / triggered by')}
+          ariaLabel={tr('搜索运行记录', 'Search runs')}
+          className="min-w-[16rem] flex-1"
+        />
+        <Select
+          value={workflowFilter}
+          onValueChange={(next) => {
+            onWorkflowFilterChange(next === '' ? null : Number(next));
+            setPage(0);
+          }}
+          options={[{ value: '', label: tr('全部工作流', 'All workflows') }, ...workflowOptions]}
+          aria-label={tr('按工作流筛选', 'Filter by workflow')}
+          className="w-[13rem]"
+        />
+        <span className="pl-1 text-[11px] text-zinc-500">{tr('状态', 'Status')}</span>
+        {RUN_STATUS_FILTERS.map((item) => (
+          <ChoiceChip
+            key={item.value}
+            active={status === item.value}
+            label={item.label(tr)}
+            onClick={() => {
+              setStatus(item.value);
+              setPage(0);
+            }}
+          />
+        ))}
         <span className="ml-auto text-[11px] tabular-nums text-zinc-500">{tr(`共 ${total} 次运行`, `${total} runs`)}</span>
       </FilterBar>
 
@@ -550,10 +627,27 @@ function RunsTab({
         ) : runs.length === 0 ? (
           <EmptyStateCard
             icon={History}
-            title={tr('还没有运行记录', 'No runs yet')}
-            hint={tr('在编排页点「运行」，或从工作流列表直接发起一次运行', 'Hit Run in the editor, or start one from the workflow list')}
+            title={hasFilter ? tr('没有匹配的运行记录', 'No matching runs') : tr('还没有运行记录', 'No runs yet')}
+            hint={
+              hasFilter
+                ? tr('换个关键字、状态，或清除工作流筛选', 'Try another keyword or status, or clear the workflow filter')
+                : tr('在编排页点「运行」，或从工作流列表直接发起一次运行', 'Hit Run in the editor, or start one from the workflow list')
+            }
             action={
-              firstWorkflowId !== null ? (
+              hasFilter ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-3 text-[11.5px]"
+                  onClick={() => {
+                    setQuery('');
+                    setStatus('');
+                    if (workflowId !== undefined) onClearFilter();
+                  }}
+                >
+                  {tr('清除筛选', 'Clear filters')}
+                </Button>
+              ) : firstWorkflowId !== null ? (
                 <Button variant="outline" size="sm" className="h-7 px-3 text-[11.5px]" onClick={() => onOpenWorkflow(firstWorkflowId)}>
                   {tr('打开一个工作流', 'Open a workflow')}
                 </Button>
@@ -583,6 +677,7 @@ function RunsTab({
               <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
                 <tr className="whitespace-nowrap">
                   <th className="px-3 py-2 text-left font-medium">{tr('运行', 'Run')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tr('版本', 'Version')}</th>
                   <th className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
                   <th className="px-3 py-2 text-left font-medium">{tr('触发人', 'Triggered by')}</th>
                   <th className="px-3 py-2 text-left font-medium">{tr('开始时间', 'Started')}</th>
@@ -604,14 +699,16 @@ function RunsTab({
                         </button>
                         <div className="mt-0.5 flex items-center gap-1 font-mono text-[10px] text-zinc-600">
                           <span>{run.run_uid}</span>
-                          <span className="text-zinc-700">·</span>
-                          <span>v{run.workflow_version}</span>
                           {run.trigger === 'debug' && (
                             <span className="ml-1 rounded-sm bg-zinc-700/40 px-1 font-sans text-[10px] text-zinc-400">
                               {tr('节点试跑', 'Node test')}
                             </span>
                           )}
                         </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2">
+                        <span className="font-mono text-[11px] text-zinc-400">v{run.workflow_version}</span>
+                        {run.workflow_status === 'draft' && <DraftTag className="ml-1.5" />}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2">
                         <RunStatusPill status={run.status} />

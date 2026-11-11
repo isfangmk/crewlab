@@ -41,14 +41,32 @@ vi.mock('@xyflow/react', () => {
       screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x, y }),
       zoomIn: () => {},
       zoomOut: () => {},
+      zoomTo: () => {},
+      setViewport: () => {},
       fitView: () => {},
+      setCenter: () => {},
+      getZoom: () => 1,
     }),
     useViewport: () => ({ zoom: 1 }),
+    // 「适应画布」直接读画布内部状态算包围盒；测试里给空尺寸，走提前返回分支
+    useStoreApi: () => ({
+      getState: () => ({
+        width: 0,
+        height: 0,
+        nodes: [],
+        nodeOrigin: [0, 0] as [number, number],
+        nodeLookup: new Map(),
+      }),
+    }),
+    getNodesBounds: () => ({ x: 0, y: 0, width: 0, height: 0 }),
+    getViewportForBounds: () => ({ x: 0, y: 0, zoom: 1 }),
   };
 });
 
 const detailURL = '/api/v1/workflows/12';
 const catalogURL = '/api/v1/workflows/catalog';
+// 进入画布会拉上次运行快照；没跑过的返回 run=null
+const latestRunURL = '/api/v1/workflows/12/runs/latest';
 
 const catalog = {
   node_groups: [{ key: 'flow', title: '编排', title_en: 'Flow' }],
@@ -119,6 +137,7 @@ describe('WorkflowEditor 画布交互', () => {
     server.use(
       http.get(detailURL, () => HttpResponse.json(detailPayload())),
       http.get(catalogURL, () => HttpResponse.json(catalog)),
+      http.get(latestRunURL, () => HttpResponse.json({ run: null })),
     );
   });
 
@@ -144,6 +163,48 @@ describe('WorkflowEditor 画布交互', () => {
   });
 });
 
+describe('WorkflowEditor 运行状态恢复', () => {
+  beforeEach(() => {
+    localStorage.setItem('ongrid-locale', 'zh-CN');
+    captured.props = null;
+    server.use(
+      http.get(detailURL, () => HttpResponse.json(detailPayload())),
+      http.get(catalogURL, () => HttpResponse.json(catalog)),
+      http.get(latestRunURL, () => HttpResponse.json({ run: null })),
+    );
+  });
+
+  it('进入画布就恢复上次运行：停在人工节点时给出等待横幅', async () => {
+    server.use(
+      http.get(latestRunURL, () =>
+        HttpResponse.json({
+          run: {
+            run_uid: 'run-1',
+            status: 'waiting',
+            trigger: 'manual',
+            workflow_version: 1,
+            workflow_status: 'draft',
+            gate: 'prep',
+            gate_kind: 'approval',
+            created_at: '2026-08-02T03:04:00Z',
+            finished_at: null,
+            nodes: [{ node_id: 'start', status: 'succeeded' }],
+          },
+        }),
+      ),
+    );
+    renderEditor();
+    expect(await screen.findByText('停在「prep」等待审批')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '去处理' })).toBeInTheDocument();
+  });
+
+  it('没有运行记录时不显示等待横幅', async () => {
+    renderEditor();
+    await screen.findByText('告警处置');
+    expect(screen.queryByRole('button', { name: '去处理' })).not.toBeInTheDocument();
+  });
+});
+
 describe('WorkflowEditor 草稿与发布', () => {
   beforeEach(() => {
     localStorage.setItem('ongrid-locale', 'zh-CN');
@@ -151,6 +212,7 @@ describe('WorkflowEditor 草稿与发布', () => {
     server.use(
       http.get(detailURL, () => HttpResponse.json(detailPayload())),
       http.get(catalogURL, () => HttpResponse.json(catalog)),
+      http.get(latestRunURL, () => HttpResponse.json({ run: null })),
     );
   });
 

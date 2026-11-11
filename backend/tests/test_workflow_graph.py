@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -335,6 +336,211 @@ def test_conditional_operators() -> None:
         workflow_vars.resolve_conditional("{{s}} > 1", state)
 
 
+# ---------------- 节点输入范围 ----------------
+
+
+def _built_node(node_payload: dict, definition: WorkflowDefinition, tools: dict | None = None) -> object:
+    """按 kind 构造真实节点实例：输入快照必须由节点自己给出，不能靠猜配置。"""
+
+    from app.adk_runtime.workflow_node_impl import NODE_BUILDERS
+    from app.adk_runtime.workflow_nodes import RunContext
+
+    node = next(n for n in definition.nodes if n.id == node_payload["id"])
+    builder = NODE_BUILDERS[node.kind]
+    run_ctx = RunContext(definition=definition, db=None)  # pyright: ignore[reportArgumentType]
+    return builder.build(node=node, run_ctx=run_ctx, tools=tools or {}, name=node.id)
+
+
+def _input_of(
+    node_payload: dict,
+    state: dict,
+    tools: dict | None = None,
+    extra_nodes: list[dict] | None = None,
+    extra_edges: list[dict] | None = None,
+) -> dict:
+    definition = WorkflowDefinition.model_validate(
+        {
+            "nodes": [
+                _node("start", "start", variables=[{"name": "topic", "required": False}]),
+                node_payload,
+                *(extra_nodes or []),
+            ],
+            "edges": [
+                {"id": "e1", "source": "start", "target": node_payload["id"]},
+                *(extra_edges or []),
+            ],
+        }
+    )
+    built = _built_node(node_payload, definition, tools)
+    return built.input_snapshot(state)  # type: ignore[attr-defined]
+
+
+def test_start_node_input_is_submitted_values() -> None:
+    definition = WorkflowDefinition.model_validate(_simple_flow())
+    built = _built_node({"id": "start", "kind": "start"}, definition, {"run_values": {"topic": "巡检"}})
+    # 开始节点的输入就是这一轮提交的参数，人工节点回填的值同样算在内
+    assert built.input_snapshot({}) == {"topic": "巡检"}  # type: ignore[attr-defined]
+
+
+def test_node_input_is_what_the_node_reads() -> None:
+    """每个节点类型都给出输入，且只列自己真正读到的东西。"""
+
+    state = {"topic": "磁盘告警", "score": 88, "noise": "噪音"}
+
+    assert _input_of(_node("kb", "knowledge", query="{{topic}} 手册"), state) == {
+        "topic": "磁盘告警"
+    }
+    # 固定查询串没读任何变量，输入就是这段查询
+    assert _input_of(_node("kb2", "knowledge", query="固定查询"), state) == {
+        "query": "固定查询"
+    }
+    assert _input_of(_node("search", "search", query="{{topic}} 公告"), state) == {
+        "topic": "磁盘告警"
+    }
+    assert _input_of(
+        _node("prep", "assign", assignments={"subject": "{{topic}} 的处理"}), state
+    ) == {"topic": "磁盘告警"}
+    assert _input_of(
+        _node("sw", "switch", branches=["hi", "lo"], expression="{{score}} >= 80"),
+        state,
+        extra_nodes=[
+            _node("sw_hi", "assign", assignments={"r": "hi"}),
+            _node("sw_lo", "assign", assignments={"r": "lo"}),
+            _node("sw_end", "end", output_key="r"),
+        ],
+        extra_edges=[
+            {"id": "e2", "source": "sw", "target": "sw_hi", "route": "hi"},
+            {"id": "e3", "source": "sw", "target": "sw_lo", "route": "lo"},
+            {"id": "e4", "source": "sw_hi", "target": "sw_end"},
+            {"id": "e5", "source": "sw_lo", "target": "sw_end"},
+        ],
+    ) == {"expression": "{{score}} >= 80", "score": 88}
+    assert _input_of(
+        _node("lp", "loop", max_iterations=3, expression="{{score}} < 100"),
+        state,
+        extra_nodes=[
+            _node("lp_body", "assign", assignments={"r": "x"}),
+            _node("lp_end", "end", output_key="r"),
+        ],
+        extra_edges=[
+            {"id": "e2", "source": "lp", "target": "lp_body", "route": "loop"},
+            {"id": "e3", "source": "lp_body", "target": "lp"},
+            {"id": "e4", "source": "lp", "target": "lp_end", "route": "exit"},
+        ],
+    ) == {"iteration": 1, "max_iterations": 3, "score": 88}
+    assert _input_of(_node("gate", "approval", prompt="确认 {{topic}}"), state) == {
+        "topic": "磁盘告警"
+    }
+    assert _input_of(
+        _node("http", "http", method="POST", url="http://ops/{{topic}}"), state
+    ) == {"method": "POST", "topic": "磁盘告警"}
+    assert _input_of(
+        _node("mcp", "mcp", mcp_server="ops", mcp_tool="restart", arguments={"q": "{{topic}}"}),
+        state,
+    ) == {"server": "ops", "tool": "restart", "topic": "磁盘告警"}
+    assert _input_of(_node("end", "end", output_key="score"), state) == {"score": 88}
+
+
+def test_join_node_input_is_predecessor_outputs() -> None:
+    """汇合点只列各入边带过来的产出，不把整份状态倒出来。"""
+
+    payload = {
+        "nodes": [
+            _node("start", "start", variables=[{"name": "topic"}]),
+            _node("a", "assign", output_key="from_a", assignments={"from_a": "A"}),
+            _node("b", "assign", output_key="from_b", assignments={"from_b": "B"}),
+            _node("join", "join"),
+        ],
+        "edges": [
+            {"id": "e1", "source": "start", "target": "a"},
+            {"id": "e2", "source": "start", "target": "b"},
+            {"id": "e3", "source": "a", "target": "join"},
+            {"id": "e4", "source": "b", "target": "join"},
+        ],
+    }
+    definition = WorkflowDefinition.model_validate(payload)
+    built = _built_node({"id": "join", "kind": "join"}, definition)
+    assert built.input_snapshot({"from_a": "A", "from_b": "B", "noise": "x"}) == {  # type: ignore[attr-defined]
+        "from_a": "A",
+        "from_b": "B",
+    }
+
+
+@pytest.mark.asyncio
+async def test_code_node_input_is_measured_at_runtime() -> None:
+    """代码节点读哪些键是跑出来的，不是扫代码猜出来的。"""
+
+    payload = {
+        "nodes": [
+            _node("start", "start", variables=[{"name": "topic"}]),
+            _node(
+                "score",
+                "code",
+                output_key="score",
+                code="def run(state):\n    return str(state['kb']) + str(state.get('web', ''))",
+            ),
+            _node("end", "end", output_key="score"),
+        ],
+        "edges": [
+            {"id": "e1", "source": "start", "target": "score"},
+            {"id": "e2", "source": "score", "target": "end"},
+        ],
+    }
+    definition = WorkflowDefinition.model_validate(payload)
+    built = _built_node({"id": "score", "kind": "code"}, definition)
+    state = {"kb": "知识", "web": "公告", "noise": "噪音"}
+    await built.execute(ctx=None, state=state)  # type: ignore[attr-defined]
+    assert built.input_snapshot(state) == {"kb": "知识", "web": "公告"}  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_code_node_input_keeps_all_keys_it_actually_copies() -> None:
+    """整份复制 / 遍历也是读取：如实给全量，而不是空着。"""
+
+    for code in (
+        "def run(state):\n    data = dict(state)\n    return data['kb']",
+        "def run(state):\n    return '|'.join(str(v) for v in state.values())",
+        "def run(state):\n    return state.copy()['kb']",
+    ):
+        payload = {
+            "nodes": [
+                _node("start", "start", variables=[{"name": "topic"}]),
+                _node("all", "code", output_key="out", code=code),
+                _node("end", "end", output_key="out"),
+            ],
+            "edges": [
+                {"id": "e1", "source": "start", "target": "all"},
+                {"id": "e2", "source": "all", "target": "end"},
+            ],
+        }
+        definition = WorkflowDefinition.model_validate(payload)
+        built = _built_node({"id": "all", "kind": "code"}, definition)
+        state = {"kb": "知识", "web": "公告"}
+        await built.execute(ctx=None, state=state)  # type: ignore[attr-defined]
+        assert built.input_snapshot(state) == state  # type: ignore[attr-defined]
+
+
+def test_preview_input_keeps_variables_and_valid_json() -> None:
+    """输入落库不能把整段 JSON 截断：键要留着，前端才能按变量逐行展示。"""
+
+    from app.adk_runtime.workflow_nodes import preview_input
+
+    raw = preview_input(
+        {
+            "kb": {"items": [{"excerpt": "x" * 900}]},
+            "subject": "磁盘告警",
+            "__approved_gates": ["gate"],
+        }
+    )
+    parsed = json.loads(raw)
+    # 内部记账键不该出现在面板里
+    assert list(parsed) == ["kb", "subject"]
+    assert parsed["subject"] == "磁盘告警"
+    excerpt = parsed["kb"]["items"][0]["excerpt"]
+    assert excerpt.endswith("…")
+    assert len(excerpt) <= 601
+
+
 # ---------------- 真实执行 ----------------
 
 
@@ -370,6 +576,40 @@ async def test_run_assign_and_end() -> None:
     assert run.status == "succeeded", run.error
     assert "巡检" in run.output_json
     assert [n.node_id for n in nodes] == ["start", "prep", "end"]
+
+
+@pytest.mark.asyncio
+async def test_node_runs_store_only_used_inputs() -> None:
+    """落库的输入是「这一步读了什么」，不是整份共享状态。"""
+
+    import json
+
+    payload = {
+        "nodes": [
+            _node("start", "start", variables=[{"name": "topic", "required": True}]),
+            _node("prep", "assign", assignments={"subject": "{{topic}} 处理"}),
+            _node(
+                "score",
+                "code",
+                output_key="score",
+                code="def run(state):\n    return len(str(state.get('subject', '')))",
+            ),
+            _node("end", "end", output_key="score"),
+        ],
+        "edges": [
+            {"id": "e1", "source": "start", "target": "prep"},
+            {"id": "e2", "source": "prep", "target": "score"},
+            {"id": "e3", "source": "score", "target": "end"},
+        ],
+    }
+    run, nodes, _db = await _run(payload, {"topic": "磁盘告警"})
+    assert run.status == "succeeded", run.error
+    inputs = {n.node_id: json.loads(n.input_json) for n in nodes}
+    assert inputs["start"] == {"topic": "磁盘告警"}
+    assert inputs["prep"] == {"topic": "磁盘告警"}
+    # 代码节点只读了 subject：topic 不该跟着混进它的输入
+    assert inputs["score"] == {"subject": "磁盘告警 处理"}
+    assert inputs["end"] == {"score": 7}
 
 
 @pytest.mark.asyncio
@@ -627,6 +867,22 @@ def _agent_definition() -> WorkflowDefinition:
     )
 
 
+class _FakeState:
+    """ADK 的 State：赋值走 __setitem__，取全量快照走 to_dict()。"""
+
+    def __init__(self, initial: dict[str, object] | None = None) -> None:
+        self._data: dict[str, object] = {} if initial is None else dict(initial)
+
+    def __getitem__(self, key: str) -> object:
+        return self._data[key]
+
+    def __setitem__(self, key: str, value: object) -> None:
+        self._data[key] = value
+
+    def to_dict(self) -> dict[str, object]:
+        return dict(self._data)
+
+
 @pytest.mark.asyncio
 async def test_llm_node_callback_writes_output_key() -> None:
     """agent 节点不是画布节点，output_key 的写回靠模型回调补上。"""
@@ -641,7 +897,7 @@ async def test_llm_node_callback_writes_output_key() -> None:
     run_ctx = RunContext(definition=definition, db=cast(Any, None))
     before, after_model, on_error = build_llm_callbacks(node=node, run_ctx=run_ctx)
 
-    state: dict[str, Any] = {}
+    state = _FakeState({"x": "CPU 打满"})
     callback_context = SimpleNamespace(state=state)
     await before(callback_context)
     response = SimpleNamespace(
@@ -663,6 +919,8 @@ async def test_llm_node_callback_writes_output_key() -> None:
         "agent",
         "succeeded",
     )
+    # 输入只记指令里引用到的变量，不是整份状态
+    assert outcome.node_input == {"x": "CPU 打满"}
     assert outcome.output == "1. 摘流量\n2. 重启"
     assert outcome.attempt == 1
 
@@ -688,7 +946,7 @@ async def test_llm_callbacks_tolerate_empty_response() -> None:
     run_ctx = RunContext(definition=definition, db=cast(Any, None))
     before, after_model, _on_error = build_llm_callbacks(node=node, run_ctx=run_ctx)
 
-    state: dict[str, Any] = {}
+    state = _FakeState({"x": "CPU 打满"})
     callback_context = SimpleNamespace(state=state)
     await before(callback_context)
     await after_model(callback_context, SimpleNamespace(content=None))

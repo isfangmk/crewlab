@@ -37,6 +37,7 @@ import {
 } from '@/api/workflows';
 import { Checkbox, Input, Select, Textarea } from '@/components/ui';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/DropdownMenu';
+import { RunInputRows } from '@/components/workflow/RunInputRows';
 import { ApiError } from '@/api/client';
 import { cn } from '@/lib/cn';
 import { fullDateTime } from '@/lib/format';
@@ -1058,6 +1059,7 @@ function defaultText(value: unknown): string {
 
 type NodeRunView = {
   status: NodeRunStatus;
+  input: unknown;
   output: unknown;
   error: string;
   durationMs: number;
@@ -1088,6 +1090,7 @@ function LastRunBody({ workflowId, nodeId, probe }: { workflowId: number; nodeId
           error: null,
           run: {
             status: record.status,
+            input: parseJsonText(record.input),
             output: parseJsonText(record.output),
             error: record.error,
             durationMs: record.duration_ms,
@@ -1114,6 +1117,7 @@ function LastRunBody({ workflowId, nodeId, probe }: { workflowId: number; nodeId
     ? state.run
     : {
         status: probe.status,
+        input: parseJsonText(probe.input),
         output: parseJsonText(probe.output),
         error: probe.error,
         durationMs: probe.duration_ms,
@@ -1178,8 +1182,15 @@ function LastRunBody({ workflowId, nodeId, probe }: { workflowId: number; nodeId
             <pre className="max-h-40 overflow-auto rounded-lg border border-danger/30 bg-danger/5 px-2.5 py-2 font-mono text-[10.5px] leading-4 text-danger">{view.error}</pre>
           )}
 
+          {/* 与 Dify 的 ResultPanel 一致：先输入、再输出，方便对照这一步吃了什么、吐出什么 */}
+          <div className="flex items-baseline justify-between">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-text-faint">{tr('输入', 'Input')}</span>
+            <span className="text-[9.5px] text-text-faint">{tr('只列这一步读取的变量', 'Only variables this step reads')}</span>
+          </div>
+          <RunInputRows input={view.input} />
+
           <div className="text-[10px] font-medium uppercase tracking-wider text-text-faint">{tr('输出', 'Output')}</div>
-          <pre className="max-h-[46vh] overflow-auto rounded-lg border border-border/60 bg-bg/60 px-2.5 py-2 font-mono text-[10.5px] leading-4 text-text">
+          <pre className="max-h-[28vh] overflow-auto rounded-lg border border-border/60 bg-bg/60 px-2.5 py-2 font-mono text-[10.5px] leading-4 text-text">
             {view.output === null ? '—' : typeof view.output === 'string' ? view.output : JSON.stringify(view.output, null, 2)}
           </pre>
           {probe !== null && (

@@ -23,6 +23,7 @@ import {
   getWorkflow,
   parseJsonText,
   resumeRun,
+  runWorkflow,
   type NodeRunStatus,
   type WaitingGate,
   type WorkflowNode,
@@ -30,7 +31,8 @@ import {
   type WorkflowRunDetail,
 } from '@/api/workflows';
 import { RunWorkflowDialog } from '@/components/workflow/RunWorkflowDialog';
-import { RunStatusPill, formatDuration } from '@/components/workflow/RunStatusPill';
+import { RunInputRows } from '@/components/workflow/RunInputRows';
+import { DraftTag, RunStatusPill, formatDuration } from '@/components/workflow/RunStatusPill';
 import { WorkflowGraphThumb } from '@/components/workflow/WorkflowGraphThumb';
 import {
   Button,
@@ -199,6 +201,8 @@ export default function WorkflowRunPage() {
             <span className="font-mono text-[10.5px] text-zinc-500">{run.run_uid}</span>
             <span className="text-zinc-700">·</span>
             <span>v{run.workflow_version}</span>
+            {/* 同版本号既可能是已发布的，也可能是没发布的画布：必须显式标出来 */}
+            {run.workflow_status === 'draft' && <DraftTag />}
             <span className="text-zinc-700">·</span>
             <span className="truncate">{run.triggered_by || '—'}</span>
             <span className="text-zinc-700">·</span>
@@ -279,6 +283,8 @@ export default function WorkflowRunPage() {
                     index={index + 1}
                     node={node}
                     definition={run.definition}
+                    gate={gate === null ? null : gate.gate}
+                    gateKind={gate === null ? null : gate.kind}
                     last={index === run.nodes.length - 1}
                   />
                 ))}
@@ -291,7 +297,7 @@ export default function WorkflowRunPage() {
               <header className="border-b border-zinc-800/60 px-4 py-2.5">
                 <h2 className="text-[12.5px] font-medium text-zinc-100">{tr('画布快照', 'Canvas snapshot')}</h2>
                 <p className="mt-0.5 text-[10.5px] text-zinc-500">
-                  {tr('这次运行使用的定义；绿=成功 红=失败 灰=未执行', 'Definition used for this run; green=ok red=failed grey=not run')}
+                  {tr('这次运行使用的定义；绿=成功 红=失败 黄=等待人工 灰=未执行', 'Definition used for this run; green=ok red=failed amber=waiting grey=not run')}
                 </p>
               </header>
               <div className="h-44 bg-zinc-950/40">
@@ -301,6 +307,7 @@ export default function WorkflowRunPage() {
                     edges: run.definition.edges,
                   }}
                   statuses={statuses}
+                  gateId={gate === null ? null : gate.gate}
                 />
               </div>
             </section>
@@ -327,9 +334,18 @@ export default function WorkflowRunPage() {
           workflowName={workflowName}
           definition={run.definition}
           onClose={() => setRunOpen(false)}
-          onStarted={(next) => {
+          onStarted={(values) => {
+            // 弹窗只收集输入；再次运行的请求与跳转在这里补上
+            if (run === null) return;
             setRunOpen(false);
-            navigate(`/workflows/runs/${next.run_uid}`);
+            void (async () => {
+              try {
+                const next = await runWorkflow(run.workflow_id, values);
+                navigate(`/workflows/runs/${next.run_uid}`);
+              } catch (err) {
+                flash('err', err instanceof ApiError ? err.message : (err as Error).message);
+              }
+            })();
           }}
         />
       )}
@@ -384,23 +400,28 @@ function GateCard({
 }) {
   const { tr } = useI18n();
   const isInput = gate.kind === 'input';
+  // 待办卡片要说清「在等哪一步」：节点名是用户认识的东西，节点 ID 只是兜底。
+  const gateLabel = gateNode !== null && gateNode.label.trim() !== '' ? gateNode.label.trim() : gate.gate;
   return (
-    <section className="rounded-xl border border-amber-500/40 bg-amber-500/[0.06] px-4 py-3">
+    <section className="rounded-xl border border-warn/40 bg-warn/[0.08] px-4 py-3">
       <div className="flex items-start gap-2">
-        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-warn/15 text-warn">
           <ShieldCheck size={13} aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[12px] font-medium text-amber-200">
+            <span className="text-[12px] font-medium text-warn">
               {isInput ? tr('等待人工输入', 'Waiting for user input') : tr('等待人工审批', 'Waiting for approval')}
             </span>
-            <span className="rounded border border-amber-500/30 px-1 font-mono text-[10px] leading-4 text-amber-300/90">{gate.gate}</span>
+            <span className="text-[12.5px] font-medium text-text">{gateLabel}</span>
+            {gateLabel !== gate.gate && (
+              <span className="rounded border border-warn/30 px-1 font-mono text-[10px] leading-4 text-warn/70">{gate.gate}</span>
+            )}
           </div>
-          <p className="mt-1 whitespace-pre-wrap break-words text-[11.5px] leading-5 text-amber-100/90">{gate.prompt || tr('（没有说明文案）', '(no prompt)')}</p>
+          <p className="mt-1 whitespace-pre-wrap break-words text-[11.5px] leading-5 text-text">{gate.prompt || tr('（没有说明文案）', '(no prompt)')}</p>
           {isInput && (
             <div className="mt-2 max-w-md space-y-1">
-              <div className="text-[10.5px] text-amber-200/80">
+              <div className="text-[10.5px] text-text-muted">
                 {tr('提交字段：', 'Field: ')}
                 <span className="font-mono">{gateNode?.output_key ?? '—'}</span>
               </div>
@@ -409,7 +430,7 @@ function GateCard({
                 onChange={(event) => onChange(event.target.value)}
                 placeholder={tr('填写后提交', 'Value to submit')}
                 aria-label={tr('人工输入内容', 'User input value')}
-                className="h-8 border-amber-500/30 bg-zinc-950/40 text-[11.5px]"
+                className="h-8 text-[11.5px]"
                 disabled={busy}
               />
             </div>
@@ -423,7 +444,7 @@ function GateCard({
               <X size={12} aria-hidden />
               {tr('拒绝', 'Reject')}
             </Button>
-            <span className="text-[10.5px] text-amber-200/60">
+            <span className="text-[10.5px] text-text-faint">
               {tr('拒绝会把这次运行标记为失败', 'Rejecting marks the run as failed')}
             </span>
           </div>
@@ -437,29 +458,44 @@ function NodeRunRow({
   index,
   node,
   definition,
+  gate,
+  gateKind,
   last,
 }: {
   index: number;
   node: WorkflowNodeRun;
   definition: WorkflowRunDetail['definition'];
+  /** 运行停住的节点 ID：它在库里是「已执行完」，但时间线上要显示等待。 */
+  gate: string | null;
+  gateKind: 'approval' | 'input' | null;
   last: boolean;
 }) {
   const { tr, locale } = useI18n();
   const [open, setOpen] = useState(false);
+  const [openInput, setOpenInput] = useState(false);
   const definitionNode = definition.nodes.find((item) => item.id === node.node_id) ?? null;
   const kind = definitionNode?.kind ?? node.node_kind;
   const Icon = iconOf(kind);
   const tone = toneOf(kind);
   const label = definitionNode?.label.trim() ?? '';
   const title = label !== '' ? label : node.node_id;
+  // 停住的人工节点：时间线上要显示「待审批 / 待填写」，不能跟着库里的记录显示成功
+  const waiting = gate === node.node_id;
   const parsedOutput = parseJsonText(node.output);
   const outputText = parsedOutput === null ? '' : typeof parsedOutput === 'string' ? parsedOutput : JSON.stringify(parsedOutput, null, 2);
+  const parsedInput = parseJsonText(node.input);
+  // 每个节点都有输入和输出：Dify 的节点详情也固定是 INPUT / OUTPUT 两块，
+  // 空的时候照样给出来（写「无输入」），而不是整块消失让人以为漏了。
+  const inputCount =
+    parsedInput !== null && typeof parsedInput === 'object' && !Array.isArray(parsedInput)
+      ? Object.keys(parsedInput).length
+      : null;
 
   return (
     <li className="relative px-4 py-3">
-      {!last && <span className="absolute left-[26px] top-[34px] h-[calc(100%-20px)] w-px bg-zinc-800/70" aria-hidden />}
+      {!last && <span className="absolute left-[26px] top-[34px] h-[calc(100%-20px)] w-px bg-border/70" aria-hidden />}
       <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-zinc-700/80 bg-zinc-950 font-mono text-[9px] tabular-nums text-zinc-500">
+        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border/80 bg-bg font-mono text-[9px] tabular-nums text-text-faint">
           {String(index).padStart(2, '0')}
         </span>
         <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md', tone.iconBox)}>
@@ -467,49 +503,78 @@ function NodeRunRow({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="truncate text-[12px] font-medium text-zinc-200">{title}</span>
-            <span className="font-mono text-[10px] text-zinc-600">{node.node_id}</span>
-            <span className="text-[10px] text-zinc-600">{kindTitle(kind, null, locale === 'zh-CN')}</span>
+            <span className="truncate text-[12px] font-medium text-text">{title}</span>
+            <span className="font-mono text-[10px] text-text-faint">{node.node_id}</span>
+            <span className="text-[10px] text-text-faint">{kindTitle(kind, null, locale === 'zh-CN')}</span>
             <span className="ml-auto flex items-center gap-1.5">
               {node.attempt > 1 && (
-                <span className="rounded bg-indigo-500/10 px-1 text-[10px] leading-4 text-indigo-300">{tr(`第 ${node.attempt} 轮`, `attempt ${node.attempt}`)}</span>
+                <span className="rounded bg-indigo-500/10 px-1 text-[10px] leading-4 text-indigo-500">{tr(`第 ${node.attempt} 轮`, `attempt ${node.attempt}`)}</span>
               )}
               {node.route !== '' && (
-                <span className="rounded border border-zinc-700/70 bg-zinc-800/40 px-1 font-mono text-[10px] leading-4 text-zinc-400">{node.route}</span>
+                <span className="rounded border border-border/70 bg-zinc-500/10 px-1 font-mono text-[10px] leading-4 text-text-muted">{node.route}</span>
               )}
-              <StatusPill
-                tone={node.status === 'succeeded' ? 'ok' : 'danger'}
-                label={node.status === 'succeeded' ? tr('成功', 'Succeeded') : tr('失败', 'Failed')}
-              />
-              <span className="font-mono text-[10.5px] tabular-nums text-zinc-500">{formatDuration(node.duration_ms)}</span>
+              {waiting ? (
+                <StatusPill
+                  tone="warn"
+                  pulse
+                  label={gateKind === 'input' ? tr('待填写', 'Waiting input') : tr('待审批', 'Waiting approval')}
+                />
+              ) : (
+                <StatusPill
+                  tone={node.status === 'succeeded' ? 'ok' : 'danger'}
+                  label={node.status === 'succeeded' ? tr('成功', 'Succeeded') : tr('失败', 'Failed')}
+                />
+              )}
+              <span className="font-mono text-[10.5px] tabular-nums text-text-faint">{formatDuration(node.duration_ms)}</span>
             </span>
           </div>
 
           {node.error !== '' && (
-            <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-red-500/30 bg-red-500/5 px-2.5 py-1.5 font-mono text-[10.5px] leading-5 text-red-300">
+            <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-danger/30 bg-danger/5 px-2.5 py-1.5 font-mono text-[10.5px] leading-5 text-danger">
               {node.error}
             </pre>
           )}
 
-          {outputText !== '' && (
-            <div className="mt-1.5">
-              <button
-                type="button"
-                onClick={() => setOpen((current) => !current)}
-                aria-expanded={open}
-                className="inline-flex items-center gap-1 rounded px-1 text-[10.5px] text-zinc-500 transition-colors hover:bg-zinc-800/60 hover:text-zinc-300"
-              >
-                {open ? <ChevronDown size={11} aria-hidden /> : <ChevronRight size={11} aria-hidden />}
-                {open ? tr('收起输出', 'Hide output') : tr('展开输出', 'Show output')}
-                <span className="ml-1 font-mono text-[9.5px] text-zinc-600">{outputText.length} chars</span>
-              </button>
-              {open && (
-                <div className="mt-1">
-                  <CodeBlock>{outputText}</CodeBlock>
-                </div>
-              )}
-            </div>
-          )}
+          {/* 输入 / 输出两块对所有节点都在：先输入、再输出，和 Dify 的节点详情一致 */}
+          <div className="mt-1.5">
+            <button
+              type="button"
+              onClick={() => setOpenInput((current) => !current)}
+              aria-expanded={openInput}
+              className="inline-flex items-center gap-1 rounded px-1 text-[10.5px] text-text-faint transition-colors hover:bg-zinc-500/10 hover:text-text"
+            >
+              {openInput ? <ChevronDown size={11} aria-hidden /> : <ChevronRight size={11} aria-hidden />}
+              {openInput ? tr('收起输入', 'Hide input') : tr('展开输入', 'Show input')}
+              <span className="ml-1 font-mono text-[9.5px] text-text-faint">
+                {inputCount === null ? tr('无输入', 'no input') : tr(`${inputCount} 个变量`, `${inputCount} vars`)}
+              </span>
+            </button>
+            {openInput && (
+              <div className="mt-1">
+                <RunInputRows input={parsedInput} />
+              </div>
+            )}
+          </div>
+
+          <div className="mt-1.5">
+            <button
+              type="button"
+              onClick={() => setOpen((current) => !current)}
+              aria-expanded={open}
+              className="inline-flex items-center gap-1 rounded px-1 text-[10.5px] text-text-faint transition-colors hover:bg-zinc-500/10 hover:text-text"
+            >
+              {open ? <ChevronDown size={11} aria-hidden /> : <ChevronRight size={11} aria-hidden />}
+              {open ? tr('收起输出', 'Hide output') : tr('展开输出', 'Show output')}
+              <span className="ml-1 font-mono text-[9.5px] text-text-faint">
+                {outputText === '' ? tr('无输出', 'no output') : `${outputText.length} chars`}
+              </span>
+            </button>
+            {open && (
+              <div className="mt-1">
+                <CodeBlock>{outputText === '' ? '—' : outputText}</CodeBlock>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </li>
