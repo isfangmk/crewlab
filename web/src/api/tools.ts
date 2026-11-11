@@ -11,6 +11,7 @@ export type BuiltinToolParam = {
 
 export type BuiltinTool = {
   name: string;
+  group: string;
   description: string;
   risk: string;
   /** always = 随 SkillToolset 始终装配；per_turn = 由对话开关（如联网）决定 */
@@ -18,8 +19,15 @@ export type BuiltinTool = {
   params: BuiltinToolParam[];
 };
 
+export type BuiltinToolGroup = {
+  key: string;
+  title: string;
+  title_en: string;
+};
+
 export type BuiltinToolList = {
   items: BuiltinTool[];
+  groups: BuiltinToolGroup[];
   total: number;
 };
 

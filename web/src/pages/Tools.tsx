@@ -1,5 +1,5 @@
 import { useAssistantPage } from '@/lib/assistantPage';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Copy, Hammer, Loader2, Play, RefreshCw, ShieldAlert, ShieldCheck, Wrench } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
@@ -7,6 +7,7 @@ import {
   listBuiltinTools,
   runBuiltinTool,
   type BuiltinTool,
+  type BuiltinToolGroup,
   type BuiltinToolParam,
 } from '@/api/tools';
 import { ApiError } from '@/api/client';
@@ -35,12 +36,13 @@ type RiskFilter = '' | 'safe' | 'approval_required';
 export default function ToolsPage() {
   const { tr } = useI18n();
   const [items, setItems] = useState<BuiltinTool[]>([]);
+  const [groups, setGroups] = useState<BuiltinToolGroup[]>([]);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [risk, setRisk] = useState<RiskFilter>('');
-  const [collapsed, setCollapsed] = useState(false);
   const [viewing, setViewing] = useState<BuiltinTool | null>(null);
   const [running, setRunning] = useState<BuiltinTool | null>(null);
 
@@ -52,7 +54,26 @@ export default function ToolsPage() {
       if (!Array.isArray(res.items)) {
         throw new Error('内置 Tool 列表缺少 items');
       }
+      if (!Array.isArray(res.groups)) {
+        throw new Error('内置 Tool 列表缺少 groups');
+      }
+      const groupKeys = new Set<string>();
+      for (const group of res.groups) {
+        if (!group.key || !group.title || !group.title_en) {
+          throw new Error('内置 Tool 分组缺少 key / title / title_en');
+        }
+        if (groupKeys.has(group.key)) {
+          throw new Error(`内置 Tool 分组 key 重复: ${group.key}`);
+        }
+        groupKeys.add(group.key);
+      }
+      for (const tool of res.items) {
+        if (!groupKeys.has(tool.group)) {
+          throw new Error(`内置 Tool 分组不存在: ${tool.group}`);
+        }
+      }
       setItems(res.items);
+      setGroups(res.groups);
       setErr(null);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : (e as Error).message);
@@ -88,6 +109,17 @@ export default function ToolsPage() {
       );
     });
   }, [items, query, risk]);
+
+  const filteredGroups = useMemo(
+    () =>
+      groups
+        .map((group) => ({
+          ...group,
+          items: filtered.filter((tool) => tool.group === group.key),
+        }))
+        .filter((group) => group.items.length > 0),
+    [groups, filtered],
+  );
 
   useAssistantPage('工具目录', 'Tool catalog', {
     risk,
@@ -217,38 +249,47 @@ export default function ToolsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/40">
-                  <tr
-                    className="cursor-pointer select-none border-t border-zinc-800/60 bg-zinc-950/50 hover:bg-zinc-900/50"
-                    onClick={() => setCollapsed((v) => !v)}
-                  >
-                    <td colSpan={4} className="px-3 py-2">
-                      <div className="flex items-center gap-1.5">
-                        {collapsed ? (
-                          <ChevronRight size={13} className="text-zinc-500" />
-                        ) : (
-                          <ChevronDown size={13} className="text-zinc-500" />
-                        )}
-                        <span className="text-[12.5px] font-medium text-zinc-200">
-                          {tr('内置工具', 'Built-in tools')}
-                        </span>
-                        <span className="rounded border border-zinc-700/60 bg-zinc-800/40 px-1 py-px text-[9px] font-medium text-zinc-400">
-                          builtin
-                        </span>
-                        <span className="ml-1 text-[11px] text-zinc-500">
-                          {filtered.length} {tr('个工具', 'tools')}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                  {!collapsed &&
-                    filtered.map((tool) => (
-                      <ToolRow
-                        key={tool.name}
-                        tool={tool}
-                        onView={() => setViewing(tool)}
-                        onRun={() => setRunning(tool)}
-                      />
-                    ))}
+                  {filteredGroups.map((group) => {
+                    const isCollapsed = collapsedGroups[group.key] === true;
+                    return (
+                      <Fragment key={group.key}>
+                        <tr
+                          className="cursor-pointer select-none border-t border-zinc-800/60 bg-zinc-950/50 hover:bg-zinc-900/50"
+                          onClick={() =>
+                            setCollapsedGroups((prev) => ({
+                              ...prev,
+                              [group.key]: !isCollapsed,
+                            }))
+                          }
+                        >
+                          <td colSpan={4} className="px-3 py-2">
+                            <div className="flex items-center gap-1.5">
+                              {isCollapsed ? (
+                                <ChevronRight size={13} className="text-zinc-500" />
+                              ) : (
+                                <ChevronDown size={13} className="text-zinc-500" />
+                              )}
+                              <span className="text-[12.5px] font-medium text-zinc-200">
+                                {tr(group.title, group.title_en)}
+                              </span>
+                              <span className="ml-1 text-[11px] text-zinc-500">
+                                {group.items.length} {tr('个工具', 'tools')}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                        {!isCollapsed &&
+                          group.items.map((tool) => (
+                            <ToolRow
+                              key={tool.name}
+                              tool={tool}
+                              onView={() => setViewing(tool)}
+                              onRun={() => setRunning(tool)}
+                            />
+                          ))}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </TableCard>

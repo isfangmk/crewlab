@@ -1,7 +1,7 @@
 // Knowledge page — 知识库工作台。
 //
 // 骨架（与 docs/UI设计规范.md 一致）：
-//   PageHeader   标题 / 计数 / 检索设置 · 刷新
+//   PageHeader   标题 / 计数 / 刷新
 //   FilterBar    统一搜索框（回车检索）+ 来源筛选胶囊 + 检索词胶囊
 //   aside        来源分组 + 目录树（组织 / 内置两棵树常驻）
 //   TableCard    文档表（文档 / 更新时间 / 参与检索 / 操作）+ 分页，检索后换成命中表
@@ -28,7 +28,6 @@ import {
   RefreshCw,
   Search,
   SearchX,
-  Settings2,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -68,7 +67,6 @@ import {
   localizedPath,
   localizedPathSegment,
   moveDoc,
-  reindexKnowledge,
   searchKnowledge,
   setDocEnabled,
   updateDoc,
@@ -78,7 +76,6 @@ import {
   type PathRow,
   type SearchHit,
 } from '@/api/knowledge';
-import { listSettings, setSetting } from '@/api/settings';
 import { ApiError } from '@/api/client';
 import { useI18n } from '@/i18n/locale';
 
@@ -134,25 +131,6 @@ function sourceLabel(doc: KnowledgeDoc, tr: (zh: string, en: string) => string):
   return tr('手动', 'manual');
 }
 
-type ChipTone = 'default' | 'success' | 'warning' | 'info' | 'accent';
-
-// 来源胶囊按语义上色：内置=蓝（只读）、上传=绿（已入库文件）、手动=indigo、repo=琥珀
-function sourceTone(source: KnowledgeDoc['source_type']): ChipTone {
-  if (source === 'vault') return 'info';
-  if (source === 'upload') return 'success';
-  if (source === 'repo') return 'warning';
-  return 'accent';
-}
-
-// 标签颜色按标签名散列固定在三种语义色上：同名标签跨行同色，便于扫读，
-// 且不给「标签」引入红色 / 琥珀这类风险语义。
-const TAG_TONES: ChipTone[] = ['info', 'success', 'accent'];
-function tagTone(tag: string): ChipTone {
-  let hash = 0;
-  for (let i = 0; i < tag.length; i++) hash = (hash * 33 + tag.charCodeAt(i)) % 1009;
-  return TAG_TONES[hash % TAG_TONES.length];
-}
-
 function errorText(e: unknown): string {
   return e instanceof ApiError ? e.message : (e as Error).message;
 }
@@ -200,7 +178,6 @@ export default function KnowledgePage() {
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<KnowledgeDoc | 'create' | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDoc | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -437,11 +414,6 @@ export default function KnowledgePage() {
               className="hidden"
               onChange={(e) => void onUploadFiles(e.target.files)}
             />
-            {canMutate && (
-              <RowAction icon={Settings2} onClick={() => setSettingsOpen(true)}>
-                {tr('检索设置', 'Retrieval settings')}
-              </RowAction>
-            )}
             <RowAction
               icon={RefreshCw}
               iconClassName={refreshing ? 'animate-spin' : undefined}
@@ -593,7 +565,7 @@ export default function KnowledgePage() {
                 hint={
                   activePath
                     ? tr('换个更具体的说法，或把目录切回整个分组再试。', 'Try a more specific phrase, or search the whole group.')
-                    : tr('换个更具体的说法，或在「检索设置」里调低最低 RRF 分。', 'Try a more specific phrase, or lower the minimum RRF score in retrieval settings.')
+                    : tr('换个更具体的说法，或在「设置 → 知识库」里调低最低 RRF 分。', 'Try a more specific phrase, or lower the minimum RRF score in Settings → Knowledge.')
                 }
                 action={
                   <Button variant="outline" size="sm" onClick={resetSearch}>
@@ -734,17 +706,6 @@ export default function KnowledgePage() {
             await fetchAll(true);
           }}
           onClose={() => setDeleting(null)}
-        />
-      )}
-
-      {settingsOpen && (
-        <RetrievalSettingsDialog
-          onClose={() => setSettingsOpen(false)}
-          onSaved={(text) => {
-            setSettingsOpen(false);
-            setToast({ kind: 'ok', text });
-            void fetchAll(true);
-          }}
         />
       )}
 
@@ -958,7 +919,7 @@ function FolderNode({
 }
 
 // 文档行：主信息一行（来源胶囊 + 标题），元信息一行（目录 / 来源地址）；
-// 标签单独成列用彩色胶囊，便于扫读；整行不响应点击，打开文档只走行内「编辑 / 查看」。
+// 标签单独成列，统一用中性胶囊；整行不响应点击，打开文档只走行内「编辑 / 查看」。
 function DocRow({
   doc,
   canMutate,
@@ -1019,9 +980,7 @@ function DocRow({
           {!doc.enabled && <Chip dense tone="warning">{tr('已停用', 'Disabled')}</Chip>}
         </div>
         <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pl-8 text-[10.5px] leading-4">
-          <Chip dense tone={sourceTone(doc.source_type)}>
-            {sourceLabel(doc, tr)}
-          </Chip>
+          <Chip dense>{sourceLabel(doc, tr)}</Chip>
           {doc.path ? (
             <span className="inline-flex min-w-0 items-center gap-1 text-zinc-500" title={localizedPath(doc.path)}>
               <Folder size={10} className="shrink-0 text-zinc-600" aria-hidden />
@@ -1031,7 +990,7 @@ function DocRow({
             <span className="text-zinc-600">{tr('未归目录', 'No folder')}</span>
           )}
           {tags.slice(0, 3).map((tag) => (
-            <Chip key={tag} dense tone={tagTone(tag)} className="max-w-[9rem] truncate" title={`#${tag}`}>
+            <Chip key={tag} dense className="max-w-[9rem] truncate" title={`#${tag}`}>
               #{tag}
             </Chip>
           ))}
@@ -1497,197 +1456,6 @@ function DocEditor({
             className="h-80 w-full resize-y font-mono text-[11.5px] leading-5"
           />
         </Field>
-      </div>
-    </Modal>
-  );
-}
-
-/** 检索设置：切块参数（改动后自动重建索引）+ 检索阈值（保存即生效）。 */
-function RetrievalSettingsDialog({
-  onClose,
-  onSaved,
-}: {
-  onClose(): void;
-  onSaved(text: string): void;
-}) {
-  const { tr } = useI18n();
-  const [size, setSize] = useState('');
-  const [overlap, setOverlap] = useState('');
-  const [minScore, setMinScore] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  // 打开时读到的切块参数：只有它变了才需要重建索引
-  const loaded = useRef<{ size: string; overlap: string } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await listSettings('knowledge');
-        if (cancelled) return;
-        const read = (key: string) => {
-          const found = res.items.find((i) => i.key === key);
-          // 三项都是知识库运行必需配置，缺一项显式报错而不是填默认值
-          if (!found) throw new Error(tr(`缺少配置项 ${key}`, `Missing setting ${key}`));
-          return found.value;
-        };
-        const sizeValue = read('chunk_size');
-        const overlapValue = read('chunk_overlap');
-        loaded.current = { size: sizeValue, overlap: overlapValue };
-        setSize(sizeValue);
-        setOverlap(overlapValue);
-        setMinScore(read('rrf_min_score'));
-      } catch (e) {
-        if (!cancelled) setErr(errorText(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const submit = async () => {
-    const sizeNext = size.trim();
-    const overlapNext = overlap.trim();
-    const minScoreNext = minScore.trim();
-    if (!/^\d+$/.test(sizeNext) || Number(sizeNext) <= 0) {
-      setErr(tr('切块大小必须是正整数', 'Chunk size must be a positive integer'));
-      return;
-    }
-    if (!/^\d+$/.test(overlapNext)) {
-      setErr(tr('切块重叠必须是非负整数', 'Chunk overlap must be a non-negative integer'));
-      return;
-    }
-    if (Number(overlapNext) >= Number(sizeNext)) {
-      setErr(tr('切块重叠必须小于切块大小', 'Chunk overlap must be smaller than chunk size'));
-      return;
-    }
-    const minScoreNum = Number(minScoreNext);
-    if (minScoreNext === '' || !Number.isFinite(minScoreNum) || minScoreNum < 0) {
-      setErr(tr('最低 RRF 分必须是非负数字', 'Minimum RRF score must be a non-negative number'));
-      return;
-    }
-    setBusy(true);
-    setErr(null);
-    try {
-      await setSetting('knowledge', 'chunk_size', sizeNext);
-      await setSetting('knowledge', 'chunk_overlap', overlapNext);
-      await setSetting('knowledge', 'rrf_min_score', minScoreNext);
-      // 切块参数变了就必须按新参数重新切块；阈值改动即时生效，无需重建
-      const chunkChanged =
-        loaded.current === null ||
-        loaded.current.size !== sizeNext ||
-        loaded.current.overlap !== overlapNext;
-      if (chunkChanged) {
-        const res = await reindexKnowledge();
-        onSaved(
-          tr(
-            `设置已保存，已按新参数重建索引（切块数 ${res.chunks}）`,
-            `Saved; reindexed with the new params (${res.chunks} chunks)`,
-          ),
-        );
-      } else {
-        onSaved(tr('设置已保存', 'Settings saved'));
-      }
-    } catch (e) {
-      setErr(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const close = () => {
-    if (busy) return;
-    onClose();
-  };
-
-  return (
-    <Modal
-      open
-      onClose={close}
-      title={tr('检索设置', 'Retrieval settings')}
-      size="sm"
-      footer={
-        <>
-          <Button variant="outline" size="sm" onClick={close} disabled={busy}>
-            {tr('取消', 'Cancel')}
-          </Button>
-          <Button variant="primary" size="sm" onClick={() => void submit()} disabled={busy || loading}>
-            {busy ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-5 text-xs text-zinc-300">
-        {err && <ErrorBanner text={err} />}
-        {busy && (
-          <p className="text-[10.5px] leading-4 text-zinc-500">
-            {tr('切块参数变更时会重切全部文档，可能耗时数十秒。', 'Changing chunk params re-chunks every document; this can take a while.')}
-          </p>
-        )}
-
-        <section className="space-y-3">
-          <div>
-            <h3 className="text-[11.5px] font-medium text-zinc-200">{tr('切块参数', 'Chunking')}</h3>
-            <p className="mt-0.5 text-[10.5px] leading-4 text-zinc-500">
-              {tr('改动后保存即自动重建索引', 'Changed values trigger a reindex on save')}
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label={tr('切块大小（字符）', 'Chunk size (chars)')} htmlFor="knowledge-chunk-size">
-              <Input
-                id="knowledge-chunk-size"
-                inputMode="numeric"
-                value={size}
-                onChange={(e) => setSize(e.target.value)}
-                disabled={loading}
-                className="font-mono text-[12px]"
-              />
-            </Field>
-            <Field label={tr('切块重叠（字符）', 'Chunk overlap (chars)')} htmlFor="knowledge-chunk-overlap">
-              <Input
-                id="knowledge-chunk-overlap"
-                inputMode="numeric"
-                value={overlap}
-                onChange={(e) => setOverlap(e.target.value)}
-                disabled={loading}
-                className="font-mono text-[12px]"
-              />
-            </Field>
-          </div>
-          <p className="text-[10.5px] leading-4 text-zinc-500">
-            {tr('重叠必须小于切块大小。', 'Overlap must be smaller than the chunk size.')}
-          </p>
-        </section>
-
-        <section className="space-y-3 border-t border-zinc-800/60 pt-4">
-          <div>
-            <h3 className="text-[11.5px] font-medium text-zinc-200">{tr('检索阈值', 'Retrieval threshold')}</h3>
-            <p className="mt-0.5 text-[10.5px] leading-4 text-zinc-500">
-              {tr('保存后立即生效', 'Applies immediately')}
-            </p>
-          </div>
-          <Field
-            label={tr('最低 RRF 分（0 = 不过滤）', 'Minimum RRF score (0 = no filter)')}
-            htmlFor="knowledge-rrf-min-score"
-          >
-            <Input
-              id="knowledge-rrf-min-score"
-              inputMode="decimal"
-              value={minScore}
-              onChange={(e) => setMinScore(e.target.value)}
-              disabled={loading}
-              className="font-mono text-[12px]"
-            />
-          </Field>
-          <p className="text-[10.5px] leading-4 text-zinc-500">
-            {tr('低于该分数的命中直接丢弃。', 'Hits below this score are dropped.')}
-          </p>
-        </section>
       </div>
     </Modal>
   );

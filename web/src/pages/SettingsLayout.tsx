@@ -5,6 +5,7 @@ import {
   KeyRound,
   Loader2,
   Bot,
+  Database,
   Gauge,
   Info,
   Lock,
@@ -29,6 +30,7 @@ const RAIL_ITEMS: RailItem[] = [
   { to: 'llm', icon: KeyRound, labelZh: '模型', labelEn: 'LLM', hintZh: '对话模型唯一来源', hintEn: 'Sole source of chat models' },
   { to: 'secrets', icon: Lock, labelZh: '凭证', labelEn: 'Credentials', hintZh: '密钥托管', hintEn: 'Secret vault' },
   { to: 'agent', icon: Bot, labelZh: '助理', labelEn: 'Agent', hintZh: '运行参数', hintEn: 'Runtime options' },
+  { to: 'knowledge', icon: Database, labelZh: '知识库', labelEn: 'Knowledge', hintZh: '切块与检索阈值', hintEn: 'Chunking and retrieval thresholds' },
   { to: 'preferences', icon: Gauge, labelZh: '偏好', labelEn: 'Preferences', hintZh: '界面偏好', hintEn: 'UI preferences' },
   { to: 'about', icon: Info, labelZh: '关于', labelEn: 'About', hintZh: '版本信息', hintEn: 'Version info' },
 ];
