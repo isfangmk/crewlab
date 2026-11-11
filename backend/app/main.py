@@ -27,6 +27,7 @@ from app.api import (
     system_settings,
     tools,
     version,
+    workflows,
 )
 from app.config import get_settings
 from app.db import SessionLocal, engine
@@ -107,6 +108,7 @@ def create_app() -> FastAPI:
     app.include_router(integrations_llm.router, prefix="/api/v1")
     app.include_router(observability.router, prefix="/api/v1")
     app.include_router(audit.router, prefix="/api/v1")
+    app.include_router(workflows.router, prefix="/api/v1")
     return app
 
 

@@ -40,6 +40,9 @@ _REQUIRED_COLUMNS: list[tuple[str, str, str]] = [
     # 技能勾选：NULL = 继承全部技能（老库升级后的默认行为不变）
     ("user_agents", "skills_json", "TEXT"),
     ("knowledge_docs", "enabled", "BOOLEAN NOT NULL DEFAULT TRUE"),
+    ("workflow_node_runs", "route", "VARCHAR(64) NOT NULL DEFAULT ''"),
+    # 发布语义改造：状态不再手配，只有发布才升版本
+    ("workflows", "published_at", "TIMESTAMPTZ"),
 ]
 
 

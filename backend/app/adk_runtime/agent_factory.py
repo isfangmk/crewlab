@@ -10,11 +10,15 @@ from google.adk.models.lite_llm import LiteLlm
 
 from app.adk_runtime.builtin_tools import build_builtin_tools
 from app.adk_runtime.tool_approval import build_before_tool_callback
+from app.models_orm.llm import LlmProvider
 from app.services.knowledge_scope import KnowledgeScope
-from app.services.llm_config import compose_litellm_model
+from app.services.llm_config import compose_litellm_model, provider_extra_body
 from app.services.skills_service import build_skill_toolset
 
 logger = logging.getLogger(__name__)
+
+# 工作流节点单步耗时上限：节点本身也有 timeout_seconds，这里给模型一个兜底值。
+WORKFLOW_LLM_TIMEOUT_SECONDS = 180
 
 CHAT_AGENT_INSTRUCTION = (
     "你是 AI 工作台助手。"
@@ -124,4 +128,77 @@ def build_chat_agent(
         before_tool_callback=build_before_tool_callback(
             confirm_names, disallowed_tool_names
         ),
+    )
+
+
+def build_workflow_agent(
+    *,
+    node_id: str,
+    llm: LlmProvider,
+    model_name: str,
+    instruction: str,
+) -> LlmAgent:
+    """工作流 LLM 节点：模型与指令都由节点自己声明，不依赖助理配置。
+
+    节点只做一次模型调用，不挂工具：知识检索、联网搜索、MCP 调用在画布上
+    各自有独立节点，需要工具就往后面接一个。
+    """
+
+    litellm_model = compose_litellm_model(
+        provider_id=llm.provider_id,
+        model_prefix=llm.model_prefix,
+        model=model_name,
+    )
+    extra_body = provider_extra_body(llm)
+    logger.info(
+        "装配工作流 LLM 节点 node=%s provider=%s model=%s litellm_model=%s instruction_len=%s",
+        node_id,
+        llm.provider_id,
+        model_name,
+        litellm_model,
+        len(instruction),
+    )
+    model = LiteLlm(
+        model=litellm_model,
+        api_base=llm.base_url,
+        api_key=llm.api_key,
+        timeout=WORKFLOW_LLM_TIMEOUT_SECONDS,
+        extra_body=extra_body if extra_body else None,
+    )
+    return LlmAgent(
+        name=node_id,
+        model=model,
+        description="工作流 LLM 节点",
+        instruction=instruction,
+    )
+
+
+def build_switch_agent(
+    *, node_id: str, llm: LlmProvider, model_name: str, instruction: str
+) -> LlmAgent:
+    """条件分支判定用的一次性 LLM：不挂工具，只做单选。"""
+
+    litellm_model = compose_litellm_model(
+        provider_id=llm.provider_id,
+        model_prefix=llm.model_prefix,
+        model=model_name,
+    )
+    extra_body = provider_extra_body(llm)
+    logger.info(
+        "装配分支判定 LLM node=%s model=%s litellm_model=%s",
+        node_id,
+        model_name,
+        litellm_model,
+    )
+    return LlmAgent(
+        name=node_id,
+        model=LiteLlm(
+            model=litellm_model,
+            api_base=llm.base_url,
+            api_key=llm.api_key,
+            timeout=WORKFLOW_LLM_TIMEOUT_SECONDS,
+            extra_body=extra_body if extra_body else None,
+        ),
+        description="工作流条件分支判定",
+        instruction=instruction,
     )
