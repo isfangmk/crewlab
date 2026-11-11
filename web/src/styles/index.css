@@ -712,6 +712,23 @@ html.light .md-body th {
 /* Light-theme overrides — flip Controls + MiniMap to the matching
  * palette. Without these the dark rules above stay applied and the
  * controls look like a black panel dropped onto a white page. */
+/* 连线上的分支名（route）标签：SVG 默认 fill 是黑色，深色主题下必须显式给色 */
+.wf-edge-route-text {
+  fill: rgb(251, 191, 36); /* amber-400 */
+}
+.wf-edge-route-bg {
+  fill: rgb(24, 24, 27); /* zinc-900 */
+  stroke: rgb(82, 82, 91); /* zinc-600 */
+  stroke-width: 1;
+}
+html.light .wf-edge-route-text {
+  fill: rgb(146, 64, 14); /* amber-800：浅色画布上浅黄看不清 */
+}
+html.light .wf-edge-route-bg {
+  fill: rgb(254, 252, 232); /* amber-50 */
+  stroke: rgb(253, 230, 138); /* amber-200 */
+}
+
 html.light .react-flow__controls {
   background: white;
   border: 1px solid rgb(226, 232, 240); /* slate-200 */

@@ -1,0 +1,25 @@
+// 运行状态胶囊：列表与运行详情共用一套文案/配色。
+
+import type { RunStatus } from '@/api/workflows';
+import { StatusPill } from '@/components/ui';
+import type { StatusTone } from '@/components/ui/StatusPill';
+import { useI18n } from '@/i18n/locale';
+
+const META: Record<RunStatus, { tone: StatusTone; zh: string; en: string; pulse?: boolean }> = {
+  running: { tone: 'info', zh: '运行中', en: 'Running', pulse: true },
+  succeeded: { tone: 'ok', zh: '成功', en: 'Succeeded' },
+  failed: { tone: 'danger', zh: '失败', en: 'Failed' },
+  waiting: { tone: 'warn', zh: '等待人工', en: 'Waiting' },
+};
+
+export function RunStatusPill({ status }: { status: RunStatus }) {
+  const { tr } = useI18n();
+  const meta = META[status];
+  return <StatusPill tone={meta.tone} label={tr(meta.zh, meta.en)} pulse={meta.pulse} />;
+}
+
+/** 耗时展示：小于 1 秒给毫秒，否则保留一位小数的秒。 */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  return `${(ms / 1000).toFixed(1)} s`;
+}
