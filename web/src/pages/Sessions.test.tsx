@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
@@ -195,6 +195,22 @@ describe('SessionsPage', () => {
     });
   });
 
+  it('点击会话 ID 直接复制并反馈', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    render(
+      <MemoryRouter>
+        <SessionsPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '复制会话 ID 1' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('1'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('已复制'));
+  });
+
   it('展示运行信号：轮数、工具/技能调用、tokens、待审批与分享/附件', async () => {
     server.use(
       agentsHandler,
@@ -232,8 +248,17 @@ describe('SessionsPage', () => {
     );
 
     expect(await screen.findByRole('link', { name: '失败回合' })).toBeInTheDocument();
-    // 轮数按用户提问计；工具 / 技能调用次数分开列
-    expect(screen.getByText('4 轮 · 3 次工具 · 1 次技能')).toBeInTheDocument();
+    // 轮次与调用量独立成列，不进入标题单元格
+    expect(screen.getByRole('columnheader', { name: '轮次 / 调用' })).toBeInTheDocument();
+    expect(screen.getByText('4 轮')).toBeInTheDocument();
+    expect(screen.getByText('3 次工具 · 1 次技能')).toBeInTheDocument();
+    const titleCell = screen.getByRole('link', { name: '失败回合' }).closest('td');
+    if (titleCell === null) throw new Error('title cell missing');
+    expect(titleCell).not.toHaveTextContent('4 轮');
+    // 会话 ID 独立成列，不挤在标题单元格
+    expect(screen.getByRole('columnheader', { name: '会话 ID' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '复制会话 ID 20' })).toHaveTextContent('20');
+    expect(titleCell).not.toHaveTextContent('20');
     expect(screen.getByText('1.2k tokens')).toBeInTheDocument();
     expect(screen.getByText('待审 2')).toBeInTheDocument();
     // 已分享 + 附件数徽标挂在标题行

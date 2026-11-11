@@ -53,6 +53,7 @@ import {
   StatusPill,
   TableCard,
   TablePager,
+  Toast,
 } from '@/components/ui';
 import type { StatusTone } from '@/components/ui/StatusPill';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -153,6 +154,40 @@ type RowActions = {
 
 const columnHelper = createColumnHelper<ChatSession>();
 
+/** 会话 ID 点击即复制；不显示附加标识，复制前后文字样式保持不变。 */
+function SessionIdCell({
+  id,
+  onCopyResult,
+}: {
+  id: string;
+  onCopyResult: (ok: boolean) => void;
+}) {
+  const { tr } = useI18n();
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(id);
+      onCopyResult(true);
+    } catch {
+      onCopyResult(false);
+    }
+  };
+
+  return (
+    <div className="min-w-0">
+      <button
+        type="button"
+        onClick={() => void copy()}
+        aria-label={tr(`复制会话 ID ${id}`, `Copy session ID ${id}`)}
+        title={tr('点击复制会话 ID', 'Click to copy session ID')}
+        className="w-full min-w-0 rounded text-left font-mono text-[10px] leading-4 text-zinc-500 transition-colors hover:text-zinc-300"
+      >
+        <span className="break-all">{id}</span>
+      </button>
+    </div>
+  );
+}
+
 /** 会话管理页：TanStack Table 负责勾选/表头排序；筛选与分页仍走服务端。 */
 export default function SessionsPage() {
   const { tr } = useI18n();
@@ -181,6 +216,25 @@ export default function SessionsPage() {
   // 删除确认走统一弹窗：单条删除与批量删除共用，不再弹原生 confirm
   const [deleteTarget, setDeleteTarget] = useState<ChatSession | null>(null);
   const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
+  const [copyToast, setCopyToast] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!copyToast) return;
+    const timer = window.setTimeout(() => setCopyToast(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [copyToast]);
+
+  const handleCopyResult = useCallback(
+    (ok: boolean) => {
+      setCopyToast({
+        tone: ok ? 'ok' : 'err',
+        text: ok
+          ? tr('会话 ID 已复制', 'Session ID copied')
+          : tr('复制失败，请检查浏览器剪贴板权限', 'Copy failed. Check clipboard permission.'),
+      });
+    },
+    [tr],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -381,22 +435,11 @@ export default function SessionsPage() {
           const session = row.original;
           const title = session.title || session.id;
           const messageCount = session.message_count ?? 0;
-          const turnCount = session.turn_count ?? 0;
-          const toolCallCount = session.tool_call_count ?? 0;
-          const skillCallCount = session.skill_call_count ?? 0;
           const attachmentCount = session.attachment_count ?? 0;
           const preview = (session.last_message_preview ?? '').trim();
           const expanded = expandedPreviews[session.id] === true;
           // 长会话的摘要默认只占一行；短会话一行本来就够看，不给折叠按钮。
           const collapsible = messageCount >= LONG_SESSION_MESSAGES && preview !== '';
-          // 轮数按用户提问计；工具 / 技能调用来自观测的回合记账，与消息条数无关
-          const meta = [
-            turnCount > 0 ? tr(`${turnCount} 轮`, `${turnCount} turns`) : '',
-            toolCallCount > 0 ? tr(`${toolCallCount} 次工具`, `${toolCallCount} tools`) : '',
-            skillCallCount > 0 ? tr(`${skillCallCount} 次技能`, `${skillCallCount} skills`) : '',
-          ]
-            .filter((item) => item !== '')
-            .join(' · ');
           return (
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-1.5">
@@ -427,28 +470,16 @@ export default function SessionsPage() {
                   </span>
                 ) : null}
               </div>
-              {meta !== '' || preview !== '' ? (
+              {preview !== '' ? (
                 <div className="mt-0.5 flex min-w-0 items-start gap-1 text-[10.5px] leading-4 text-zinc-500">
-                  {meta !== '' ? (
-                    <span className="shrink-0 whitespace-nowrap tabular-nums text-zinc-600">{meta}</span>
-                  ) : null}
-                  {preview !== '' ? (
-                    <>
-                      {meta !== '' ? (
-                        <span aria-hidden className="shrink-0 text-zinc-700">
-                          ·
-                        </span>
-                      ) : null}
-                      <span
-                        className={cn(
-                          'min-w-0 flex-1 text-zinc-500',
-                          expanded ? 'whitespace-pre-line break-words' : 'line-clamp-1',
-                        )}
-                      >
-                        {preview}
-                      </span>
-                    </>
-                  ) : null}
+                  <span
+                    className={cn(
+                      'min-w-0 flex-1 text-zinc-500',
+                      expanded ? 'whitespace-pre-line break-words' : 'line-clamp-1',
+                    )}
+                  >
+                    {preview}
+                  </span>
                   {collapsible ? (
                     <button
                       type="button"
@@ -467,6 +498,44 @@ export default function SessionsPage() {
                   ) : null}
                 </div>
               ) : null}
+            </div>
+          );
+        },
+      }),
+      columnHelper.accessor('id', {
+        id: 'session_id',
+        header: tr('会话 ID', 'Session ID'),
+        enableSorting: false,
+        cell: ({ getValue }) => (
+          <SessionIdCell id={getValue()} onCopyResult={handleCopyResult} />
+        ),
+      }),
+      // 轮次与调用量独立成列，不进入标题单元格
+      columnHelper.display({
+        id: 'counts',
+        header: tr('轮次 / 调用', 'Turns / calls'),
+        enableSorting: false,
+        cell: ({ row }) => {
+          const turnCount = row.original.turn_count ?? 0;
+          const toolCallCount = row.original.tool_call_count ?? 0;
+          const skillCallCount = row.original.skill_call_count ?? 0;
+          const calls = [
+            toolCallCount > 0 ? tr(`${toolCallCount} 次工具`, `${toolCallCount} tools`) : '',
+            skillCallCount > 0 ? tr(`${skillCallCount} 次技能`, `${skillCallCount} skills`) : '',
+          ]
+            .filter((item) => item !== '')
+            .join(' · ');
+          if (turnCount === 0 && calls === '') {
+            return <span className="text-[12px] text-zinc-600">—</span>;
+          }
+          return (
+            <div className="space-y-0.5 text-[10.5px] leading-4 tabular-nums">
+              {turnCount > 0 ? (
+                <span className="block text-zinc-500">
+                  {tr(`${turnCount} 轮`, `${turnCount} turns`)}
+                </span>
+              ) : null}
+              {calls !== '' ? <span className="block text-zinc-600">{calls}</span> : null}
             </div>
           );
         },
@@ -628,7 +697,7 @@ export default function SessionsPage() {
         },
       }),
     ],
-    [tr, rowActions, expandedPreviews],
+    [tr, rowActions, expandedPreviews, handleCopyResult],
   );
 
   const table = useReactTable({
@@ -900,10 +969,12 @@ export default function SessionsPage() {
                 />
               }
             >
-                <table className="og-action-table w-full min-w-[61rem] table-fixed text-sm">
+                <table className="og-action-table w-full min-w-[80rem] table-fixed text-sm">
                   <colgroup>
                     <col className="w-[2.5rem]" />
                     <col className="w-[16rem]" />
+                    <col className="w-[11rem]" />
+                    <col className="w-[8rem]" />
                     <col className="w-[7rem]" />
                     <col className="w-[8rem]" />
                     <col className="w-[7rem]" />
@@ -1017,6 +1088,8 @@ export default function SessionsPage() {
         }}
         onClose={() => setBatchConfirmOpen(false)}
       />
+
+      {copyToast ? <Toast tone={copyToast.tone} text={copyToast.text} /> : null}
     </main>
   );
 }
