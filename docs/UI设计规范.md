@@ -201,7 +201,7 @@ TablePager            分页（客户端分页时才需要）
 | 技能 `/skills` | FilterBar + 共享 ChoiceChip + 类别胶囊 + TableCard + 技能等级改用状态胶囊 |
 | 助理 `/agents` | 搜索区改为 FilterBar；卡片沿用统一 `Card` 表面 |
 | MCP `/mcp` | 搜索区改为 FilterBar（服务列表仍为卡片） |
-| 知识库 `/knowledge` | 双栏工作台：左侧来源分组 + 目录树常驻，右侧 `FilterBar`（统一搜索框，回车触发；右侧「来源」胶囊按 manual / upload / repo 收口，与侧栏分组正交）+ `TableCard` 文档表（来源 / 标签彩色胶囊、更新时间列）+ `TablePager` 客户端分页；提交检索后结果表替换文档表，可一键清除回目录 |
+| 知识库 `/knowledge` | 双栏工作台：左侧来源分组 + 目录树常驻，右侧 `FilterBar`（统一搜索框，回车触发；右侧「来源」胶囊按 manual / upload / repo 收口，与侧栏分组正交）+ `TableCard` 文档表（来源 / 标签中性胶囊、更新时间列）+ `TablePager` 客户端分页；提交检索后结果表替换文档表，可一键清除回目录 |
 
 ### 已完成（第二阶段：指标卡 + 双层列表）
 
@@ -224,7 +224,7 @@ TablePager            分页（客户端分页时才需要）
 | 审批详情 | 改为 `leading` 返回 + 状态胶囊 + 4 格元信息 + 操作内容 / 执行结果 / 决策说明三段 + 底部 sticky 操作条；批准 primary、拒绝 `RowAction danger`、刷新 `RowAction` |
 | 详情弹窗 | 工具 / 技能 / 助理详情统一 `DetailSection`；参数表统一 11px 表头 + `px-3 py-2` 单元格，并套 `og-action-table` 让浅色模式表头落到 `rgb(248 250 252)`；系统提示与返回示意改用 `CodeBlock`；助理弹窗底部按钮统一 28px |
 | 列表与卡片 | 技能表头与工具页对齐；MCP 服务器卡头部与参数表统一 `Chip` / sticky 表头；知识库文档列表收进单容器 `divide-y` 行（中性图标 + 标题 + 一行元信息，来源文字统一用次级灰），目录计数改等宽数字、空态动作 28px；助理卡来源与工具/只读改 `Chip`，标题 12.5px |
-| 设置页 | `SettingsLayout` rail 12.5px + indigo 选中态、权限不足改 `EmptyStateCard`；`Preferences` / `Agent` / `LLM` / `Secrets` / `About` 全部改用 `SectionCard`（保存按钮进 footer、28px）；凭据表格套 `TableCard` 表头 |
+| 设置页 | `SettingsLayout` rail 12.5px + indigo 选中态、权限不足改 `EmptyStateCard`；`Preferences` / `Agent` / `Knowledge` / `LLM` / `Secrets` / `About` 全部改用 `SectionCard`（保存按钮进 footer、28px）；凭据表格套 `TableCard` 表头 |
 | 对话页 | 页头标题/副标题改为 `PageHeader` 标准结构，导出/分享改 `RowAction`（28px）；工具卡与审批卡表面统一 `rounded-lg border-zinc-800/60 bg-zinc-900/40`，参数/结果/命令/输出改用 `CodeBlock`，状态改 `StatusPill`，host/凭证/来源改 `Chip`；`ChatInput` 附件与发送按钮统一 28px |
 | 边角页 | 首页错误条统一、`PromptCard` 标题 12.5px / 描述 11px；分享页 `PageHeader` 去双内边距；登录页卡片 `rounded-xl` + 统一错误条 |
 | 排序与时间 | 分页列表只保留时间列排序（会话 `updated_at`、审批 `created_at`、知识库文档 `updated_at`）；审批新增 `sort_dir`；列表时间统一 `fullDateTime`，不再使用相对时间；会话标题列固定 17rem |
@@ -253,7 +253,7 @@ TablePager            分页（客户端分页时才需要）
 | 技能 | 重载/刷新从 FilterBar 右侧移到 `PageHeader actions`，改用 `RowAction`；FilterBar 只留搜索 + 类别 + 计数 | `Skills.tsx` |
 | 助理 | 刷新 → `RowAction`；新建助理 `primary size="sm"` | `Agents.tsx` |
 | MCP | 页头「刷新 / 接入 MCP」统一为 `RowAction` + `primary size="sm"` | `Mcp.tsx` |
-| 知识库 | 切块设置 / 刷新收成页头右侧按钮组，统一 `h-7`；建/改/上传文档时后端已自动重切块，页面不再提供「重建索引」入口；检索台移到右侧内容区顶部，不再占页头 | `Knowledge.tsx` |
+| 知识库 | 刷新收成页头右侧按钮，统一 `h-7`；切块与检索阈值移入 设置 → 知识库；建/改/上传文档时后端已自动重切块，页面不再提供「重建索引」入口；检索台移到右侧内容区顶部，不再占页头 | `Knowledge.tsx` |
 | 工具 / 可观测 | 已符合，仅替换为共享原语 | 无 |
 
 约定：页头次要动作 = `RowAction`（28px）；主操作 = `Button variant="primary" size="sm"`；破坏性 = `danger size="sm"`；同一页头最多 1 个 primary。
@@ -317,7 +317,9 @@ TablePager            分页（客户端分页时才需要）
 
 | 区域 | 改动 |
 | --- | --- |
-| 会话列表·标题列 | 标题下加一行元信息（10.5px / `leading-4`）：`N 轮`（用户提问次数，不含工具卡）+ 可选 `M 次工具` / `K 次技能` + 「·」+ 最近一条正文摘要（服务端截断 240 字符），`line-clamp-1` 单行截断；标题仍是唯一可点击的跳转目标，摘要不参与链接文案 |
+| 会话列表·标题列 | 只放标题、置顶/分享标识与附件数；最近一条正文摘要（服务端截断 240 字符）在标题下单独一行，`line-clamp-1` 单行截断；标题仍是唯一可点击的跳转目标，摘要不参与链接文案 |
+| 会话列表·会话 ID 列 | 独立列用等宽 10px 展示完整会话 ID，点击即复制；不显示复制图标，复制前后文字样式不变，结果用右下角 `Toast` 轻提示；过长时自动换行；不进入标题单元格 |
+| 会话列表·轮次列 | 独立「轮次 / 调用」列（10.5px / `leading-4`）：`N 轮`（用户提问次数，不含工具卡）+ 可选 `M 次工具` / `K 次技能`，不进入标题单元格 |
 | 会话列表·模型列 | 模型名下方补 `1.7k tokens`（累计用量，精确值挂 `title`）；没有观测数据时不显示，不写 0 |
 | 会话列表·运行列 | 最近一回合状态胶囊：`正常`（ok）/ `进行中`（running，脉冲点）/ `失败`（error，danger）/ `已停止`（stopped，warn）；有待审批时并列 `待审 N` 胶囊，无状态显示 `—` |
 | 会话列表·最近活动列 | 显示完整日期时间（`fullDateTime`），按 `last_message_at` 排序（空会话 `NULLS LAST`，不会在倒序时顶到第一页）；不使用「xx 分钟前」相对时间 |
@@ -380,7 +382,7 @@ TablePager            分页（客户端分页时才需要）
 | 助理编辑·技能声明 MCP | 技能分组里声明的 MCP 工具显示 `mcp` 胶囊（目录外为 `warning`）；预览面板在「进上下文」下方说明「技能声明的 MCP 工具随技能进入检索目录（仍需 search/load 调用）」 |
 | 助理编辑·整台挂载口径 | 部分勾选提示把技能声明计入已选数（`勾选 X/Y 个工具（含技能声明）`），并说明未勾选的工具不进检索目录、搜不到也调不了，避免「一个都没勾却显示已挂载」的困惑 |
 | 二次确认 | 会话/账号等破坏性操作统一用 `ConfirmDialog`（`Modal` + 取消/危险按钮 + 行内错误），不使用 `window.confirm`；执行中禁用关闭与确认 |
-| 知识库·检索设置 | `RowAction` 打开 `Modal size="sm"`，分「切块参数」（`chunk_size` / `chunk_overlap`，字符单位，重叠必须小于大小；改动后保存即自动重建索引）与「检索阈值」（`rrf_min_score`，0 不过滤，保存即生效）两组；保存成功用右下角 `Toast` 提示，切块参数未改动则不重建 |
+| 设置·知识库检索 | 设置页 `SectionCard`，分「切块参数」（`chunk_size` / `chunk_overlap`，字符单位，重叠必须小于大小；改动后保存即自动重建索引）与「检索阈值」（`rrf_min_score`，0 不过滤，保存即生效）两组；页内 `role="status"` 提示保存结果，切块参数未改动则不重建 |
 | 知识库·新建/编辑文档 | `Modal size="xl"`（`max-w-4xl` 896px）+ `resizable`；标题/英文标题、目录/标签两列，来源 URL 与 Markdown 正文通栏 |
 | 轻提示 | 成功/失败的操作反馈统一 `Toast`（右下角浮层，5 秒自动消失）；替代 `window.alert`，需要决策的走 `ConfirmDialog` / `Modal` |
 
