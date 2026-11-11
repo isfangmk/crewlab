@@ -36,6 +36,7 @@ import {
   SearchCheck,
   Workflow,
   Rocket,
+  Clock,
   MessagesSquare,
   ScrollText,
   Activity,
@@ -342,7 +343,7 @@ export function Sidebar() {
 
         {/*
           侧栏 IA：已上线可跳转；planned 为迭代计划占位（不可跳转）。
-          工作流 = 定时/触发与发布自动化，不做可视化画布。
+          工作流 = ADK 图编排（画布 + 运行记录），定时/触发与发布仍为占位。
           命令面板 routes.ts 仅收录已上线路由。
         */}
         <CollapsibleSection
@@ -395,8 +396,9 @@ export function Sidebar() {
           title={tr('工作流', 'Workflows')}
           defaultOpen
           items={[
-            { key: 'schedules', icon: Workflow, label: tr('定时触发', 'Schedules'), planned: true },
-            { key: 'publish', icon: Rocket, label: tr('对外发布', 'Publish'), planned: true },
+            { key: 'workflows', to: '/workflows', icon: Workflow, label: tr('工作流编排', 'Workflow canvas') },
+            { key: 'workflow-runs', to: '/workflows?tab=runs', icon: Rocket, label: tr('运行记录', 'Run history') },
+            { key: 'schedules', icon: Clock, label: tr('定时触发', 'Schedules'), planned: true },
             { key: 'channels', icon: MessagesSquare, label: tr('IM 渠道', 'IM channels'), planned: true },
           ]}
         />

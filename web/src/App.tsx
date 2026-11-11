@@ -16,6 +16,9 @@ const ApprovalsPage = lazy(() => import('@/pages/Approvals'));
 const ApprovalDetailPage = lazy(() => import('@/pages/ApprovalDetail'));
 const AgentsPage = lazy(() => import('@/pages/Agents'));
 const McpPage = lazy(() => import('@/pages/Mcp'));
+const WorkflowsPage = lazy(() => import('@/pages/Workflows'));
+const WorkflowEditorPage = lazy(() => import('@/pages/WorkflowEditor'));
+const WorkflowRunPage = lazy(() => import('@/pages/WorkflowRun'));
 const KnowledgePage = lazy(() => import('@/pages/Knowledge'));
 const SessionsPage = lazy(() => import('@/pages/Sessions'));
 const ObservabilityPage = lazy(() => import('@/pages/Observability'));
@@ -26,6 +29,7 @@ const SettingsLayout = lazy(() => import('@/pages/SettingsLayout'));
 const SettingsLLM = lazy(() => import('@/pages/settings/LLM'));
 const SettingsPreferences = lazy(() => import('@/pages/settings/Preferences'));
 const SettingsAgent = lazy(() => import('@/pages/settings/Agent'));
+const SettingsKnowledge = lazy(() => import('@/pages/settings/Knowledge'));
 const SettingsAbout = lazy(() => import('@/pages/settings/About'));
 const SettingsSecrets = lazy(() => import('@/pages/settings/Secrets'));
 
@@ -84,12 +88,16 @@ export default function App() {
         <Route path="/users" element={<UsersPage />} />
         <Route path="/agents" element={<AgentsPage />} />
         <Route path="/mcp" element={<McpPage />} />
+        <Route path="/workflows" element={<WorkflowsPage />} />
+        <Route path="/workflows/runs/:runUid" element={<WorkflowRunPage />} />
+        <Route path="/workflows/:id" element={<WorkflowEditorPage key={location.pathname} />} />
         <Route path="/knowledge" element={<KnowledgePage />} />
         <Route path="/settings" element={<SettingsLayout />}>
           <Route index element={<Navigate to="llm" replace />} />
           <Route path="llm" element={<SettingsLLM />} />
           <Route path="secrets" element={<SettingsSecrets />} />
           <Route path="agent" element={<SettingsAgent />} />
+          <Route path="knowledge" element={<SettingsKnowledge />} />
           <Route path="preferences" element={<SettingsPreferences />} />
           <Route path="about" element={<SettingsAbout />} />
         </Route>
