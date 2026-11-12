@@ -6,7 +6,7 @@
 //   4. 运行记录不存在：给可恢复的空态，而不是空白页
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -109,6 +109,16 @@ function renderPage(uid = 'run-1') {
   );
 }
 
+/** 切换到另一个运行：模拟「再次运行」后的路由跳转。 */
+function NavTo({ uid }: { uid: string }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(`/workflows/runs/${uid}`)}>
+      切到另一个运行
+    </button>
+  );
+}
+
 describe('WorkflowRunPage', () => {
   beforeEach(() => {
     localStorage.setItem('ongrid-locale', 'zh-CN');
@@ -156,8 +166,7 @@ describe('WorkflowRunPage', () => {
     expect(within(overview).getByText('等待人工填写')).toBeInTheDocument();
     expect(within(overview).getByText('停在「补充结论」，处理后继续')).toBeInTheDocument();
     // 中栏详情给出可操作的表单
-    if (!screen.queryByText('等待人工输入')) console.log('DOMDUMP>>>', document.body.innerHTML.slice(0, 8000));
-    console.log('NAV-CURRENT>>>', [...document.querySelectorAll('nav button')].map((b) => `${b.textContent}:${b.getAttribute('aria-current')}`).join(' | '));
+    expect(screen.getByText('等待人工输入')).toBeInTheDocument();
     expect(screen.getByText('请补充处理结论')).toBeInTheDocument();
     expect(screen.getByText('conclusion')).toBeInTheDocument();
 
@@ -340,5 +349,98 @@ describe('WorkflowRunPage', () => {
     expect(await screen.findByText('找不到这次运行')).toBeInTheDocument();
     expect(screen.getByText('run not found')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /返回运行记录/ })).toHaveAttribute('href', '/workflows?tab=runs');
+  });
+
+  it('顶部返回按钮回到运行记录列表', async () => {
+    server.use(http.get(runURL, () => HttpResponse.json(runDetail())));
+
+    renderPage();
+
+    // 返回的是运行记录分页列表，不是工作流画布
+    expect(await screen.findByRole('link', { name: /返回运行记录/ })).toHaveAttribute(
+      'href',
+      '/workflows?tab=runs',
+    );
+    // 详情页不给进编辑器的入口：要改画布从工作流列表进去
+    expect(screen.queryByRole('link', { name: '磁盘告警处置' })).not.toBeInTheDocument();
+  });
+
+  it('换一次运行（run_uid 变化）：重新加载，不停留在上一次的数据', async () => {
+    const otherURL = '/api/v1/workflows/runs/run-2';
+    server.use(
+      http.get(runURL, () => HttpResponse.json(runDetail())),
+      http.get(otherURL, () =>
+        HttpResponse.json(
+          runDetail({
+            run_uid: 'run-2',
+            workflow_name: '另一个工作流',
+            status: 'succeeded',
+            output: '"第二个运行的输出"',
+          }),
+        ),
+      ),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/workflows/runs/run-1']}>
+        <Routes>
+          <Route path="/workflows/runs/:runUid" element={<WorkflowRunPage />} />
+          <Route path="/workflows/:id" element={<div>编排页占位</div>} />
+          <Route path="/workflows" element={<div>工作流列表占位</div>} />
+        </Routes>
+        <NavTo uid="run-2" />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('磁盘告警处置')).toBeInTheDocument();
+
+    // 路由切到另一个运行：页面要跟着换，不能还显示上一次的内容
+    await userEvent.click(screen.getByRole('button', { name: '切到另一个运行' }));
+
+    expect(await screen.findByText('另一个工作流')).toBeInTheDocument();
+    expect(screen.queryByText('磁盘告警处置')).not.toBeInTheDocument();
+  });
+
+  it('停止运行：后端说已经结束就如实提示，不谎报成功', async () => {
+    server.use(
+      http.get(runURL, () =>
+        HttpResponse.json(runDetail({ status: 'running', finished_at: null, output: '' })),
+      ),
+      http.post(`${runURL}/stop`, () => HttpResponse.json({ stopped: false })),
+    );
+
+    renderPage();
+
+    const stopButton = await screen.findByRole('button', { name: /停止运行/ });
+    await userEvent.click(stopButton);
+
+    expect(await screen.findByText('这次运行已经结束，无法停止')).toBeInTheDocument();
+  });
+
+  it('停止运行：后端确认停止后提示成功', async () => {
+    server.use(
+      http.get(runURL, () =>
+        HttpResponse.json(runDetail({ status: 'running', finished_at: null, output: '' })),
+      ),
+      http.post(`${runURL}/stop`, () => HttpResponse.json({ stopped: true })),
+    );
+
+    renderPage();
+
+    const stopButton = await screen.findByRole('button', { name: /停止运行/ });
+    await userEvent.click(stopButton);
+
+    expect(await screen.findByText('已停止运行')).toBeInTheDocument();
+  });
+
+  it('导航把已执行与未执行分成两段', async () => {
+    server.use(http.get(runURL, () => HttpResponse.json(runDetail())));
+
+    renderPage();
+
+    const nav = await screen.findByRole('navigation', { name: '节点列表' });
+    expect(within(nav).getByText('未执行 · 3')).toBeInTheDocument();
+    // 未执行的节点点不开
+    expect(within(nav).getByRole('button', { name: /补充结论/ })).toBeDisabled();
   });
 });

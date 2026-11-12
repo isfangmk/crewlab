@@ -2,20 +2,13 @@
 
 import type { RunStatus } from '@/api/workflows';
 import { StatusPill } from '@/components/ui';
-import type { StatusTone } from '@/components/ui/StatusPill';
+import { RUN_STATUS_META } from '@/lib/runStatus';
 import { useI18n } from '@/i18n/locale';
-
-const META: Record<RunStatus, { tone: StatusTone; zh: string; en: string; pulse?: boolean }> = {
-  running: { tone: 'info', zh: '运行中', en: 'Running', pulse: true },
-  succeeded: { tone: 'ok', zh: '成功', en: 'Succeeded' },
-  failed: { tone: 'danger', zh: '失败', en: 'Failed' },
-  waiting: { tone: 'warn', zh: '等待人工', en: 'Waiting' },
-};
 
 export function RunStatusPill({ status }: { status: RunStatus }) {
   const { tr } = useI18n();
-  const meta = META[status];
-  return <StatusPill tone={meta.tone} label={tr(meta.zh, meta.en)} pulse={meta.pulse} />;
+  const meta = RUN_STATUS_META[status];
+  return <StatusPill tone={meta.tone} label={tr(meta.zh, meta.en)} pulse={meta.pulse} />
 }
 
 /**

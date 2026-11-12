@@ -73,10 +73,20 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
 ]
 
 
-# Skill 声明的 additional_tools 必须能在此注册表解析；
-# 不在表内则技能目录标为不可装配（inventory_only）。
+async def _web_search_signature(
+    # 参数名与默认值就是前端运行表单的字段定义，函数体不读它们也不能改名
+    query: str,  # pyright: ignore[reportUnusedParameter]
+    count: int = 5,  # pyright: ignore[reportUnusedParameter]
+) -> dict:
+    """仅用于导出参数签名；真正执行走 run_builtin_tool。"""
+
+    raise RuntimeError("web_search 须经 run_builtin_tool 注入 DeepSeek 凭证后执行")
+
+
+# 目录、ADK 装配、技能声明、手动运行都从这一张表取实现，避免多处硬编码工具名
 _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
     "query_knowledge": query_knowledge,
+    "web_search": _web_search_signature,
     "list_workflows": list_workflows,
     "get_workflow": get_workflow,
     "run_workflow": run_workflow,
@@ -89,6 +99,21 @@ def builtin_tool_registry() -> dict[str, Any]:
     """返回内置工具注册表副本。"""
 
     return dict(_BUILTIN_TOOL_REGISTRY)
+
+
+def tool_impl(name: str) -> Any:
+    """取工具实现；未知名显式失败。"""
+
+    impl = _BUILTIN_TOOL_REGISTRY.get(name)
+    if impl is None:
+        raise LookupError(f"未知内置工具: {name}")
+    return impl
+
+
+def workflow_tool_names() -> list[str]:
+    """工作流工具组：ADK 装配只认这一份清单。"""
+
+    return [spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["group"] == "workflow"]
 
 
 def tool_param_specs(func: Any) -> list[dict]:
@@ -122,7 +147,6 @@ def tool_param_specs(func: Any) -> list[dict]:
             spec["type"] = "float"
         elif annotation_name == "bool":
             spec["type"] = "bool"
-        # 从 docstring Args 段提取单行说明（没有则省略）
         doc = inspect.getdoc(func)
         if doc is not None:
             for line in doc.splitlines():

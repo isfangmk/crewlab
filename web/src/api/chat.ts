@@ -1,5 +1,6 @@
 import type { AssistantPage } from '@/lib/assistantPage';
 import { ApiError, request } from './client';
+import { readSseFrames } from './sse';
 import { getToken } from '@/store/auth';
 
 export type ChatRole = 'user' | 'assistant' | 'tool' | 'system';
@@ -435,47 +436,15 @@ export type StreamCallbacks = {
 
 /** 读取 SSE 响应体并按帧回调；审批续跑与聊天流共用。 */
 export async function consumeSseResponse(res: Response, cbs: StreamCallbacks): Promise<void> {
-  if (!res.ok || !res.body) {
-    let parsed: unknown = null;
-    try {
-      parsed = await res.json();
-    } catch {
-      parsed = null;
+  await readSseFrames(res, async (frame) => {
+    if (frame.event === 'assistant_delta' || frame.event === 'thinking_delta') {
+      // 打字机按帧渲染：让出一帧再收下一帧，避免高频 delta 把主线程占满
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
     }
-    let msg = `HTTP ${res.status}`;
-    let code: string | undefined;
-    if (parsed && typeof parsed === 'object') {
-      const obj = parsed as Record<string, unknown>;
-      if (typeof obj.error === 'string') msg = obj.error;
-      if (typeof obj.code === 'string') code = obj.code;
-    }
-    throw new ApiError(msg, res.status, code, parsed);
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
-    let sep: number;
-    while ((sep = buf.indexOf('\n\n')) >= 0) {
-      const frame = buf.slice(0, sep);
-      buf = buf.slice(sep + 2);
-      const isDelta =
-        frame.includes('event: assistant_delta') || frame.includes('event: thinking_delta');
-      dispatchFrame(frame, cbs);
-      if (isDelta) {
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => resolve());
-        });
-      }
-    }
-  }
-  if (buf.trim()) dispatchFrame(buf, cbs);
+    dispatchFrame(frame.event, frame.data, cbs);
+  });
 }
 
 // streamMessage opens an SSE connection to the agent loop and dispatches
@@ -554,18 +523,10 @@ export async function streamEditResend(
   await consumeSseResponse(res, cbs);
 }
 
-function dispatchFrame(raw: string, cbs: StreamCallbacks) {
-  let event = 'message';
-  const dataLines: string[] = [];
-  for (const line of raw.split('\n')) {
-    if (!line || line.startsWith(':')) continue;
-    if (line.startsWith('event:')) event = line.slice(6).trim();
-    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
-  }
-  if (dataLines.length === 0) return;
+function dispatchFrame(event: string, data: string, cbs: StreamCallbacks) {
   let payload: unknown;
   try {
-    payload = JSON.parse(dataLines.join('\n'));
+    payload = JSON.parse(data);
   } catch (e) {
     throw new Error(`SSE JSON 非法: ${e instanceof Error ? e.message : String(e)}`);
   }

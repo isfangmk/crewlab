@@ -10,15 +10,8 @@ import logging
 from google.adk.tools import FunctionTool
 
 from app.services.knowledge_scope import KnowledgeScope
-from app.tools.catalog import builtin_tool_registry, tool_param_specs
+from app.tools.catalog import builtin_tool_registry, tool_impl, tool_param_specs, workflow_tool_names
 from app.tools.knowledge import query_knowledge, scoped_query_knowledge
-from app.tools.workflow import (
-    get_workflow,
-    get_workflow_run,
-    list_workflow_runs,
-    list_workflows,
-    run_workflow,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +30,7 @@ def build_knowledge_tools(scope: KnowledgeScope | None = None) -> list[FunctionT
     跑到哪了、哪一步失败」这类问题时必须能查画布与运行记录。
     """
 
-    workflow_tools = [
-        FunctionTool(list_workflows),
-        FunctionTool(get_workflow),
-        FunctionTool(run_workflow),
-        FunctionTool(list_workflow_runs),
-        FunctionTool(get_workflow_run),
-    ]
+    workflow_tools = [FunctionTool(tool_impl(name)) for name in workflow_tool_names()]
     if scope is None or scope.is_empty:
         return [FunctionTool(query_knowledge), *workflow_tools]
     logger.info(

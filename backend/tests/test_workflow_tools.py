@@ -161,6 +161,21 @@ def test_registry_resolves_every_declared_tool_except_per_turn_web_search() -> N
     assert missing == set()
 
 
+def test_registry_is_the_single_source_of_tool_names() -> None:
+    """工具名只在一处声明：目录、装配、手动运行都从这里取。"""
+
+    from app.tools.catalog import tool_impl, workflow_tool_names
+
+    declared = {spec["name"] for spec in BUILTIN_TOOL_SPECS}
+    assert set(workflow_tool_names()) <= declared
+    # 每个目录里的工具都能按名字取到实现
+    for name in declared:
+        assert tool_impl(name) is not None
+    # 未知名显式失败，不静默返回 None
+    with pytest.raises(LookupError):
+        tool_impl("不存在的工具")
+
+
 # ---------------- 查询行为 ----------------
 
 

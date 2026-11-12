@@ -43,6 +43,7 @@ import {
   type CatalogGroup,
   type CatalogKind,
   type LatestRunSnapshot,
+  type LiveNodeRun as LiveNodeRunShape,
   type NodeKind,
   type NodeProbeResult,
   type RunStatus,
@@ -97,7 +98,7 @@ const EMPTY_GROUPS: CatalogGroup[] = [];
  * 字段与单节点试跑、时间线里的节点记录同形，面板与时间线共用一套渲染。
  * running 的节点只有输入（后端在 node_started 里就给了），跑完再补输出与耗时。
  */
-type LiveNodeRun = NodeProbeResult;
+type LiveNodeRun = LiveNodeRunShape;
 
 // 结构化输出 → 展示文本：字符串原样，其余按缩进 JSON 展示，和落库记录同口径。
 function serializeOutput(value: unknown): string {
@@ -744,6 +745,23 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
               route: event.route ?? '',
             });
             break;
+          case 'run_waiting':
+            // 停在人工节点：运行还没结束，只是暂停等人。
+            // 画布必须显示待审批/待填写，不能是成功。
+            setRunningRunUid(null);
+            setLastRun({
+              runUid: event.run_uid,
+              status: 'waiting',
+              gate: event.gate,
+              gateKind: event.gate_kind,
+            });
+            if (event.gate !== null) {
+              // 停在人工节点的节点要染成等待态，不能是成功
+              const gateId = event.gate;
+              setNodeStatuses((current) => ({ ...current, [gateId]: 'waiting' }));
+              setGateBannerOpen(true);
+            }
+            break;
           case 'run_finished':
             setRunningRunUid(null);
             setLastRun({
@@ -752,19 +770,13 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
               gate: event.gate,
               gateKind: event.gate_kind,
             });
-            if (event.gate !== null) {
-              // 停住的人工节点在事件里是「执行完」（GateNode 自己返回了），
-              // 但它实际在等人：画布必须显示待审批/待填写，不能是成功。
-              const gateId = event.gate;
-              setNodeStatuses((current) => ({ ...current, [gateId]: 'waiting' }));
-              setGateBannerOpen(true);
-            }
             if (event.status === 'failed') {
               setToast({ tone: 'err', text: tr(`运行失败：${event.error}`, `Run failed: ${event.error}`) });
             } else if (event.status === 'succeeded') {
               setToast({ tone: 'ok', text: tr('运行完成', 'Run finished') });
+            } else if (event.status === 'stopped') {
+              setToast({ tone: 'err', text: tr('运行已停止', 'Run stopped') });
             }
-            // 停在人工节点不弹 toast：顶部横幅已经在说同一件事并给了处理入口。
             break;
           case 'run_failed':
             setRunningRunUid(null);
