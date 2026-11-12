@@ -541,6 +541,84 @@ def test_preview_input_keeps_variables_and_valid_json() -> None:
     assert len(excerpt) <= 601
 
 
+@pytest.mark.asyncio
+async def test_code_node_cannot_reach_host_resources() -> None:
+    """代码节点只能算：命名空间里没有 import / open / eval。"""
+
+    payload = {
+        "nodes": [
+            _node("start", "start", variables=[{"name": "topic"}]),
+            _node(
+                "sneaky",
+                "code",
+                output_key="out",
+                code="def run(state):\n    import os\n    return os.getcwd()",
+            ),
+        ],
+        "edges": [{"id": "e1", "source": "start", "target": "sneaky"}],
+    }
+    definition = WorkflowDefinition.model_validate(payload)
+    built = _built_node({"id": "sneaky", "kind": "code"}, definition)
+
+    with pytest.raises(Exception) as exc:
+        await built.execute(ctx=None, state={"topic": "x"})  # type: ignore[attr-defined]
+    assert "import" in str(exc.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_code_node_cannot_open_files() -> None:
+    """代码节点不能碰宿主文件：open 不在白名单里。"""
+
+    payload = {
+        "nodes": [
+            _node("start", "start", variables=[{"name": "topic"}]),
+            _node(
+                "reader",
+                "code",
+                output_key="out",
+                code="def run(state):\n    return open('/etc/passwd').read()",
+            ),
+        ],
+        "edges": [{"id": "e1", "source": "start", "target": "reader"}],
+    }
+    definition = WorkflowDefinition.model_validate(payload)
+    built = _built_node({"id": "reader", "kind": "code"}, definition)
+
+    with pytest.raises(Exception) as exc:
+        await built.execute(ctx=None, state={"topic": "x"})  # type: ignore[attr-defined]
+    assert "open" in str(exc.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_code_node_reports_reads_through_key_lookups() -> None:
+    """按名字判断存在、遍历键名，也算读了这个键。"""
+
+    payload = {
+        "nodes": [
+            _node("start", "start", variables=[{"name": "topic"}]),
+            _node(
+                "peek",
+                "code",
+                output_key="out",
+                code=(
+                    "def run(state):\n"
+                    "    names = [k for k in state.keys()]\n"
+                    "    hit = 'kb' in state\n"
+                    "    return names if hit else []\n"
+                ),
+            ),
+        ],
+        "edges": [{"id": "e1", "source": "start", "target": "peek"}],
+    }
+    definition = WorkflowDefinition.model_validate(payload)
+    built = _built_node({"id": "peek", "kind": "code"}, definition)
+    state = {"kb": "知识", "web": "公告"}
+
+    await built.execute(ctx=None, state=state)  # type: ignore[attr-defined]
+    reads = built.input_snapshot(state)  # type: ignore[attr-defined]
+    assert set(reads) == {"kb", "web"}
+
+
 # ---------------- 真实执行 ----------------
 
 
@@ -746,9 +824,81 @@ async def test_run_loop_stops_on_condition() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_waits_at_approval_then_resumes() -> None:
+async def test_waiting_run_emits_pause_event_not_finish() -> None:
+    """停在人工节点只发暂停事件：运行还没结束，订阅要继续开着。"""
+
+    from app.models_orm.workflow import Workflow as WorkflowRow
     from app.services import workflow_service
 
+    payload = {
+        "nodes": [
+            _node("start", "start", variables=[{"name": "x", "required": True}]),
+            _node("gate", "approval", prompt="确认 {{x}}"),
+            _node("after", "assign", assignments={"y": "post-{{x}}"}),
+        ],
+        "edges": [
+            {"id": "e1", "source": "start", "target": "gate"},
+            {"id": "e2", "source": "gate", "target": "after"},
+        ],
+    }
+    definition = WorkflowDefinition.model_validate(payload)
+    engine, sessionmaker = _new_sessionmaker()
+    events: list[dict] = []
+
+    async def collect(event: dict) -> None:
+        events.append(event)
+
+    async with sessionmaker() as db:
+        row = WorkflowRow(
+            name=f"__test_wf_{uuid.uuid4().hex[:8]}__",
+            description="",
+            definition_json=definition.model_dump_json(),
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        try:
+            run = await workflow_service.execute_run(
+                db,
+                workflow=row,
+                payload={"x": "v1"},
+                triggered_by="test@local",
+                source="draft",
+                on_event=collect,
+            )
+        finally:
+            await db.delete(row)
+            await db.commit()
+    await engine.dispose()
+
+    assert run.status == "waiting"
+    kinds = [e["event"] for e in events]
+    assert "run_waiting" in kinds
+    # 还没结束，不该发终态事件
+    assert "run_finished" not in kinds
+    waiting = next(e for e in events if e["event"] == "run_waiting")
+    assert waiting["gate"] == "gate"
+
+
+@pytest.mark.asyncio
+async def test_node_event_input_hides_internal_bookkeeping() -> None:
+    """事件里的节点输入不能带内部记账键：面板只显示用户看得懂的变量。"""
+
+    from app.adk_runtime.workflow_nodes import visible_input
+
+    visible = visible_input(
+        {
+            "topic": "磁盘告警",
+            "__approved_gates": ["gate"],
+            "__loop_note": "迭代 1",
+        }
+    )
+    assert list(visible) == ["topic"]
+
+
+@pytest.mark.asyncio
+async def test_run_waits_at_approval_then_resumes() -> None:
+    from app.services import workflow_service
     payload = {
         "nodes": [
             _node("start", "start", variables=[{"name": "x", "required": True}]),
@@ -800,6 +950,64 @@ async def test_run_waits_at_approval_then_resumes() -> None:
         finally:
             await db.delete(row)
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_resume_in_background_records_approved_gate() -> None:
+    """后台续跑：已确认的节点要落进运行输入，否则每次续跑都被同一个门拦下。"""
+
+    from app.services import workflow_service
+
+    payload = {
+        "nodes": [
+            _node("start", "start", variables=[{"name": "x", "required": True}]),
+            _node("gate", "approval", prompt="确认 {{x}}"),
+            _node("after", "assign", assignments={"y": "post-{{x}}"}),
+            _node("end", "end", output_key="y"),
+        ],
+        "edges": [
+            {"id": "e1", "source": "start", "target": "gate"},
+            {"id": "e2", "source": "gate", "target": "after"},
+            {"id": "e3", "source": "after", "target": "end"},
+        ],
+    }
+    definition = WorkflowDefinition.model_validate(payload)
+    engine, sessionmaker = _new_sessionmaker()
+    async with sessionmaker() as db:
+        from app.models_orm.workflow import Workflow as WorkflowRow
+
+        row = WorkflowRow(
+            name=f"__test_wf_{uuid.uuid4().hex[:8]}__",
+            description="",
+            definition_json=definition.model_dump_json(),
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        try:
+            run = await workflow_service.execute_run(
+                db,
+                workflow=row,
+                payload={"x": "v1"},
+                triggered_by="test@local",
+                source="draft",
+            )
+            assert run.status == "waiting"
+
+            # 后台续跑：只准备状态就返回
+            resumed = await workflow_service.resume_run(
+                db, run=run, decision="approve", payload={}, background=True
+            )
+            assert resumed.status == "running"
+
+            # 续跑状态已落库：后台任务从这里读回已通过的节点
+            stored = json.loads(resumed.input_json)
+            assert "__approved_gates" in stored
+            assert stored["__approved_gates"] == ["gate"]
+        finally:
+            await db.delete(row)
+            await db.commit()
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

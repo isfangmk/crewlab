@@ -74,6 +74,7 @@ const RUN_STATUS_FILTERS: {
   { value: 'waiting', label: (tr) => tr('等待人工', 'Waiting') },
   { value: 'succeeded', label: (tr) => tr('成功', 'Succeeded') },
   { value: 'failed', label: (tr) => tr('失败', 'Failed') },
+  { value: 'stopped', label: (tr) => tr('已停止', 'Stopped') },
 ];
 
 export default function WorkflowsPage() {

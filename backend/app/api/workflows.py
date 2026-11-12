@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -10,13 +9,13 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import require_auth
-from app.db import SessionLocal, get_db
+from app.db import get_db
 from app.models_orm.workflow import Workflow as WorkflowRow
 from app.models_orm.workflow import WorkflowRun as WorkflowRunRow
 from app.schemas.workflow import (
@@ -29,6 +28,7 @@ from app.schemas.workflow import (
     parse_definition,
 )
 from app.services import run_control, workflow_runner, workflow_service
+from app.services.workflow_queries import latest_runs, workflow_names
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
 from app.services.workflow_events import TERMINAL_EVENTS, workflow_events
@@ -130,17 +130,6 @@ def _run_to_wire(
     }
 
 
-async def _workflow_names(db: AsyncSession, ids: set[int]) -> dict[int, str]:
-    """运行列表要显示工作流名：一次查回来，避免每行一次查询。"""
-
-    if len(ids) == 0:
-        return {}
-    result = await db.execute(
-        select(WorkflowRow.id, WorkflowRow.name).where(WorkflowRow.id.in_(ids))
-    )
-    return {row_id: name for row_id, name in result.all()}
-
-
 async def _published_ids(db: AsyncSession, ids: set[int]) -> set[int]:
     """这批工作流里哪些真的发布过：运行记录据此决定要不要给「再次运行」。"""
 
@@ -163,26 +152,10 @@ async def _workflow_name(db: AsyncSession, workflow_id: int) -> str:
     return name
 
 
-async def _latest_runs(db: AsyncSession, ids: set[int]) -> dict[int, Any]:
-    """每个工作流最近一次运行：列表要展示运行状态，一次查完避免逐行查询。"""
-
-    if len(ids) == 0:
-        return {}
-    latest_ids = (
-        select(func.max(WorkflowRunRow.id))
-        .where(WorkflowRunRow.workflow_id.in_(ids))
-        .group_by(WorkflowRunRow.workflow_id)
-    )
-    rows = (
-        await db.scalars(select(WorkflowRunRow).where(WorkflowRunRow.id.in_(latest_ids)))
-    ).all()
-    return {run.workflow_id: run for run in rows}
-
-
 async def _latest_run(db: AsyncSession, workflow_id: int) -> Any | None:
     """单个工作流最近一次运行。"""
 
-    return (await _latest_runs(db, {workflow_id})).get(workflow_id)
+    return (await latest_runs(db, {workflow_id})).get(workflow_id)
 
 
 async def _get_row(db: AsyncSession, workflow_id: int) -> WorkflowRow:
@@ -195,7 +168,7 @@ async def _get_row(db: AsyncSession, workflow_id: int) -> WorkflowRow:
 @router.get("/workflows/catalog")
 async def workflow_catalog(
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    _user: AuthUser = Depends(require_auth),
 ) -> dict:
     """画布可用的节点类型、分组，以及模型与 MCP 工具。"""
 
@@ -259,7 +232,7 @@ async def list_workflows(
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    _user: AuthUser = Depends(require_auth),
 ) -> dict:
     """画布列表：关键字/状态筛选 + 按更新时间排序 + 分页，total 是筛选后的总数。"""
 
@@ -299,7 +272,7 @@ async def list_workflows(
             )
         ).all()
     )
-    latest = await _latest_runs(db, {row.id for row in rows})
+    latest = await latest_runs(db, {row.id for row in rows})
     return {
         "items": [
             _row_to_wire(r, include_definition=False, last_run=latest.get(r.id))
@@ -363,11 +336,11 @@ async def list_runs(
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    _user: AuthUser = Depends(require_auth),
 ) -> dict:
     """运行记录列表：工作流/状态/关键字筛选 + 分页，total 是筛选后的总数。"""
 
-    if status not in ("", "running", "waiting", "succeeded", "failed"):
+    if status not in ("", "running", "waiting", "succeeded", "failed", "stopped"):
         raise HTTPException(status_code=400, detail=f"status 非法: {status}")
     rows, total = await workflow_service.list_runs(
         db,
@@ -377,7 +350,7 @@ async def list_runs(
         limit=limit,
         offset=offset,
     )
-    names = await _workflow_names(db, {row.workflow_id for row in rows})
+    names = await workflow_names(db, {row.workflow_id for row in rows})
     published = await _published_ids(db, {row.workflow_id for row in rows})
     return {
         "items": [
@@ -392,7 +365,7 @@ async def list_runs(
 async def get_run(
     run_uid: str,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    _user: AuthUser = Depends(require_auth),
 ) -> dict:
     try:
         run = await workflow_service.get_run(db, run_uid)
@@ -423,11 +396,20 @@ async def resume_run(
     if body.decision not in ("approve", "reject"):
         raise HTTPException(status_code=400, detail=f"decision 非法: {body.decision}")
     try:
+        # 拒绝：立刻改状态并推终态；批准：准备续跑状态后放后台执行，
+        # 事件仍推到同一条流，调用方不用等整条链路跑完。
         await workflow_service.resume_run(
-            db, run=run, decision=body.decision, payload=body.values
+            db,
+            run=run,
+            decision=body.decision,
+            payload=body.values,
+            on_event=workflow_events.open(run_uid),
+            background=body.decision == "approve",
         )
     except (ValueError, LookupError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if body.decision == "approve":
+        workflow_runner.spawn_resume(workflow_service.drive_resumed_run(run_uid))
     await write_audit(
         db,
         actor_user_id=user.id,
@@ -451,7 +433,7 @@ async def resume_run(
 async def stop_run(
     run_uid: str,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    _user: AuthUser = Depends(require_auth),
 ) -> dict:
     """停止正在跑的运行：图执行到下一个事件边界收工，已跑过的节点照常落库。"""
 
@@ -499,7 +481,7 @@ async def run_single_node(
 async def latest_run_snapshot(
     workflow_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    _user: AuthUser = Depends(require_auth),
 ) -> dict:
     """最近一次运行：画布进入时用它恢复每个节点的执行状态。
 
@@ -535,7 +517,7 @@ async def latest_run_snapshot(
 async def get_workflow(
     workflow_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    _user: AuthUser = Depends(require_auth),
 ) -> dict:
     row = await _get_row(db, workflow_id)
     return _row_to_wire(row, include_definition=True, last_run=await _latest_run(db, row.id))
@@ -693,8 +675,8 @@ async def start_workflow_run(
 async def stream_run_events(
     run_uid: str,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
-) -> StreamingResponse:
+    _user: AuthUser = Depends(require_auth),
+) -> EventSourceResponse:
     """订阅一次运行的事件流（SSE）。
 
     连上先补发已经发生的事件，再持续推后续事件；运行结束后正常收尾。
@@ -706,7 +688,7 @@ async def stream_run_events(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    async def event_source() -> AsyncIterator[str]:
+    async def event_source() -> AsyncIterator[dict[str, str]]:
         # 先取缓冲再挂队列：subscribe 内部保证两者之间不漏事件
         backlog, queue = await workflow_events.subscribe(run_uid)
         try:
@@ -725,20 +707,14 @@ async def stream_run_events(
         finally:
             workflow_events.unsubscribe(run_uid, queue)
 
-    return StreamingResponse(
-        event_source(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            # 关掉 nginx 等反代的缓冲，否则事件会被攒着一起发
-            "X-Accel-Buffering": "no",
-        },
-    )
+    # 与聊天 / 审批流共用同一套 SSE 响应：心跳、断连检测与响应头由框架负责
+    return EventSourceResponse(event_source(), sep="\n")
 
 
-def _sse_frame(item: dict[str, Any]) -> str:
+def _sse_frame(item: dict[str, Any]) -> dict[str, str]:
     """SSE 帧：event 名与数据分离，前端可直接按 event 分发。"""
 
-    payload = json.dumps(item, ensure_ascii=False, default=str)
-    return f"event: {item.get('event', 'message')}\ndata: {payload}\n\n"
+    return {
+        "event": item.get("event", "message"),
+        "data": json.dumps(item, ensure_ascii=False, default=str),
+    }

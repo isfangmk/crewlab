@@ -27,6 +27,7 @@ import {
   listRuns,
   parseJsonText,
   type CatalogKind,
+  type LiveNodeRun,
   type NodeProbeResult,
   type NodeRunStatus,
   type VariableType,
@@ -65,7 +66,7 @@ type Props = {
   /** 最近一次试跑结果，只对当前节点生效；关掉面板即丢弃。 */
   probe: NodeProbeResult | null;
   /** 本次运行的实时结果（输入随 node_started 到达，输出随 node_finished 到达）。 */
-  live: NodeProbeResult | null;
+  live: LiveNodeRun | null;
   /** 受控页签：试跑完成后自动切到「上次运行」。 */
   tab: PanelTabKey;
   onTabChange(tab: PanelTabKey): void;
@@ -1083,7 +1084,7 @@ function LastRunBody({
   nodeId: string;
   probe: NodeProbeResult | null;
   /** 本次运行的实时结果：有它时优先展示，运行中就能看到输入输出。 */
-  live: NodeProbeResult | null;
+  live: LiveNodeRun | null;
 }) {
   const { tr } = useI18n();
   const [state, setState] = useState<{ loading: boolean; error: string | null; run: NodeRunView }>({

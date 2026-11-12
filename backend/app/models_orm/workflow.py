@@ -63,10 +63,10 @@ class WorkflowRun(Base):
     # 运行时的定义快照：节点被删除后仍能回看这次运行
     definition_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     workflow_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    # 发起这次运行时的画布状态：draft | published。版本号相同也可能是草稿，
+    # 发起这次运行时选用的定义来源：draft | published。版本号相同也可能是草稿，
     # 光看 workflow_version 分不出跑的是已发布版本还是未发布的改动。
     workflow_status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
-    # running | succeeded | failed
+    # running | succeeded | failed | waiting | stopped
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
     trigger: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
     triggered_by: Mapped[str] = mapped_column(String(128), nullable=False, default="")

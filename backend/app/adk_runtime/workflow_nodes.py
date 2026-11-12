@@ -383,12 +383,7 @@ class CanvasNode(Node):
         state = self._state(ctx)
         node_input_snapshot: dict[str, Any] = {}
         try:
-            # 输入要在运行前算好：代码节点得先跑一趟才知道读了哪些键，开始节点
-            # 执行时又会把其余运行参数写进状态，事后再快照会把「它自己写进去的」
-            # 也算成输入。准备阶段炸了同样算这个节点失败，不能悄悄溜出去。
-            await self.before_execute(state)
-            node_input_snapshot = self.input_snapshot(state)
-            # 节点开始：前端据此把节点点亮并跟动画布；输入一并下发，面板可以立刻展示
+            # 节点开始：前端据此把节点点亮并跟动画布
             await self._run_ctx.emit(
                 {
                     "event": "node_started",
@@ -396,7 +391,22 @@ class CanvasNode(Node):
                     "node_kind": node.kind,
                     "label": node.label,
                     "attempt": attempt,
-                    "input": node_input_snapshot,
+                }
+            )
+            # 输入要在执行前算好：代码节点得先跑一趟才知道读了哪些键，开始节点
+            # 执行时又会把其余运行参数写进状态，事后再快照会把「它自己写进去的」
+            # 也算成输入。准备阶段炸了同样算这个节点失败，不能悄悄溜出去。
+            await self.before_execute(state)
+            node_input_snapshot = self.input_snapshot(state)
+            # 输入算好后补发一次：面板这时才能显示这一步读了什么
+            await self._run_ctx.emit(
+                {
+                    "event": "node_started",
+                    "node_id": node.id,
+                    "node_kind": node.kind,
+                    "label": node.label,
+                    "attempt": attempt,
+                    "input": visible_input(node_input_snapshot),
                 }
             )
             raw = await self.execute(ctx=ctx, state=state)
@@ -425,7 +435,7 @@ class CanvasNode(Node):
                     "node_kind": node.kind,
                     "status": "failed",
                     # 失败也要带上输入：面板要能对着它看是哪个值出了问题
-                    "input": node_input_snapshot,
+                    "input": visible_input(node_input_snapshot),
                     "error": f"{type(exc).__name__}: {exc}",
                     "duration_ms": duration_ms,
                 }
@@ -470,7 +480,7 @@ class CanvasNode(Node):
                 "node_id": node.id,
                 "node_kind": node.kind,
                 "status": "succeeded",
-                "input": node_input_snapshot,
+                "input": visible_input(node_input_snapshot),
                 "output": value,
                 "route": route,
                 "duration_ms": duration_ms,
@@ -579,10 +589,6 @@ def build_node(
     return built
 
 
-def render_text(text: str, state: dict[str, Any]) -> str:
-    return workflow_vars.render(text, state)
-
-
 def preview(value: Any, limit: int = 4000) -> str:
     text = serialize(value)
     return text if len(text) <= limit else text[:limit] + "…"
@@ -605,16 +611,25 @@ def _shrink(value: Any) -> Any:
     return value
 
 
-def preview_input(value: dict[str, Any]) -> str:
-    """节点输入的落库格式：键还在，值按上限截断，结果仍是合法 JSON。
+def visible_input(value: dict[str, Any]) -> dict[str, Any]:
+    """节点输入的可见部分：剥掉内部记账，值按上限收口。
 
     以 __ 开头的是运行服务自己的记账（已确认的人工节点、循环轮次、人工占位），
-    不是节点读的数据，落库前剔掉，免得面板里冒出用户看不懂的键。
+    不是节点读的数据，事件与落库都要剔掉，免得面板里冒出用户看不懂的键。
     """
 
-    visible = {
+    return {
         str(key): _shrink(item)
         for key, item in value.items()
         if not str(key).startswith("__")
     }
-    return serialize(visible)
+
+
+def preview_input(value: dict[str, Any]) -> str:
+    """节点输入的落库格式：键还在，值按上限截断，结果仍是合法 JSON。
+
+    直接截断整段 JSON 会把它切成非法文本，前端就只能退化成一段纯文本，
+    没法按变量逐行展示这一步到底读了什么。
+    """
+
+    return serialize(visible_input(value))

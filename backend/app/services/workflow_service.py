@@ -29,6 +29,7 @@ from app.adk_runtime.workflow_nodes import (
 from app.models_orm.workflow import Workflow as WorkflowRow
 from app.models_orm.workflow import WorkflowNodeRun, WorkflowRun
 from app.services import run_control
+from app.services.workflow_events import workflow_events
 from app.schemas.workflow import (
     WorkflowDefinition,
     WorkflowNode,
@@ -44,6 +45,7 @@ RUN_RUNNING = "running"
 RUN_SUCCEEDED = "succeeded"
 RUN_FAILED = "failed"
 RUN_WAITING = "waiting"
+RUN_STOPPED = "stopped"
 
 # 触发来源：manual 是正式运行，debug 是画布上的单节点试跑
 RUN_TRIGGER_MANUAL = "manual"
@@ -184,7 +186,7 @@ async def create_run(
         run_uid=run_uid,
         definition_json=definition_json,
         workflow_version=workflow.version,
-        # 发起时真正使用的来源：详情页据此显示草稿 / 已发布
+        # 发起时选用的定义来源：详情页据此标出草稿运行
         workflow_status=source,
         status=RUN_RUNNING,
         trigger=RUN_TRIGGER_MANUAL,
@@ -496,8 +498,10 @@ async def _drive(
     # 恢复时要带着已提交的人工输入与审批记录重跑，必须写回 input_json；
     # 否则下一次恢复会从最初的输入开始，丢掉中间几次提交的内容。
     run.input_json = json.dumps(run_values, ensure_ascii=False)
-    # 登记为进行中：前端点「停止运行」时才有地方置标记
-    run_control.begin_run(run.run_uid)
+    # 登记为进行中：前端点「停止运行」时才有地方置标记。
+    # 续跑不重复登记：登记会清掉停止标记，用户刚点的停止就被抹掉了。
+    if resumed_state is None:
+        run_control.begin_run(run.run_uid)
 
     async def emit(event: dict[str, Any]) -> None:
         if on_event is not None:
@@ -568,7 +572,7 @@ async def _drive(
             )
         elif _is_interrupted(exc):
             # 用户主动停止：已跑过的节点照样落库，方便看跑到哪一步
-            status = RUN_FAILED
+            status = RUN_STOPPED
             error = "运行被用户停止"
             logger.info("运行被用户停止 run_uid=%s", run.run_uid)
         else:
@@ -586,7 +590,7 @@ async def _drive(
     run.error = error
     run.output_json = "" if output is None else preview(output)
     run.duration_ms = duration_ms
-    if status in (RUN_SUCCEEDED, RUN_FAILED):
+    if status in (RUN_SUCCEEDED, RUN_FAILED, RUN_STOPPED):
         run.finished_at = datetime.now(UTC)
 
     if assembly is not None:
@@ -600,24 +604,38 @@ async def _drive(
         duration_ms,
         [] if assembly is None else [(o.node_id, o.status, o.attempt) for o in assembly.run_ctx.outcomes],
     )
-    # 运行级收尾事件：前端据此解冻画布、显示结果或跳人工等待
+    # 一段图执行结束：停在人工节点时只发暂停事件，通道保持打开等续跑；
+    # 真正终态才发 run_finished，事件总线据此关闭通道并回收缓冲。
     gate = (
         None
         if assembly is None or assembly.run_ctx.gate_hit is None
         else _node_by_id(definition, assembly.run_ctx.gate_hit)
     )
-    await emit(
-        {
-            "event": "run_finished",
-            "run_uid": run.run_uid,
-            "status": status,
-            "error": error,
-            "output": "" if output is None else preview(output),
-            "duration_ms": duration_ms,
-            "gate": None if gate is None else gate.id,
-            "gate_kind": None if gate is None else gate.kind,
-        }
-    )
+    if status == RUN_WAITING:
+        await emit(
+            {
+                "event": "run_waiting",
+                "run_uid": run.run_uid,
+                "status": status,
+                "output": "" if output is None else preview(output),
+                "duration_ms": duration_ms,
+                "gate": None if gate is None else gate.id,
+                "gate_kind": None if gate is None else gate.kind,
+            }
+        )
+    else:
+        await emit(
+            {
+                "event": "run_finished",
+                "run_uid": run.run_uid,
+                "status": status,
+                "error": error,
+                "output": "" if output is None else preview(output),
+                "duration_ms": duration_ms,
+                "gate": None,
+                "gate_kind": None,
+            }
+        )
     return run
 
 
@@ -824,8 +842,14 @@ async def resume_run(
     run: WorkflowRun,
     decision: str,
     payload: dict[str, Any],
+    on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    background: bool = False,
 ) -> WorkflowRun:
-    """人工节点恢复：拒绝直接失败，同意/填写则带着输入继续跑完。"""
+    """人工节点恢复：拒绝直接失败，同意/填写则带着输入继续跑。
+
+    background=True 时只准备续跑状态就返回，续跑由 drive_resumed_run 在后台完成；
+    否则在这里同步跑完并返回终态记录。
+    """
 
     if run.status != RUN_WAITING:
         raise ValueError(f"运行不在等待状态，无法恢复: {run.run_uid} status={run.status}")
@@ -841,6 +865,19 @@ async def resume_run(
         await db.commit()
         await db.refresh(run)
         logger.info("运行被人工拒绝 run_uid=%s node=%s", run.run_uid, gate.id)
+        if on_event is not None:
+            await on_event(
+                {
+                    "event": "run_finished",
+                    "run_uid": run.run_uid,
+                    "status": RUN_FAILED,
+                    "error": run.error,
+                    "output": "",
+                    "duration_ms": run.duration_ms,
+                    "gate": None,
+                    "gate_kind": None,
+                }
+            )
         return run
 
     previous = json.loads(run.input_json)
@@ -864,7 +901,15 @@ async def resume_run(
         sorted(approved),
     )
     run.status = RUN_RUNNING
+    # 续跑状态先落库：后台续跑从这里读回已通过的节点与提交值，
+    # 不落库的话每次续跑都会把它自己刚确认的节点重新拦一次。
+    run.input_json = json.dumps(resumed, ensure_ascii=False)
     await db.commit()
+    await db.refresh(run)
+    # 续跑同样要登记为进行中，用户才能在续跑期间点停止
+    run_control.begin_run(run.run_uid)
+    if background:
+        return run
     return await _drive(
         db,
         run=run,
@@ -872,7 +917,49 @@ async def resume_run(
         state={},
         resumed_state=resumed,
         approved=approved,
+        on_event=on_event,
     )
+
+
+async def drive_resumed_run(run_uid: str) -> None:
+    """后台续跑：自己开会话，事件仍推给同一条流。
+
+    与发起运行一样，续跑不占用 HTTP 请求：调用方拿到响应后靠订阅事件看进展。
+    """
+
+    from app.db import SessionLocal
+
+    publish = workflow_events.open(run_uid)
+    try:
+        async with SessionLocal() as db:
+            run = await get_run(db, run_uid)
+            definition = parse_definition(run.definition_json)
+            resumed = json.loads(run.input_json)
+            approved = _approved_gates(run)
+            await _drive(
+                db,
+                run=run,
+                definition=definition,
+                state={},
+                resumed_state=resumed,
+                approved=approved,
+                on_event=publish,
+            )
+    except Exception as exc:
+        logger.exception("后台续跑失败 run_uid=%s", run_uid)
+        error = f"{type(exc).__name__}: {exc}"
+        await publish(
+            {
+                "event": "run_finished",
+                "run_uid": run_uid,
+                "status": RUN_FAILED,
+                "error": error,
+                "output": "",
+                "duration_ms": 0,
+                "gate": None,
+                "gate_kind": None,
+            }
+        )
 
 
 def _approved_gates(run: WorkflowRun) -> set[str]:

@@ -75,6 +75,50 @@ def test_close_wakes_up_subscribers() -> None:
     assert queue.get_nowait() is None
 
 
+def test_waiting_does_not_close_the_channel() -> None:
+    """停在人工节点只是暂停：通道要留着，续跑事件才能进同一条流。"""
+
+    bus = WorkflowEventBus()
+    channel = bus.channel("run_gate")
+    _backlog, queue = asyncio.run(bus.subscribe("run_gate"))
+
+    channel.publish({"event": "run_waiting", "gate": "g1"})
+
+    assert bus.is_finished("run_gate") is False
+    # 暂停事件推到了订阅方，但没有收尾信号：长连接保持打开等续跑
+    assert queue.get_nowait()["event"] == "run_waiting"
+    assert queue.empty()
+
+
+def test_resume_events_continue_on_the_same_channel() -> None:
+    """人工确认后的续跑事件仍进同一条流，订阅方接着看。"""
+
+    bus = WorkflowEventBus()
+    channel = bus.channel("run_resume")
+    _backlog, queue = asyncio.run(bus.subscribe("run_resume"))
+
+    channel.publish({"event": "run_waiting", "gate": "g1"})
+    channel.publish({"event": "node_finished", "node_id": "after", "status": "succeeded"})
+    channel.publish({"event": "run_finished", "status": "succeeded"})
+
+    received = [queue.get_nowait() for _ in range(2)]
+    assert [e["event"] for e in received] == ["run_waiting", "node_finished"]
+    assert bus.is_finished("run_resume") is True
+
+
+def test_finished_run_closes_subscribers() -> None:
+    """真正结束时订阅方要收到收尾信号，长连接才能断开。"""
+
+    bus = WorkflowEventBus()
+    channel = bus.channel("run_end")
+    _backlog, queue = asyncio.run(bus.subscribe("run_end"))
+
+    channel.publish({"event": "run_finished", "status": "succeeded"})
+
+    assert queue.get_nowait()["event"] == "run_finished"
+    assert queue.get_nowait() is None
+
+
 def test_publish_keeps_bounded_buffer() -> None:
     """长循环不能把内存吃穿：缓冲按上限丢弃最旧事件。"""
 

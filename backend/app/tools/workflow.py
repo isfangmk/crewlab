@@ -6,11 +6,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
 from app.db import SessionLocal
+from app.services.workflow_queries import latest_runs, workflow_names
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ async def list_workflows(status: str = "", keyword: str = "", limit: int = 20) -
         )
         total = int(await db.scalar(count_stmt) or 0)
 
-        latest = await _latest_runs(db, {row.id for row in rows})
+        latest = await latest_runs(db, {row.id for row in rows})
         items = []
         for row in rows:
             definition = parse_definition(row.definition_json)
@@ -220,7 +220,7 @@ async def list_workflow_runs(
             limit=limit,
             offset=0,
         )
-        names = await _workflow_names(db, {row.workflow_id for row in rows})
+        names = await workflow_names(db, {row.workflow_id for row in rows})
         items = [
             {
                 "run_uid": row.run_uid,
@@ -256,7 +256,7 @@ async def get_workflow_run(run_uid: str, max_chars: int = 2000) -> dict:
     async with SessionLocal() as db:
         run = await workflow_service.get_run(db, run_uid)
         nodes = await workflow_service.list_node_runs(db, run.id)
-        name = await _workflow_names(db, {run.workflow_id})
+        name = await workflow_names(db, {run.workflow_id})
 
     return {
         "run_uid": run.run_uid,
@@ -291,47 +291,3 @@ def _trim(text: str, max_chars: int) -> str:
     if text == "" or len(text) <= max_chars:
         return text
     return f"{text[:max_chars]}…（已截断，原文 {len(text)} 字符）"
-
-
-async def _workflow_names(db: Any, ids: set[int]) -> dict[int, str]:
-    """批量取工作流名称；运行记录里只存了 id，展示需要名字。"""
-
-    from sqlalchemy import select
-
-    from app.models_orm.workflow import Workflow as WorkflowRow
-
-    if ids == set():
-        return {}
-    stmt = select(WorkflowRow.id, WorkflowRow.name).where(WorkflowRow.id.in_(ids))
-    return {row_id: name for row_id, name in (await db.execute(stmt)).all()}
-
-
-async def _latest_runs(db: Any, ids: set[int]) -> dict[int, Any]:
-    """每个工作流最近一次运行：列表要展示运行状态，一次查完避免逐行查询。"""
-
-    from sqlalchemy import func, select
-
-    from app.models_orm.workflow import WorkflowRun as WorkflowRunRow
-
-    if ids == set():
-        return {}
-    latest_ids = (
-        select(func.max(WorkflowRunRow.id))
-        .where(WorkflowRunRow.workflow_id.in_(ids))
-        .group_by(WorkflowRunRow.workflow_id)
-    )
-    rows = (
-        await db.scalars(select(WorkflowRunRow).where(WorkflowRunRow.id.in_(latest_ids)))
-    ).all()
-    return {run.workflow_id: run for run in rows}
-
-
-def parse_output(text: str) -> Any:
-    """把落库的 JSON 文本还原成对象，供调用方直接使用；不是 JSON 就原样返回。"""
-
-    if text == "":
-        return None
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return text

@@ -35,6 +35,69 @@ logger = logging.getLogger(__name__)
 # 代码节点允许调用的内置函数白名单说明（写进节点说明，供前端提示）
 CODE_NODE_CONTRACT = "在代码里定义 run(state) -> Any，返回值的 JSON 可序列化结果会写入 output_key。"
 
+# 代码节点可用的内置函数：只给纯计算能力，切断 open / __import__ / eval / compile，
+# 画布代码因此碰不到宿主文件与进程。缺什么能力就用 HTTP / MCP 节点。
+_CODE_BUILTIN_NAMES = (
+    "abs",
+    "all",
+    "any",
+    "bool",
+    "dict",
+    "divmod",
+    "enumerate",
+    "filter",
+    "float",
+    "format",
+    "frozenset",
+    "int",
+    "isinstance",
+    "issubclass",
+    "len",
+    "list",
+    "map",
+    "max",
+    "min",
+    "next",
+    "pow",
+    "range",
+    "repr",
+    "reversed",
+    "round",
+    "set",
+    "sorted",
+    "str",
+    "sum",
+    "tuple",
+    "zip",
+)
+
+# 代码里常用到的异常类型，允许显式抛出，便于把失败原因说清楚
+_CODE_EXCEPTION_NAMES = (
+    "ArithmeticError",
+    "AssertionError",
+    "AttributeError",
+    "Exception",
+    "IndexError",
+    "KeyError",
+    "RuntimeError",
+    "StopIteration",
+    "TypeError",
+    "ValueError",
+    "ZeroDivisionError",
+)
+
+
+def _code_builtins() -> dict[str, Any]:
+    """代码节点的内置函数白名单。"""
+
+    import builtins
+
+    allowed = {name: getattr(builtins, name) for name in _CODE_BUILTIN_NAMES}
+    allowed.update(
+        {name: getattr(builtins, name) for name in _CODE_EXCEPTION_NAMES}
+    )
+    return allowed
+
 
 class StartNode(CanvasNode):
     """开始节点：把运行输入写进共享状态，后续节点用 {{变量}} 读取。"""
@@ -270,6 +333,9 @@ class _TrackedState(dict[str, Any]):
 
     代码节点拿到的本来就是整份 state，静态扫描只能猜：遍历一下、转手传给别的
     函数，读的键就说不清了。运行时记录是实测结果，也没得猜。
+
+    只要代码按名字取到了某个键，就算读了这个键：包括取值、取默认值、
+    判断存在、遍历键名这些写法。
     """
 
     def __init__(self, source: dict[str, Any]) -> None:
@@ -281,6 +347,12 @@ class _TrackedState(dict[str, Any]):
         self.reads[str(key)] = value
         return value
 
+    def _note(self, key: Any) -> None:
+        """记一笔「按这个名字找过」：状态里没有时记 None。"""
+
+        name = str(key)
+        self.reads[name] = dict.__getitem__(self, key) if dict.__contains__(self, key) else None
+
     def __getitem__(self, key: Any) -> Any:
         return self._hit(key)
 
@@ -289,12 +361,30 @@ class _TrackedState(dict[str, Any]):
         # 逐个键取值，否则整份复制不会被记录，面板就看不到它读了什么。
         return dict.__iter__(self)
 
+    def __contains__(self, key: Any) -> bool:
+        self._note(key)
+        return dict.__contains__(self, key)
+
     def get(self, key: Any, default: Any = None) -> Any:
         if dict.__contains__(self, key):
             return self._hit(key)
         # 没取到值也记一笔：代码确实按这个名字找过，只是当时状态里没有
         self.reads[str(key)] = default
         return default
+
+    def setdefault(self, key: Any, default: Any = None) -> Any:
+        if dict.__contains__(self, key):
+            return self._hit(key)
+        self.reads[str(key)] = default
+        return dict.setdefault(self, key, default)
+
+    def pop(self, key: Any, *args: Any) -> Any:
+        self._note(key)
+        return dict.pop(self, key, *args)
+
+    def keys(self) -> Any:
+        self._hit_names()
+        return dict.keys(self)
 
     def values(self) -> Any:
         self._hit_all()
@@ -308,16 +398,19 @@ class _TrackedState(dict[str, Any]):
         self._hit_all()
         return dict(self)
 
-    def _hit_all(self) -> None:
+    def _hit_names(self) -> None:
         for key in dict.keys(self):
             self.reads[str(key)] = dict.__getitem__(self, key)
+
+    def _hit_all(self) -> None:
+        self._hit_names()
 
 
 class CodeNode(CanvasNode):
     """代码节点：在受限命名空间里执行 run(state)。
 
-    只暴露纯计算能力，不提供 import / open / eval，避免画布代码碰到宿主资源。
-    需要用外部服务请改用 HTTP / MCP 节点。
+    命名空间只暴露纯计算用的内置函数，open / __import__ / eval 这些
+    能碰到宿主资源的能力不给；需要外部服务请改用 HTTP / MCP 节点。
 
     读的是哪几个键要跑一趟才知道，所以这里自己执行一遍 run(state)：执行前
     跑一次拿到真实读取清单（面板在运行中就要看到输入），execute 复用这次结果，
@@ -353,22 +446,7 @@ class CodeNode(CanvasNode):
         code = self.node_def.code
         namespace: dict[str, Any] = {
             "json": json,
-            "len": len,
-            "str": str,
-            "int": int,
-            "float": float,
-            "bool": bool,
-            "list": list,
-            "dict": dict,
-            "sum": sum,
-            "min": min,
-            "max": max,
-            "sorted": sorted,
-            "enumerate": enumerate,
-            "range": range,
-            "abs": abs,
-            "round": round,
-            "zip": zip,
+            "__builtins__": _code_builtins(),
         }
         compiled = compile(code, f"<workflow:{self.node_def.id}>", "exec")
         exec(compiled, namespace, namespace)  # noqa: S102 — 受限命名空间内执行画布代码
