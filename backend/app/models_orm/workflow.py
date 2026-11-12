@@ -20,6 +20,11 @@ class Workflow(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # 画布定义（ADK 图结构）：nodes / edges / start
     definition_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    # 最近一次发布时的画布快照：发布后继续改草稿也不影响它，
+    # 列表页与运行详情「再次运行」跑的就是这一份。空串表示从未发布过。
+    published_definition_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default=""
+    )
     # draft | published：画布改动一律落在 draft，只有发布才转 published
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     # 发布版本号：只有发布才 +1，草稿保存不动它

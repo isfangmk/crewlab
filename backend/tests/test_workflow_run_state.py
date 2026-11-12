@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 import uuid
 
 import httpx
@@ -68,19 +70,28 @@ async def test_latest_run_snapshot_and_stop(env: dict[str, str], api_base: str) 
             assert empty.json()["run"] is None
 
             run = await client.post(
-                f"/api/v1/workflows/{workflow_id}/runs",
+                f"/api/v1/workflows/{workflow_id}/runs/start",
                 headers=headers,
-                json={"values": {"topic": "磁盘告警"}},
+                # 临时画布没有发布过，这里要测的是运行状态快照，直接跑草稿
+                json={"values": {"topic": "磁盘告警"}, "source": "draft"},
             )
             assert run.status_code == 200, run.text
             run_uid = run.json()["run_uid"]
-            assert run.json()["status"] == "waiting"
 
-            snapshot = await client.get(
-                f"/api/v1/workflows/{workflow_id}/runs/latest", headers=headers
-            )
-            assert snapshot.status_code == 200, snapshot.text
-            body = snapshot.json()["run"]
+            # 发起就返回，执行在后台：等它跑到人工节点再断言
+            deadline = time.monotonic() + 30
+            while True:
+                snapshot = await client.get(
+                    f"/api/v1/workflows/{workflow_id}/runs/latest", headers=headers
+                )
+                assert snapshot.status_code == 200, snapshot.text
+                body = snapshot.json()["run"]
+                if body is not None and body["status"] != "running":
+                    break
+                if time.monotonic() > deadline:
+                    raise AssertionError(f"运行未在 30 秒内到达终态: {body}")
+                await asyncio.sleep(0.2)
+
             assert body["run_uid"] == run_uid
             assert body["status"] == "waiting"
             # 停在人工节点：节点上要显示待审批，而不是「成功」

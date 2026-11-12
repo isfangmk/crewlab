@@ -559,8 +559,13 @@ async def _run(definition_payload: dict, values: dict) -> tuple[object, list, ob
         await db.commit()
         await db.refresh(row)
         try:
+            # 这些用例测的是图本身的执行语义，跑草稿即可（临时画布也不需要先发布）
             run = await workflow_service.execute_run(
-                db, workflow=row, payload=values, triggered_by="test@local"
+                db,
+                workflow=row,
+                payload=values,
+                triggered_by="test@local",
+                source="draft",
             )
             nodes = await workflow_service.list_node_runs(db, run.id)
             return run, nodes, db
@@ -581,7 +586,6 @@ async def test_run_assign_and_end() -> None:
 @pytest.mark.asyncio
 async def test_node_runs_store_only_used_inputs() -> None:
     """落库的输入是「这一步读了什么」，不是整份共享状态。"""
-
     import json
 
     payload = {
@@ -610,6 +614,82 @@ async def test_node_runs_store_only_used_inputs() -> None:
     # 代码节点只读了 subject：topic 不该跟着混进它的输入
     assert inputs["score"] == {"subject": "磁盘告警 处理"}
     assert inputs["end"] == {"score": 7}
+
+
+@pytest.mark.asyncio
+async def test_stream_events_carry_node_input_and_output() -> None:
+    """实时事件必须自己带输入输出：运行中还没有落库记录，面板只能靠事件。
+
+    节点开始就要有输入（用户不用干等到这一步跑完），结束时补上输出；
+    输入口径与落库的 input_json 完全一致。
+    """
+
+    payload = {
+        "nodes": [
+            _node("start", "start", variables=[{"name": "topic", "required": True}]),
+            _node("prep", "assign", assignments={"subject": "{{topic}} 处理"}),
+            _node(
+                "score",
+                "code",
+                output_key="score",
+                code="def run(state):\n    return len(str(state.get('subject', '')))",
+            ),
+            _node("end", "end", output_key="score"),
+        ],
+        "edges": [
+            {"id": "e1", "source": "start", "target": "prep"},
+            {"id": "e2", "source": "prep", "target": "score"},
+            {"id": "e3", "source": "score", "target": "end"},
+        ],
+    }
+
+    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.services import workflow_service
+
+    definition = WorkflowDefinition.model_validate(payload)
+    engine, sessionmaker = _new_sessionmaker()
+    name = f"__test_wf_{uuid.uuid4().hex[:8]}__"
+    events: list[dict] = []
+
+    async def collect(event: dict) -> None:
+        events.append(event)
+
+    async with sessionmaker() as db:
+        row = WorkflowRow(
+            name=name, description="", definition_json=definition.model_dump_json()
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        try:
+            run = await workflow_service.execute_run(
+                db,
+                workflow=row,
+                payload={"topic": "磁盘告警"},
+                triggered_by="test@local",
+                source="draft",
+                on_event=collect,
+            )
+            nodes = await workflow_service.list_node_runs(db, run.id)
+        finally:
+            await db.delete(row)
+            await db.commit()
+    await engine.dispose()
+
+    assert run.status == "succeeded", run.error
+    started = {e["node_id"]: e for e in events if e["event"] == "node_started"}
+    finished = {e["node_id"]: e for e in events if e["event"] == "node_finished"}
+    stored = {n.node_id: json.loads(n.input_json) for n in nodes}
+
+    # 每个节点一开跑就带着输入，内容与最终落库的输入一致
+    for node_id, stored_input in stored.items():
+        assert node_id in started, node_id
+        assert started[node_id]["input"] == stored_input, node_id
+        assert finished[node_id]["input"] == stored_input, node_id
+
+    # 结束时带上输出：结构化结果原样下发，前端不必再等落库
+    assert finished["score"]["output"] == 7
+    assert started["score"]["input"] == {"subject": "磁盘告警 处理"}
 
 
 @pytest.mark.asyncio
@@ -697,7 +777,11 @@ async def test_run_waits_at_approval_then_resumes() -> None:
         await db.refresh(row)
         try:
             run = await workflow_service.execute_run(
-                db, workflow=row, payload={"x": "v1"}, triggered_by="test@local"
+                db,
+                workflow=row,
+                payload={"x": "v1"},
+                triggered_by="test@local",
+                source="draft",
             )
             assert run.status == "waiting"
             # 停在人工节点：文案里的变量要渲染，且下游不得执行
@@ -991,7 +1075,11 @@ async def test_resume_twice_keeps_earlier_gate_and_input() -> None:
         await db.refresh(row)
         try:
             run = await workflow_service.execute_run(
-                db, workflow=row, payload={"x": "v1"}, triggered_by="test@local"
+                db,
+                workflow=row,
+                payload={"x": "v1"},
+                triggered_by="test@local",
+                source="draft",
             )
             assert run.status == "waiting"
             assert '"gate": "gate"' in run.output_json
@@ -1052,3 +1140,112 @@ async def test_passthrough_keeps_submitted_input_value() -> None:
     # 没有提交值时退回占位结果，保持原有语义
     placeholder = await passthrough.execute(ctx=ctx, state={})
     assert placeholder == {"gate": "note", "approved": True}
+
+
+# ---------------- 发布快照与运行来源 ----------------
+
+
+def _snapshot_row(definition_json: str, published: str) -> object:
+    """构造一个只带取定义所需字段的工作流行，不落库。"""
+
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        name="快照测试",
+        definition_json=definition_json,
+        published_definition_json=published,
+    )
+
+
+def test_definition_for_draft_uses_current_canvas() -> None:
+    from app.services import workflow_service
+
+    draft = json.dumps(_simple_flow())
+    row = _snapshot_row(draft, "")
+    definition, raw = workflow_service.definition_for(row, "draft")
+    # 未发布也能跑草稿：编排页正在编辑，跑的就是眼下的内容
+    assert raw == draft
+    assert [n.id for n in definition.nodes] == ["start", "prep", "end"]
+
+
+def test_definition_for_published_uses_snapshot_not_draft() -> None:
+    """发布后改了草稿，跑已发布版本必须还是发布那一刻的图。"""
+
+    from app.services import workflow_service
+
+    published = json.dumps(_simple_flow())
+    edited = _simple_flow()
+    edited["nodes"] = [n for n in edited["nodes"] if n["id"] != "prep"]
+    edited["edges"] = [{"id": "e1", "source": "start", "target": "end"}]
+
+    row = _snapshot_row(json.dumps(edited), published)
+    definition, raw = workflow_service.definition_for(row, "published")
+    assert raw == published
+    # 草稿里删掉的 prep 节点在快照里仍然在
+    assert [n.id for n in definition.nodes] == ["start", "prep", "end"]
+
+
+def test_definition_for_published_without_snapshot_fails() -> None:
+    """从未发布过就不该静默跑草稿，否则用户以为在跑正式版本。"""
+
+    from app.services import workflow_service
+
+    row = _snapshot_row(json.dumps(_simple_flow()), "")
+    with pytest.raises(ValueError) as exc:
+        workflow_service.definition_for(row, "published")
+    assert "尚未发布" in str(exc.value)
+
+
+def test_definition_for_rejects_unknown_source() -> None:
+    from app.services import workflow_service
+
+    row = _snapshot_row(json.dumps(_simple_flow()), "")
+    with pytest.raises(ValueError) as exc:
+        workflow_service.definition_for(row, "whatever")
+    assert "published 或 draft" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_execute_run_records_source_and_snapshot() -> None:
+    """运行记录要能看出这次跑的是快照还是草稿，正文也得是选中的那份。"""
+
+    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.services import workflow_service
+
+    name = f"__test_snapshot_{uuid.uuid4().hex[:8]}__"
+    engine, sessionmaker = _new_sessionmaker()
+    async with sessionmaker() as db:
+        draft = _simple_flow()
+        row = WorkflowRow(
+            name=name,
+            description="",
+            definition_json=json.dumps(draft),
+            # 发布过快照：草稿之后改成只剩开始与结束
+            published_definition_json=json.dumps(draft),
+        )
+        row.definition_json = json.dumps(
+            {
+                "nodes": [draft["nodes"][0], draft["nodes"][2]],
+                "edges": [{"id": "e1", "source": "start", "target": "end"}],
+            }
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        try:
+            run = await workflow_service.execute_run(
+                db,
+                workflow=row,
+                payload={"topic": "巡检"},
+                triggered_by="test@local",
+                source="published",
+            )
+            assert run.status == "succeeded", run.error
+            assert run.workflow_status == "published"
+            # 跑的是快照：prep 节点还在
+            nodes = await workflow_service.list_node_runs(db, run.id)
+            assert [n.node_id for n in nodes] == ["start", "prep", "end"]
+        finally:
+            await db.delete(row)
+            await db.commit()
+    await engine.dispose()

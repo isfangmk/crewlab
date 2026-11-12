@@ -3,6 +3,9 @@
 // 后端只把节点真正读到的变量写进 input_json（代码节点走 AST、其余节点扫
 // {{变量}}），所以这里直接按键值行渲染，而不是甩一坨 JSON 给用户。
 // 面板「上次运行」和运行详情时间线共用这一个组件，两处观感保持一致。
+//
+// 行高按「变量名 + 值」一行计：单行值不换行、不撑高整行；多行值才折行，
+// 因为它们本来就占多行，横向截断反而看不出内容。
 
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
@@ -43,22 +46,37 @@ export function RunInputRows({ input }: { input: unknown }) {
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/60 bg-bg/60">
-      {entries.map(([name, value], index) => (
-        <div
-          key={name}
-          className={cn(
-            'grid grid-cols-[minmax(0,92px)_1fr] items-start gap-2 px-2.5 py-1.5',
-            index > 0 && 'border-t border-border/50',
-          )}
-        >
-          <span className="truncate font-mono text-[10.5px] font-medium leading-4 text-text-muted" title={name}>
-            {name}
-          </span>
-          <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[10.5px] leading-4 text-text">
-            {valueText(value)}
-          </pre>
-        </div>
-      ))}
+      {entries.map(([name, value], index) => {
+        const text = valueText(value);
+        // 单行值横向截断（悬停看全文），多行值折行：两种都只占最少的高度
+        const single = !text.includes('\n');
+        return (
+          <div
+            key={name}
+            className={cn(
+              'flex items-start gap-2 px-2.5 py-1.5',
+              index > 0 && 'border-t border-border/50',
+            )}
+          >
+            {/* 变量名单独着色：和值一眼分开，扫一眼就知道这一步读了哪些变量 */}
+            <span
+              className="max-w-[46%] shrink-0 truncate rounded bg-info/10 px-1 font-mono text-[10.5px] leading-4 text-info"
+              title={name}
+            >
+              {name}
+            </span>
+            <span
+              className={cn(
+                'min-w-0 flex-1 font-mono text-[10.5px] leading-4 text-text',
+                single ? 'truncate' : 'whitespace-pre-wrap break-words',
+              )}
+              title={single && text.length > 40 ? text : undefined}
+            >
+              {text}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

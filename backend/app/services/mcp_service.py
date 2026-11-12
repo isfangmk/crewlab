@@ -486,7 +486,7 @@ async def mcp_tool_catalog(db: AsyncSession) -> dict[str, McpToolRef]:
     return catalog
 
 
-# JSON Schema 基本类型 -> 平台参数类型（与 builtin_tools.tool_param_specs 同集合）
+# JSON Schema 基本类型 -> 平台参数类型（与 app/tools/catalog.tool_param_specs 同集合）
 _SCHEMA_TYPE_TO_PARAM: dict[str, str] = {
     "string": "string",
     "integer": "int",

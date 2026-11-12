@@ -1,9 +1,9 @@
 // 画布节点卡片：实色图标块 + 名称 + 一行摘要 + 输出变量。
 //
-// 版式对齐 Dify 的工作流节点：240px 定宽、15px 圆角、浅描边 + 很轻的投影，
-// 连线锚点固定在头部上下方 20px 处（Dify 同样把左右锚点放在 top-4），
-// 这样多条分支从同一侧出发时不会挤在卡片中间打架。
-// 颜色只出现在图标块上：整张画布保持中性，节点类型靠图标和名称区分。
+// 版式：240px 定宽、15px 圆角、浅描边 + 很轻的投影，
+// 连线锚点固定在头部上下方 20px 处，这样多条分支从同一侧出发时
+// 不会挤在卡片中间打架。颜色只出现在图标块上：整张画布保持中性，
+// 节点类型靠图标和名称区分。
 
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { AlertTriangle, ClipboardCopy, Clock, Copy, Loader2, Play, Trash2 } from 'lucide-react';
@@ -66,7 +66,7 @@ export function WorkflowNodeCard({ data, selected }: NodeProps<CanvasFlowNode>) 
 
   return (
     <div className="group relative w-[240px]">
-      {/* 悬浮操作条：与 Dify 一样贴在卡片右上角上方，选中时常驻。 */}
+      {/* 悬浮操作条：贴在卡片右上角上方，选中时常驻。 */}
       {(onRun !== undefined || onDuplicate !== undefined || onDelete !== undefined) && (
         <div
           className={cn(
@@ -124,7 +124,7 @@ export function WorkflowNodeCard({ data, selected }: NodeProps<CanvasFlowNode>) 
         </div>
       )}
 
-      {/* 目标锚点在左、源锚点在右；位置与 Dify 一致（top 20px，外扩 7px）。 */}
+      {/* 目标锚点在左、源锚点在右（top 20px，外扩 7px）。 */}
       <Handle
         type="target"
         position={Position.Left}

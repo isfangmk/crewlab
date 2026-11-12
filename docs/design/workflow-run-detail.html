@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>运行详情 · 布局方案对比</title>
+<style>
+  :root{
+    --bg:#0b0b11; --card:#171720; --card-soft:#1a1a24; --line:#282832; --line-soft:#22222c;
+    --text:#f4f4f5; --muted:#a1a1aa; --faint:#71717a;
+    --ok:#10b981; --danger:#ef4444; --warn:#f59e0b; --info:#30a6d0; --accent:#8c6df0;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:13px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding:28px 32px 80px;
+  }
+  h1{font-size:16px;margin:0 0 4px}
+  .lead{color:var(--faint);font-size:12px;margin:0 0 26px}
+  .plan{margin-bottom:46px}
+  .plan-title{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .plan-title b{font-size:14px}
+  .plan-title span{color:var(--faint);font-size:11.5px}
+  .tag{font:600 10px/1 var(--mono);padding:4px 6px;border-radius:5px;border:1px solid var(--line);color:var(--muted)}
+  .frame{border:1px solid #2e2e3a;border-radius:14px;overflow:hidden;background:var(--bg);box-shadow:0 24px 60px rgba(0,0,0,.45)}
+  .frame-head{display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);background:#12121a}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .frame-url{font:11px/1 var(--mono);color:var(--faint);margin-left:8px}
+
+  /* ---------- 通用小块 ---------- */
+  .pill{display:inline-flex;align-items:center;gap:4px;border-radius:999px;border:1px solid;padding:0 6px;font-size:11px;line-height:16px;white-space:nowrap}
+  .pill i{width:4px;height:4px;border-radius:50%;display:block}
+  .p-ok{color:var(--ok);border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.1)}
+  .p-ok i{background:var(--ok)}
+  .p-warn{color:var(--warn);border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.1)}
+  .p-warn i{background:var(--warn)}
+  .p-info{color:var(--info);border-color:rgba(48,166,208,.3);background:rgba(48,166,208,.1)}
+  .p-info i{background:var(--info)}
+  .p-danger{color:var(--danger);border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.1)}
+  .p-danger i{background:var(--danger)}
+  .p-neutral{color:var(--muted);border-color:var(--line);background:rgba(255,255,255,.03)}
+  .p-neutral i{background:#52525b}
+  .mono{font-family:var(--mono)}
+  .muted{color:var(--muted)} .faint{color:var(--faint)}
+  .btn{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--muted);font-size:11.5px}
+  .btn-primary{background:#f4f4f5;color:#0b0b11;border-color:#f4f4f5;font-weight:600}
+  .kicker{font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+
+  /* =========================================================
+     方案 A — 上下两段 + 左右双栏（不再是「卡片套卡片」）
+     ========================================================= */
+  .A{padding:0}
+  .A .top{display:flex;gap:18px;padding:14px 18px;border-bottom:1px solid var(--line);align-items:flex-start;flex-wrap:wrap}
+  .A .top .title{font-size:15px;font-weight:600}
+  .A .top .sub{font-size:11.5px;color:var(--faint);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .A .metrics{display:flex;gap:26px;margin-left:auto;flex-wrap:wrap}
+  .A .metric b{display:block;font:600 16px/1.2 var(--mono);letter-spacing:-.02em}
+  .A .metric span{font-size:10px;color:var(--faint)}
+  .A .band{display:flex;align-items:center;gap:10px;padding:7px 18px;background:rgba(48,166,208,.06);border-bottom:1px solid var(--line);font-size:11.5px;color:var(--info)}
+  .A .body{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:520px}
+  .A .rail{border-right:1px solid var(--line);padding:12px 0}
+  .A .rail h4{margin:0;padding:0 18px 8px;font-size:11px;color:var(--faint);font-weight:500;display:flex;justify-content:space-between}
+  .A .step{display:grid;grid-template-columns:44px 1fr auto;gap:10px;padding:9px 18px;border-top:1px solid var(--line-soft);position:relative}
+  .A .step::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ok)}
+  .A .step.run::before{background:var(--info)}
+  .A .step.wait::before{background:var(--warn)}
+  .A .step .idx{font:11px/1 var(--mono);color:var(--faint);padding-top:3px}
+  .A .step .name{font-size:12.5px;font-weight:500;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .A .step .io{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
+  .A .step .io .lbl{font-size:9.5px;color:var(--faint);margin-bottom:3px;display:flex;gap:5px}
+  .A .kv{border:1px solid var(--line-soft);border-radius:7px;background:#101018;overflow:hidden}
+  .A .kv div{display:flex;gap:8px;padding:3px 7px;font:10.5px/1.5 var(--mono)}
+  .A .kv div+div{border-top:1px solid var(--line-soft)}
+  .A .kv em{color:var(--muted);font-style:normal;width:66px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .A .kv span{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .A .side{border-left:0;padding:12px;display:flex;flex-direction:column;gap:10px;background:#101017}
+  .A .side .box{border:1px solid var(--line-soft);border-radius:9px;overflow:hidden}
+  .A .side .box h5{margin:0;padding:7px 10px;font-size:11.5px;font-weight:500;border-bottom:1px solid var(--line-soft)}
+  .A .side .box .cb{padding:8px 10px;font:10.5px/1.6 var(--mono);color:#c8c8d0;margin:0;white-space:pre-wrap}
+  .A .graph{padding:6px}
+
+  /* =========================================================
+     方案 B — 左窄导航 + 中详情 + 右上下文（三栏，像代码托管站）
+     ========================================================= */
+  .B{display:grid;grid-template-columns:210px minmax(0,1fr) 280px;min-height:560px}
+  .B .nav{border-right:1px solid var(--line);background:#101017;display:flex;flex-direction:column}
+  .B .nav .head{padding:12px 14px;border-bottom:1px solid var(--line)}
+  .B .nav .head b{display:block;font-size:12.5px}
+  .B .nav .head span{font:10.5px var(--mono);color:var(--faint)}
+  .B .nav .list{overflow:auto;flex:1;padding:6px}
+  .B .nav .item{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:7px;font-size:11.5px}
+  .B .nav .item.sel{background:rgba(140,109,240,.14);box-shadow:inset 0 0 0 1px rgba(140,109,240,.35)}
+  .B .nav .item .st{width:6px;height:6px;border-radius:50%;flex:0 0 auto}
+  .B .nav .item em{font-style:normal;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .B .main{padding:0;min-width:0}
+  .B .main .bar{display:flex;gap:10px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
+  .B .main .detail{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+  .B .panel{border:1px solid var(--line-soft);border-radius:9px;background:var(--card-soft)}
+  .B .panel h5{margin:0;padding:7px 12px;font-size:11px;color:var(--faint);font-weight:500;border-bottom:1px solid var(--line-soft);display:flex;justify-content:space-between}
+  .B .panel .cb{margin:0;padding:10px 12px;font:10.5px/1.65 var(--mono);color:#c8c8d0;white-space:pre-wrap}
+  .B .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .B .ctx{border-left:1px solid var(--line);background:#101017;padding:12px;display:flex;flex-direction:column;gap:10px}
+  .B .ctx .box{border:1px solid var(--line-soft);border-radius:9px;overflow:hidden}
+  .B .ctx .box h5{margin:0;padding:7px 10px;font-size:11px;color:var(--faint);font-weight:500;border-bottom:1px solid var(--line-soft)}
+  .B .ctx .cb{margin:0;padding:8px 10px;font:10.5px/1.6 var(--mono);color:#c8c8d0;white-space:pre-wrap}
+
+  /* =========================================================
+     方案 C — 纵向泳道（画布为中心，节点详情以抽屉覆盖）
+     ========================================================= */
+  .C{display:flex;flex-direction:column;min-height:560px}
+  .C .head{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .C .lanes{flex:1;display:flex;flex-direction:column;padding:14px 16px;gap:0}
+  .C .gantt{position:relative;border:1px solid var(--line-soft);border-radius:10px;background:var(--card-soft);padding:10px 12px}
+  .C .axis{display:flex;justify-content:space-between;font:10px var(--mono);color:var(--faint);padding:0 2px 8px}
+  .C .lane{display:grid;grid-template-columns:170px 1fr;gap:10px;align-items:center;padding:5px 0}
+  .C .lane .lb{display:flex;gap:6px;align-items:center;font-size:11.5px;min-width:0}
+  .C .lane .lb em{font-style:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+  .C .lane .lb span{font:10px var(--mono);color:var(--faint);flex:0 0 auto}
+  .C .track{position:relative;height:20px;border-radius:5px;background:rgba(255,255,255,.04)}
+  .C .bar2{position:absolute;top:0;height:20px;border-radius:5px;display:flex;align-items:center;padding:0 6px;font:10px/1 var(--mono);color:#0b0b11;font-weight:600;overflow:hidden}
+  .C .footer{display:grid;grid-template-columns:1fr 320px;gap:12px;margin-top:12px}
+  .C .footer .box{border:1px solid var(--line-soft);border-radius:10px;background:var(--card-soft);overflow:hidden}
+  .C .footer h5{margin:0;padding:7px 10px;font-size:11px;color:var(--faint);font-weight:500;border-bottom:1px solid var(--line-soft)}
+  .C .footer .cb{margin:0;padding:9px 11px;font:10.5px/1.6 var(--mono);color:#c8c8d0;white-space:pre-wrap}
+
+  .notes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:14px;font-size:11.5px;color:var(--muted)}
+  .notes div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#101017}
+  .notes b{display:block;color:var(--text);font-size:11.5px;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<h1>运行详情 · 三种布局方案</h1>
+<p class="lead">
+  三种都是整页重排，不沿用现在的「统计格 + 卡片套卡片 + 折叠按钮」。数据取自真实运行
+  <span class="mono">run_8560f418580b</span>（8 个节点、停在审批）。
+</p>
+
+<!-- ================= 方案 A ================= -->
+<section class="plan">
+  <div class="plan-title"><b>方案 A · 双栏工作台</b><span>左流程右上下文，指标挤进头部，一屏看完</span></div>
+  <div class="frame">
+    <div class="frame-head">
+      <span class="dot" style="background:#3f3f46"></span><span class="dot" style="background:#3f3f46"></span><span class="dot" style="background:#3f3f46"></span>
+      <span class="frame-url">/workflows/runs/run_8560f418580b</span>
+    </div>
+    <div class="A">
+      <div class="top">
+        <div>
+          <div class="title">告警处置全节点演示</div>
+          <div class="sub">
+            <span class="mono">run_8560f418580b</span><span class="faint">·</span><span>v2</span>
+            <span class="pill p-neutral"><i></i>草稿</span><span class="faint">·</span><span>admin@local</span>
+          </div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><span>耗时</span><b>1.1 s</b></div>
+          <div class="metric"><span>已执行</span><b>8</b></div>
+          <div class="metric"><span>触发</span><b style="font-size:13px">手动</b></div>
+          <div class="metric"><span>开始</span><b style="font-size:12px">11-11 20:31</b></div>
+        </div>
+      </div>
+
+      <div class="band">◷ 运行停在「值班长审批」，批准后继续 · 下方为该次运行的输入 / 输出快照</div>
+
+      <div class="body">
+        <div class="rail">
+          <h4><span>执行流程</span><span>8 条节点记录</span></h4>
+
+          <div class="step">
+            <div class="idx">01</div>
+            <div>
+              <div class="name">开始 <span class="mono faint">start</span>
+                <span class="pill p-ok" style="margin-left:auto"><i></i>成功</span>
+                <span class="mono faint">3 ms</span></div>
+              <div class="io">
+                <div><div class="lbl">输入 · 3</div>
+                  <div class="kv"><div><em>alert_text</em><span>磁盘使用率 92%</span></div><div><em>env</em><span>prod</span></div><div><em>account</em><span>prod</span></div></div>
+                </div>
+                <div><div class="lbl">输出</div>
+                  <div class="kv"><div><em>→</em><span>{"alert_text":"磁盘使用率 92%","env":"prod"}</span></div></div>
+                </div>
+              </div>
+            </div>
+            <div></div>
+          </div>
+
+          <div class="step">
+            <div class="idx">02</div>
+            <div>
+              <div class="name">整理告警上下文 <span class="mono faint">prep</span>
+                <span class="pill p-ok" style="margin-left:auto"><i></i>成功</span><span class="mono faint">2 ms</span></div>
+              <div class="io">
+                <div><div class="lbl">输入 · 2</div>
+                  <div class="kv"><div><em>alert_text</em><span>磁盘使用率 92%</span></div><div><em>env</em><span>prod</span></div></div></div>
+                <div><div class="lbl">输出</div>
+                  <div class="kv"><div><em>subject</em><span>磁盘使用率 92%</span></div></div></div>
+              </div>
+            </div><div></div>
+          </div>
+
+          <div class="step run">
+            <div class="idx">03</div>
+            <div>
+              <div class="name">查处置手册 <span class="mono faint">kb</span>
+                <span class="pill p-info" style="margin-left:auto"><i></i>运行中</span></div>
+              <div class="io">
+                <div><div class="lbl">输入 · 1</div>
+                  <div class="kv"><div><em>subject</em><span>磁盘使用率 92%</span></div></div></div>
+                <div><div class="lbl">输出</div>
+                  <div class="kv"><div><em>→</em><span class="faint">等待节点返回…</span></div></div></div>
+              </div>
+            </div><div></div>
+          </div>
+
+          <div class="step wait">
+            <div class="idx">07</div>
+            <div>
+              <div class="name">值班长审批 <span class="mono faint">gate</span>
+                <span class="pill p-warn" style="margin-left:auto"><i></i>待审批</span></div>
+              <div class="io">
+                <div><div class="lbl">输入 · 1</div>
+                  <div class="kv"><div><em>alert_text</em><span>磁盘使用率 92%</span></div></div></div>
+                <div><div class="lbl">输出</div>
+                  <div class="kv"><div><em>→</em><span>{"gate":"gate","kind":"approval",…}</span></div></div></div>
+              </div>
+            </div><div></div>
+          </div>
+
+          <div class="step" style="opacity:.5">
+            <div class="idx">08</div>
+            <div>
+              <div class="name">整理审批结论 <span class="mono faint">merged2</span>
+                <span class="pill p-neutral" style="margin-left:auto"><i></i>未执行</span></div>
+            </div><div></div>
+          </div>
+        </div>
+
+        <div class="side">
+          <div class="box">
+            <h5>画布结构</h5>
+            <div class="graph">
+              <svg width="100%" viewBox="0 0 300 150" preserveAspectRatio="xMidYMid meet">
+                <defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#52525b"/></marker></defs>
+                <g fill="none" stroke="#3f3f46" stroke-width="1.2" marker-end="url(#ar)">
+                  <path d="M56 20 C80 20, 80 20, 96 20"/>
+                  <path d="M152 20 C176 20, 176 20, 192 20"/>
+                  <path d="M56 62 C80 62, 80 62, 96 62"/>
+                  <path d="M152 62 C176 62, 176 62, 192 62"/>
+                </g>
+                <g font-size="8.5" font-family="ui-monospace">
+                  <g transform="translate(0 8)"><rect width="56" height="24" rx="6" fill="#18181b" stroke="#10b981"/><text x="8" y="15" fill="#e4e4e7">开始</text></g>
+                  <g transform="translate(96 8)"><rect width="56" height="24" rx="6" fill="#18181b" stroke="#10b981"/><text x="8" y="15" fill="#e4e4e7">整理上下文</text></g>
+                  <g transform="translate(192 8)"><rect width="56" height="24" rx="6" fill="#18181b" stroke="#10b981"/><text x="8" y="15" fill="#e4e4e7">查手册</text></g>
+                  <g transform="translate(0 50)"><rect width="56" height="24" rx="6" fill="#18181b" stroke="#10b981"/><text x="8" y="15" fill="#e4e4e7">联网查询</text></g>
+                  <g transform="translate(96 50)"><rect width="56" height="24" rx="6" fill="#18181b" stroke="#6366f1"/><text x="8" y="15" fill="#e4e4e7">汇合</text></g>
+                  <g transform="translate(192 50)"><rect width="56" height="24" rx="6" fill="#18181b" stroke="#f59e0b"/><text x="8" y="15" fill="#e4e4e7">审批</text></g>
+                  <g transform="translate(96 92)"><rect width="56" height="24" rx="6" fill="#18181b" stroke="#3f3f46"/><text x="8" y="15" fill="#71717a">结束</text></g>
+                </g>
+              </svg>
+            </div>
+          </div>
+          <div class="box"><h5>运行输入</h5><pre class="cb">{
+  "alert_text": "磁盘使用率 92%",
+  "env": "prod",
+  "account": "prod"
+}</pre></div>
+          <div class="box"><h5>运行输出</h5><pre class="cb">{
+  "gate": "gate",
+  "kind": "approval",
+  "prompt": "影响面评分偏高…"
+}</pre></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>为什么这样排</b>节点行不再有「展开输入 / 展开输出」按钮：输入输出左右并排直接给，行高固定，一屏能扫完 8 个节点。</div>
+    <div><b>指标去哪了</b>原来占一整排的 5 个统计格压进头部右侧，省出约 80px。</div>
+    <div><b>状态怎么读</b>左侧 2px 色条 + 胶囊，扫一眼竖条颜色就知道流程走到哪、哪里断了。</div>
+  </div>
+</section>
+
+<!-- ================= 方案 B ================= -->
+<section class="plan">
+  <div class="plan-title"><b>方案 B · 三栏（导航 / 详情 / 上下文）</b><span>时间线本身成为导航，适合 10+ 节点的大工作流</span></div>
+  <div class="frame">
+    <div class="frame-head">
+      <span class="dot" style="background:#3f3f46"></span><span class="dot" style="background:#3f3f46"></span><span class="dot" style="background:#3f3f46"></span>
+      <span class="frame-url">/workflows/runs/run_8560f418580b</span>
+    </div>
+    <div class="B">
+      <div class="nav">
+        <div class="head"><b>告警处置全节点演示</b><span>run_8560f418580b</span></div>
+        <div class="list">
+          <div class="item"><span class="st" style="background:var(--ok)"></span><em>开始</em></div>
+          <div class="item"><span class="st" style="background:var(--ok)"></span><em>整理告警上下文</em></div>
+          <div class="item"><span class="st" style="background:var(--ok)"></span><em>查处置手册</em></div>
+          <div class="item"><span class="st" style="background:var(--ok)"></span><em>联网查最新公告</em></div>
+          <div class="item"><span class="st" style="background:var(--ok)"></span><em>汇合检索结果</em></div>
+          <div class="item"><span class="st" style="background:var(--ok)"></span><em>评估影响面</em></div>
+          <div class="item sel"><span class="st" style="background:var(--warn)"></span><em>值班长审批</em></div>
+          <div class="item" style="opacity:.5"><span class="st" style="background:#3f3f46"></span><em>整理审批结论</em></div>
+          <div class="item" style="opacity:.5"><span class="st" style="background:#3f3f46"></span><em>生成处置方案</em></div>
+        </div>
+      </div>
+
+      <div class="main">
+        <div class="bar">
+          <span class="pill p-warn"><i></i>等待人工</span>
+          <b style="font-size:12.5px">值班长审批</b>
+          <span class="mono faint">gate</span>
+          <span class="faint" style="margin-left:auto">07 / 8 · 待审批</span>
+        </div>
+        <div class="detail">
+          <div class="two">
+            <div class="panel"><h5><span>输入</span><span>1 个变量</span></h5><pre class="cb">alert_text  磁盘使用率 92%</pre></div>
+            <div class="panel" style="border-color:rgba(245,158,11,.4)">
+              <h5><span>待人工确认</span></h5>
+              <div style="padding:10px 12px">
+                <div style="font-size:11.5px;margin-bottom:8px">磁盘使用率 92% 影响面评分偏高，确认按 critical 流程处置？</div>
+                <div style="display:flex;gap:6px"><span class="btn btn-primary">批准并继续</span><span class="btn">拒绝</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="panel"><h5><span>输出</span><span>JSON</span></h5>
+            <pre class="cb">{
+  "gate": "gate",
+  "kind": "approval",
+  "prompt": "磁盘使用率 92% 影响面评分偏高，确认按 critical 流程处置？"
+}</pre></div>
+          <div class="panel"><h5><span>这一步之后</span></h5>
+            <div style="padding:8px 12px;font-size:11.5px;color:var(--muted)">→ 整理审批结论 → 汇总处置证据 → 生成处置方案</div></div>
+        </div>
+      </div>
+
+      <div class="ctx">
+        <div class="box"><h5>运行概况</h5>
+          <div style="padding:8px 10px;font-size:11.5px;display:grid;gap:5px">
+            <div class="muted">状态 <span style="float:right;color:var(--warn)">等待人工</span></div>
+            <div class="muted">耗时 <span style="float:right" class="mono">1.1 s</span></div>
+            <div class="muted">已执行 <span style="float:right" class="mono">8 / 17</span></div>
+            <div class="muted">触发 <span style="float:right">手动</span></div>
+            <div class="muted">版本 <span style="float:right">v2 · 草稿</span></div>
+          </div>
+        </div>
+        <div class="box"><h5>运行输入</h5><pre class="cb">{"alert_text":"磁盘使用率 92%",
+ "env":"prod","account":"prod"}</pre></div>
+        <div class="box"><h5>画布</h5>
+          <svg width="100%" viewBox="0 0 240 90" preserveAspectRatio="xMidYMid meet">
+            <g fill="#18181b" stroke="#3f3f46"><rect x="0" y="30" width="46" height="22" rx="5"/><rect x="66" y="30" width="46" height="22" rx="5" stroke="#10b981"/><rect x="132" y="30" width="46" height="22" rx="5" stroke="#f59e0b"/><rect x="198" y="30" width="42" height="22" rx="5"/></g>
+            <g stroke="#3f3f46" stroke-width="1.1"><path d="M46 41 H66"/><path d="M112 41 H132"/><path d="M178 41 H198"/></g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>为什么这样排</b>把「时间线」拆成左侧导航 + 右侧详情：节点多时左边始终是一份可滚动清单，不必在长页面里找。</div>
+    <div><b>取舍</b>一次只看一个节点的输入输出；适合排查「某一步为什么错」，不适合整体扫描。</div>
+    <div><b>审批卡</b>直接落在节点详情里，和这个节点绑定，不再飘在页面顶部。</div>
+  </div>
+</section>
+
+<!-- ================= 方案 C ================= -->
+<section class="plan">
+  <div class="plan-title"><b>方案 C · 时间轴泳道</b><span>按耗时横向排开，一眼看出谁慢、谁在并行</span></div>
+  <div class="frame">
+    <div class="frame-head">
+      <span class="dot" style="background:#3f3f46"></span><span class="dot" style="background:#3f3f46"></span><span class="dot" style="background:#3f3f46"></span>
+      <span class="frame-url">/workflows/runs/run_8560f418580b</span>
+    </div>
+    <div class="C">
+      <div class="head">
+        <b style="font-size:13px">告警处置全节点演示</b>
+        <span class="pill p-warn"><i></i>等待人工</span>
+        <span class="mono faint">run_8560f418580b · v2</span>
+        <span style="margin-left:auto" class="faint">总耗时 <b class="mono" style="color:var(--text)">1.1 s</b></span>
+      </div>
+      <div class="lanes">
+        <div class="gantt">
+          <div class="axis"><span>0 ms</span><span>300</span><span>600</span><span>900</span><span>1.1 s</span></div>
+
+          <div class="lane"><div class="lb"><span>01</span><em>开始</em></div>
+            <div class="track"><div class="bar2" style="left:0;width:2%;background:var(--ok)">3ms</div></div></div>
+          <div class="lane"><div class="lb"><span>02</span><em>整理告警上下文</em></div>
+            <div class="track"><div class="bar2" style="left:1%;width:3%;background:var(--ok)">2ms</div></div></div>
+          <div class="lane"><div class="lb"><span>03</span><em>查处置手册</em></div>
+            <div class="track"><div class="bar2" style="left:4%;width:22%;background:var(--ok)">250ms</div></div></div>
+          <div class="lane"><div class="lb"><span>04</span><em>联网查最新公告</em></div>
+            <div class="track"><div class="bar2" style="left:4%;width:38%;background:var(--ok)">420ms</div></div></div>
+          <div class="lane"><div class="lb"><span>05</span><em>汇合检索结果</em></div>
+            <div class="track"><div class="bar2" style="left:42%;width:2%;background:var(--ok)">8ms</div></div></div>
+          <div class="lane"><div class="lb"><span>06</span><em>评估影响面</em></div>
+            <div class="track"><div class="bar2" style="left:44%;width:30%;background:var(--accent)">340ms</div></div></div>
+          <div class="lane"><div class="lb"><span>07</span><em>值班长审批</em></div>
+            <div class="track"><div class="bar2" style="left:74%;width:20%;background:var(--warn);color:#3b2603">⏸ 等待人工</div></div></div>
+          <div class="lane" style="opacity:.45"><div class="lb"><span>08</span><em>整理审批结论</em></div>
+            <div class="track"><div class="bar2" style="left:94%;width:6%;background:#3f3f46;color:#a1a1aa">未执行</div></div></div>
+        </div>
+
+        <div class="footer">
+          <div class="box"><h5>选中节点 · 06 评估影响面</h5>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:10px 11px">
+              <div><div class="kicker" style="margin-bottom:4px">输入</div>
+                <div class="cb" style="padding:0;margin:0">kb   {items:[…]}
+web  {items:[…]}</div></div>
+              <div><div class="kicker" style="margin-bottom:4px">输出</div>
+                <div class="cb" style="padding:0;margin:0">{"score": 100,
+ "reason": "影响面广…"}</div></div>
+            </div>
+          </div>
+          <div class="box"><h5>运行输入</h5><pre class="cb">{"alert_text":"磁盘使用率 92%",
+ "env":"prod","account":"prod"}</pre></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>为什么这样排</b>把「耗时」变成横向长度：谁最慢、哪两段并行，一眼就看出来，这是列表形式给不了的信息。</div>
+    <div><b>取舍</b>节点名占宽度，节点很多时左侧要做成可折叠；输入输出只能看选中那一个。</div>
+    <div><b>适合</b>调性能、找阻塞；不适合逐条核对每个节点的字段。</div>
+  </div>
+</section>
+
+<p class="lead" style="margin-top:-14px">
+  你可以直接说「A 但要 B 的左栏」「C 保留泳道 + A 的两栏 IO」这类组合，我按选定的方案重写 <span class="mono">WorkflowRun.tsx</span>。
+</p>
+
+</body>
+</html>

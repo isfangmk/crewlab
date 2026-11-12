@@ -38,7 +38,7 @@ export type ToneStyle = {
   stroke: string;
 };
 
-// 画布视觉参考 Dify：图标是实色小方块 + 白色字形，画布本身保持中性，
+// 画布视觉：图标是实色小方块 + 白色字形，画布本身保持中性，
 // 颜色只出现在图标块和缩略图里，避免整张图变成调色盘。
 export const TONE_STYLE: Record<NodeGroupTone, ToneStyle> = {
   flow: {

@@ -129,7 +129,7 @@ def template_values(text: str, state: dict[str, Any]) -> dict[str, Any]:
 def template_input(text: str, state: dict[str, Any], literal_key: str) -> dict[str, Any]:
     """模板类节点的输入：引用变量时列出变量值，固定文本时列出这段文本。
 
-    与 Dify 的做法一致：节点自己声明这次读了什么，面板照着渲染；
+    节点自己声明这次读了什么，面板照着渲染。
     固定文本没有引用任何变量，把原文放出来，才不至于整块输入是空的。
     """
 
@@ -200,6 +200,8 @@ def build_llm_callbacks(
                 "node_kind": node.kind,
                 "label": node.label,
                 "attempt": attempt["value"],
+                # 输入在开始前就已知：实时面板不必等落库就能看到这一步吃了什么
+                "input": inputs,
             }
         )
         return None
@@ -236,7 +238,10 @@ def build_llm_callbacks(
                 "node_id": node.id,
                 "node_kind": node.kind,
                 "status": status,
-                "output": text if status == "succeeded" else None,
+                # 输出与落库同口径：结构化结果也能被实时面板原样展示
+                "output": outcome.output,
+                # 输入同样随事件下发：订阅方不必等落库就能对照这步吃了什么
+                "input": outcome.node_input,
                 "error": error,
                 "duration_ms": duration_ms,
             }
@@ -323,12 +328,22 @@ class CanvasNode(Node):
         except (RuntimeError, TypeError) as exc:
             raise RuntimeError(f"节点 {self._node_def.id} 状态读取失败: {exc}") from exc
 
+    async def before_execute(self, state: dict[str, Any]) -> None:
+        """节点执行前的准备：默认什么都不做。
+
+        输入要提前算才能实时展示，但「读到了什么」对有些节点只有跑一趟才知道
+        （代码节点），这类节点在这里先执行一遍并登记，execute 再复用这次结果。
+        """
+
+        # 基类不读状态；保留参数是为了让子类签名一致
+        del state
+
     def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
         """这一步的输入：节点自己给出读了哪些变量、值是什么。
 
         每个节点类型都声明自己的输入（画布上它读的是它配置里/代码里真正用到的
-        东西），而不是把整份共享状态倒给用户。代码节点要跑起来才知道读了哪些键，
-        由 execute 记录后从这里返回。
+        东西），而不是把整份共享状态倒给用户。
+        调用时机是节点执行之前——面板要能一边跑一边看到输入，不能等跑完。
         """
 
         raise NotImplementedError(
@@ -366,29 +381,35 @@ class CanvasNode(Node):
         loop = asyncio.get_running_loop()
         started_at = loop.time()
         state = self._state(ctx)
-        # 节点开始：前端据此把节点点亮并跟动画布
-        await self._run_ctx.emit(
-            {
-                "event": "node_started",
-                "node_id": node.id,
-                "node_kind": node.kind,
-                "label": node.label,
-                "attempt": attempt,
-            }
-        )
+        node_input_snapshot: dict[str, Any] = {}
         try:
+            # 输入要在运行前算好：代码节点得先跑一趟才知道读了哪些键，开始节点
+            # 执行时又会把其余运行参数写进状态，事后再快照会把「它自己写进去的」
+            # 也算成输入。准备阶段炸了同样算这个节点失败，不能悄悄溜出去。
+            await self.before_execute(state)
+            node_input_snapshot = self.input_snapshot(state)
+            # 节点开始：前端据此把节点点亮并跟动画布；输入一并下发，面板可以立刻展示
+            await self._run_ctx.emit(
+                {
+                    "event": "node_started",
+                    "node_id": node.id,
+                    "node_kind": node.kind,
+                    "label": node.label,
+                    "attempt": attempt,
+                    "input": node_input_snapshot,
+                }
+            )
             raw = await self.execute(ctx=ctx, state=state)
         except Exception as exc:
             duration_ms = int((loop.time() - started_at) * 1000)
-            # 输入在执行后收集：这一步读了什么，跑过才知道（代码节点尤其如此）
-            node_input = self.input_snapshot(state)
+            node_input_snapshot = self.input_snapshot(state)
             self._run_ctx.outcomes.append(
                 NodeOutcome(
                     node_id=node.id,
                     node_kind=node.kind,
                     attempt=attempt,
                     status="failed",
-                    node_input=node_input,
+                    node_input=node_input_snapshot,
                     output=None,
                     error=f"{type(exc).__name__}: {exc}",
                     duration_ms=duration_ms,
@@ -403,6 +424,8 @@ class CanvasNode(Node):
                     "node_id": node.id,
                     "node_kind": node.kind,
                     "status": "failed",
+                    # 失败也要带上输入：面板要能对着它看是哪个值出了问题
+                    "input": node_input_snapshot,
                     "error": f"{type(exc).__name__}: {exc}",
                     "duration_ms": duration_ms,
                 }
@@ -417,15 +440,15 @@ class CanvasNode(Node):
             value = raw.value
         if node.output_key != "":
             ctx.state[node.output_key] = value
-        node_input = self.input_snapshot(state)
-
         self._run_ctx.outcomes.append(
             NodeOutcome(
                 node_id=node.id,
                 node_kind=node.kind,
                 attempt=attempt,
                 status="succeeded",
-                node_input=node_input,
+                # 输入是节点启动那一刻算好的快照：同一次执行从头到尾只算这一次，
+                # 面板上的输入输出才对得上同一份数据
+                node_input=node_input_snapshot,
                 output=value,
                 error="",
                 duration_ms=duration_ms,
@@ -447,6 +470,7 @@ class CanvasNode(Node):
                 "node_id": node.id,
                 "node_kind": node.kind,
                 "status": "succeeded",
+                "input": node_input_snapshot,
                 "output": value,
                 "route": route,
                 "duration_ms": duration_ms,

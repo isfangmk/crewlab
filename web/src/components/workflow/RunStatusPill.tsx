@@ -21,8 +21,7 @@ export function RunStatusPill({ status }: { status: RunStatus }) {
 /**
  * 草稿标记：同版本号既可能是已发布画布，也可能是没发布的改动，列表与详情都要标出来。
  *
- * 用和状态胶囊同一套 11px 实色文字 + 完整边框；之前是 10px 半透明琥珀色压在深色
- * 底上，小到看不清，也没法跟「等待人工」的琥珀色区分。
+ * 用和状态胶囊同一套 11px 实色文字 + 完整边框，保证与「等待人工」等状态一眼可区分。
  */
 export function DraftTag({ className }: { className?: string }) {
   const { tr } = useI18n();

@@ -36,7 +36,8 @@ import {
   getWorkflow,
   publishWorkflow,
   stopWorkflowRun,
-  streamWorkflowRun,
+  startWorkflowRun,
+  subscribeRunEvents,
   updateWorkflow,
   validateDefinition,
   type CatalogGroup,
@@ -90,6 +91,19 @@ const AUTO_SAVE_DELAY_MS = 2000;
 const EMPTY_KINDS: CatalogKind[] = [];
 const EMPTY_GROUPS: CatalogGroup[] = [];
 
+/**
+ * 本次运行的实时节点结果。
+ *
+ * 字段与单节点试跑、时间线里的节点记录同形，面板与时间线共用一套渲染。
+ * running 的节点只有输入（后端在 node_started 里就给了），跑完再补输出与耗时。
+ */
+type LiveNodeRun = NodeProbeResult;
+
+// 结构化输出 → 展示文本：字符串原样，其余按缩进 JSON 展示，和落库记录同口径。
+function serializeOutput(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
 export default function WorkflowEditorPage() {
   const { id } = useParams();
   const workflowId = Number(id);
@@ -139,7 +153,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
   // 最近一次成功落盘的时间：静默自动保存靠它给用户回执。
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // 面板与 Dify 一样按需出现：选中节点开面板，关闭后画布恢复整宽。
+  // 面板按需出现：选中节点开面板，关闭后画布恢复整宽。
   const [panel, setPanel] = useState<'node' | 'workflow' | null>(null);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [checking, setChecking] = useState(false);
@@ -169,6 +183,9 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
   const runStreamRef = useRef<((values: Record<string, unknown>) => Promise<void>) | null>(null);
   const [probe, setProbe] = useState<NodeProbeResult | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTabKey>('settings');
+  // 本次运行的实时节点结果：node_started 带输入，node_finished 带输入输出，
+  // 面板据此在运行中就能看，不用等运行结束落库。
+  const [liveRuns, setLiveRuns] = useState<Record<string, LiveNodeRun>>({});
 
   // 快照 → 画布状态：执行过的节点按库里的结果上色；停在人工节点时，
   // 那个节点在库里是「已执行完」，但画布上必须显示「等待审批/填写」。
@@ -658,6 +675,28 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       setRunningRunUid(null);
       setLastRun(null);
       setGateBannerOpen(true);
+      // 上一轮的实时输入输出也一并作废，否则新一轮会先看到旧内容再被覆盖
+      setLiveRuns({});
+
+      // 实时结果与画布状态同源：node_started 只写输入，node_finished 补齐输出，
+      // 这样运行中打开面板就能看到这一步吃了什么、吐了什么，不必等落库。
+      const recordLive = (patch: Partial<LiveNodeRun> & Pick<LiveNodeRun, 'node_id' | 'node_kind'>) => {
+        setLiveRuns((current) => {
+          const previous = current[patch.node_id];
+          const next: LiveNodeRun = {
+            node_id: patch.node_id,
+            node_kind: patch.node_kind,
+            attempt: patch.attempt ?? previous?.attempt ?? 1,
+            status: patch.status ?? previous?.status ?? 'running',
+            input: patch.input ?? previous?.input ?? {},
+            output: patch.output ?? previous?.output ?? null,
+            error: patch.error ?? previous?.error ?? '',
+            duration_ms: patch.duration_ms ?? previous?.duration_ms ?? 0,
+            route: patch.route ?? previous?.route ?? '',
+          };
+          return { ...current, [patch.node_id]: next };
+        });
+      };
 
       const handle = (event: RunStreamEvent) => {
         switch (event.event) {
@@ -666,6 +705,14 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
             break;
           case 'node_started': {
             setNodeStatuses((current) => ({ ...current, [event.node_id]: 'running' }));
+            recordLive({
+              node_id: event.node_id,
+              node_kind: event.node_kind as NodeKind,
+              attempt: event.attempt,
+              status: 'running',
+              // 试跑结果格式里的输入是 JSON 文本；实时事件给的是变量结构，序列化后同形
+              input: JSON.stringify(event.input ?? {}),
+            });
             // 画布始终跟随当前节点：找到它并把视口居中过去
             const target = rfNodes.find((node) => node.id === event.node_id);
             if (target !== undefined) {
@@ -684,6 +731,18 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
               ...current,
               [event.node_id]: event.status === 'failed' ? 'failed' : 'succeeded',
             }));
+            recordLive({
+              node_id: event.node_id,
+              node_kind: event.node_kind as NodeKind,
+              status: event.status,
+              // 输入序列化成 JSON 文本、输出序列化成展示文本：与落库记录、试跑结果
+              // 完全同形，面板只认一种格式，不需要为实时结果开分支
+              input: event.input === undefined ? undefined : JSON.stringify(event.input),
+              output: event.output === undefined || event.output === null ? '' : serializeOutput(event.output),
+              error: event.error ?? '',
+              duration_ms: event.duration_ms,
+              route: event.route ?? '',
+            });
             break;
           case 'run_finished':
             setRunningRunUid(null);
@@ -715,7 +774,11 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       };
 
       try {
-        await streamWorkflowRun(workflowId, values, handle, controller.signal);
+        // 画布正在编辑，跑的是眼下的草稿而不是线上已发布版本。
+        // 先发起拿到 run_uid，再订阅同一份事件流：执行与订阅分开，断开不影响运行。
+        const { run_uid } = await startWorkflowRun(workflowId, values, 'draft');
+        setRunningRunUid(run_uid);
+        await subscribeRunEvents(run_uid, handle, controller.signal);
       } catch (error) {
         if (controller.signal.aborted) return;
         setRunningRunUid(null);
@@ -934,7 +997,9 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
             onNodeClick={(_, node) => {
               setSelectedId(node.id);
               setPanel('node');
-              setPanelTab('settings');
+              // 点节点默认看结果：运行中的节点尤其要立刻看到输入输出，
+              // 而不是先停在设置页让用户自己切过去。
+              setPanelTab(liveRuns[node.id] === undefined ? 'settings' : 'lastRun');
             }}
             onPaneClick={() => {
               setSelectedId(null);
@@ -965,7 +1030,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
             proOptions={{ hideAttribution: false }}
             className="bg-bg"
             defaultEdgeOptions={{ type: 'workflow' }}
-            // 左键拖动平移画布（Dify 的手感）；框选改成按住 Shift 再拖，
+            // 左键拖动平移画布；框选改成按住 Shift 再拖，
             // 这样不需要记「右键拖」这种不直观的操作。
             panOnDrag
             selectionKeyCode="Shift"
@@ -993,7 +1058,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
               }}
             />
 
-            {/* 右下角：与 Dify 一致的缩放 / 适应 / 整理工具条 */}
+            {/* 右下角：缩放 / 适应画布 / 整理布局 */}
             <Panel position="bottom-right" className="!m-3">
               <div className="flex items-center gap-0.5 rounded-xl border border-border/70 bg-card/95 px-1 py-0.5 shadow-lg backdrop-blur">
                 <IconButton label={tr('缩小', 'Zoom out')} onClick={() => void zoomOut({ duration: 120 })}>
@@ -1087,6 +1152,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
             }}
             running={selected !== null && runningNodeId === selected.id}
             probe={probe}
+            live={selected === null ? null : liveRuns[selected.id] ?? null}
             tab={panelTab}
             onTabChange={setPanelTab}
             onClose={() => {

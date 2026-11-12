@@ -396,7 +396,7 @@ export function Sidebar() {
           title={tr('工作流', 'Workflows')}
           defaultOpen
           items={[
-            { key: 'workflows', to: '/workflows', icon: Workflow, label: tr('工作流编排', 'Workflow canvas') },
+            { key: 'workflows', to: '/workflows', icon: Workflow, label: tr('工作流', 'Workflow') },
             { key: 'workflow-runs', to: '/workflows?tab=runs', icon: Rocket, label: tr('运行记录', 'Run history') },
             { key: 'schedules', icon: Clock, label: tr('定时触发', 'Schedules'), planned: true },
             { key: 'channels', icon: MessagesSquare, label: tr('IM 渠道', 'IM channels'), planned: true },

@@ -20,7 +20,8 @@ from google.adk.tools.skill_toolset import SkillDiscoveryMode, SkillToolset
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.adk_runtime.builtin_tools import build_knowledge_tools, tool_param_specs
+from app.adk_runtime.toolset import build_knowledge_tools
+from app.tools.catalog import tool_param_specs
 from app.models_orm.skill import UserSkill
 from app.services import mcp_service, skill_bundle
 from app.services.knowledge_scope import KnowledgeScope
@@ -231,7 +232,7 @@ def skill_to_wire(
 def builtin_tool_registry() -> dict[str, Any]:
     """内置工具注册表（延迟导入避免循环依赖）。"""
 
-    from app.adk_runtime.builtin_tools import builtin_tool_registry as _registry
+    from app.tools.catalog import builtin_tool_registry as _registry
 
     return _registry()
 

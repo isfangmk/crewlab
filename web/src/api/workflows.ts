@@ -103,8 +103,8 @@ export type WorkflowStatus = 'draft' | 'published';
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'waiting';
 
 export type WorkflowPreview = {
-  nodes: { id: string; kind: NodeKind; label: string }[];
-  edges: { source: string; target: string; route: string }[];
+  nodes: { id: string; kind: NodeKind; label: string; x?: number; y?: number }[];
+  edges: { id?: string; source: string; target: string; route: string }[];
 };
 
 /** 工作流最近一次运行：列表用它的状态显示「运行中 / 成功 / 失败」。 */
@@ -121,6 +121,8 @@ export type WorkflowSummary = {
   status: WorkflowStatus;
   version: number;
   validation_error: string;
+  /** 是否真的发布过：false 表示没有可运行的已发布版本，列表页不给运行入口。 */
+  has_published: boolean;
   node_count: number;
   edge_count: number;
   warnings: string[];
@@ -155,8 +157,10 @@ export type WorkflowRun = {
   /** 列表/详情都带上工作流名，列表分页后不依赖本地映射。 */
   workflow_name: string;
   workflow_version: number;
-  /** 发起这次运行时的画布状态：draft 说明跑的是未发布的改动。 */
+  /** 发起这次运行时使用的定义来源：draft 说明跑的是未发布的改动。 */
   workflow_status: WorkflowStatus;
+  /** 所属工作流当前是否已发布：false 时不给「再次运行」入口。 */
+  has_published: boolean;
   status: RunStatus;
   trigger: string;
   triggered_by: string;
@@ -177,7 +181,8 @@ export type WorkflowNodeRun = {
   node_id: string;
   node_kind: NodeKind;
   attempt: number;
-  status: NodeRunStatus;
+  /** running 只在运行中的实时时间线上出现，落库时只会是终态。 */
+  status: NodeRunStatus | 'running';
   /** 节点执行前看到的状态快照，面板上的「输入」。 */
   input: string;
   output: string;
@@ -297,19 +302,40 @@ export function validateDefinition(definition: WorkflowDefinition) {
   return request<ValidationResult>('POST', '/workflows/validate', { definition });
 }
 
-export function runWorkflow(id: number, values: Record<string, unknown>) {
-  return request<WorkflowRun>('POST', `/workflows/${id}/runs`, { values });
+/** 跑哪一份定义：published 是已发布快照（列表页 / 再次运行），draft 是当前草稿（编排页）。 */
+export type RunSource = 'published' | 'draft';
+
+/**
+ * 发起运行：后端只建运行记录就返回 run_uid，执行在后台继续。
+ *
+ * 因此这里很快就回来，调用方拿到 run_uid 立刻跳转即可，进度靠 subscribeRunEvents。
+ */
+export function startWorkflowRun(id: number, values: Record<string, unknown>, source: RunSource = 'published') {
+  return request<{ run_uid: string; workflow_id: number }>('POST', `/workflows/${id}/runs/start`, {
+    values,
+    source,
+  });
 }
 
-/** 流式运行事件：与后端 SSE 的 event 字段一一对应。 */
+/** 运行事件：与后端 SSE 的 event 字段一一对应。 */
 export type RunStreamEvent =
   | { event: 'run_started'; run_uid: string; workflow_id: number; values: Record<string, unknown> }
-  | { event: 'node_started'; node_id: string; node_kind: string; label: string; attempt: number }
+  | {
+      event: 'node_started';
+      node_id: string;
+      node_kind: string;
+      label: string;
+      attempt: number;
+      /** 这一步开始时读到的变量：面板在运行中就能展示输入。 */
+      input?: Record<string, unknown>;
+    }
   | {
       event: 'node_finished';
       node_id: string;
       node_kind: string;
       status: 'succeeded' | 'failed';
+      /** 节点真正读到的变量，与落库的 input_json 同口径。 */
+      input?: Record<string, unknown>;
       output?: unknown;
       route?: string;
       error?: string;
@@ -328,33 +354,30 @@ export type RunStreamEvent =
     }
   | { event: 'run_failed'; error: string };
 
+/** 终止事件：收到这些就不再有后续了。 */
+const TERMINAL_EVENTS = new Set(['run_finished', 'run_failed']);
+
 /**
- * 流式运行：用 fetch 读 SSE，每读到一条事件就回调一次。
+ * 订阅一次运行的事件流。
  *
- * 不用 EventSource 是因为它只支持 GET，而运行需要 POST 提交输入。
- * abortSignal 让用户能中途取消（关掉页面/点停止）。
+ * 后端连上就先补发已经发生的事件，所以运行早就开始也接得住，不会缺步骤。
+ * 不用 EventSource：它带不上 Authorization 头，鉴权走 fetch 流。
  */
-export async function streamWorkflowRun(
-  id: number,
-  values: Record<string, unknown>,
+export async function subscribeRunEvents(
+  runUid: string,
   onEvent: (event: RunStreamEvent) => void,
   abortSignal?: AbortSignal,
 ): Promise<void> {
   const token = getToken();
-  const response = await fetch(`/api/v1/workflows/${id}/runs/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ values }),
+  const response = await fetch(`/api/v1/workflows/runs/${runUid}/events`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal: abortSignal,
   });
   if (!response.ok) {
     const text = await response.text();
     throw new ApiError(text || `HTTP ${response.status}`, response.status);
   }
-  if (response.body === null) throw new ApiError('运行流没有响应体', 0);
+  if (response.body === null) throw new ApiError('运行事件流没有响应体', 0);
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -368,11 +391,11 @@ export async function streamWorkflowRun(
     while (split >= 0) {
       const frame = buffer.slice(0, split);
       buffer = buffer.slice(split + 2);
-      const dataLine = frame
-        .split('\n')
-        .find((line) => line.startsWith('data: '));
+      const dataLine = frame.split('\n').find((line) => line.startsWith('data: '));
       if (dataLine !== undefined) {
-        onEvent(JSON.parse(dataLine.slice(6)) as RunStreamEvent);
+        const parsed = JSON.parse(dataLine.slice(6)) as RunStreamEvent;
+        onEvent(parsed);
+        if (TERMINAL_EVENTS.has(parsed.event)) return;
       }
       split = buffer.indexOf('\n\n');
     }
@@ -384,7 +407,8 @@ export type NodeProbeResult = {
   node_id: string;
   node_kind: NodeKind;
   attempt: number;
-  status: NodeRunStatus;
+  /** 运行中的节点是 running，跑完才落成 succeeded / failed。 */
+  status: NodeRunStatus | 'running';
   /** 节点执行前看到的状态快照（JSON 文本）。 */
   input: string;
   /** JSON 文本，可能是纯文本预览。 */
@@ -456,7 +480,11 @@ export function stopWorkflowRun(runUid: string) {
 }
 
 /** 解析后端下发的 JSON 文本字段（input / output / node output）。 */
-export function parseJsonText(raw: string): unknown {
+export function parseJsonText(raw: string): unknown;
+/** 已在内存里的运行事件值：JSON 文本照常解析，结构化结果原样返回。 */
+export function parseJsonText(raw: unknown): unknown;
+export function parseJsonText(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw ?? null;
   if (raw.trim() === '') return null;
   try {
     return JSON.parse(raw);

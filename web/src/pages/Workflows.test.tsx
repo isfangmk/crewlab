@@ -53,6 +53,8 @@ function summary(overrides: Partial<WorkflowSummary> & Pick<WorkflowSummary, 'id
     status: 'draft',
     version: 1,
     validation_error: '',
+    // 默认给「已发布」：既有用例都在测运行入口，未发布的显隐另有专门用例
+    has_published: true,
     node_count: 4,
     edge_count: 3,
     warnings: [],
@@ -364,24 +366,10 @@ describe('WorkflowsPage', () => {
         HttpResponse.json({ ...newer, definition }),
       ),
       http.post(validateURL, () => HttpResponse.json({ ok: true, error: '', warnings: [] })),
-      http.post(`${listURL}/12/runs`, async ({ request }) => {
+      http.post(`${listURL}/12/runs/start`, async ({ request }) => {
         runBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json({
-          id: 1,
-          run_uid: 'run-abc',
-          workflow_id: 12,
-          workflow_version: 3,
-          workflow_status: 'published',
-          status: 'running',
-          trigger: 'manual',
-          triggered_by: 'admin',
-          input: '{}',
-          output: '',
-          error: '',
-          duration_ms: 0,
-          created_at: '2026-08-02T03:04:00Z',
-          finished_at: null,
-        });
+        // 发起接口只返回流水号：执行在后台，前端立刻跳转
+        return HttpResponse.json({ run_uid: 'run-abc', workflow_id: 12 });
       }),
     );
 
@@ -400,9 +388,35 @@ describe('WorkflowsPage', () => {
     await userEvent.click(submit);
 
     await waitFor(() => expect(runBody).not.toBeNull());
-    expect(runBody).toEqual({ values: { question: '磁盘告警怎么处理？' } });
+    // 列表页跑的是已发布版本，不是正在编辑的草稿
+    expect(runBody).toEqual({ values: { question: '磁盘告警怎么处理？' }, source: 'published' });
     // 运行发起后进入详情页
     expect(await screen.findByText('运行详情占位')).toBeInTheDocument();
+  });
+
+  it('未发布的工作流不给「运行」入口', async () => {
+    server.use(
+      http.get(listURL, () =>
+        HttpResponse.json({
+          items: [
+            summary({ id: 31, name: '从未发布的', status: 'draft', has_published: false }),
+            summary({ id: 32, name: '发布过的', status: 'published', has_published: true }),
+          ],
+          total: 2,
+        }),
+      ),
+    );
+
+    renderPage();
+    await screen.findByText('从未发布的');
+
+    // 没发布过就没有可运行的正式版本，入口整个不出现（而不是灰按钮）
+    const draftRow = rowOf('从未发布的');
+    expect(within(draftRow).queryByRole('button', { name: '运行' })).toBeNull();
+    // 编排入口不受影响
+    expect(within(draftRow).getByRole('button', { name: '编排' })).toBeInTheDocument();
+
+    expect(within(rowOf('发布过的')).getByRole('button', { name: '运行' })).toBeInTheDocument();
   });
 
   it('运行记录：展示状态胶囊、完整时间与耗时', async () => {

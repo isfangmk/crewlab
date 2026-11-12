@@ -318,15 +318,37 @@ class CodeNode(CanvasNode):
 
     只暴露纯计算能力，不提供 import / open / eval，避免画布代码碰到宿主资源。
     需要用外部服务请改用 HTTP / MCP 节点。
+
+    读的是哪几个键要跑一趟才知道，所以这里自己执行一遍 run(state)：执行前
+    跑一次拿到真实读取清单（面板在运行中就要看到输入），execute 复用这次结果，
+    代码只跑一次。
     """
 
-    _reads: dict[str, Any] = PrivateAttr(default_factory=dict)
+    # 单个节点实例串行执行：提前执行的调用与 execute 不会撞在一起
+    _lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
+    # 提前执行已经算出、等着 execute 收下的结果
+    _planned: Any = PrivateAttr(default=None)
+    _has_plan: bool = PrivateAttr(default=False)
 
     def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
-        # execute 里登记的实测读取；还没跑就失败的话，确实什么都没读到
         return dict(self._reads)
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
+        async with self._lock:
+            # 运行前已经为面板跑过一次，直接复用，别让画布代码执行两遍
+            if self._has_plan:
+                self._has_plan = False
+                return self._planned
+            return await self._run_code(state)
+
+    async def before_execute(self, state: dict[str, Any]) -> None:
+        """节点开始前由基类调用：先跑一遍代码，把真实读取的键登记下来。"""
+
+        async with self._lock:
+            self._planned = await self._run_code(state)
+            self._has_plan = True
+
+    async def _run_code(self, state: dict[str, Any]) -> Any:
         self._reads = {}
         code = self.node_def.code
         namespace: dict[str, Any] = {

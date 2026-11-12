@@ -47,6 +47,8 @@ _REQUIRED_COLUMNS: list[tuple[str, str, str]] = [
     ("workflows", "published_at", "TIMESTAMPTZ"),
     # 运行记录要能区分「草稿运行」与「已发布运行」：同版本号下定义可能不同
     ("workflow_runs", "workflow_status", "VARCHAR(16) NOT NULL DEFAULT 'draft'"),
+    # 发布快照：空串表示从未发布，列表页据此隐藏运行入口
+    ("workflows", "published_definition_json", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

@@ -5,7 +5,7 @@
 //
 // React Flow 在 jsdom 里依赖布局能力（ResizeObserver / DOMMatrix），这里把
 // 画布组件换成会记录 props 的壳：断言的是「页面给画布传了什么交互配置」，
-// 这正是这次改动会回归的地方。
+// 也就是上面三条规则真正落到的位置。
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';

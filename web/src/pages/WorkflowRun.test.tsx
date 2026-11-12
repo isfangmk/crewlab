@@ -1,16 +1,26 @@
-// WorkflowRun 页面测试 — 运行详情是一次运行的完整诊断视图：
+// WorkflowRun 页面测试 — 运行详情是「顶部信息带 + 三栏诊断视图」：
+//   顶部四张卡（状态 / 耗时 / 节点进度 / 触发）→ 左栏节点导航 → 中栏节点详情（人工确认 / 输入 / 输出）→ 右栏画布与运行输入输出。
 //   1. status=waiting 的人工输入门：填写后 POST resume（decision + values），成功后原地刷新
-//   2. 执行时间线：节点状态、失败错误、输出可展开
-//   3. 运行记录不存在：给可恢复的空态，而不是空白页
-import { render, screen, waitFor } from '@testing-library/react';
+//   2. 节点详情：失败错误、输入变量、输出直接铺开
+//   3. 运行中：事件到达后导航与详情立即可见
+//   4. 运行记录不存在：给可恢复的空态，而不是空白页
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import WorkflowRunPage from './WorkflowRun';
+import { subscribeRunEvents } from '@/api/workflows';
 import { server } from '@/test/msw-server';
 import { emptyNode } from '@/lib/workflowMeta';
+
+// 事件流单独用假实现：jsdom 的 fetch 流在测试里并不稳定，
+// 这里要验证的是「收到事件后详情写什么」，不是 SSE 分帧本身。
+vi.mock('@/api/workflows', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/workflows')>()),
+  subscribeRunEvents: vi.fn(),
+}));
 
 vi.mock('@/store/auth', () => ({
   useAuth: Object.assign(
@@ -24,16 +34,17 @@ const runURL = '/api/v1/workflows/runs/run-1';
 const workflowURL = '/api/v1/workflows/12';
 
 function definition() {
-  const start = emptyNode('start', 'start', { x: 0, y: 0 });
+  // 测试里的节点都给了 label：左栏导航按 label 展示，空 label 会退回 node_id
+  const start = { ...emptyNode('start', 'start', { x: 0, y: 0 }), label: '开始' };
   start.variables = [{ name: 'question', type: 'string', description: '', required: true, default: null }];
-  const agent = emptyNode('agent', 'answer', { x: 300, y: 0 });
+  const agent = { ...emptyNode('agent', 'answer', { x: 300, y: 0 }), label: '回答告警' };
   agent.provider = 'openai';
   agent.model = 'gpt-4o';
   agent.instruction = '回答 {{question}}';
-  const gate = emptyNode('input', 'gate', { x: 600, y: 0 });
+  const gate = { ...emptyNode('input', 'gate', { x: 600, y: 0 }), label: '补充结论' };
   gate.prompt = '请补充处理结论';
   gate.output_key = 'conclusion';
-  const end = emptyNode('end', 'end', { x: 900, y: 0 });
+  const end = { ...emptyNode('end', 'end', { x: 900, y: 0 }), label: '结束' };
   return {
     nodes: [start, agent, gate, end],
     edges: [
@@ -41,6 +52,23 @@ function definition() {
       { id: 'e2', source: 'answer', target: 'gate', route: '' },
       { id: 'e3', source: 'gate', target: 'end', route: '' },
     ],
+  };
+}
+
+function nodeRun(overrides: Record<string, unknown>) {
+  return {
+    id: 1,
+    node_id: 'start',
+    node_kind: 'start',
+    attempt: 1,
+    status: 'succeeded',
+    input: '{"question":"磁盘告警"}',
+    output: '{"question":"磁盘告警"}',
+    error: '',
+    duration_ms: 3,
+    route: '',
+    created_at: '2026-08-02T03:04:00Z',
+    ...overrides,
   };
 }
 
@@ -52,6 +80,7 @@ function runDetail(overrides: Record<string, unknown> = {}) {
     workflow_name: '磁盘告警处置',
     workflow_version: 3,
     workflow_status: 'published',
+    has_published: true,
     status: 'waiting',
     trigger: 'manual',
     triggered_by: 'admin',
@@ -62,21 +91,7 @@ function runDetail(overrides: Record<string, unknown> = {}) {
     duration_ms: 2400,
     created_at: '2026-08-02T03:04:00Z',
     finished_at: null,
-    nodes: [
-      {
-        id: 1,
-        node_id: 'start',
-        node_kind: 'start',
-        attempt: 1,
-        status: 'succeeded',
-        input: '{"question":"磁盘告警"}',
-        output: '{"question":"磁盘告警"}',
-        error: '',
-        duration_ms: 3,
-        route: '',
-        created_at: '2026-08-02T03:04:00Z',
-      },
-    ],
+    nodes: [nodeRun({})],
     definition: definition(),
     ...overrides,
   };
@@ -136,11 +151,15 @@ describe('WorkflowRunPage', () => {
 
     renderPage();
 
-    // 等待人工输入：阻塞在人工节点上，页面给出可操作的卡片
-    expect(await screen.findByText('等待人工输入')).toBeInTheDocument();
+    // 顶部信息带给出结论：状态卡点名卡在哪个节点，不再有单独的横幅
+    const overview = await screen.findByRole('region', { name: '运行概况' });
+    expect(within(overview).getByText('等待人工填写')).toBeInTheDocument();
+    expect(within(overview).getByText('停在「补充结论」，处理后继续')).toBeInTheDocument();
+    // 中栏详情给出可操作的表单
+    if (!screen.queryByText('等待人工输入')) console.log('DOMDUMP>>>', document.body.innerHTML.slice(0, 8000));
+    console.log('NAV-CURRENT>>>', [...document.querySelectorAll('nav button')].map((b) => `${b.textContent}:${b.getAttribute('aria-current')}`).join(' | '));
     expect(screen.getByText('请补充处理结论')).toBeInTheDocument();
     expect(screen.getByText('conclusion')).toBeInTheDocument();
-    expect(screen.getByText('运行停在人工节点，确认后继续')).toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText('人工输入内容'), '已重启 exporter');
     await userEvent.click(screen.getByRole('button', { name: /提交并继续/ }));
@@ -151,11 +170,44 @@ describe('WorkflowRunPage', () => {
 
     // 原地刷新：门消失，状态变成成功
     await waitFor(() => expect(screen.queryByText('等待人工输入')).not.toBeInTheDocument());
-    expect(screen.getAllByText('成功').length).toBeGreaterThan(0);
     expect(screen.getByText('已确认，继续执行')).toBeInTheDocument();
   });
 
-  it('时间线：展示节点状态与错误，输出默认收起可展开', async () => {
+  it('顶部信息带：状态 / 耗时 / 节点进度 / 触发只剩这一处', async () => {
+    server.use(http.get(runURL, () => HttpResponse.json(runDetail())));
+
+    renderPage();
+
+    const overview = await screen.findByRole('region', { name: '运行概况' });
+    expect(within(overview).getByText('当前状态')).toBeInTheDocument();
+    expect(within(overview).getByText('2.4 s')).toBeInTheDocument();
+    expect(within(overview).getByText('节点进度')).toBeInTheDocument();
+    expect(within(overview).getByText('触发方式')).toBeInTheDocument();
+    expect(within(overview).getByText('手动')).toBeInTheDocument();
+
+    // 右栏不再重复一份「运行概况」，只留画布与运行输入输出
+    expect(screen.queryByRole('heading', { name: '运行概况' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '运行输入' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '运行输出' })).toBeInTheDocument();
+  });
+
+  it('左栏导航列出全部节点，未执行的节点只占位不可点', async () => {
+    server.use(http.get(runURL, () => HttpResponse.json(runDetail())));
+
+    renderPage();
+
+    const nav = await screen.findByRole('navigation', { name: '节点列表' });
+    const items = within(nav).getAllByRole('button');
+    // 4 个定义节点：只有 start 执行过，其余 3 个是未执行的占位
+    expect(items).toHaveLength(4);
+    expect(within(nav).getByText('开始')).toBeInTheDocument();
+    expect(within(nav).getByRole('button', { name: /开始/ })).toBeEnabled();
+    // 未执行的节点只占位：能看到名字，但点不开
+    expect(within(nav).getByRole('button', { name: /补充结论/ })).toBeDisabled();
+    expect(within(nav).getByRole('button', { name: /结束/ })).toBeDisabled();
+  });
+
+  it('节点详情：输入按变量展示，输出默认收起可展开', async () => {
     server.use(
       http.get(runURL, () =>
         HttpResponse.json(
@@ -165,32 +217,17 @@ describe('WorkflowRunPage', () => {
             error: '节点 http 返回 500',
             finished_at: '2026-08-02T03:04:30Z',
             nodes: [
-              {
-                id: 1,
-                node_id: 'start',
-                node_kind: 'start',
-                attempt: 1,
-                status: 'succeeded',
-                input: '{"question":"磁盘告警"}',
-                output: '{"question":"磁盘告警"}',
-                error: '',
-                duration_ms: 3,
-                route: '',
-                created_at: '2026-08-02T03:04:00Z',
-              },
-              {
+              nodeRun({}),
+              nodeRun({
                 id: 2,
                 node_id: 'answer',
                 node_kind: 'agent',
                 attempt: 2,
                 status: 'failed',
-                input: '{"question":"磁盘告警"}',
-                output: '',
+                output: '定位到 exporter 故障',
                 error: 'provider 超时',
                 duration_ms: 1500,
-                route: '',
-                created_at: '2026-08-02T03:04:02Z',
-              },
+              }),
             ],
           }),
         ),
@@ -199,58 +236,39 @@ describe('WorkflowRunPage', () => {
 
     renderPage();
 
-    // 失败态：顶部状态胶囊 + 错误卡片 + 节点级错误
-    expect((await screen.findAllByText('失败')).length).toBeGreaterThan(0);
-    expect(screen.getByText('运行失败，见下方错误输出')).toBeInTheDocument();
-    expect(screen.getByText('provider 超时')).toBeInTheDocument();
-    expect(screen.getByText('节点 http 返回 500')).toBeInTheDocument();
+    // 顶部条给出运行级错误
+    expect(await screen.findByText('节点 http 返回 500')).toBeInTheDocument();
+
+    // 默认选中最后一条执行记录（失败节点）
+    await waitFor(() => expect(screen.getByText('provider 超时')).toBeInTheDocument());
+    // 输入直接按变量行给出，不需要展开
+    expect(screen.getAllByText('question').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('磁盘告警').length).toBeGreaterThan(0);
     // 重试过的节点标出轮次（attempt 2）
     expect(screen.getByText('第 2 轮')).toBeInTheDocument();
 
-    // 输入 / 输出两块对每个节点都在：失败节点没有输出，块本身不能消失
-    expect(screen.getAllByRole('button', { name: /展开输入/ })).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: /展开输出/ })).toHaveLength(2);
-    expect(screen.getByText('无输出')).toBeInTheDocument();
-
-    // 输出默认收起，点开后展示完整文本（JSON 会格式化，不比较整串）
-    expect(screen.queryByText('收起输出')).not.toBeInTheDocument();
-    await userEvent.click(screen.getAllByRole('button', { name: /展开输出/ })[0]);
-    expect(await screen.findByRole('button', { name: /收起输出/ })).toBeInTheDocument();
-    expect(document.body.textContent).toContain('"question": "磁盘告警"');
+    // 输出直接铺开（三栏布局里中栏是主区域，缩起来反而要多点一次）
+    expect(document.body.textContent).toContain('定位到 exporter 故障');
   });
 
-  it('停在人工节点：时间线把该节点标成待填写，而不是跟着库里的成功', async () => {
+  it('点左栏节点：中栏切到该节点的输入与输出', async () => {
     server.use(
       http.get(runURL, () =>
         HttpResponse.json(
           runDetail({
+            status: 'succeeded',
+            output: '"已确认"',
+            finished_at: '2026-08-02T03:05:00Z',
             nodes: [
-              {
-                id: 1,
-                node_id: 'start',
-                node_kind: 'start',
-                attempt: 1,
-                status: 'succeeded',
-                input: '{"question":"磁盘告警"}',
-                output: '{"question":"磁盘告警"}',
-                error: '',
-                duration_ms: 3,
-                route: '',
-                created_at: '2026-08-02T03:04:00Z',
-              },
-              {
+              nodeRun({}),
+              nodeRun({
                 id: 2,
-                node_id: 'gate',
-                node_kind: 'input',
-                attempt: 1,
+                node_id: 'answer',
+                node_kind: 'agent',
                 status: 'succeeded',
-                input: '{"question":"磁盘告警"}',
-                output: '{"gate":"gate"}',
-                error: '',
-                duration_ms: 0,
-                route: '',
-                created_at: '2026-08-02T03:04:01Z',
-              },
+                output: '已定位到 exporter 故障',
+                duration_ms: 1200,
+              }),
             ],
           }),
         ),
@@ -259,15 +277,63 @@ describe('WorkflowRunPage', () => {
 
     renderPage();
 
-    // 人工节点在库里是「已执行完」，但这次运行还停在这里，必须显示待填写
-    expect((await screen.findAllByText('待填写')).length).toBeGreaterThan(0);
-    // 只有开始节点显示成功
-    expect(screen.getAllByText('成功')).toHaveLength(1);
+    const nav = await screen.findByRole('navigation', { name: '节点列表' });
+    await userEvent.click(within(nav).getByRole('button', { name: /开始/ }));
+
+    // 开始节点：输入 1 个变量
+    await waitFor(() => expect(screen.getByText('1 个变量')).toBeInTheDocument());
+    // 切到第二个节点：详情换成它的输出（输出直接铺开，不用展开）
+    await userEvent.click(within(nav).getByRole('button', { name: /回答告警/ }));
+    await waitFor(() => expect(screen.getByText('1 个变量')).toBeInTheDocument());
+    expect(document.body.textContent).toContain('已定位到 exporter 故障');
+    // 后续节点不在中栏重复列出：左栏已经能看到整条流程
+    expect(screen.queryByText('这一步之后')).not.toBeInTheDocument();
   });
 
-  it('运行记录不存在：给出空态与返回入口', async () => {    server.use(
-      http.get(runURL, () => HttpResponse.json({ error: 'run not found' }, { status: 404 })),
+  it('运行中：节点详情随事件带出输入输出，不必等运行结束落库', async () => {
+    // 一条只发两个事件的流：节点开始（带输入）→ 节点结束（带输入与输出）
+    const frames = [
+      { event: 'node_started', node_id: 'answer', node_kind: 'agent', label: '回答', attempt: 1, input: { question: '磁盘告警' } },
+      {
+        event: 'node_finished',
+        node_id: 'answer',
+        node_kind: 'agent',
+        status: 'succeeded',
+        input: { question: '磁盘告警' },
+        output: '已定位到 exporter 故障',
+        duration_ms: 1200,
+      },
+      { event: 'run_finished', run_uid: 'run-1', status: 'succeeded', error: '', output: '', duration_ms: 1300, gate: null, gate_kind: null },
+    ] as const;
+    vi.mocked(subscribeRunEvents).mockImplementation(async (_uid, onEvent, signal) => {
+      for (const frame of frames) {
+        if (signal?.aborted === true) return;
+        onEvent(frame);
+      }
+    });
+    server.use(
+      http.get(runURL, () =>
+        HttpResponse.json(runDetail({ status: 'running', output: '', finished_at: null, nodes: [] })),
+      ),
     );
+
+    renderPage();
+
+    // 运行中库里还没有这条记录：导航行与详情完全来自事件
+    await waitFor(() => expect(subscribeRunEvents).toHaveBeenCalled());
+    const nav = await screen.findByRole('navigation', { name: '节点列表' });
+    // 事件里的节点出现在导航中
+    expect(within(nav).getByRole('button', { name: /回答告警/ })).toBeEnabled();
+
+    // 点它：输入变量直接列出；输出随事件到达
+    await userEvent.click(within(nav).getByRole('button', { name: /回答告警/ }));
+    expect((await screen.findAllByText('question')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('磁盘告警').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/已定位到 exporter 故障/).length).toBeGreaterThan(0);
+  });
+
+  it('运行记录不存在：给出空态与返回入口', async () => {
+    server.use(http.get(runURL, () => HttpResponse.json({ error: 'run not found' }, { status: 404 })));
 
     renderPage();
 

@@ -122,9 +122,10 @@ async def test_list_workflows_filters_and_paginates(
 
             # 真正跑一次：列表的 last_run 跟随到这次运行的 uid 与状态
             run = await client.post(
-                f"/api/v1/workflows/{created[0]}/runs",
+                f"/api/v1/workflows/{created[0]}/runs/start",
                 headers=headers,
-                json={"values": {"topic": "磁盘告警"}},
+                # 这段用例要的就是草稿运行的记录，明确指定来源
+                json={"values": {"topic": "磁盘告警"}, "source": "draft"},
             )
             assert run.status_code == 200, run.text
             run_uid = run.json()["run_uid"]

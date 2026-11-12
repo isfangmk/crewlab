@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>运行详情 · 三栏上方信息卡</title>
+<style>
+  :root{
+    --bg:#0b0b11; --card:#171720; --card-soft:#1a1a24; --line:#282832; --line-soft:#22222c;
+    --text:#f4f4f5; --muted:#a1a1aa; --faint:#71717a;
+    --ok:#10b981; --danger:#ef4444; --warn:#f59e0b; --info:#30a6d0; --accent:#8c6df0;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:13px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding:24px 28px 70px;
+  }
+  h1{font-size:15px;margin:0 0 4px}
+  .lead{color:var(--faint);font-size:12px;margin:0 0 20px}
+  .frame{border:1px solid #2e2e3a;border-radius:14px;overflow:hidden;background:var(--bg)}
+  .frame-head{display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);background:#12121a}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .frame-url{font:11px/1 var(--mono);color:var(--faint);margin-left:8px}
+
+  .pill{display:inline-flex;align-items:center;gap:4px;border-radius:999px;border:1px solid;padding:0 6px;font-size:11px;line-height:16px;white-space:nowrap}
+  .pill i{width:4px;height:4px;border-radius:50%;display:block}
+  .p-ok{color:var(--ok);border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.1)} .p-ok i{background:var(--ok)}
+  .p-warn{color:var(--warn);border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.1)} .p-warn i{background:var(--warn)}
+  .p-info{color:var(--info);border-color:rgba(48,166,208,.3);background:rgba(48,166,208,.1)} .p-info i{background:var(--info)}
+  .p-neutral{color:var(--muted);border-color:var(--line);background:rgba(255,255,255,.03)} .p-neutral i{background:#52525b}
+  .mono{font-family:var(--mono)} .muted{color:var(--muted)} .faint{color:var(--faint)}
+
+  .app{display:flex;flex-direction:column;height:760px}
+
+  /* 顶栏 */
+  .topbar{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line)}
+  .topbar .back{width:26px;height:26px;border:1px solid var(--line);border-radius:7px;display:grid;place-items:center;color:var(--muted);font-size:12px}
+  .topbar .t{font-size:13.5px;font-weight:600}
+  .topbar .m{font:10.5px var(--mono);color:var(--faint);display:flex;gap:7px;align-items:center}
+  .topbar .acts{margin-left:auto;display:flex;gap:6px}
+  .btn{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--muted);font-size:11.5px}
+  .btn-primary{background:#f4f4f5;color:#0b0b11;border-color:#f4f4f5;font-weight:600}
+
+  /* ============ 三栏上方的信息带 ============ */
+  .overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);background:#0e0e15}
+  .card{border:1px solid var(--line-soft);border-radius:10px;background:var(--card-soft);padding:9px 11px;min-width:0;display:flex;flex-direction:column;gap:4px}
+  .card .lb{font-size:9.5px;color:var(--faint);display:flex;align-items:center;justify-content:space-between;gap:6px}
+  .card .lb .ico{opacity:.7;font-size:10px}
+  .card .v{font:600 17px/1.2 var(--mono);letter-spacing:-.02em}
+  .card .v small{font:500 10px var(--mono);color:var(--faint);letter-spacing:0;margin-left:2px}
+  .card .sub{font-size:10px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* 进度卡：横跨两列 */
+  .card.wide{grid-column:span 2}
+  .track{height:6px;border-radius:4px;background:rgba(255,255,255,.08);display:flex;overflow:hidden;margin-top:2px}
+  .track span{height:100%}
+  .legend{display:flex;gap:10px;font-size:9.5px;color:var(--faint);margin-top:2px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:3px;vertical-align:middle}
+
+  /* 结论卡：白色大描边强调，一眼看到「现在卡在哪」 */
+  .card.state{border-color:rgba(245,158,11,.35);background:linear-gradient(180deg,rgba(245,158,11,.09),rgba(245,158,11,.04))}
+  .card.state .v{font:600 13px/1.35 inherit;color:var(--warn)}
+  .card.state .sub{color:var(--muted);white-space:normal;line-height:1.45}
+
+  /* 三栏主体 */
+  .body{display:grid;grid-template-columns:230px minmax(0,1fr) 270px;flex:1;min-height:0}
+  .body>div{min-width:0;overflow:hidden}
+
+  /* 左栏 */
+  .nav{display:flex;flex-direction:column;border-right:1px solid var(--line);min-height:0;background:#0e0e15}
+  .nav .listhd{display:flex;justify-content:space-between;padding:8px 12px 4px;font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+  .nav .list{flex:1;overflow:auto;padding-bottom:8px}
+  .nav .it{display:flex;align-items:center;gap:7px;padding:4px 12px;font-size:11.5px;color:var(--muted);position:relative}
+  .nav .it .d{width:6px;height:6px;border-radius:50%;flex:0 0 auto}
+  .nav .it em{font-style:normal;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nav .it .ms{font:9.5px var(--mono);color:var(--faint)}
+  .nav .it.sel{background:rgba(140,109,240,.12);color:var(--text)}
+  .nav .it.sel::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent)}
+  .nav .it.todo{opacity:.42}
+  .nav .sep{padding:9px 12px 3px;font-size:9px;color:var(--faint);border-top:1px solid var(--line-soft);margin-top:6px}
+
+  /* 中栏 */
+  .main{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+  .main .hd{display:flex;align-items:center;gap:7px;padding:9px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .main .hd .ic{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:11px;background:#f59e0b;color:#1b1204;font-weight:700}
+  .main .hd b{font-size:12.5px;font-weight:600}
+  .main .bdy{flex:1;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+  .blk h6{margin:0 0 6px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);font-weight:500;display:flex;gap:6px;align-items:center}
+  .blk h6 .cnt{font:9.5px var(--mono);text-transform:none;letter-spacing:0;color:var(--faint);background:rgba(255,255,255,.04);border:1px solid var(--line-soft);border-radius:999px;padding:0 5px;line-height:15px}
+  .blk h6 .sec-ico{font-size:12px;line-height:1}
+  .blk h6 .tools{margin-left:auto;display:flex;gap:2px;text-transform:none;letter-spacing:0}
+  .blk h6 .tbtn{font-size:9.5px;color:var(--faint);border-radius:5px;padding:0 5px;line-height:16px}
+  .blk h6 .tbtn:hover{background:rgba(255,255,255,.05);color:var(--muted)}
+
+  /* 输入：斑马行 + 变量名独立色块 */
+  .rows{border:1px solid var(--line-soft);border-radius:8px;background:#101018;overflow:hidden}
+  .rows .rowv{display:flex;gap:10px;align-items:flex-start;padding:6px 10px;font-size:10.5px;line-height:1.6}
+  .rows .rowv+.rowv{border-top:1px solid var(--line-soft)}
+  .rows .vn{flex:0 0 auto;color:var(--info);background:rgba(48,166,208,.1);border-radius:4px;padding:0 5px;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rows .vt{flex:1;min-width:0;color:#d4d4d8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* 输出：独立代码面板，带标题条 + 高亮 */
+  .code{border:1px solid var(--line-soft);border-radius:8px;background:#0d0d14;overflow:hidden}
+  .code-bar{display:flex;align-items:center;gap:5px;padding:4px 9px;border-bottom:1px solid var(--line-soft);font:9.5px var(--mono);color:var(--faint);background:rgba(255,255,255,.02)}
+  .code-bar .dotc{width:5px;height:5px;border-radius:50%;background:var(--ok);opacity:.7}
+  .code pre.cb{margin:0;border:0;border-radius:0;background:none;padding:9px 11px;max-height:300px;white-space:pre}
+  .code pre.cb .ln{display:inline-block;width:16px;color:#3f3f49;user-select:none}
+  .tk{color:#8b8b96}
+  .tk-k{color:#7dd3fc}
+  .tk-s{color:#a5e6a5}
+  .tk-n{color:#f5c97b}
+  .kv{border:1px solid var(--line-soft);border-radius:8px;background:#101018;overflow:hidden}
+  .kv div{display:flex;gap:8px;padding:4px 9px;font:10.5px/1.5 var(--mono)}
+  .kv div+div{border-top:1px solid var(--line-soft)}
+  .kv em{color:var(--muted);font-style:normal;width:78px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .kv span{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cb{border:1px solid var(--line-soft);border-radius:8px;background:#101018;color:#c8c8d0;font:10.5px/1.65 var(--mono);padding:9px 11px;margin:0;white-space:pre-wrap;max-height:220px;overflow:auto}
+  .gate{border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.07);border-radius:8px;padding:9px 11px}
+  .gate .h{display:flex;gap:5px;align-items:center;font-size:11.5px;font-weight:600;color:var(--warn);margin-bottom:4px}
+  .gate p{margin:0 0 8px;font-size:11.5px;line-height:1.55}
+  .foot{padding:8px 14px;border-top:1px solid var(--line);font:9.5px var(--mono);color:var(--faint);display:flex;gap:6px}
+
+  /* 右栏 */
+  .ctx{padding:10px;display:flex;flex-direction:column;gap:9px;overflow:auto;min-height:0;background:#0e0e15}
+  .box{border:1px solid var(--line-soft);border-radius:9px;background:var(--card-soft);overflow:hidden}
+  .box h5{margin:0;padding:6px 9px;font-size:10.5px;font-weight:500;color:var(--muted);border-bottom:1px solid var(--line-soft);display:flex;justify-content:space-between}
+  .box .p{padding:7px 9px}
+  dl.meta{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin:0;font-size:10.5px}
+  dl.meta dt{color:var(--faint)} dl.meta dd{margin:0;text-align:right;color:var(--text);font-family:var(--mono);font-size:10px}
+
+  .notes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px;font-size:11.5px;color:var(--muted)}
+  .notes div{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:#101017}
+  .notes b{display:block;color:var(--text);font-size:11.5px;margin-bottom:3px}
+</style>
+</head>
+<body>
+
+<h1>运行详情 · 三栏上方信息带</h1>
+<p class="lead">信息卡铺在整个三栏布局的上方（横向 5 张），下面是原来的三栏：左节点导航 / 中节点详情 / 右运行上下文。中栏「这一步之后」已删除。</p>
+
+<div class="frame">
+  <div class="frame-head">
+    <span class="dot" style="background:#3f3f46"></span><span class="dot" style="background:#3f3f46"></span><span class="dot" style="background:#3f3f46"></span>
+    <span class="frame-url">/workflows/runs/run_8560f418580b</span>
+  </div>
+
+  <div class="app">
+    <!-- 顶栏：只保留身份与操作 -->
+    <div class="topbar">
+      <span class="back">←</span>
+      <div>
+        <div class="t">告警处置全节点演示</div>
+        <div class="m">
+          <span>run_8560f418580b</span><span class="faint">·</span><span>v2</span>
+        </div>
+      </div>
+      <div class="acts">
+        <span class="btn">复制</span><span class="btn">刷新</span><span class="btn btn-primary">再次运行</span>
+      </div>
+    </div>
+
+    <!-- ===== 三栏上方的信息带 ===== -->
+    <div class="overview">
+      <div class="card state">
+        <div class="lb"><span>当前状态</span></div>
+        <div class="v">等待人工审批 · 草稿</div>
+        <div class="sub">停在「值班长审批」节点，处理后继续</div>
+      </div>
+
+      <div class="card">
+        <div class="lb"><span>耗时</span></div>
+        <div class="v">1.1<small>s</small></div>
+        <div class="sub">20:31:25 起算，计时段进行中</div>
+      </div>
+
+      <div class="card">
+        <div class="lb"><span>节点进度</span></div>
+        <div class="v" style="font-size:12.5px;line-height:1.4;color:var(--muted);font-family:inherit;font-weight:500">成功 <b style="color:var(--ok);font-family:var(--mono)">8</b> · 待人工 <b style="color:var(--warn);font-family:var(--mono)">1</b> · 未执行 <b style="font-family:var(--mono)">8</b></div>
+        <div class="track">
+          <span style="width:47%;background:var(--ok)"></span>
+          <span style="width:6%;background:var(--warn)"></span>
+          <span style="flex:1;background:rgba(255,255,255,.08)"></span>
+        </div>
+        <div class="sub mono">共 17 个节点</div>
+      </div>
+
+      <div class="card">
+        <div class="lb"><span>触发方式</span></div>
+        <div class="v" style="font:600 12.5px/1.4 inherit">手动</div>
+        <div class="sub">admin@local · 2026/11/11 20:31:25</div>
+      </div>
+    </div>
+
+    <!-- 三栏主体 -->
+    <div class="body">
+      <!-- 左栏：节点导航 -->
+      <div class="nav">
+        <div class="listhd"><span>执行流程</span><span>8 / 17</span></div>
+        <div class="list">
+          <div class="it"><span class="d" style="background:var(--ok)"></span><em>开始</em><span class="ms">3ms</span></div>
+          <div class="it"><span class="d" style="background:var(--ok)"></span><em>整理告警上下文</em><span class="ms">2ms</span></div>
+          <div class="it"><span class="d" style="background:var(--ok)"></span><em>查处置手册</em><span class="ms">718ms</span></div>
+          <div class="it"><span class="d" style="background:var(--ok)"></span><em>联网查最新公告</em><span class="ms">608ms</span></div>
+          <div class="it"><span class="d" style="background:var(--ok)"></span><em>汇合检索结果</em><span class="ms">8ms</span></div>
+          <div class="it"><span class="d" style="background:var(--ok)"></span><em>评估影响面</em><span class="ms">340ms</span></div>
+          <div class="it"><span class="d" style="background:var(--ok)"></span><em>是否走人工审批</em><span class="ms">0ms</span></div>
+          <div class="it sel"><span class="d" style="background:var(--warn)"></span><em>值班长审批</em><span class="ms">待审批</span></div>
+          <div class="sep">未执行 · 8</div>
+          <div class="it todo"><span class="d" style="background:#52525b"></span><em>整理审批结论</em></div>
+          <div class="it todo"><span class="d" style="background:#52525b"></span><em>低风险直接整理</em></div>
+          <div class="it todo"><span class="d" style="background:#52525b"></span><em>汇总处置证据</em></div>
+          <div class="it todo"><span class="d" style="background:#52525b"></span><em>生成处置方案</em></div>
+          <div class="it todo"><span class="d" style="background:#52525b"></span><em>查当周排班</em></div>
+          <div class="it todo"><span class="d" style="background:#52525b"></span><em>探活后端</em></div>
+          <div class="it todo"><span class="d" style="background:#52525b"></span><em>重试轮次判断</em></div>
+          <div class="it todo"><span class="d" style="background:#52525b"></span><em>累加重试轮次</em></div>
+          <div class="it todo"><span class="d" style="background:#52525b"></span><em>结束</em></div>
+        </div>
+      </div>
+
+      <!-- 中栏：节点详情 -->
+      <div class="main">
+        <div class="hd">
+          <span class="ic">审</span>
+          <b>值班长审批</b>
+          <span class="mono faint" style="font-size:10px;border:1px solid var(--line);border-radius:5px;padding:0 4px">gate</span>
+          <span class="faint" style="font-size:10px">人工审批</span>
+          <span style="margin-left:auto"><span class="pill p-warn"><i></i>待审批</span></span>
+        </div>
+        <div class="bdy">
+          <div class="gate">
+            <p style="margin:0 0 8px"><b style="color:var(--warn)">需要你确认：</b>磁盘使用率 92% 影响面评分偏高，确认按 critical 流程处置？</p>
+            <div style="display:flex;gap:6px;align-items:center">
+              <span class="btn btn-primary">✓ 批准并继续</span>
+              <span class="btn">拒绝</span>
+              <span class="faint" style="font-size:10px">拒绝会把这次运行标记为失败</span>
+            </div>
+          </div>
+
+          <div class="blk">
+            <h6>输入<span class="cnt">1 个变量</span></h6>
+            <div class="rows">
+              <div class="rowv">
+                <span class="vn mono">alert_text</span>
+                <span class="vt mono">磁盘使用率 92%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="blk">
+            <h6>输出<span class="cnt">JSON · 94 字符</span>
+              <span class="tools"><span class="tbtn">复制</span><span class="tbtn">折叠</span></span>
+            </h6>
+            <div class="code">
+              <div class="code-bar"><span class="dotc"></span><span>gate.result</span></div>
+              <pre class="cb"><span class="tk">{</span>
+  <span class="tk-k">"gate"</span><span class="tk">: </span><span class="tk-s">"gate"</span><span class="tk">,</span>
+  <span class="tk-k">"kind"</span><span class="tk">: </span><span class="tk-s">"approval"</span><span class="tk">,</span>
+  <span class="tk-k">"prompt"</span><span class="tk">: </span><span class="tk-s">"磁盘使用率 92% 影响面评分偏高，确认按 critical 流程处置？"</span>
+<span class="tk">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右栏：运行上下文 -->
+      <div class="ctx">
+        <div class="box">
+          <h5>画布 <span class="faint" style="font-size:9.5px">可点击定位</span></h5>
+          <div class="p">
+            <svg width="100%" viewBox="0 0 240 86" preserveAspectRatio="xMidYMid meet">
+              <defs><marker id="ar3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#52525b"/></marker></defs>
+              <g fill="none" stroke="#3f3f46" stroke-width="1.1" marker-end="url(#ar3)">
+                <path d="M46 22 H66"/><path d="M112 22 H132"/><path d="M46 58 H66"/><path d="M112 58 H132"/>
+              </g>
+              <g font-size="8" font-family="ui-monospace">
+                <g transform="translate(0 10)"><rect width="46" height="24" rx="6" fill="#18181b" stroke="#10b981"/><text x="7" y="15" fill="#e4e4e7">开始</text></g>
+                <g transform="translate(66 10)"><rect width="46" height="24" rx="6" fill="#18181b" stroke="#10b981"/><text x="7" y="15" fill="#e4e4e7">查手册</text></g>
+                <g transform="translate(132 10)"><rect width="46" height="24" rx="6" fill="#18181b" stroke="#10b981"/><text x="7" y="15" fill="#e4e4e7">汇合</text></g>
+                <g transform="translate(194 10)"><rect width="46" height="24" rx="6" fill="#18181b" stroke="#f59e0b"/><text x="7" y="15" fill="#e4e4e7">审批</text></g>
+                <g transform="translate(0 46)"><rect width="46" height="24" rx="6" fill="#18181b" stroke="#10b981"/><text x="7" y="15" fill="#e4e4e7">联网</text></g>
+                <g transform="translate(66 46)"><rect width="46" height="24" rx="6" fill="#18181b" stroke="#3f3f46"/><text x="7" y="15" fill="#71717a">结束</text></g>
+              </g>
+            </svg>
+          </div>
+        </div>
+
+        <div class="box">
+          <h5>运行输入</h5>
+          <div class="p">
+            <dl class="meta">
+              <dt>alert_text</dt><dd style="font-family:inherit;font-size:10.5px">磁盘使用率 92%</dd>
+              <dt>env</dt><dd>prod</dd>
+              <dt>account</dt><dd>prod</dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="box">
+          <h5>运行输出</h5>
+          <div class="p"><pre class="cb" style="max-height:90px">{}</pre></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <div><b>四张卡一行</b>状态 / 耗时 / 节点进度 / 触发方式，等宽排在一行；进度数字直接写在卡片上，不再单独占一张。</div>
+  <div><b>不重复</b>状态、耗时、触发只在信息带出现一次；运行输入/输出只在右栏；顶栏只留标题 + run id + 版本；中栏不再重复节点名与审批文案。</div>
+  <div><b>高度代价</b>信息带约 78px，三栏高度随之减少；所以左栏节点行压到 4px 行距，17 个节点仍能在一屏内扫到。</div>
+</div>
+
+</body>
+</html>

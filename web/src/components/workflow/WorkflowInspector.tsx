@@ -1,8 +1,9 @@
 // 工作流右侧面板：未选中节点时是「工作流信息」，选中节点后是「节点面板」。
 //
-// 版式对齐 Dify 的 workflow-panel：
+// 结构：
 //   1. 头部：实色图标块 + 可就地改名的标题 + 试跑 + 更多操作 + 关闭；
-//   2. 页签：设置（节点参数 / 结果变量）与上次运行（该节点的输出）；
+//   2. 页签：设置（节点参数 / 结果变量）与上次运行（该节点的输入与输出）；
+//      节点正在跑或刚跑完时，「上次运行」展示的是本次运行的实时结果。
 //   3. 面板浮在画布右侧而不是挤压画布，左侧有拖拽条可以改宽度（360–560）。
 //
 // 顺序上先给「这个节点要什么」，再给「它产出什么」，最后才是重试这类少改的项。
@@ -63,6 +64,8 @@ type Props = {
   running: boolean;
   /** 最近一次试跑结果，只对当前节点生效；关掉面板即丢弃。 */
   probe: NodeProbeResult | null;
+  /** 本次运行的实时结果（输入随 node_started 到达，输出随 node_finished 到达）。 */
+  live: NodeProbeResult | null;
   /** 受控页签：试跑完成后自动切到「上次运行」。 */
   tab: PanelTabKey;
   onTabChange(tab: PanelTabKey): void;
@@ -79,7 +82,7 @@ export function WorkflowInspector(props: Props) {
   const panelRef = useRef<HTMLElement | null>(null);
   const { onClose } = props;
 
-  // 与 Dify 一致：Esc 收起面板。
+  // Esc 收起面板。
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
@@ -92,7 +95,7 @@ export function WorkflowInspector(props: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  // 左侧拖拽条：与 Dify 一样，往左拖变宽、往右拖变窄。
+  // 左侧拖拽条：往左拖变宽、往右拖变窄。
   const startResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const originX = event.clientX;
@@ -146,6 +149,7 @@ function NodePanel({
   onRunNode,
   running,
   probe,
+  live,
   tab,
   onTabChange,
   onClose,
@@ -160,6 +164,8 @@ function NodePanel({
   // 人工节点在完整运行里要等提交，试跑会直接卡住，所以不给入口。
   const canRun = node.kind !== 'start' && node.kind !== 'approval' && node.kind !== 'input';
   const fresh = probe !== null && probe.node_id === node.id ? probe : null;
+  // 实时结果只对当前节点有意义：面板换到别的节点时不能拿它冒充那一步的结果
+  const liveRun = live !== null && live.node_id === node.id ? live : null;
 
   return (
     <>
@@ -229,7 +235,7 @@ function NodePanel({
           </div>
         </div>
       ) : (
-        <LastRunBody workflowId={workflowId} nodeId={node.id} probe={fresh} />
+        <LastRunBody workflowId={workflowId} nodeId={node.id} probe={fresh} live={liveRun} />
       )}
     </>
   );
@@ -1058,7 +1064,7 @@ function defaultText(value: unknown): string {
 // ---------------------------------------------------------------------------
 
 type NodeRunView = {
-  status: NodeRunStatus;
+  status: NodeRunStatus | 'running';
   input: unknown;
   output: unknown;
   error: string;
@@ -1067,7 +1073,18 @@ type NodeRunView = {
   attempt: number;
 } | null;
 
-function LastRunBody({ workflowId, nodeId, probe }: { workflowId: number; nodeId: string; probe: NodeProbeResult | null }) {
+function LastRunBody({
+  workflowId,
+  nodeId,
+  probe,
+  live,
+}: {
+  workflowId: number;
+  nodeId: string;
+  probe: NodeProbeResult | null;
+  /** 本次运行的实时结果：有它时优先展示，运行中就能看到输入输出。 */
+  live: NodeProbeResult | null;
+}) {
   const { tr } = useI18n();
   const [state, setState] = useState<{ loading: boolean; error: string | null; run: NodeRunView }>({
     loading: true,
@@ -1107,40 +1124,59 @@ function LastRunBody({ workflowId, nodeId, probe }: { workflowId: number; nodeId
   }, [nodeId, workflowId]);
 
   useEffect(() => {
-    // 已经有本次试跑结果时不再去翻历史，避免面板里同时出现新旧两份输出。
-    if (probe !== null) return;
+    // 有本次试跑或本次运行的实时结果时不再去翻历史：
+    // 否则面板里会同时出现新旧两份结果。
+    if (probe !== null || live !== null) return;
     void load();
-  }, [load, probe]);
+  }, [load, probe, live]);
 
-  // 试跑结果优先：它是刚发生的，比库里的历史更贴近用户刚才的动作。
-  const view: NodeRunView = probe === null
-    ? state.run
-    : {
-        status: probe.status,
-        input: parseJsonText(probe.input),
-        output: parseJsonText(probe.output),
-        error: probe.error,
-        durationMs: probe.duration_ms,
-        createdAt: '',
-        attempt: probe.attempt,
-      };
-  const loading = probe === null && state.loading;
-  const error = probe === null ? state.error : null;
+  // 本次运行 / 本次试跑的结果最贴近用户刚才的动作，优先于库里的历史；
+  // 两者互斥（一个节点要么被这次试跑跑过，要么在这次运行里跑过）。
+  const recent: NodeRunView =
+    live !== null
+      ? {
+          status: live.status,
+          input: live.input,
+          output: live.output,
+          error: live.error,
+          durationMs: live.duration_ms,
+          createdAt: '',
+          attempt: live.attempt,
+        }
+      : probe === null
+        ? null
+        : {
+            status: probe.status,
+            input: parseJsonText(probe.input),
+            output: parseJsonText(probe.output),
+            error: probe.error,
+            durationMs: probe.duration_ms,
+            createdAt: '',
+            attempt: probe.attempt,
+          };
+  const view: NodeRunView = recent ?? state.run;
+  const fromLive = live !== null && recent !== null;
+  const loading = recent === null && state.loading;
+  const error = recent === null ? state.error : null;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-3">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-[10px] font-medium uppercase tracking-wider text-text-faint">
-          {probe === null ? tr('最近一次运行', 'Most recent run') : tr('本次试跑', 'This test run')}
+          {fromLive
+            ? tr('本次运行', 'This run')
+            : probe === null
+              ? tr('最近一次运行', 'Most recent run')
+              : tr('本次试跑', 'This test run')}
         </span>
         <button
           type="button"
           onClick={() => void load()}
-          disabled={probe !== null}
+          disabled={recent !== null}
           aria-label={tr('刷新运行结果', 'Refresh run result')}
           className={cn(
             'flex h-6 w-6 items-center justify-center rounded-md text-text-faint transition-colors hover:bg-zinc-500/10 hover:text-text',
-            probe !== null && 'invisible',
+            recent !== null && 'invisible',
           )}
         >
           <RefreshCw size={11} className={cn(loading && 'animate-spin')} aria-hidden />
@@ -1167,13 +1203,27 @@ function LastRunBody({ workflowId, nodeId, probe }: { workflowId: number; nodeId
             <span
               className={cn(
                 'inline-flex items-center gap-1 rounded-full px-1.5 leading-4',
-                view.status === 'succeeded' ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger',
+                view.status === 'succeeded'
+                  ? 'bg-ok/10 text-ok'
+                  : view.status === 'running'
+                    ? 'bg-info/10 text-info'
+                    : 'bg-danger/10 text-danger',
               )}
             >
-              {view.status === 'succeeded' ? <Check size={9} aria-hidden /> : <X size={9} aria-hidden />}
-              {view.status === 'succeeded' ? tr('成功', 'Succeeded') : tr('失败', 'Failed')}
+              {view.status === 'running' ? (
+                <Loader2 size={9} className="animate-spin" aria-hidden />
+              ) : view.status === 'succeeded' ? (
+                <Check size={9} aria-hidden />
+              ) : (
+                <X size={9} aria-hidden />
+              )}
+              {view.status === 'running'
+                ? tr('运行中', 'Running')
+                : view.status === 'succeeded'
+                  ? tr('成功', 'Succeeded')
+                  : tr('失败', 'Failed')}
             </span>
-            <span className="tabular-nums text-text-faint">{view.durationMs} ms</span>
+            {view.status !== 'running' && <span className="tabular-nums text-text-faint">{view.durationMs} ms</span>}
             {view.attempt > 1 && <span className="text-text-faint">{tr(`第 ${view.attempt} 次尝试`, `attempt ${view.attempt}`)}</span>}
             {view.createdAt !== '' && <span className="ml-auto tabular-nums text-text-faint">{fullDateTime(view.createdAt)}</span>}
           </div>
@@ -1182,7 +1232,7 @@ function LastRunBody({ workflowId, nodeId, probe }: { workflowId: number; nodeId
             <pre className="max-h-40 overflow-auto rounded-lg border border-danger/30 bg-danger/5 px-2.5 py-2 font-mono text-[10.5px] leading-4 text-danger">{view.error}</pre>
           )}
 
-          {/* 与 Dify 的 ResultPanel 一致：先输入、再输出，方便对照这一步吃了什么、吐出什么 */}
+          {/* 先输入、再输出，方便对照这一步吃了什么、吐出什么 */}
           <div className="flex items-baseline justify-between">
             <span className="text-[10px] font-medium uppercase tracking-wider text-text-faint">{tr('输入', 'Input')}</span>
             <span className="text-[9.5px] text-text-faint">{tr('只列这一步读取的变量', 'Only variables this step reads')}</span>
@@ -1191,9 +1241,20 @@ function LastRunBody({ workflowId, nodeId, probe }: { workflowId: number; nodeId
 
           <div className="text-[10px] font-medium uppercase tracking-wider text-text-faint">{tr('输出', 'Output')}</div>
           <pre className="max-h-[28vh] overflow-auto rounded-lg border border-border/60 bg-bg/60 px-2.5 py-2 font-mono text-[10.5px] leading-4 text-text">
-            {view.output === null ? '—' : typeof view.output === 'string' ? view.output : JSON.stringify(view.output, null, 2)}
+            {view.status === 'running'
+              ? tr('这一步还在执行，输出跑完即到…', 'Still running; output arrives when this step finishes…')
+              : view.output === null
+                ? '—'
+                : typeof view.output === 'string'
+                  ? view.output
+                  : JSON.stringify(view.output, null, 2)}
           </pre>
-          {probe !== null && (
+          {fromLive && view.status !== 'running' && (
+            <div className="text-[10px] leading-4 text-text-faint">
+              {tr('本次运行的实时结果；运行记录里可查看完整详情。', 'Live result of this run; full details are in the run record.')}
+            </div>
+          )}
+          {probe !== null && !fromLive && (
             <div className="text-[10px] leading-4 text-text-faint">
               {tr('试跑不写入运行记录，只用于确认这一步的输入输出。', 'A test run is not stored in run history; it only shows this step’s result.')}
             </div>

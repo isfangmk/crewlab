@@ -26,12 +26,13 @@ async def test_run_query_knowledge(env: dict[str, str], api_base: str) -> None:
         names = [i["name"] for i in body["items"]]
         assert "query_knowledge" in names
         groups = {g["key"]: g for g in body["groups"]}
-        assert groups["builtin"] == {
-            "key": "builtin",
-            "title": "内置工具",
-            "title_en": "Built-in tools",
+        assert groups["knowledge"] == {
+            "key": "knowledge",
+            "title": "知识检索",
+            "title_en": "Knowledge",
         }
-        assert all(i["group"] == "builtin" for i in body["items"])
+        assert groups["workflow"]["title"] == "工作流"
+        assert all(i["group"] in ("knowledge", "search", "workflow") for i in body["items"])
 
         run = await client.post(
             "/api/v1/tools/builtin/query_knowledge/run",

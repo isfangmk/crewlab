@@ -8,18 +8,26 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.adk_runtime.builtin_tools import (
-    BUILTIN_TOOL_SPECS,
-    query_knowledge,
-    tool_param_specs,
+from app.tools.catalog import BUILTIN_TOOL_SPECS, tool_param_specs
+from app.tools.knowledge import query_knowledge
+from app.tools.workflow import (
+    get_workflow,
+    get_workflow_run,
+    list_workflow_runs,
+    list_workflows,
+    run_workflow,
 )
 from app.services.web_search_service import deepseek_web_search, resolve_deepseek_search_cred
 
 logger = logging.getLogger(__name__)
 
 # 目录分组由后端提供，前端只按 key 渲染；标题同时给中英文，跟随 UI 语言。
+# key 按能力主题取，不用「内置」这种笼统说法：目录里本来就是内置工具，
+# 这个层级要告诉用户「这是哪一类能力」。
 _BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
-    "builtin": {"title": "内置工具", "title_en": "Built-in tools"},
+    "knowledge": {"title": "知识检索", "title_en": "Knowledge"},
+    "search": {"title": "联网搜索", "title_en": "Web search"},
+    "workflow": {"title": "工作流", "title_en": "Workflow"},
 }
 
 
@@ -39,6 +47,15 @@ def _param_source(name: str) -> Any:
         return query_knowledge
     if name == "web_search":
         return _web_search_signature
+    workflow_tools = {
+        "list_workflows": list_workflows,
+        "get_workflow": get_workflow,
+        "run_workflow": run_workflow,
+        "list_workflow_runs": list_workflow_runs,
+        "get_workflow_run": get_workflow_run,
+    }
+    if name in workflow_tools:
+        return workflow_tools[name]
     raise LookupError(f"未知内置工具: {name}")
 
 
@@ -121,6 +138,21 @@ async def run_builtin_tool(
     if name == "web_search":
         base_url, api_key = await resolve_deepseek_search_cred(db)
         result = await deepseek_web_search(base_url=base_url, api_key=api_key, **kwargs)
+        return {"tool": name, "result": result}
+
+    if name == "list_workflow_runs":
+        # 该工具自带会话：ADK 调用时拿不到请求级 db，为了两种入口共用一份实现
+        result = await list_workflow_runs(**kwargs)
+        return {"tool": name, "result": result}
+
+    if name in ("list_workflows", "get_workflow", "run_workflow", "get_workflow_run"):
+        tool = {
+            "list_workflows": list_workflows,
+            "get_workflow": get_workflow,
+            "run_workflow": run_workflow,
+            "get_workflow_run": get_workflow_run,
+        }[name]
+        result = await tool(**kwargs)
         return {"tool": name, "result": result}
 
     # 目录有、但未实现运行分支：显式失败，禁止静默跳过

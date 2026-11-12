@@ -56,6 +56,26 @@ def initial_state_of(
     return initial_state(definition.require_start(), payload)
 
 
+def definition_for(
+    workflow: WorkflowRow, source: str
+) -> tuple[WorkflowDefinition, str]:
+    """按来源取定义，返回（解析后的定义，落库用的原文）。
+
+    草稿始终可跑；跑已发布快照要求确实发布过，否则显式报错——
+    静默退回草稿会让用户以为在跑正式版本。
+    """
+
+    if source not in ("published", "draft"):
+        raise ValueError(f"source 只能是 published 或 draft: {source}")
+    if source == "draft":
+        return parse_definition(workflow.definition_json), workflow.definition_json
+
+    snapshot = workflow.published_definition_json
+    if snapshot == "":
+        raise ValueError(f"工作流尚未发布，没有可运行的已发布版本: {workflow.name}")
+    return parse_definition(snapshot), snapshot
+
+
 def initial_state(
     node: WorkflowNode, payload: dict[str, Any]
 ) -> dict[str, Any]:
@@ -117,29 +137,55 @@ def _first_message(values: dict[str, Any]) -> types.Content:
     )
 
 
-async def execute_run(
+async def execute_existing_run(
+    db: AsyncSession,
+    *,
+    run: WorkflowRun,
+    on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+) -> WorkflowRun:
+    """执行一条已建好的运行记录（发起与执行分离时用）。
+
+    定义取自运行记录自己的 definition_json：跑的是发起那一刻选中的那份，
+    之后工作流再改草稿或重新发布都不影响这次执行。
+    """
+
+    definition = parse_definition(run.definition_json)
+    state = json.loads(run.input_json)
+    return await _drive(
+        db,
+        run=run,
+        definition=definition,
+        state=state,
+        resumed_state=None,
+        on_event=on_event,
+    )
+
+
+async def create_run(
     db: AsyncSession,
     *,
     workflow: WorkflowRow,
     payload: dict[str, Any],
     triggered_by: str,
-    on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
-) -> WorkflowRun:
-    """创建运行记录并执行到结束 / 等待人工。
+    source: str,
+) -> tuple[WorkflowRun, WorkflowDefinition]:
+    """只建运行记录（状态 running），返回记录与这次要跑的定义。
 
-    on_event 非空时边跑边推事件（流式运行），用于前端实时点亮节点。
+    调用方拿到 run_uid 就能立刻跳转/返回，执行另起后台任务。
     """
 
-    definition = parse_definition(workflow.definition_json)
+    if source not in ("published", "draft"):
+        raise ValueError(f"source 只能是 published 或 draft: {source}")
+    definition, definition_json = definition_for(workflow, source)
     run_uid = f"run_{uuid4().hex[:12]}"
     initial_state = initial_state_of(definition, payload)
     run = WorkflowRun(
         workflow_id=workflow.id,
         run_uid=run_uid,
-        definition_json=workflow.definition_json,
+        definition_json=definition_json,
         workflow_version=workflow.version,
-        # 发起时的画布状态：草稿运行与已发布运行在列表里必须分得清
-        workflow_status=workflow.status,
+        # 发起时真正使用的来源：详情页据此显示草稿 / 已发布
+        workflow_status=source,
         status=RUN_RUNNING,
         trigger=RUN_TRIGGER_MANUAL,
         triggered_by=triggered_by,
@@ -156,11 +202,40 @@ async def execute_run(
         [n.id for n in definition.nodes],
         sorted(initial_state),
     )
+    return run, definition
+
+
+async def execute_run(
+    db: AsyncSession,
+    *,
+    workflow: WorkflowRow,
+    payload: dict[str, Any],
+    triggered_by: str,
+    source: str,
+    on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+) -> WorkflowRun:
+    """创建运行记录并执行到结束 / 等待人工。
+
+    source 必填，决定跑哪一份定义：
+      - published：最近一次发布时的快照，列表页与「再次运行」用；
+      - draft：当前草稿，编排页正在编辑时用。
+    不给默认值，是为了避免调用方在没想清楚时跑错版本。
+
+    on_event 非空时边跑边推事件（流式运行），用于前端实时点亮节点。
+    """
+
+    run, definition = await create_run(
+        db,
+        workflow=workflow,
+        payload=payload,
+        triggered_by=triggered_by,
+        source=source,
+    )
     return await _drive(
         db,
         run=run,
         definition=definition,
-        state=initial_state,
+        state=json.loads(run.input_json),
         resumed_state=None,
         on_event=on_event,
     )

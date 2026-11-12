@@ -26,7 +26,7 @@ import {
   getWorkflow,
   listRuns,
   listWorkflows,
-  runWorkflow,
+  startWorkflowRun,
   type RunStatus,
   type WorkflowCatalog,
   type WorkflowDefinition,
@@ -374,9 +374,12 @@ export default function WorkflowsPage() {
                         <td className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-zinc-500">{fullDateTime(item.updated_at)}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-right">
                           <div className="flex items-center justify-end gap-1.5">
-                            <RowAction icon={Play} tone="positive" disabled={loadingRunFor === item.id} onClick={() => void openRun(item.id)}>
-                              {tr('运行', 'Run')}
-                            </RowAction>
+                            {/* 没发布过就没有可运行的正式版本，直接不给入口，避免误以为在跑线上版 */}
+                            {item.has_published && (
+                              <RowAction icon={Play} tone="positive" disabled={loadingRunFor === item.id} onClick={() => void openRun(item.id)}>
+                                {tr('运行', 'Run')}
+                              </RowAction>
+                            )}
                             <RowAction icon={Pencil} onClick={() => navigate(`/workflows/${item.id}`)}>
                               {tr('编排', 'Edit')}
                             </RowAction>
@@ -452,8 +455,9 @@ export default function WorkflowsPage() {
             setRunning(null);
             void (async () => {
               try {
-                const run = await runWorkflow(target.id, values);
-                navigate(`/workflows/runs/${run.run_uid}`);
+                // 只发起，不等执行：拿到 run_uid 立刻进详情页看进度
+                const { run_uid } = await startWorkflowRun(target.id, values, 'published');
+                navigate(`/workflows/runs/${run_uid}`);
               } catch (error) {
                 flash('err', error instanceof ApiError ? error.message : (error as Error).message);
               }
@@ -718,9 +722,12 @@ function RunsTab({
                       <td className="whitespace-nowrap px-3 py-2 font-mono text-[11px] text-zinc-500">{formatDuration(run.duration_ms)}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <RowAction icon={Play} onClick={() => onRerun(run.workflow_id)}>
-                            {tr('再次运行', 'Run again')}
-                          </RowAction>
+                          {/* 未发布就没有可运行的正式版本，不给「再次运行」 */}
+                          {run.has_published && (
+                            <RowAction icon={Play} onClick={() => onRerun(run.workflow_id)}>
+                              {tr('再次运行', 'Run again')}
+                            </RowAction>
+                          )}
                           <RowAction icon={ArrowUpRight} onClick={() => onOpenRun(run.run_uid)}>
                             {tr('详情', 'Details')}
                           </RowAction>

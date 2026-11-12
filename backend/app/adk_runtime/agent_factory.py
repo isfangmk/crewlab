@@ -8,7 +8,7 @@ from typing import Any
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 
-from app.adk_runtime.builtin_tools import build_builtin_tools
+from app.adk_runtime.toolset import build_builtin_tools
 from app.adk_runtime.tool_approval import build_before_tool_callback
 from app.models_orm.llm import LlmProvider
 from app.services.knowledge_scope import KnowledgeScope
