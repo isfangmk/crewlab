@@ -42,6 +42,7 @@ import {
   Button,
   Chip,
   EmptyStateCard,
+  ErrorBanner,
   FilterBar,
   FilterChip,
   FilterPill,
@@ -76,8 +77,8 @@ import {
   type PathRow,
   type SearchHit,
 } from '@/api/knowledge';
-import { ApiError } from '@/api/client';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 // 拖拽移动组织文档时的 dataTransfer MIME；值为文档 id。
 const DOC_DND_MIME = 'application/x-ongrid-doc-id';
@@ -129,19 +130,6 @@ function sourceLabel(doc: KnowledgeDoc, tr: (zh: string, en: string) => string):
   if (doc.source_type === 'upload') return tr('上传', 'upload');
   if (doc.source_type === 'repo') return 'repo';
   return tr('手动', 'manual');
-}
-
-function errorText(e: unknown): string {
-  return e instanceof ApiError ? e.message : (e as Error).message;
-}
-
-/** 页面与弹窗共用的错误条；`role="alert"` 走无语义容器，避免与标题层级冲突。 */
-function ErrorBanner({ text }: { text: string }) {
-  return (
-    <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11.5px] leading-5 text-red-300">
-      {text}
-    </div>
-  );
 }
 
 /** 表单字段：说明文字用 `htmlFor` 关联控件，避免把控件内容并进可访问名。 */
@@ -525,7 +513,7 @@ export default function KnowledgePage() {
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden px-6 pb-5 pt-3">
           {err && (
             <div className="mb-3 shrink-0">
-              <ErrorBanner text={err} />
+              <ErrorBanner>{err}</ErrorBanner>
             </div>
           )}
 
@@ -1340,7 +1328,7 @@ function DocEditor({
             {loading ? (
               <div className="text-[11.5px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
             ) : err ? (
-              <ErrorBanner text={err} />
+              <ErrorBanner>{err}</ErrorBanner>
             ) : content ? (
               <DocBody content={content} />
             ) : (
@@ -1385,7 +1373,7 @@ function DocEditor({
       }
     >
       <div className="space-y-4">
-        {err && <ErrorBanner text={err} />}
+        {err && <ErrorBanner>{err}</ErrorBanner>}
         <LocateBanner locate={locate} readOnly={false} />
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={tr('标题 *', 'Title *')} htmlFor="knowledge-doc-title">

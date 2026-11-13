@@ -4,12 +4,12 @@
 // RunInputs 那一份实现；不落运行记录，结果只回填到节点面板的「上次运行」页签。
 
 import { useState } from 'react';
-import { ApiError } from '@/api/client';
 import { runNode, type NodeProbeResult, type WorkflowDefinition } from '@/api/workflows';
 import { Modal } from '@/components/Modal';
 import { Button } from '@/components/ui';
 import { buildPayload, initialValues, VariableFields } from '@/components/workflow/RunInputs';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 type Props = {
   workflowId: number;
@@ -40,7 +40,7 @@ export function NodeRunDialog({ workflowId, definition, nodeId, nodeTitle, onClo
       const result = await runNode(workflowId, nodeId, buildPayload(variables, values, tr));
       onDone(result);
     } catch (error) {
-      setErr(error instanceof ApiError ? error.message : (error as Error).message);
+      setErr(errorText(error));
     } finally {
       setBusy(false);
       onBusyChange?.(false);

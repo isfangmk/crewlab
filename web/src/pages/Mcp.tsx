@@ -1,6 +1,8 @@
 import { useAssistantPage } from '@/lib/assistantPage';
-import { FilterBar, Label, Input, SearchInput, Textarea } from '@/components/ui';
+import { FilterBar, Label, Input, SearchInput, TableHead, Textarea } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
+import { useTimeout } from '@/lib/useTimeout';
+import { useRequestSeq } from '@/lib/requestSeq';
 import { Switch } from '@/components/ui/Switch';
 import { Select } from '@/components/ui/Select';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -42,6 +44,7 @@ import { Modal } from '@/components/Modal';
 import { Button, Card, Chip, DetailSection, EmptyStateCard, PageHeader, RowAction, Toast } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 // MCP 服务注册页：列表可展开看工具；工具可展开看参数表并试跑。
 
@@ -71,6 +74,7 @@ export default function McpPage() {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [secrets, setSecrets] = useState<SecretView[]>([]);
   const [loading, setLoading] = useState(true);
+  const reqSeq = useRequestSeq();
   const [err, setErr] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const shownServers = servers.filter((s) => {
@@ -87,18 +91,23 @@ export default function McpPage() {
   const [testState, setTestState] = useState<Record<number, { loading: boolean; tools?: McpTool[]; error?: string }>>({});
 
   const refresh = useCallback(async () => {
+    const current = reqSeq.next();
     setLoading(true);
     setErr(null);
     try {
       const [list, secs] = await Promise.all([listMcpServers(), listSecrets().catch(() => ({ items: [] }))]);
+      if (reqSeq.isStale(current)) return;
       setServers(list);
       setSecrets(secs.items ?? []);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      if (reqSeq.isStale(current)) return;
+      setErr(errorText(e));
     } finally {
-      setLoading(false);
+      if (!reqSeq.isStale(current)) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [reqSeq]);
 
   useEffect(() => {
     void refresh();
@@ -110,7 +119,7 @@ export default function McpPage() {
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message);
+  const errMsg = (e: unknown) => (errorText(e));
 
   const handleSave = useCallback(async () => {
     if (!editing) return;
@@ -235,7 +244,7 @@ export default function McpPage() {
       <div className="flex-1 space-y-4 overflow-auto px-6 py-4">
 
       {err && (
-        <div className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-400">{err}</div>
+        <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-red-400">{err}</div>
       )}
 
       {loading && servers.length === 0 ? (
@@ -340,7 +349,7 @@ function loadServerTools(server: McpServer, probed?: McpTool[]): { tools: McpToo
   try {
     return { tools: parseToolsCache(server.tools_cache_json), error: null };
   } catch (e) {
-    return { tools: [], error: e instanceof Error ? e.message : String(e) };
+    return { tools: [], error: errorText(e) };
   }
 }
 
@@ -573,7 +582,7 @@ function ToolRow({
             ) : (
               <div className="overflow-hidden rounded-lg border border-zinc-800/60 bg-zinc-950/30">
                 <table className="og-action-table w-full text-left text-[12px]">
-                  <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
+                  <TableHead>
                     <tr>
                       <th className="px-3 py-1.5 text-left font-medium">{tr('参数', 'Parameter')}</th>
                       <th className="px-3 py-1.5 text-left font-medium">{tr('类型', 'Type')}</th>
@@ -581,7 +590,7 @@ function ToolRow({
                       <th className="px-3 py-1.5 text-left font-medium">{tr('默认', 'Default')}</th>
                       <th className="px-3 py-1.5 text-left font-medium">{tr('说明', 'Description')}</th>
                     </tr>
-                  </thead>
+                  </TableHead>
                   <tbody className="divide-y divide-zinc-800/50">
                     {fields.map((field) => (
                       <tr key={field.name} className="transition-colors hover:bg-zinc-900/70">
@@ -707,17 +716,18 @@ function ToolRunModal({
       setResultText(resp.result_text);
       setResultIsError(resp.is_error);
     } catch (e) {
-      setRunErr(e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e));
+      setRunErr(e instanceof ApiError ? e.message : errorText(e));
     } finally {
       setRunning(false);
     }
   };
 
+  const copyTimer = useTimeout();
   const onCopy = async () => {
     if (resultText == null) return;
     await navigator.clipboard.writeText(resultText);
     setCopied(true);
-    window.setTimeout(() => setCopied(false), 2000);
+    copyTimer(() => setCopied(false), 2000);
   };
 
   return (
@@ -807,7 +817,7 @@ function ToolRunModal({
         )}
 
         {runErr && (
-          <div className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[12px] text-red-300">{runErr}</div>
+          <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-red-300">{runErr}</div>
         )}
         {resultText != null && (
           <div>
@@ -816,7 +826,7 @@ function ToolRunModal({
               className={cn(
                 'max-h-72 overflow-auto rounded-md border px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap',
                 resultIsError
-                  ? 'border-red-900/50 bg-red-950/20 text-red-200'
+                  ? 'border-danger/30 bg-danger/10 text-red-200'
                   : 'border-zinc-800 bg-zinc-950 text-zinc-200',
               )}
             >
@@ -980,7 +990,7 @@ function ServerEditor({
           }
         />
         {input.trusted && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-400">
+          <div className="flex items-start gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-[11px] text-amber-400">
             <AlertTriangle size={13} className="mt-0.5 shrink-0" />
             <span>{tr('免审直跑：仅建议给只读服务，跳过人工确认。', 'Runs without approval. Recommended for read-only servers only.')}</span>
           </div>

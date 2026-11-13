@@ -1,10 +1,12 @@
 import { useAssistantPage } from '@/lib/assistantPage';
-import { Button, Input, Label, SectionCard } from '@/components/ui';
+import {
+  ErrorBanner, Button, Input, Label, SectionCard } from '@/components/ui';
 import { Select } from '@/components/ui/Select';
 import { useCallback, useEffect, useState } from 'react';
 import { Clock3, Languages, Loader2, Save } from 'lucide-react';
 import { listSettings, setSetting } from '@/api/settings';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 // 助理运行参数：超时 + 输出语言（去掉 ongrid 运行时版本 / 主机写权限等无关项）
 const CATEGORY = 'agent';
@@ -42,7 +44,7 @@ export default function SettingsAgent() {
       setOutputLocale(localeValue);
       setErr(null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errorText(e));
     } finally {
       setLoading(false);
     }
@@ -69,7 +71,7 @@ export default function SettingsAgent() {
       await setSetting(CATEGORY, LLM_TIMEOUT_KEY, String(seconds), false);
       setLLMTimeoutSeconds(String(seconds));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errorText(e));
     } finally {
       setSavingTimeout(false);
     }
@@ -81,7 +83,7 @@ export default function SettingsAgent() {
     try {
       await setSetting(CATEGORY, OUTPUT_LOCALE_KEY, outputLocale, false);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errorText(e));
     } finally {
       setSavingLocale(false);
     }
@@ -95,7 +97,7 @@ export default function SettingsAgent() {
 
   return (
     <div className="space-y-4">
-      {err && <div className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">{err}</div>}
+      {err && <ErrorBanner>{err}</ErrorBanner>}
 
       <SectionCard
         title={<span className="inline-flex items-center gap-2"><Languages size={13} className="text-zinc-400" />{tr('Agent 输出语言', 'Agent output language')}</span>}

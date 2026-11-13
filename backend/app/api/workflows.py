@@ -206,22 +206,13 @@ async def workflow_catalog(
 
 
 def _server_tools(server: Any) -> list[str]:
-    import json
+    """画布 MCP 节点可选的工具名；缓存为空说明还没探测过，不给选项。"""
 
-    raw = server.tools_cache_json
-    if raw == "":
+    from app.services.mcp_catalog_toolset import parse_cached_tools
+
+    if server.tools_cache_json.strip() == "":
         return []
-    data = json.loads(raw)
-    if not isinstance(data, list):
-        raise TypeError(f"MCP Server {server.name} 的 tools_cache_json 必须是数组")
-    names: list[str] = []
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        name = item.get("name")
-        if isinstance(name, str) and name != "":
-            names.append(name)
-    return names
+    return [item["name"] for item in parse_cached_tools(server.tools_cache_json, server_name=server.name, require_schema=False)]
 
 
 @router.get("/workflows")
@@ -303,7 +294,6 @@ async def create_workflow(
     await db.commit()
     await db.refresh(row)
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="workflow.create",
         resource_type="workflow",
@@ -411,7 +401,6 @@ async def resume_run(
     if body.decision == "approve":
         workflow_runner.spawn_resume(workflow_service.drive_resumed_run(run_uid))
     await write_audit(
-        db,
         actor_user_id=user.id,
         action=f"workflow.run_{body.decision}",
         resource_type="workflow_run",
@@ -548,7 +537,6 @@ async def update_workflow(
     await db.commit()
     await db.refresh(row)
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="workflow.update",
         resource_type="workflow",
@@ -600,7 +588,6 @@ async def publish_workflow(
     await db.commit()
     await db.refresh(row)
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="workflow.publish",
         resource_type="workflow",
@@ -622,7 +609,6 @@ async def delete_workflow(
     await db.delete(row)
     await db.commit()
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="workflow.delete",
         resource_type="workflow",
@@ -661,7 +647,6 @@ async def start_workflow_run(
     except (ValueError, LookupError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="workflow.run",
         resource_type="workflow_run",

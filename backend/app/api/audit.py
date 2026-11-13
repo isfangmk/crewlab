@@ -219,7 +219,6 @@ async def export_audit(
     body = "\ufeff" + buf.getvalue()
     # 导出本身就是把审计数据带出系统，必须自己也被审计。
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="audit.export",
         resource_type="audit",

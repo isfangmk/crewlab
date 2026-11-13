@@ -1,6 +1,7 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { errorText } from '@/lib/errors';
 
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
@@ -18,7 +19,8 @@ import { AgentBadge } from '@/components/AgentBadge';
 
 import { Download, Share2 } from 'lucide-react';
 
-import { PageHeader, RowAction } from '@/components/ui';
+import {
+  ErrorBanner, PageHeader, RowAction } from '@/components/ui';
 
 import { ShareSessionDialog } from '@/components/ShareSessionDialog';
 
@@ -389,7 +391,7 @@ export default function ChatThreadPage() {
       invalidateChatSessions();
       setSessionMeta(await getSession(sessionId));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
       throw e;
     }
   }
@@ -1635,7 +1637,7 @@ export default function ChatThreadPage() {
         navigate(`/chat/${forked.id}`);
       })
       .catch((e: unknown) => {
-        setError(e instanceof ApiError ? e.message : (e as Error).message);
+        setError(errorText(e));
       });
   }
 
@@ -1966,17 +1968,11 @@ export default function ChatThreadPage() {
 
             {error && (
 
-              <div
-
-                role="alert"
-
-                className="self-center rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300"
-
-              >
+              <ErrorBanner>
 
                 {error}
 
-              </div>
+              </ErrorBanner>
 
             )}
 

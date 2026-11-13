@@ -1,5 +1,5 @@
 import { useAssistantPage } from '@/lib/assistantPage';
-import { Button, Chip, Input, Label, RowAction, RowActionIcon, SectionCard, TableCard } from '@/components/ui';
+import { Button, Chip, Input, Label, RowAction, RowActionIcon, SectionCard, TableCard, TableHead } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -15,11 +15,11 @@ import {
   type SecretView,
   type CredType,
 } from '@/api/secrets';
-import { ApiError } from '@/api/client';
 import { SecretRotateDialog } from '@/components/SecretRotateDialog';
 import { saveBlob } from '@/lib/download';
 import { fullDateTime } from '@/lib/format';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 // 凭据管理：按类型渲染字段；custom 为自由键值。明文只写不读，落库加密。
 
@@ -60,7 +60,7 @@ export default function SecretsPage() {
       setHealth(Object.fromEntries((h.items ?? []).map((i) => [i.id, i])));
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setLoading(false);
     }
@@ -103,7 +103,7 @@ export default function SecretsPage() {
       resetForm();
       await load();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -115,7 +115,7 @@ export default function SecretsPage() {
       await deleteSecret(id);
       await load();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -128,7 +128,7 @@ export default function SecretsPage() {
       saveBlob(blob, filename);
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setExporting(false);
     }
@@ -145,7 +145,7 @@ export default function SecretsPage() {
     // 轮换会改 updated_at 与密文：重查健康状态，避免页面停留在旧的「不可解密」提示。
     void getSecretsHealth()
       .then((h) => setHealth(Object.fromEntries((h.items ?? []).map((i) => [i.id, i]))))
-      .catch((e) => setErr(e instanceof ApiError ? e.message : (e as Error).message));
+      .catch((e) => setErr(errorText(e)));
   };
 
   const brokenSecrets = items.filter((item) => health[item.id] !== undefined && !health[item.id].ok);
@@ -188,7 +188,7 @@ export default function SecretsPage() {
       />
 
       {err && (
-        <div className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[11px] text-red-400">{err}</div>
+        <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] text-red-400">{err}</div>
       )}
 
       {note && (
@@ -196,7 +196,7 @@ export default function SecretsPage() {
       )}
 
       {brokenSecrets.length > 0 && (
-        <div className="flex items-start gap-2 rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-[11px] text-red-400">
+        <div className="flex items-start gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] text-red-400">
           <ShieldAlert size={13} className="mt-[1px] shrink-0" aria-hidden />
           <span>
             {tr(
@@ -316,7 +316,7 @@ export default function SecretsPage() {
 
       <TableCard>
         <table className="og-action-table w-full text-left text-[12px]">
-          <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
+          <TableHead>
             <tr>
               <th className="px-3 py-1.5 font-medium">{tr('名称', 'Name')}</th>
               <th className="px-3 py-1.5 font-medium">{tr('类型', 'Type')}</th>
@@ -324,7 +324,7 @@ export default function SecretsPage() {
               <th className="px-3 py-1.5 font-medium">{tr('最近更新', 'Updated')}</th>
               <th className="px-3 py-1.5" />
             </tr>
-          </thead>
+          </TableHead>
           <tbody className="divide-y divide-zinc-800/50">
             {loading ? (
               <tr>
@@ -374,7 +374,6 @@ export default function SecretsPage() {
                       <div className="flex items-center justify-end gap-0.5">
                         <RowAction
                           icon={KeyRound}
-                          className="h-7 px-2 text-[11px]"
                           disabled={busy}
                           onClick={() => {
                             setNote(null);

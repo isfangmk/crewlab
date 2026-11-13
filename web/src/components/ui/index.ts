@@ -29,6 +29,8 @@ export { SearchInput } from './SearchInput';
 export { MetricCard, DEFAULT_METRIC_ICON } from './MetricCard';
 export { StatusPill } from './StatusPill';
 export { TableCard, TablePager } from './TableCard';
+export { TableHead, TableHeadCell, TABLE_HEAD_CLASS } from './TableHead';
+export { ErrorBanner, SuccessBanner } from './Banner';
 export { RowAction, RowActionIcon, rowActionClass, rowActionIconClass } from './RowAction';
 export { SectionCard } from './SectionCard';
 export { DetailSection } from './DetailSection';

@@ -17,7 +17,6 @@ import {
   Trash2,
   Workflow as WorkflowIcon,
 } from 'lucide-react';
-import { ApiError } from '@/api/client';
 import {
   blankDefinition,
   createWorkflow,
@@ -42,6 +41,7 @@ import {
   Button,
   ChoiceChip,
   EmptyStateCard,
+  ErrorBanner,
   FilterBar,
   Input,
   PageHeader,
@@ -50,6 +50,7 @@ import {
   SearchInput,
   Select,
   TableCard,
+  TableHead,
   TablePager,
   Textarea,
   Toast,
@@ -60,6 +61,8 @@ import { fullDateTime } from '@/lib/format';
 import { usePermissions } from '@/store/me';
 import { useI18n } from '@/i18n/locale';
 import { emptyNode, layeredLayout } from '@/lib/workflowMeta';
+import { errorText } from '@/lib/errors';
+import { useTimeout } from '@/lib/useTimeout';
 
 type Tab = 'canvas' | 'runs';
 type TemplateKey = 'blank' | 'knowledge' | 'approval';
@@ -107,10 +110,11 @@ export default function WorkflowsPage() {
   const [running, setRunning] = useState<{ id: number; name: string; definition: WorkflowDefinition } | null>(null);
   const [loadingRunFor, setLoadingRunFor] = useState<number | null>(null);
 
+  const flashTimer = useTimeout();
   const flash = useCallback((tone: ToastTone, text: string) => {
     setToast({ tone, text });
-    window.setTimeout(() => setToast(null), 4000);
-  }, []);
+    flashTimer(() => setToast(null), 4000);
+  }, [flashTimer]);
 
   const fetchWorkflows = useCallback(
     async (silent = false) => {
@@ -129,7 +133,7 @@ export default function WorkflowsPage() {
         setTotal(result.total);
         setError(null);
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : (err as Error).message);
+        setError(errorText(err));
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -165,7 +169,7 @@ export default function WorkflowsPage() {
         const detail = await getWorkflow(id);
         setRunning({ id: detail.id, name: detail.name, definition: detail.definition });
       } catch (err) {
-        flash('err', err instanceof ApiError ? err.message : (err as Error).message);
+        flash('err', errorText(err));
       } finally {
         setLoadingRunFor(null);
       }
@@ -301,7 +305,7 @@ export default function WorkflowsPage() {
                 }
               >
                 <table className="og-action-table w-full text-sm">
-                  <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
+                  <TableHead>
                     <tr className="whitespace-nowrap">
                       <th className="px-3 py-2 text-left font-medium">{tr('工作流', 'Workflow')}</th>
                       <th className="px-3 py-2 text-left font-medium">{tr('结构', 'Structure')}</th>
@@ -323,7 +327,7 @@ export default function WorkflowsPage() {
                       </th>
                       <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                     </tr>
-                  </thead>
+                  </TableHead>
                   <tbody className="divide-y divide-zinc-800/40">
                     {items.map((item) => (
                       <tr key={item.id} className="group transition-colors hover:bg-zinc-900/40">
@@ -460,7 +464,7 @@ export default function WorkflowsPage() {
                 const { run_uid } = await startWorkflowRun(target.id, values, 'published');
                 navigate(`/workflows/runs/${run_uid}`);
               } catch (error) {
-                flash('err', error instanceof ApiError ? error.message : (error as Error).message);
+                flash('err', errorText(error));
               }
             })();
           }}
@@ -507,10 +511,10 @@ function LastRunCell({ run, onOpen }: { run: WorkflowLastRun | null; onOpen(uid:
 function ErrorBar({ message }: { message: string }) {
   const { tr } = useI18n();
   return (
-    <div role="alert" className="mb-3 rounded-xl border border-red-500/40 bg-red-500/5 px-4 py-3 text-[12px] text-red-300">
+    <ErrorBanner>
       {tr('操作失败：', 'Operation failed: ')}
       {message}
-    </div>
+    </ErrorBanner>
   );
 }
 
@@ -557,7 +561,7 @@ function RunsTab({
         const result = await listWorkflows({ limit: 200, sort: 'asc' });
         setWorkflowOptions(result.items.map((item) => ({ value: String(item.id), label: item.name })));
       } catch (err) {
-        setFailure(err instanceof ApiError ? err.message : (err as Error).message);
+        setFailure(errorText(err));
       }
     })();
   }, []);
@@ -576,7 +580,7 @@ function RunsTab({
       setTotal(result.total);
       setFailure(null);
     } catch (err) {
-      setFailure(err instanceof ApiError ? err.message : (err as Error).message);
+      setFailure(errorText(err));
     } finally {
       setLoading(false);
     }
@@ -679,7 +683,7 @@ function RunsTab({
             }
           >
             <table className="og-action-table w-full text-sm">
-              <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
+              <TableHead>
                 <tr className="whitespace-nowrap">
                   <th className="px-3 py-2 text-left font-medium">{tr('运行', 'Run')}</th>
                   <th className="px-3 py-2 text-left font-medium">{tr('版本', 'Version')}</th>
@@ -689,7 +693,7 @@ function RunsTab({
                   <th className="px-3 py-2 text-left font-medium">{tr('耗时', 'Duration')}</th>
                   <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                 </tr>
-              </thead>
+              </TableHead>
               <tbody className="divide-y divide-zinc-800/40">
                 {runs.map((run) => {
                   return (
@@ -790,7 +794,7 @@ function CreateWorkflowDialog({ onClose, onCreated }: { onClose(): void; onCreat
       });
       onCreated({ id: created.id, name: created.name });
     } catch (error) {
-      setErr(error instanceof ApiError ? error.message : (error as Error).message);
+      setErr(errorText(error));
     } finally {
       setBusy(false);
     }
@@ -817,9 +821,9 @@ function CreateWorkflowDialog({ onClose, onCreated }: { onClose(): void; onCreat
     >
       <div className="space-y-3">
         {err !== null && (
-          <div role="alert" className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11.5px] text-red-300">
+          <ErrorBanner>
             {err}
-          </div>
+          </ErrorBanner>
         )}
         <div className="space-y-1">
           <div className="text-[10.5px] font-medium text-zinc-500">

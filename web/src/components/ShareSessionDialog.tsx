@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Check, Copy, Link2, Loader2 } from 'lucide-react';
 import { createSessionShare } from '@/api/chat';
-import { ApiError } from '@/api/client';
 import { Modal } from '@/components/Modal';
 import { Button, Input, Label } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
 import { fullDateTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { errorText } from '@/lib/errors';
 
 const PRESETS = [
   { hours: 24, zh: '24 小时', en: '24 hours' },
@@ -67,7 +67,7 @@ export function ShareSessionDialog({
       setCopied(true);
     } catch (e) {
       setResult(null);
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusy(false);
     }

@@ -19,7 +19,19 @@ from app.models_orm.mcp import McpServer
 logger = logging.getLogger(__name__)
 
 
-def _parse_cached_tools(raw: str, *, server_name: str) -> list[dict]:
+def parse_cached_tools(
+    raw: str,
+    *,
+    server_name: str,
+    require_schema: bool = True,
+) -> list[dict]:
+    """解析并校验 tools_cache_json；全平台的唯一入口。
+
+    各处手写的等价解析（审批名单、工具目录、工作流编排）已经漂移出
+    三种错误文案与两种宽松度，这里统一：缓存为空或缺结构都显式失败。
+    require_schema=False 供只取名字/描述的调用方使用。
+    """
+
     if raw == "":
         raise ValueError(f"MCP Server {server_name} 工具缓存为空，请先探测")
     data = json.loads(raw)
@@ -32,14 +44,16 @@ def _parse_cached_tools(raw: str, *, server_name: str) -> list[dict]:
         if not isinstance(item, dict):
             raise TypeError(f"tools_cache[{i}] 必须是对象")
         name = item["name"]
-        description = item["description"]
-        schema = item["input_schema"]
+        description = item.get("description", "")
+        schema = item.get("input_schema")
         if not isinstance(name, str) or name == "":
             raise ValueError(f"tools_cache[{i}].name 无效")
         if not isinstance(description, str):
             raise TypeError(f"tools_cache[{i}].description 必须是字符串")
-        if not isinstance(schema, dict):
-            raise TypeError(f"tools_cache[{i}].input_schema 必须是对象")
+        if require_schema and not isinstance(schema, dict):
+            raise TypeError(
+                f"MCP Server {server_name} 工具 {name} 缺少 input_schema，请重新测试连接"
+            )
         items.append(
             {"name": name, "description": description, "input_schema": schema}
         )
@@ -59,7 +73,7 @@ class CachedMcpCatalogToolset(BaseToolset):
             )
         from app.services.mcp_service import mcp_tool_wire_name
 
-        cached = _parse_cached_tools(server.tools_cache_json, server_name=server.name)
+        cached = parse_cached_tools(server.tools_cache_json, server_name=server.name)
         self._server_id = server.id
         self._server_name = server.name
         self._session_manager = MCPSessionManager(connection_params=connection_params)

@@ -22,7 +22,6 @@ import {
   RefreshCw,
   Square,
 } from 'lucide-react';
-import { ApiError } from '@/api/client';
 import {
   getRun,
   parseJsonText,
@@ -46,6 +45,7 @@ import { DraftTag } from '@/components/workflow/RunStatusPill';
 import { Button, EmptyStateCard, RowAction, RowActionIcon, Toast, type ToastTone } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 const TOAST_DURATION_MS = 4000;
 
@@ -180,7 +180,7 @@ export default function WorkflowRunPage() {
         });
         setError(null);
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : (err as Error).message);
+        setError(errorText(err));
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -322,7 +322,7 @@ export default function WorkflowRunPage() {
             : tr('已拒绝，运行终止', 'Rejected; run terminated'),
         );
       } catch (err) {
-        flash('err', err instanceof ApiError ? err.message : (err as Error).message);
+        flash('err', errorText(err));
       } finally {
         setBusy(false);
       }
@@ -343,7 +343,7 @@ export default function WorkflowRunPage() {
       await load(true);
       flash('ok', tr('已停止运行', 'Run stopped'));
     } catch (err) {
-      flash('err', err instanceof ApiError ? err.message : (err as Error).message);
+      flash('err', errorText(err));
     } finally {
       setBusy(false);
     }
@@ -543,7 +543,7 @@ export default function WorkflowRunPage() {
                 const next = await startWorkflowRun(run.workflow_id, values, 'published');
                 navigate(`/workflows/runs/${next.run_uid}`);
               } catch (err) {
-                flash('err', err instanceof ApiError ? err.message : (err as Error).message);
+                flash('err', errorText(err));
               }
             })();
           }}

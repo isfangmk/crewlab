@@ -2,6 +2,7 @@ import { useAssistantPage } from '@/lib/assistantPage';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Copy, Hammer, Loader2, Play, RefreshCw, ShieldAlert, ShieldCheck, Wrench } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
+import { useRequestSeq } from '@/lib/requestSeq';
 import { cn } from '@/lib/cn';
 import {
   listBuiltinTools,
@@ -26,9 +27,12 @@ import {
   RowAction,
   SearchInput,
   StatusPill,
+  ErrorBanner,
   TableCard,
+  TableHead,
 } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 type RiskFilter = '' | 'safe' | 'approval_required';
 
@@ -39,6 +43,8 @@ export default function ToolsPage() {
   const [groups, setGroups] = useState<BuiltinToolGroup[]>([]);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
+  // 目录只在挂载与手动刷新时拉取：路数守卫挡住重挂载前的旧请求
+  const reqSeq = useRequestSeq();
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -47,6 +53,7 @@ export default function ToolsPage() {
   const [running, setRunning] = useState<BuiltinTool | null>(null);
 
   const fetchTools = useCallback(async (silent = false) => {
+    const current = reqSeq.next();
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
@@ -72,16 +79,20 @@ export default function ToolsPage() {
           throw new Error(`内置 Tool 分组不存在: ${tool.group}`);
         }
       }
+      if (reqSeq.isStale(current)) return;
       setItems(res.items);
       setGroups(res.groups);
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      if (reqSeq.isStale(current)) return;
+      setErr(errorText(e));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!reqSeq.isStale(current)) {
+        setLoading(false);
+              setRefreshing(false);
+      }
     }
-  }, []);
+  }, [reqSeq]);
 
   useEffect(() => {
     void fetchTools();
@@ -214,10 +225,10 @@ export default function ToolsPage() {
 
         <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
           {err && (
-            <div className="mb-3 rounded-xl border border-red-500/40 bg-red-500/5 px-4 py-3 text-[12px] text-red-300">
+            <ErrorBanner>
               {tr('加载失败：', 'Load failed: ')}
               {err}
-            </div>
+            </ErrorBanner>
           )}
           {loading ? (
             <div className="flex h-40 items-center justify-center text-sm text-zinc-500">
@@ -240,14 +251,14 @@ export default function ToolsPage() {
                   <col className="w-[8.5rem]" />
                   <col className="w-[7.5rem]" />
                 </colgroup>
-                <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
+                <TableHead>
                   <tr className="whitespace-nowrap">
                     <th className="w-full px-3 py-2 text-left font-medium">{tr('工具 / 说明', 'Tool / description')}</th>
                     <th className="px-3 py-2 text-left font-medium">{tr('风险', 'Risk')}</th>
                     <th className="px-3 py-2 text-left font-medium">{tr('参数', 'Params')}</th>
                     <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
-                </thead>
+                </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
                   {filteredGroups.map((group) => {
                     const isCollapsed = collapsedGroups[group.key] === true;
@@ -469,7 +480,7 @@ function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void })
       const resp = await runBuiltinTool(tool.name, payload);
       setResultText(formatResult(resp.result));
     } catch (e) {
-      setRunErr(e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e));
+      setRunErr(e instanceof ApiError ? e.message : errorText(e));
     } finally {
       setBusy(false);
     }

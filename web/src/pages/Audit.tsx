@@ -5,6 +5,7 @@ import {
   Button,
   CodeBlock,
   EmptyStateCard,
+  ErrorBanner,
   FilterBar,
   FilterPill,
   Input,
@@ -12,11 +13,12 @@ import {
   PageHeader,
   RowAction,
   TableCard,
+  TableHead,
   TablePager,
 } from '@/components/ui';
 import { Select } from '@/components/ui/Select';
+import { useRequestSeq } from '@/lib/requestSeq';
 import { Modal } from '@/components/Modal';
-import { ApiError } from '@/api/client';
 import { exportAudit, listAudit, type AuditItem } from '@/api/audit';
 import { exportSettings } from '@/api/settings';
 import { listUsers, type ManagedUser } from '@/api/users';
@@ -25,6 +27,7 @@ import { useI18n } from '@/i18n/locale';
 import { fullDateTime } from '@/lib/format';
 import { parseLocalDateTime, rangeForPreset, type TimePreset } from '@/lib/timeRange';
 import { usePermissions } from '@/store/me';
+import { errorText } from '@/lib/errors';
 
 const PAGE_SIZE = 20;
 
@@ -119,11 +122,14 @@ export default function AuditPage() {
   const [err, setErr] = useState<string | null>(null);
   const [detail, setDetail] = useState<AuditItem | null>(null);
   const [exporting, setExporting] = useState(false);
+  // 筛选条件会连续变化：路数守卫保证只有最新一次请求的结果落进状态
+  const reqSeq = useRequestSeq();
 
   const resetFiltersToFirstPage = () => setPage(0);
 
   const load = useCallback(
     async (silent = false) => {
+      const current = reqSeq.next();
       if (silent) setRefreshing(true);
       else setLoading(true);
       try {
@@ -140,19 +146,23 @@ export default function AuditPage() {
           limit: PAGE_SIZE,
           offset: page * PAGE_SIZE,
         });
+        if (reqSeq.isStale(current)) return;
         setItems(res.items);
         setTotal(res.total);
         setActions(res.actions);
         setResourceTypes(res.resource_types);
         setErr(null);
       } catch (e) {
-        setErr(e instanceof ApiError ? e.message : (e as Error).message);
+        if (reqSeq.isStale(current)) return;
+        setErr(errorText(e));
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (!reqSeq.isStale(current)) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
-    [action, resourceType, actorId, timePreset, customFrom, customTo, sortDir, page],
+    [action, resourceType, actorId, timePreset, customFrom, customTo, sortDir, page, reqSeq],
   );
 
   useEffect(() => {
@@ -183,7 +193,7 @@ export default function AuditPage() {
       saveBlob(blob, filename);
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setExporting(false);
     }
@@ -197,7 +207,7 @@ export default function AuditPage() {
       saveBlob(blob, filename);
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setExporting(false);
     }
@@ -420,9 +430,9 @@ export default function AuditPage() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-4">
         {err && (
-          <div className="mb-3 rounded-lg border border-red-500/40 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+          <ErrorBanner>
             {err}
-          </div>
+          </ErrorBanner>
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {loading ? (
@@ -460,7 +470,7 @@ export default function AuditPage() {
                   <col />
                   <col className="w-[5.5rem]" />
                 </colgroup>
-                <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
+                <TableHead>
                   <tr className="whitespace-nowrap">
                     <th className="px-3 py-2 text-left font-medium" aria-sort={sortDir === 'asc' ? 'ascending' : 'descending'}>
                       <button
@@ -485,7 +495,7 @@ export default function AuditPage() {
                     <th className="px-3 py-2 text-left font-medium">{tr('详情', 'Detail')}</th>
                     <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
-                </thead>
+                </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
                   {items.map((row) => {
                     const actionMeta = ACTION_LABELS[row.action];

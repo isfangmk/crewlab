@@ -58,7 +58,6 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Login
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     # 只记成功登录：失败尝试来自未认证请求，逐次落库会把审计表变成放大器。
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="auth.login",
         resource_type="user",
@@ -66,11 +65,6 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Login
         detail={"email": user.email, "role": user.role},
     )
     return LoginResponse(access_token=token, email=user.email, role=user.role)
-
-
-@router.get("/auth/self")
-async def self(user: AuthUser = Depends(require_auth)) -> dict:
-    return {"id": str(user.id), "email": user.email, "role": user.role}
 
 
 @router.get("/me")
@@ -123,7 +117,6 @@ async def create_user(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=admin.id,
         action="user.create",
         resource_type="user",
@@ -159,7 +152,6 @@ async def set_status(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=admin.id,
         action="user.status",
         resource_type="user",
@@ -197,7 +189,6 @@ async def update_role(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=admin.id,
         action="user.role",
         resource_type="user",
@@ -233,7 +224,6 @@ async def reset_password(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=admin.id,
         action="user.password_reset",
         resource_type="user",
@@ -257,7 +247,6 @@ async def delete_user(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=admin.id,
         action="user.delete",
         resource_type="user",

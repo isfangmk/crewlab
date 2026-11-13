@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_auth
+from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
 from app.schemas.knowledge import DocCreateIn, DocEnabledIn, DocMoveIn, DocUpdateIn, ScopePreviewIn
 from app.services import knowledge_service
@@ -64,7 +64,7 @@ async def get_doc(
 async def create_doc(
     body: DocCreateIn,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     try:
         doc = await knowledge_service.create_doc(
@@ -80,7 +80,6 @@ async def create_doc(
     except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="knowledge.doc_create",
         resource_type="knowledge_doc",
@@ -95,7 +94,7 @@ async def update_doc(
     doc_id: str,
     body: DocUpdateIn,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     try:
         doc = await knowledge_service.update_doc(
@@ -114,7 +113,6 @@ async def update_doc(
     except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="knowledge.doc_update",
         resource_type="knowledge_doc",
@@ -129,7 +127,7 @@ async def set_doc_enabled(
     doc_id: str,
     body: DocEnabledIn,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     """切换文档是否参与检索；停用不删切块。"""
 
@@ -138,7 +136,6 @@ async def set_doc_enabled(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="knowledge.doc_toggle",
         resource_type="knowledge_doc",
@@ -153,7 +150,7 @@ async def move_doc(
     doc_id: str,
     body: DocMoveIn,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     try:
         doc = await knowledge_service.move_doc(db, doc_id, body.path)
@@ -164,7 +161,6 @@ async def move_doc(
     except TypeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="knowledge.doc_move",
         resource_type="knowledge_doc",
@@ -178,7 +174,7 @@ async def move_doc(
 async def delete_doc(
     doc_id: str,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> None:
     try:
         # 先取标题：删除后行已消失，审计需要能辨认被删了哪篇。
@@ -190,7 +186,6 @@ async def delete_doc(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="knowledge.doc_delete",
         resource_type="knowledge_doc",
@@ -206,7 +201,7 @@ async def upload_doc(
     path: str | None = Form(None),
     tags: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     """multipart 上传 .md/.txt/.pdf/.docx，入库为 source_type=upload。"""
 
@@ -241,7 +236,6 @@ async def upload_doc(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     logger.info("上传文档 doc_id=%s filename=%s", doc.id, filename)
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="knowledge.doc_upload",
         resource_type="knowledge_doc",
@@ -254,7 +248,7 @@ async def upload_doc(
 @router.post("/knowledge/reindex")
 async def reindex_knowledge(
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     """按当前切块配置重建全部文档索引。"""
 
@@ -263,7 +257,6 @@ async def reindex_knowledge(
     except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="knowledge.reindex",
         resource_type="knowledge",

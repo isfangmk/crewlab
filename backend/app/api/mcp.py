@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_auth
+from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
 from app.services import mcp_service
 from app.services.audit_service import write_audit
@@ -54,7 +54,7 @@ async def list_servers(
 async def create_server(
     body: McpServerInput,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     try:
         row = await mcp_service.create_server(
@@ -75,7 +75,6 @@ async def create_server(
         # 不能让连接异常冒泡成 500 的 ASGI traceback。
         raise HTTPException(status_code=502, detail=f"MCP 连接失败: {exc}") from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="mcp.server_create",
         resource_type="mcp_server",
@@ -97,7 +96,7 @@ async def update_server(
     server_id: int,
     body: McpServerInput,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     try:
         row = await mcp_service.update_server(
@@ -120,7 +119,6 @@ async def update_server(
         # MCP 端点不可达：显式返回 502，不冒泡成 500
         raise HTTPException(status_code=502, detail=f"MCP 连接失败: {exc}") from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="mcp.server_update",
         resource_type="mcp_server",
@@ -141,7 +139,7 @@ async def update_server(
 async def delete_server(
     server_id: int,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> None:
     try:
         # 删除前取名称：提交后行已消失，审计只能靠这里留痕。
@@ -151,7 +149,6 @@ async def delete_server(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="mcp.server_delete",
         resource_type="mcp_server",
@@ -164,7 +161,7 @@ async def delete_server(
 async def test_server(
     server_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    _user: str = Depends(require_not_viewer),
 ) -> dict:
     try:
         tools = await mcp_service.test_server(db, server_id)
@@ -185,7 +182,7 @@ async def run_tool(
     tool_name: str,
     body: McpToolRunInput,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     try:
         result = await mcp_service.run_tool(
@@ -201,7 +198,6 @@ async def run_tool(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="mcp.tool_run",
         resource_type="mcp_server",

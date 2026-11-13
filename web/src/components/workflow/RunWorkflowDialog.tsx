@@ -4,12 +4,12 @@
 // 避免出现一条「failure: 画布非法」的运行记录。
 
 import { useEffect, useState } from 'react';
-import { ApiError } from '@/api/client';
 import { validateDefinition, type WorkflowDefinition } from '@/api/workflows';
 import { Modal } from '@/components/Modal';
 import { Button } from '@/components/ui';
 import { buildPayload, initialValues, VariableFields } from '@/components/workflow/RunInputs';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 type Props = {
   workflowId: number;
@@ -48,7 +48,7 @@ export function RunWorkflowDialog({ workflowId, workflowName, definition, onClos
       }
       onStarted(buildPayload(variables, values, tr));
     } catch (error) {
-      setErr(error instanceof ApiError ? error.message : (error as Error).message);
+      setErr(errorText(error));
     } finally {
       setBusy(false);
     }

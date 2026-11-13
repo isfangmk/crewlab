@@ -11,7 +11,8 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Lock } from 'lucide-react';
 
-import { Checkbox } from '@/components/ui';
+import {
+  ErrorBanner, Checkbox } from '@/components/ui';
 import { Button, Chip, Label } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { useI18n } from '@/i18n/locale';
@@ -59,10 +60,10 @@ export function CapabilityBinding({
 
   if (catalogError !== null) {
     return (
-      <div className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">
+      <ErrorBanner>
         {tr('能力目录加载失败：', 'Failed to load capability catalog: ')}
         {catalogError}
-      </div>
+      </ErrorBanner>
     );
   }
   if (catalog === null || preview === null) {

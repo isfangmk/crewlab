@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { listSettings } from '@/api/settings';
+import { errorText } from '@/lib/errors';
 
 export const DEFAULT_SYSTEM_TIMEZONE = 'UTC+08:00';
 
@@ -53,7 +54,7 @@ export const useSystemTimezone = create<SystemTimezoneState>((set) => ({
       }
       set({ label, loaded: true, error: null });
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorText(e);
       set({ loaded: false, error: message });
       throw e instanceof Error ? e : new Error(message);
     }

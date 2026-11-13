@@ -80,7 +80,6 @@ async def export_settings(
         )
     body = "\ufeff" + buf.getvalue()
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="setting.export",
         resource_type="setting",
@@ -112,7 +111,6 @@ async def put_setting(
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="setting.update",
         resource_type="setting",
@@ -142,7 +140,6 @@ async def reveal_setting(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     # 揭示明文密钥属于敏感操作：只记录谁在何时看了哪一家，不落值。
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="setting.reveal",
         resource_type="setting",

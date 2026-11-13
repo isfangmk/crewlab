@@ -5,18 +5,20 @@ import {
   Button,
   Chip,
   EmptyStateCard,
+  ErrorBanner,
   Input,
   Label,
   PageHeader,
   RowAction,
   RowActionIcon,
   TableCard,
+  TableHead,
 } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
+import { useRequestSeq } from '@/lib/requestSeq';
 import { Modal } from '@/components/Modal';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { ApiError } from '@/api/client';
 import {
   createUser,
   deleteUser,
@@ -29,6 +31,7 @@ import {
 } from '@/api/users';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions, useMe } from '@/store/me';
+import { errorText } from '@/lib/errors';
 
 // 用户与权限：本地账号的建号、角色与启停用；仅管理员可进入。
 // 角色与后端 auth_service._ROLES 对齐：admin / developer / viewer。
@@ -69,6 +72,7 @@ export default function UsersPage() {
   const { me } = useMe();
   const [items, setItems] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const reqSeq = useRequestSeq();
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -91,20 +95,25 @@ export default function UsersPage() {
   const [resetErr, setResetErr] = useState<string | null>(null);
 
   const load = useCallback(async (silent = false) => {
+    const current = reqSeq.next();
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
       const rows = await listUsers();
+      if (reqSeq.isStale(current)) return;
       if (!Array.isArray(rows)) throw new Error('用户列表响应必须是数组');
       setItems(rows);
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      if (reqSeq.isStale(current)) return;
+      setErr(errorText(e));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!reqSeq.isStale(current)) {
+        setLoading(false);
+              setRefreshing(false);
+      }
     }
-  }, []);
+  }, [reqSeq]);
 
   useEffect(() => {
     if (isAdmin) void load();
@@ -141,7 +150,7 @@ export default function UsersPage() {
       setFormOpen(false);
       resetForm();
     } catch (e) {
-      setFormErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setFormErr(errorText(e));
     } finally {
       setFormBusy(false);
     }
@@ -155,7 +164,7 @@ export default function UsersPage() {
       setItems((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusyId(null);
     }
@@ -176,7 +185,7 @@ export default function UsersPage() {
       setItems((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       setRoleTarget(null);
     } catch (e) {
-      setRoleErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setRoleErr(errorText(e));
     } finally {
       setRoleBusy(false);
     }
@@ -201,7 +210,7 @@ export default function UsersPage() {
       setResetTarget(null);
       setResetPassword('');
     } catch (e) {
-      setResetErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setResetErr(errorText(e));
     } finally {
       setResetBusy(false);
     }
@@ -271,9 +280,9 @@ export default function UsersPage() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-4">
         {err && (
-          <div className="mb-3 rounded-lg border border-red-500/40 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+          <ErrorBanner>
             {err}
-          </div>
+          </ErrorBanner>
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {loading ? (
@@ -296,7 +305,7 @@ export default function UsersPage() {
                   <col className="w-[7rem]" />
                   <col className="w-[13rem]" />
                 </colgroup>
-                <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
+                <TableHead>
                   <tr className="whitespace-nowrap">
                     <th className="px-3 py-2 text-left font-medium">{tr('邮箱', 'Email')}</th>
                     <th className="px-3 py-2 text-left font-medium">{tr('显示名', 'Display name')}</th>
@@ -304,7 +313,7 @@ export default function UsersPage() {
                     <th className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
                     <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
-                </thead>
+                </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
                   {items.map((user) => {
                     const meta = roleMeta(user.role);
@@ -410,9 +419,9 @@ export default function UsersPage() {
       >
         <div className="space-y-3">
           {formErr && (
-            <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">
+            <ErrorBanner>
               {formErr}
-            </div>
+            </ErrorBanner>
           )}
           <div className="space-y-1.5">
             <Label htmlFor="user-email">{tr('邮箱', 'Email')}</Label>
@@ -488,9 +497,9 @@ export default function UsersPage() {
       >
         <div className="space-y-3">
           {roleErr && (
-            <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">
+            <ErrorBanner>
               {roleErr}
-            </div>
+            </ErrorBanner>
           )}
           <p className="text-[12px] text-zinc-400">
             {tr(
@@ -548,9 +557,9 @@ export default function UsersPage() {
       >
         <div className="space-y-3">
           {resetErr && (
-            <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">
+            <ErrorBanner>
               {resetErr}
-            </div>
+            </ErrorBanner>
           )}
           <p className="text-[12px] text-zinc-400">
             {tr(

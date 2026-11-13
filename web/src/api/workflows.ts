@@ -6,6 +6,7 @@
 import { request } from './client';
 import { readSseFrames } from './sse';
 import { getToken } from '@/store/auth';
+import { errorText } from '@/lib/errors';
 
 export type NodeKind =
   | 'start'
@@ -391,7 +392,7 @@ export async function subscribeRunEvents(
     try {
       event = JSON.parse(frame.data) as RunStreamEvent;
     } catch (err) {
-      throw new Error(`运行事件 JSON 非法: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`运行事件 JSON 非法: ${errorText(err)}`);
     }
     onEvent(event);
     // 终止事件之后不会再有推送，主动收尾省掉一条长连接

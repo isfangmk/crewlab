@@ -128,7 +128,6 @@ async def batch_delete_sessions(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="session.batch_delete",
         resource_type="chat_session",
@@ -269,7 +268,6 @@ async def create_share(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="session.share",
         resource_type="chat_session",
@@ -321,7 +319,6 @@ async def put_session_model(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     # 切模型等于改变数据流向哪家厂商，属于治理动作。
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="session.model",
         resource_type="chat_session",
@@ -344,7 +341,6 @@ async def patch_session_agent(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     # 换助理会改变该会话可见的工具/技能面，属于能力变更。
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="session.agent",
         resource_type="chat_session",
@@ -365,7 +361,6 @@ async def delete_session(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="session.delete",
         resource_type="chat_session",

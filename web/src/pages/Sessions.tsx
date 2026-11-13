@@ -36,12 +36,12 @@ import {
   type SessionSortDir,
 } from '@/api/chat';
 import { listAgents, localizedAgent, type AgentSummary } from '@/api/agents';
-import { ApiError } from '@/api/client';
 import { AgentBadge } from '@/components/AgentBadge';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Button,
   EmptyStateCard,
+  ErrorBanner,
   FilterBar,
   FilterPill,
   Input,
@@ -52,17 +52,20 @@ import {
   SearchInput,
   StatusPill,
   TableCard,
+  TableHead,
   TablePager,
   Toast,
 } from '@/components/ui';
 import type { StatusTone } from '@/components/ui/StatusPill';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { useRequestSeq } from '@/lib/requestSeq';
 import { Select } from '@/components/ui/Select';
 import { Hint } from '@/components/ui/Tooltip';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
 import { formatNumber, fullDateTime } from '@/lib/format';
 import { invalidateChatSessions } from '@/store/chatSessions';
+import { errorText } from '@/lib/errors';
 
 const PAGE_SIZE = 20;
 
@@ -211,6 +214,8 @@ export default function SessionsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // 筛选条件会连续变化：路数守卫保证只有最新一次请求的结果落进状态
+  const reqSeq = useRequestSeq();
   const [busyId, setBusyId] = useState('');
   const [batchBusy, setBatchBusy] = useState(false);
   // 删除确认走统一弹窗：单条删除与批量删除共用，不再弹原生 confirm
@@ -248,7 +253,7 @@ export default function SessionsPage() {
       })
       .catch((e) => {
         if (!cancelled) {
-          setErr(e instanceof ApiError ? e.message : (e as Error).message);
+          setErr(errorText(e));
         }
       });
     return () => {
@@ -270,7 +275,7 @@ export default function SessionsPage() {
       })
       .catch((e) => {
         if (!cancelled) {
-          setErr(e instanceof ApiError ? e.message : (e as Error).message);
+          setErr(errorText(e));
         }
       });
     return () => {
@@ -279,6 +284,7 @@ export default function SessionsPage() {
   }, []);
 
   const load = useCallback(async (silent = false) => {
+    const current = reqSeq.next();
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
@@ -310,6 +316,7 @@ export default function SessionsPage() {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
+      if (reqSeq.isStale(current)) return;
       if (!Array.isArray(res.items)) {
         throw new Error('会话列表缺少 items');
       }
@@ -328,12 +335,15 @@ export default function SessionsPage() {
       });
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      if (reqSeq.isStale(current)) return;
+      setErr(errorText(e));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!reqSeq.isStale(current)) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, [query, includeArchived, agentId, modelFilter, timePreset, customFrom, customTo, page, sorting]);
+  }, [query, includeArchived, agentId, modelFilter, timePreset, customFrom, customTo, page, sorting, reqSeq]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -358,7 +368,7 @@ export default function SessionsPage() {
       invalidateChatSessions();
       await load(true);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusyId('');
     }
@@ -367,7 +377,9 @@ export default function SessionsPage() {
   const runDelete = async (session: ChatSession) => {
     await deleteSession(session.id);
     invalidateChatSessions();
-    await load(true);
+    // 删掉当前页最后一条时回退到有效页，避免停在空白页
+    if (items.length === 1 && page > 0) setPage(page - 1);
+    else await load(true);
   };
 
   const openDelete = (session: ChatSession) => {
@@ -386,7 +398,7 @@ export default function SessionsPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusyId('');
     }
@@ -729,7 +741,9 @@ export default function SessionsPage() {
       }
       setRowSelection({});
       invalidateChatSessions();
-      await load(true);
+      // 整页被删空时回退到有效页
+      if (items.length === selectedIds.length && page > 0) setPage(page - 1);
+      else await load(true);
     } finally {
       setBatchBusy(false);
     }
@@ -933,9 +947,9 @@ export default function SessionsPage() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-4">
         {err && (
-          <div className="mb-3 rounded-lg border border-red-500/40 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+          <ErrorBanner>
             {err}
-          </div>
+          </ErrorBanner>
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {loading ? (
@@ -982,7 +996,7 @@ export default function SessionsPage() {
                     <col className="w-[5rem]" />
                     <col className="w-[8rem]" />
                   </colgroup>
-                  <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
+                  <TableHead>
                     {table.getHeaderGroups().map((hg) => (
                       <tr key={hg.id} className="whitespace-nowrap">
                         {hg.headers.map((header) => {
@@ -1014,7 +1028,7 @@ export default function SessionsPage() {
                         })}
                       </tr>
                     ))}
-                  </thead>
+                  </TableHead>
                   <tbody className="divide-y divide-zinc-800/40">
                     {table.getRowModel().rows.map((row) => (
                       <tr

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.deps import require_auth
+from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
 from app.services import approval_service
 from app.services.audit_service import write_audit
@@ -102,7 +102,7 @@ async def approve(
     approval_id: str,
     body: ApproveBody,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     try:
         row = await approval_service.approve(db, approval_id, reason=body.reason)
@@ -111,7 +111,6 @@ async def approve(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="approval.approve",
         resource_type="approval",
@@ -125,7 +124,7 @@ async def approve(
 async def batch_decide(
     body: BatchDecideBody,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     if len(body.ids) == 0:
         raise HTTPException(status_code=400, detail="ids 不能为空")
@@ -138,7 +137,6 @@ async def batch_decide(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="approval.batch_approve" if body.confirmed else "approval.batch_reject",
         resource_type="approval",
@@ -155,7 +153,7 @@ async def approve_stream(
     approval_id: str,
     body: ApproveBody,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ):
     """批准并续跑：SSE 推送与聊天流同构的增量帧，前端可打字机渲染。"""
 
@@ -172,7 +170,6 @@ async def approve_stream(
                     "data": json.dumps(frame.data, ensure_ascii=False),
                 }
             await write_audit(
-                db,
                 actor_user_id=user.id,
                 action="approval.approve",
                 resource_type="approval",
@@ -206,7 +203,7 @@ async def reject(
     approval_id: str,
     body: RejectBody,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     if body.reason == "":
         raise HTTPException(status_code=400, detail="拒绝原因 reason 必填")
@@ -217,7 +214,6 @@ async def reject(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="approval.reject",
         resource_type="approval",

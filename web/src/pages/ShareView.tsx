@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { MessageBubble } from '@/components/MessageBubble';
-import { PageHeader } from '@/components/ui';
+import {
+  ErrorBanner, PageHeader } from '@/components/ui';
 import type { ChatMessage, ChatSession } from '@/api/chat';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 /** 只读分享页：无需登录。 */
 export default function ShareViewPage() {
@@ -29,7 +31,7 @@ export default function ShareViewPage() {
         setSession(data.session);
         setItems(data.items ?? []);
       } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setErr(errorText(e));
       }
     })();
     return () => {
@@ -45,9 +47,9 @@ export default function ShareViewPage() {
       />
       <div className="px-6 py-6">
         {err && (
-          <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">
+          <ErrorBanner>
             {err}
-          </div>
+          </ErrorBanner>
         )}
         <div className="flex flex-col gap-5">
           {items.map((m) => (

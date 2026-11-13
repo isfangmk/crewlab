@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { useI18n } from '@/i18n/locale';
+import { useTimeout } from '@/lib/useTimeout';
 
 // MetaRow — 详情页的等宽键值行，可选一键复制。
 // 用于 trace / 审批之类的编号、路径、时间字段。
@@ -27,10 +28,11 @@ export function MetaRow({ label, value, copyable }: Props) {
 function CopyButton({ value, label }: { value: string; label: string }) {
   const { tr } = useI18n();
   const [copied, setCopied] = useState(false);
+  const copyTimer = useTimeout();
   const copy = async () => {
     await navigator.clipboard.writeText(value);
     setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+    copyTimer(() => setCopied(false), 1500);
   };
   return (
     <button

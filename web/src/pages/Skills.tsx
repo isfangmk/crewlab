@@ -1,8 +1,10 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { usePermissions } from '@/store/me';
-import { EmptyStateCard } from '@/components/ui';
+import { EmptyStateCard,
+  ErrorBanner, TableHead } from '@/components/ui';
 import { Button } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
+import { useTimeout } from '@/lib/useTimeout';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChevronDown,
@@ -25,7 +27,6 @@ import {
   type SkillClass,
   type SkillSummary,
 } from '@/api/skills';
-import { ApiError } from '@/api/client';
 import { mcpToolDisplayName } from '@/lib/mcpWire';
 import { Modal } from '@/components/Modal';
 import { useI18n } from '@/i18n/locale';
@@ -33,6 +34,7 @@ import { toolGroupKey, groupTag, groupTitle, orderedGroupKeys } from '@/lib/tool
 import { ChoiceChip, Chip, CodeBlock, DetailSection, FilterBar, PageHeader, RowAction, SearchInput, StatusPill, TableCard } from '@/components/ui';
 import type { StatusTone } from '@/components/ui/StatusPill';
 import { SkillEditor, SkillImportDialog } from '@/components/SkillEditor';
+import { errorText } from '@/lib/errors';
 
 export default function SkillsPage() {
   // 本页展示内置（backend/skills）+ 用户自定义技能目录
@@ -65,7 +67,7 @@ function CatalogTab() {
       setItems((sk.items ?? []).map(localizedSkill));
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -76,10 +78,12 @@ function CatalogTab() {
     void fetchSkills();
   }, [fetchSkills]);
 
+  // flash 用自动清理的定时器：卸载后不再对已卸载组件 setState
+  const flashTimer = useTimeout();
   const flash = useCallback((message: string) => {
     setNotice(message);
-    window.setTimeout(() => setNotice(null), 4000);
-  }, []);
+    flashTimer(() => setNotice(null), 4000);
+  }, [flashTimer]);
 
   // 重载：让后端重新扫描本地 SKILL.md，成功后再刷新表格。
   const reloadCatalog = useCallback(async () => {
@@ -90,7 +94,7 @@ function CatalogTab() {
       setItems(sk.items.map(localizedSkill));
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setRefreshing(false);
     }
@@ -102,7 +106,7 @@ function CatalogTab() {
         const filename = await exportSkillZip(skill.key);
         flash(tr(`已导出 ${filename}`, `Exported ${filename}`));
       } catch (e) {
-        setErr(e instanceof ApiError ? e.message : (e as Error).message);
+        setErr(errorText(e));
       }
     },
     [flash, tr],
@@ -116,7 +120,7 @@ function CatalogTab() {
       setDeleting(null);
       await fetchSkills(true);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
       setDeleting(null);
     }
   }, [deleting, fetchSkills, flash, tr]);
@@ -245,9 +249,9 @@ function CatalogTab() {
 
         <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
           {err && (
-            <div className="mb-3 rounded-xl border border-red-500/40 bg-red-500/5 px-4 py-3 text-[12px] text-red-300">
+            <ErrorBanner>
               {tr('操作失败：', 'Operation failed: ')}{err}
-            </div>
+            </ErrorBanner>
           )}
           {notice && (
             <div className="mb-3 rounded-xl border border-emerald-500/40 bg-emerald-500/5 px-4 py-3 text-[12px] text-emerald-300">
@@ -261,14 +265,14 @@ function CatalogTab() {
           ) : (
             <TableCard className="min-h-0 flex-1">
               <table className="og-action-table w-full text-sm">
-                <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
+                <TableHead>
                   <tr className="whitespace-nowrap">
                     <th className="px-3 py-2 text-left font-medium">{tr('名称', 'Name')}</th>
                     <th className="px-3 py-2 text-left font-medium">{tr('类别', 'Class')}</th>
                     <th className="w-full max-w-0 px-3 py-2 text-left font-medium">{tr('描述', 'Description')}</th>
                     <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
-                </thead>
+                </TableHead>
                 {orderedGroupKeys(filtered.map(skillKey)).map((gk) => {
                   const rows = filtered.filter((s) => skillKey(s) === gk);
                   const tag = groupTag(gk);

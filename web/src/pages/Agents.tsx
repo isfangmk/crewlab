@@ -1,6 +1,7 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { usePermissions } from '@/store/me';
 import { Select } from '@/components/ui/Select';
+import { useRequestSeq } from '@/lib/requestSeq';
 import { Hint } from '@/components/ui/Tooltip';
 // Agents page (Phase 1 inventory + Phase 3 user-defined CRUD).
 //
@@ -41,7 +42,8 @@ import {
 import { cn } from '@/lib/cn';
 import { mcpToolWireName } from '@/lib/mcpWire';
 import { Modal } from '@/components/Modal';
-import { Button, Card, Chip, CodeBlock, DetailSection, EmptyStateCard, FilterBar, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Textarea } from '@/components/ui';
+import { Button, Card, Chip, CodeBlock, DetailSection, EmptyStateCard,
+  ErrorBanner, FilterBar, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Textarea } from '@/components/ui';
 import {
   createUserAgent,
   deleteAgent,
@@ -66,6 +68,7 @@ import { PersonaFields, OUTPUT_FORMAT_LABELS } from '@/components/PersonaFields'
 import type { CapabilityCatalog } from '@/lib/capabilityPreview';
 import type { ScopePreview } from '@/api/knowledge';
 import type { AgentExample, OutputFormat } from '@/api/agents';
+import { errorText } from '@/lib/errors';
 
 /** 解析开会话要用的 provider/model：助理绑定模型优先，否则用全局选择或目录默认。 */
 async function resolveSessionModel(agent: AgentSummary): Promise<{ provider: string; model: string }> {
@@ -95,6 +98,8 @@ export default function AgentsPage() {
   const { canMutate } = usePermissions();
   const [items, setItems] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  // 助理列表会随筛选与增删刷新：路数守卫保证只有最新一次请求的结果落进状态
+  const reqSeq = useRequestSeq();
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -110,22 +115,27 @@ export default function AgentsPage() {
   const [viewing, setViewing] = useState<AgentSummary | null>(null);
 
   const fetchAgents = useCallback(async (silent = false) => {
+    const current = reqSeq.next();
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
       const r = await listAgents();
+      if (reqSeq.isStale(current)) return;
       if (!Array.isArray(r.items)) {
         throw new Error('助理列表缺少 items');
       }
       setItems(r.items.map(localizedAgent));
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      if (reqSeq.isStale(current)) return;
+      setErr(errorText(e));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!reqSeq.isStale(current)) {
+        setLoading(false);
+              setRefreshing(false);
+      }
     }
-  }, []);
+  }, [reqSeq]);
 
   useEffect(() => {
     fetchAgents();
@@ -199,9 +209,9 @@ export default function AgentsPage() {
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {err && (
-          <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+          <ErrorBanner>
             {tr('加载失败：', 'Load failed: ')}{err}
-          </div>
+          </ErrorBanner>
         )}
         {loading ? (
           <div className="flex h-40 items-center justify-center text-sm text-zinc-500">{tr('加载中…', 'Loading…')}</div>
@@ -375,7 +385,7 @@ function AgentCard({
       });
       navigate(`/chat/${session.id}`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
       setBusy(false);
     }
   }, [agent, busy, navigate, tr]);
@@ -560,7 +570,7 @@ function AgentDetailModal({
       });
       navigate(`/chat/${session.id}`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
       setBusy(false);
     }
   }, [agent, busy, navigate, tr]);
@@ -854,7 +864,7 @@ function AgentEditor({
       }
       onSaved();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setSubmitting(false);
     }
@@ -901,9 +911,9 @@ function AgentEditor({
     >
       <div className="space-y-4 text-xs text-zinc-300">
         {err && (
-          <div className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-red-300">
+          <ErrorBanner>
             {err}
-          </div>
+          </ErrorBanner>
         )}
 
         {/* 宽弹窗下基础信息并排，避免长表单变成一条竖直的窄列。 */}
@@ -1083,7 +1093,7 @@ function DeleteAgentDialog({
       await deleteAgent(agent.name);
       onDone();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setSubmitting(false);
     }
@@ -1116,9 +1126,9 @@ function DeleteAgentDialog({
     >
       <div className="text-xs text-zinc-300">
         {err && (
-          <div className="mb-3 rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-red-300">
+          <ErrorBanner>
             {err}
-          </div>
+          </ErrorBanner>
         )}
         <p>
           {tr('确定删除自定义助理 ', 'Delete custom assistant ')}<span className="font-mono text-zinc-100">{agent.name}</span>?

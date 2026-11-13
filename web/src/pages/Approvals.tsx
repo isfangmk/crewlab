@@ -4,6 +4,7 @@ import {
   Checkbox,
   ChoiceChip,
   EmptyStateCard,
+  ErrorBanner,
   FilterBar,
   FilterPill,
   Input,
@@ -14,31 +15,27 @@ import {
   SearchInput,
   StatusPill,
   TableCard,
+  TableHead,
   TablePager,
 } from '@/components/ui';
-import type { StatusTone } from '@/components/ui/StatusPill';
+import { Clock } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
+import { APPROVAL_STATUSES, APPROVAL_STATUS_META, approvalStatusLabel } from '@/lib/approvalStatus';
+import { useRequestSeq } from '@/lib/requestSeq';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowDown,
   ArrowUp,
-  BadgeCheck,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  CircleAlert,
-  CircleSlash,
-  Clock,
   Copy,
-  PlayCircle,
   RefreshCw,
   ShieldCheck,
-  TimerOff,
   X,
-  type LucideIcon,
 } from 'lucide-react';
 import {
   listApprovals,
@@ -50,28 +47,17 @@ import {
   type ApprovalCounts,
   type ApprovalStatus,
 } from '@/api/approvals';
-import { ApiError } from '@/api/client';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
 import { fullDateTime } from '@/lib/format';
 import { parseLocalDateTime, rangeForPreset, type TimePreset } from '@/lib/timeRange';
+import { errorText } from '@/lib/errors';
 
 // 审批列表：Agent 提出的危险工具调用，管理员在此批准或拒绝。
 // 状态、关键字、提交时间与服务端分页都由后端处理；顶部指标卡复用同一次响应里的状态分布。
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
-
-const STATUSES: ApprovalStatus[] = ['pending', 'approved', 'executed', 'rejected', 'failed', 'expired'];
-
-const STATUS_META: Record<ApprovalStatus, { tone: StatusTone; icon: LucideIcon }> = {
-  pending: { tone: 'warn', icon: Clock },
-  approved: { tone: 'ok', icon: BadgeCheck },
-  executed: { tone: 'ok', icon: PlayCircle },
-  rejected: { tone: 'neutral', icon: CircleSlash },
-  failed: { tone: 'danger', icon: CircleAlert },
-  expired: { tone: 'neutral', icon: TimerOff },
-};
 
 export default function ApprovalsPage() {
   const { tr } = useI18n();
@@ -94,6 +80,8 @@ export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  // 筛选条件会连续变化：路数守卫保证只有最新一次请求的结果落进状态
+  const reqSeq = useRequestSeq();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // null=关闭；'batch'=批量拒绝；否则为单条审批。
@@ -104,6 +92,7 @@ export default function ApprovalsPage() {
     timePreset === 'custom' && (customFrom === '' || customTo === '');
 
   const load = useCallback(async () => {
+    const current = reqSeq.next();
     setLoading(true);
     try {
       // 深链只看单条审批：不受状态/时间/分页影响，否则会看不到目标记录。
@@ -145,6 +134,7 @@ export default function ApprovalsPage() {
         limit: pageSize,
         offset: page * pageSize,
       });
+      if (reqSeq.isStale(current)) return;
       if (!Array.isArray(res.items)) {
         throw new Error(tr('审批列表缺少 items', 'Approval list is missing items'));
       }
@@ -162,11 +152,14 @@ export default function ApprovalsPage() {
         setPage(maxPage);
       }
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      if (reqSeq.isStale(current)) return;
+      setErr(errorText(e));
     } finally {
-      setLoading(false);
+      if (!reqSeq.isStale(current)) {
+        setLoading(false);
+      }
     }
-  }, [selectedId, status, query, timePreset, customFrom, customTo, customIncomplete, page, pageSize, sortDir, tr]);
+  }, [selectedId, status, query, timePreset, customFrom, customTo, customIncomplete, page, pageSize, sortDir, tr, reqSeq]);
 
   useEffect(() => {
     // 与搜索共享同一 250ms 防抖：输入过程中不打满后端。
@@ -208,7 +201,7 @@ export default function ApprovalsPage() {
       await approveApproval(a.id);
       await load();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusy('');
     }
@@ -225,7 +218,7 @@ export default function ApprovalsPage() {
       await batchDecideApprovals(ids, true, '');
       await load();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusy('');
     }
@@ -245,7 +238,7 @@ export default function ApprovalsPage() {
         await batchDecideApprovals(ids, false, reason);
         await load();
       } catch (e) {
-        const msg = e instanceof ApiError ? e.message : (e as Error).message;
+        const msg = errorText(e);
         setErr(msg);
         throw e instanceof Error ? e : new Error(msg);
       } finally {
@@ -258,7 +251,7 @@ export default function ApprovalsPage() {
       await rejectApproval(rejectTarget.id, reason);
       await load();
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : (e as Error).message;
+      const msg = errorText(e);
       setErr(msg);
       throw e instanceof Error ? e : new Error(msg);
     } finally {
@@ -303,18 +296,18 @@ export default function ApprovalsPage() {
       <ChoiceChip
         active={status === ''}
         label={tr('全部', 'All')}
-        count={counts ? STATUSES.reduce((sum, s) => sum + counts[s], 0) : undefined}
+        count={counts ? APPROVAL_STATUSES.reduce((sum, s) => sum + counts[s], 0) : undefined}
         onClick={() => {
           resetFiltersToFirstPage();
           setParams({});
           setStatus('');
         }}
       />
-      {STATUSES.map((s) => (
+      {APPROVAL_STATUSES.map((s) => (
         <ChoiceChip
           key={s}
           active={status === s}
-          label={statusLabel(s, tr)}
+          label={approvalStatusLabel(s, tr)}
           count={counts ? counts[s] : undefined}
           onClick={() => {
             resetFiltersToFirstPage();
@@ -474,7 +467,6 @@ export default function ApprovalsPage() {
                     return next;
                   });
                 }}
-                className="h-7 px-2 text-[11px] text-zinc-400"
               >
                 {allPendingSelected
                   ? tr('取消全选', 'Deselect all')
@@ -490,14 +482,14 @@ export default function ApprovalsPage() {
         {/* 概览：统计与列表共用搜索/时间条件，点卡片即按状态过滤 */}
         {counts ? (
           <div className="mx-6 mt-3 grid shrink-0 grid-cols-3 gap-2 lg:grid-cols-6">
-            {STATUSES.map((s) => {
-              const meta = STATUS_META[s];
+            {APPROVAL_STATUSES.map((s) => {
+              const meta = APPROVAL_STATUS_META[s];
               return (
                 <MetricCard
                   key={s}
                   icon={meta.icon}
                   tone={meta.tone === 'neutral' ? 'default' : meta.tone}
-                  label={statusLabel(s, tr)}
+                  label={approvalStatusLabel(s, tr)}
                   value={String(counts[s])}
                   hint={
                     s === 'pending'
@@ -518,9 +510,9 @@ export default function ApprovalsPage() {
 
         <div className="flex min-h-0 flex-1 flex-col px-6 pb-4 pt-4">
           {err && (
-            <div className="mb-3 rounded-xl border border-red-500/40 bg-red-500/5 px-4 py-2.5 text-[12px] text-red-300">
+            <ErrorBanner>
               {err}
-            </div>
+            </ErrorBanner>
           )}
           {loading ? (
             <div className="flex h-40 items-center justify-center text-sm text-zinc-500">
@@ -582,7 +574,7 @@ export default function ApprovalsPage() {
               }
             >
               <table className="og-action-table w-full text-sm">
-                <thead className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur">
+                <TableHead>
                   <tr className="whitespace-nowrap">
                     <th scope="col" className="w-[4.25rem] px-2 py-2 text-left font-medium">
                       <span className="sr-only">{tr('展开', 'Expand')}</span>
@@ -621,7 +613,7 @@ export default function ApprovalsPage() {
                       {tr('操作', 'Actions')}
                     </th>
                   </tr>
-                </thead>
+                </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
                   {items.map((a) => (
                     <ApprovalRow
@@ -672,7 +664,7 @@ function ApprovalRow({
   onReject(): void;
 }) {
   const { tr } = useI18n();
-  const meta = STATUS_META[a.status];
+  const meta = APPROVAL_STATUS_META[a.status];
   const Icon = meta.icon;
   const pending = a.status === 'pending';
 
@@ -731,7 +723,7 @@ function ApprovalRow({
           )}
         </td>
         <td className="whitespace-nowrap px-3 py-2">
-          <StatusPill tone={meta.tone} label={statusLabel(a.status, tr)} pulse={pending} />
+          <StatusPill tone={meta.tone} label={approvalStatusLabel(a.status, tr)} pulse={pending} />
         </td>
         <td className="whitespace-nowrap px-3 py-2 text-[11px]">
           {a.session_id ? (
@@ -813,24 +805,6 @@ function PayloadBlock({ title, body }: { title: string; body: string }) {
   );
 }
 
-function statusLabel(s: ApprovalStatus, tr: (zh: string, en: string) => string): string {
-  switch (s) {
-    case 'pending':
-      return tr('待确认', 'Pending');
-    case 'approved':
-      return tr('已批准', 'Approved');
-    case 'executed':
-      return tr('已执行', 'Executed');
-    case 'rejected':
-      return tr('已拒绝', 'Rejected');
-    case 'failed':
-      return tr('失败', 'Failed');
-    case 'expired':
-      return tr('已过期', 'Expired');
-    default:
-      return s;
-  }
-}
 
 function prettify(s: string): string {
   try {

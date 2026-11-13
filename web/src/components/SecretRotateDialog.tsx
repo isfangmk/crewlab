@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 import { Button, Chip, CodeBlock, Input, Label, StatusPill } from '@/components/ui';
 import { Modal } from '@/components/Modal';
-import { ApiError } from '@/api/client';
 import {
   getSecretUsage,
   rotateSecret,
@@ -16,6 +15,7 @@ import {
 import { useI18n } from '@/i18n/locale';
 import { fullDateTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { errorText } from '@/lib/errors';
 
 type Props = {
   /** null = 关闭；每次换对象都从第一步重新开始。 */
@@ -60,7 +60,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
       })
       .catch((e) => {
         if (!cancelled) {
-          setErr(e instanceof ApiError ? e.message : (e as Error).message);
+          setErr(errorText(e));
         }
       })
       .finally(() => {
@@ -103,7 +103,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
       onRotated(updated);
       setStep(DONE_STEP);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -117,7 +117,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
       const res = await verifySecretUsage(secret.id);
       setVerifyItems(res.items ?? []);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setVerifying(false);
     }

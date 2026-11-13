@@ -7,7 +7,7 @@ import logging
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adk_runtime.session_store import get_adk_session_service
@@ -247,6 +247,34 @@ async def get_approval(db: AsyncSession, approval_id: str) -> Approval:
     return row
 
 
+async def _claim_pending_approval(
+    db: AsyncSession,
+    *,
+    approval_id: str,
+    confirmed: bool,
+    reason: str,
+) -> bool:
+    """把待确认的审批单认领成已决；只有仍处于 pending 时才生效。
+
+    条件更新是原子的：两个并发决策都通过了前置检查时，只有第一个改到状态，
+    第二个拿到 0 行返回 False，工具不会被执行两次。
+    """
+
+    result = await db.execute(
+        update(Approval)
+        .where(Approval.id == approval_id, Approval.status == "pending")
+        .values(
+            decided_at=datetime.now(timezone.utc),
+            approved_by=1,
+            reason=reason,
+            decision_reason=reason,
+            status="approved" if confirmed else "rejected",
+        )
+    )
+    rowcount: int | None = getattr(result, "rowcount", None)
+    return rowcount is not None and rowcount > 0
+
+
 async def pending_count(db: AsyncSession) -> int:
     await expire_stale_pending(db)
     counts = await approval_status_counts(db)
@@ -363,13 +391,16 @@ async def stream_decide(
             mcp_service.all_business_tool_names_for_servers(mcp_servers)
         )
 
-    now = datetime.now(timezone.utc)
-    row.decided_at = now
-    row.approved_by = 1
-    row.reason = reason
-    row.decision_reason = reason
-    row.status = "approved" if confirmed else "rejected"
+    # 决策落库走原子认领：两个并发决策都通过检查时，只有第一个改到状态
+    if not await _claim_pending_approval(
+        db,
+        approval_id=row.id,
+        confirmed=confirmed,
+        reason=reason,
+    ):
+        raise ValueError(f"审批已被处理: {approval_id}")
     await db.commit()
+    await db.refresh(row)
 
     tool_result: dict | None = None
     logger.info(
