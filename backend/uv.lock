@@ -27,6 +27,7 @@ dependencies = [
     { name = "adk-tool-search" },
     { name = "aiosqlite" },
     { name = "asyncpg" },
+    { name = "croniter" },
     { name = "docker" },
     { name = "fastapi" },
     { name = "google-adk" },
@@ -57,6 +58,7 @@ requires-dist = [
     { name = "adk-tool-search", specifier = ">=0.3.0" },
     { name = "aiosqlite" },
     { name = "asyncpg" },
+    { name = "croniter" },
     { name = "docker", specifier = ">=7.2.0" },
     { name = "fastapi" },
     { name = "google-adk" },
@@ -651,6 +653,18 @@ source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/d8/53/6f443c9a4a8358a93a6792e2acffb9d9d5cb0a5cfd8802644b7b1c9a02e4/colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44" }
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6" },
+]
+
+[[package]]
+name = "croniter"
+version = "7.0.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/54/17/3c60d4cf8c8768f8a116328f94ddb2f205e64d5afbb1bcb85f315bfbbf42/croniter-7.0.0.tar.gz", hash = "sha256:a0b2568303c774f6a4ea2d4ce2e72b1ee911029c7070d64a1befe05cdb107f5a" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/4c/89/10f9987ebdef47dbe9db94e9c00dcbd91a6ff1aa46ad58bee5b50fa454c9/croniter-7.0.0-py3-none-any.whl", hash = "sha256:92090bce3cef195a037a46b78430c4cdd6250e90671d9d7dcd9e486147daaca4" },
 ]
 
 [[package]]

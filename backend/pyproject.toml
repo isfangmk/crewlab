@@ -11,6 +11,8 @@ dependencies = [
   "asyncpg",
   # SQLite 业务库驱动：开发/无中间件环境用（生产仍是 asyncpg + pgvector）
   "aiosqlite",
+  # 触发器 Cron 解析
+  "croniter",
   "greenlet",
   "pydantic-settings",
   "httpx",

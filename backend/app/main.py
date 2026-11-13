@@ -28,6 +28,7 @@ from app.api import (
     skills,
     system_settings,
     tools,
+    triggers,
     version,
     workflows,
 )
@@ -86,7 +87,13 @@ async def lifespan(_app: FastAPI):
 
         await assert_embedding_names_consistent(db)
 
+    # 触发器调度循环随应用启停
+    from app.services.trigger_scheduler import start_scheduler, stop_scheduler
+
+    await start_scheduler()
+
     yield
+    await stop_scheduler()
     await engine.dispose()
     logger.info("后端已关闭")
 
@@ -126,6 +133,7 @@ def create_app() -> FastAPI:
     app.include_router(sandbox.router, prefix="/api/v1")
     app.include_router(audit.router, prefix="/api/v1")
     app.include_router(workflows.router, prefix="/api/v1")
+    app.include_router(triggers.router, prefix="/api/v1")
     return app
 
 

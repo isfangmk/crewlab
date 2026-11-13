@@ -15,6 +15,7 @@ from app.models_orm.sandbox import SandboxExecution
 from app.models_orm.secret import SecretCredential
 from app.models_orm.share import ShareToken
 from app.models_orm.skill import UserSkill
+from app.models_orm.trigger import TriggerRun, TriggerRule
 from app.models_orm.user import ApiToken, User
 from app.models_orm.workflow import Workflow, WorkflowNodeRun, WorkflowRun
 
@@ -40,6 +41,8 @@ __all__ = [
     "ObservationTurn",
     "ObservationToolCall",
     "SandboxExecution",
+    "TriggerRule",
+    "TriggerRun",
     "UserSkill",
     "Workflow",
     "WorkflowRun",
