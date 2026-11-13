@@ -50,6 +50,7 @@ def server_to_wire(s: McpServer) -> dict:
         "approval_policy": effective_approval_policy(s),
         "enabled": s.enabled,
         "status": s.status,
+        "updated_at": s.updated_at.isoformat() if s.updated_at else None,
         "last_error": s.last_error,
         "tools_cache_json": s.tools_cache_json,
         "embedding_sync_status": s.embedding_sync_status,
