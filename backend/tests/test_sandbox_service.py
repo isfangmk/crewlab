@@ -12,10 +12,12 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import delete
 
+from app.db import create_db_engine
 from app.adk_runtime.workflow_node_impl import (
     SANDBOX_RESULT_MARKER,
     _build_sandbox_script,
@@ -38,7 +40,7 @@ async def _db_sessions() -> AsyncGenerator[object, None]:
 
     from app.config import get_settings
 
-    engine = create_async_engine(get_settings().database_url)
+    engine = create_db_engine(get_settings().database_url)
     try:
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:
@@ -266,7 +268,6 @@ async def test_record_is_written_with_source_context() -> None:
         async with maker() as db:
             await _clear(db, "exec-write-%")
             await sandbox_service._record(
-                db,
                 execution_id="exec-write-1",
                 ctx=sandbox_service.SandboxContext(
                     source=sandbox_service.SOURCE_SKILL,
@@ -282,6 +283,7 @@ async def test_record_is_written_with_source_context() -> None:
                 status="succeeded",
                 error="",
                 duration_ms=42,
+                started_at=datetime.now(timezone.utc),
             )
             try:
                 row = await db.get(SandboxExecution, "exec-write-1")

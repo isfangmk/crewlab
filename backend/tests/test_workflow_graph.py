@@ -15,6 +15,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
+from app.db import create_db_engine
 from app.adk_runtime.workflow_graph import validate
 from app.schemas.workflow import (
     WorkflowDefinition,
@@ -32,7 +33,7 @@ def _new_sessionmaker():
 
     from app.config import get_settings
 
-    engine = create_async_engine(get_settings().database_url)
+    engine = create_db_engine(get_settings().database_url)
     return engine, async_sessionmaker(engine, expire_on_commit=False)
 
 

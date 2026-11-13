@@ -1,3 +1,4 @@
+
 """真实 custom 模型：开/关思考时 SSE 与上游 thinking 字段是否对齐。"""
 
 from __future__ import annotations
@@ -7,6 +8,8 @@ from pathlib import Path
 
 import httpx
 import pytest
+
+from app.db import create_db_engine
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPT = (
@@ -91,7 +94,7 @@ async def _upstream_reasoning_chunks(*, thinking_type: str) -> int:
 
     # 不复用 app.db 的全局连接池：同进程里前面的测试可能已在别的 event loop
     # 上建过连接，复用会撞上 "Event loop is closed"。这里自建自弃。
-    engine = create_async_engine(get_settings().database_url)
+    engine = create_db_engine(get_settings().database_url)
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             p = await db.scalar(

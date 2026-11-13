@@ -17,6 +17,8 @@ from tests.conftest import login_access_token
 
 async def _create_doc(client: httpx.AsyncClient, headers: dict[str, str], **body: object) -> dict:
     resp = await client.post("/api/v1/knowledge/docs", headers=headers, json=body)
+    if resp.status_code == 503:
+        pytest.skip(f"嵌入/向量存储不可用: {resp.text}")
     assert resp.status_code == 200, resp.text
     return resp.json()
 

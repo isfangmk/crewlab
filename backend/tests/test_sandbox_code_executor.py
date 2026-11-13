@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.db import create_db_engine
 from app.adk_runtime.sandbox_code_executor import SandboxCodeExecutor, _session_id
 from app.services import sandbox_service
 
@@ -46,7 +47,7 @@ def db_sessions():
     from app.config import get_settings
     from app.db import SessionLocal as ModuleSessionLocal
 
-    engine = create_async_engine(get_settings().database_url, poolclass=NullPool)
+    engine = create_db_engine(get_settings().database_url, poolclass=NullPool)
     maker = async_sessionmaker(engine, expire_on_commit=False)
     try:
         with patch.object(sandbox_service, "SessionLocal", maker):

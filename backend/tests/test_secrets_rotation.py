@@ -12,6 +12,8 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from app.db import create_db_engine
+
 from tests.conftest import login_access_token
 
 
@@ -218,7 +220,7 @@ async def test_audit_export_redacts_stored_detail(env: dict[str, str], api_base:
         "note": "plain-text",
     }
 
-    engine = create_async_engine(get_settings().database_url)
+    engine = create_db_engine(get_settings().database_url)
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             db.add(

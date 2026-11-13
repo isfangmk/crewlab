@@ -53,13 +53,23 @@ async def test_upload_image_persists_on_user_message() -> None:
             token = await login_access_token(client, env)
             headers = {"Authorization": f"Bearer {token}"}
 
+            # provider/model 必须来自模型目录（会话创建会校验）：
+            # 硬编码 "custom" 只在配过该 provider 的环境里成立
+            catalog = await client.get("/api/v1/aiops/models", headers=headers)
+            catalog.raise_for_status()
+            providers = catalog.json().get("providers") or []
+            if not providers:
+                pytest.skip("没有启用的模型 provider")
+            provider = providers[0]["id"]
+            model = providers[0].get("model") or (providers[0].get("models") or [""])[0]
+
             cr = await client.post(
                 "/api/v1/chat/sessions",
                 headers=headers,
                 json={
                     "title": "image-attach-test",
-                    "provider": "custom",
-                    "model": "workbuddy/glm-5.3-flash",
+                    "provider": provider,
+                    "model": model,
                     "agent_id": "default",
                 },
             )

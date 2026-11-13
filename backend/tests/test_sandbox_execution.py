@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.db import create_db_engine
 from app.services import sandbox_service
 
 
@@ -28,7 +29,7 @@ async def db_sessions():
 
     from app.config import get_settings
 
-    engine = create_async_engine(get_settings().database_url, poolclass=NullPool)
+    engine = create_db_engine(get_settings().database_url, poolclass=NullPool)
     maker = async_sessionmaker(engine, expire_on_commit=False)
     try:
         yield maker

@@ -41,6 +41,10 @@ async def test_rejects_too_many_packages() -> None:
 async def test_accepts_pinned_version() -> None:
     """校验通过后不应在参数校验这一步失败（断网拦截是下一步）。"""
 
+    from app.config import get_settings
+
+    if get_settings().sandbox_executor != "docker":
+        pytest.skip("断网拦截是 docker 执行器的规则，local 执行器直接拒绝装依赖")
     with pytest.raises(ValueError, match="断网"):
         await sandbox_service.run_code(
             code="print(1)", ctx=_ctx(), libraries=["requests==2.31.0"]
@@ -54,6 +58,8 @@ async def test_rejects_libraries_when_network_disabled() -> None:
 
     if get_settings().sandbox_network_enabled:
         pytest.skip("本机开了沙盒联网，这条规则不适用")
+    if get_settings().sandbox_executor != "docker":
+        pytest.skip("断网拦截是 docker 执行器的规则，local 执行器直接拒绝装依赖")
     with pytest.raises(ValueError, match="断网"):
         await sandbox_service.run_code(
             code="print(1)", ctx=_ctx(), libraries=["requests"]

@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.db import create_db_engine
 from app.tools import workflow
 from app.tools.catalog import (
     BUILTIN_TOOL_SPECS,
@@ -38,7 +39,7 @@ async def _db_sessions() -> AsyncGenerator[object, None]:
 
     from app.config import get_settings
 
-    engine = create_async_engine(get_settings().database_url)
+    engine = create_db_engine(get_settings().database_url)
     try:
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:

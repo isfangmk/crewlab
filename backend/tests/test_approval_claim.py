@@ -6,6 +6,7 @@ import uuid
 
 import pytest
 
+from app.db import create_db_engine
 from app.models_orm.approval import Approval
 from app.services import approval_service
 from app.services.approval_service import _claim_pending_approval
@@ -34,7 +35,7 @@ def _new_sessionmaker():
 
     from app.config import get_settings
 
-    engine = create_async_engine(get_settings().database_url)
+    engine = create_db_engine(get_settings().database_url)
     return engine, async_sessionmaker(engine, expire_on_commit=False)
 
 

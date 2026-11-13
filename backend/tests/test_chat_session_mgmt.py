@@ -1,3 +1,4 @@
+
 """真实会话：搜索/置顶/fork/导出/分页筛选。"""
 
 from __future__ import annotations
@@ -6,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
+
+from app.db import create_db_engine
 
 from tests.conftest import login_access_token
 
@@ -422,7 +425,7 @@ async def test_session_model_filter_and_summary_stats(
         assert cr.json()["attachment_count"] == 0
         assert cr.json()["shared"] is False
 
-        engine = create_async_engine(get_settings().database_url)
+        engine = create_db_engine(get_settings().database_url)
         try:
             async with async_sessionmaker(engine, expire_on_commit=False)() as db:
                 db.add_all(
