@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from uuid import uuid4
 
 from fastapi import (
     APIRouter,
@@ -14,6 +15,7 @@ from fastapi import (
     Query,
     UploadFile,
 )
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth, require_not_viewer
@@ -23,6 +25,8 @@ from app.services import knowledge_service
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
 from app.services.knowledge_scope import parse_scope, scope_preview
+from app.services.embedding_client import EmbeddingServiceUnavailable
+from app.vector_store import VectorStoreUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +105,33 @@ async def list_docs(
     }
 
 
+@router.get("/knowledge/docs/{doc_id}/source")
+async def download_doc_source(
+    doc_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: str = Depends(require_auth),
+) -> FileResponse:
+    """下载上传原件；只有 upload 来源的文档有源文件。"""
+
+    try:
+        doc = await knowledge_service.get_doc(db, doc_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if doc.source_filename is None:
+        raise HTTPException(status_code=404, detail="该文档没有源文件（仅上传文档提供下载）")
+    try:
+        path = knowledge_service.source_file_path(doc_id, doc.source_filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="源文件不可用") from exc
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="源文件已丢失")
+    return FileResponse(
+        path,
+        media_type=doc.source_mime or "application/octet-stream",
+        filename=doc.source_filename,
+    )
+
+
 @router.get("/knowledge/docs/{doc_id}")
 async def get_doc(
     doc_id: str,
@@ -131,6 +162,8 @@ async def create_doc(
             path=body.path,
             tags=body.tags,
         )
+    except (EmbeddingServiceUnavailable, VectorStoreUnavailable) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
@@ -164,6 +197,8 @@ async def update_doc(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (EmbeddingServiceUnavailable, VectorStoreUnavailable) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
@@ -278,6 +313,12 @@ async def upload_doc(
     if tags is not None:
         tag_list = [t.strip() for t in tags.replace("，", ",").split(",") if t.strip()]
 
+    # 原件先落盘再入库（文档 id 预生成）；入库失败删原件，避免孤儿文件
+    doc_id = str(uuid.uuid4())
+    try:
+        knowledge_service.save_source_file(doc_id=doc_id, filename=filename, raw=raw)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"保存原件失败: {exc}") from exc
     try:
         doc = await knowledge_service.create_doc(
             db,
@@ -291,8 +332,13 @@ async def upload_doc(
             source_filename=filename,
             source_mime=file.content_type,
             source_bytes=len(raw),
+            doc_id=doc_id,
         )
+    except (EmbeddingServiceUnavailable, VectorStoreUnavailable) as exc:
+        knowledge_service.delete_source_file(doc_id=doc_id, filename=filename)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (ValueError, TypeError, RuntimeError) as exc:
+        knowledge_service.delete_source_file(doc_id=doc_id, filename=filename)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     logger.info("上传文档 doc_id=%s filename=%s", doc.id, filename)
     await write_audit(
@@ -314,6 +360,8 @@ async def reindex_knowledge(
 
     try:
         chunks = await knowledge_service.reindex_all_docs(db)
+    except (EmbeddingServiceUnavailable, VectorStoreUnavailable) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
@@ -363,6 +411,8 @@ async def search_knowledge(
             builtin=builtin,
             source_type=source_type,
         )
+    except (EmbeddingServiceUnavailable, VectorStoreUnavailable) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     payload = {

@@ -1,4 +1,8 @@
-"""知识库：文档 CRUD、切块嵌入、向量检索。"""
+"""知识库：文档 CRUD、切块嵌入、向量检索。
+
+向量读写统一走 app.vector_store（可配置实现）；
+切块正文与文档属性在本库（业务数据库），检索时按 ref_id join 回来。
+"""
 
 from __future__ import annotations
 
@@ -7,13 +11,29 @@ import math
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import (
+    LargeBinary,
+    exists,
+    delete,
+    func,
+    literal,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
+from app.config import get_settings
 from app.services.embedding_client import embed_text, embed_texts
 from app.services.knowledge_scope import KnowledgeScope, path_condition, scope_condition
+from app.vector_store import (
+    KNOWLEDGE_NAMESPACE,
+    get_vector_store,
+    raise_vector_store_unavailable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -139,9 +159,17 @@ def doc_to_wire(doc: KnowledgeDoc, *, include_content: bool) -> dict:
 
 
 async def _replace_chunks(db: AsyncSession, doc: KnowledgeDoc) -> int:
-    """删除旧切块并重新嵌入写入。"""
+    """删除旧切块并重新嵌入写入；向量写入向量存储，正文写业务库。
 
-    await db.execute(delete(KnowledgeChunk).where(KnowledgeChunk.doc_id == doc.id))
+    失败顺序：切块/嵌入先于任何写操作，嵌入服务不可用时业务库原样保留。
+    """
+
+    vs = get_vector_store()
+    if vs is None:
+        raise_vector_store_unavailable()
+    old_ids: list[int] = list(
+        (await db.scalars(select(KnowledgeChunk.id).where(KnowledgeChunk.doc_id == doc.id))).all()
+    )
     size, overlap = await resolve_chunk_params(db)
     pieces = chunk_text(doc.content, chunk_size=size, chunk_overlap=overlap)
     logger.info(
@@ -153,15 +181,25 @@ async def _replace_chunks(db: AsyncSession, doc: KnowledgeDoc) -> int:
         overlap,
     )
     vectors = await embed_texts(pieces)
-    for i, (text, vec) in enumerate(zip(pieces, vectors, strict=True)):
-        db.add(
-            KnowledgeChunk(
-                doc_id=doc.id,
-                chunk_index=i,
-                content=text,
-                embedding=vec,
-            )
+    await db.execute(delete(KnowledgeChunk).where(KnowledgeChunk.doc_id == doc.id))
+    rows: list[KnowledgeChunk] = []
+    for i, piece in enumerate(pieces):
+        rows.append(KnowledgeChunk(doc_id=doc.id, chunk_index=i, content=piece))
+    db.add_all(rows)
+    await db.flush()
+    # 先删旧向量再写新向量：主键自增不保证跨方言不复用 id，
+    # 残留的旧 ref 也会一直参与检索扫描、让向量库只增不减
+    if old_ids:
+        await vs.delete_refs(
+            KNOWLEDGE_NAMESPACE, [str(chunk_id) for chunk_id in old_ids]
         )
+    await vs.upsert_many(
+        KNOWLEDGE_NAMESPACE,
+        [
+            (str(row.id), vec)
+            for row, vec in zip(rows, vectors, strict=True)
+        ],
+    )
     return len(pieces)
 
 
@@ -194,7 +232,7 @@ async def list_docs(
         # 避免 `网络` 误命中 `网络安全`
         filters.append(path_condition(path_prefix))
     if tag is not None:
-        filters.append(KnowledgeDoc.tags.contains([tag]))
+        filters.append(_tag_condition(tag))
     if builtin is not None:
         filters.append(_source_condition(builtin))
     if q is not None:
@@ -259,8 +297,9 @@ async def doc_list_stats(db: AsyncSession, doc_ids: list[str]) -> dict[str, dict
         await db.execute(
             select(
                 KnowledgeDoc.id,
-                func.char_length(KnowledgeDoc.content),
-                func.octet_length(KnowledgeDoc.content),
+                # PG/SQLite 都有 length()（按字符计）；字节长度方言各异，单独取
+                func.length(KnowledgeDoc.content),
+                _content_byte_length(),
                 func.coalesce(chunk_agg.c.chunk_count, 0),
                 chunk_agg.c.indexed_at,
             )
@@ -284,6 +323,27 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _tag_condition(tag: str):
+    """标签包含过滤：PG 走 JSONB containment；SQLite 走 json_each 展开匹配。"""
+
+    from app.db import engine
+
+    if engine.dialect.name == "sqlite":
+        each = func.json_each(KnowledgeDoc.tags).table_valued("value")
+        return exists(select(literal(1)).select_from(each).where(each.c.value == tag))
+    return KnowledgeDoc.tags.contains([tag])
+
+
+def _content_byte_length():
+    """正文 UTF-8 字节长度表达式：PG 用 octet_length，SQLite 用 BLOB 长度。"""
+
+    from app.db import engine
+
+    if engine.dialect.name == "sqlite":
+        return func.length(func.cast(KnowledgeDoc.content, LargeBinary))
+    return func.octet_length(KnowledgeDoc.content)
+
+
 async def get_doc(db: AsyncSession, doc_id: str) -> KnowledgeDoc:
     doc = await db.get(KnowledgeDoc, doc_id)
     if doc is None:
@@ -304,11 +364,18 @@ async def create_doc(
     source_filename: str | None = None,
     source_mime: str | None = None,
     source_bytes: int | None = None,
+    doc_id: str | None = None,
 ) -> KnowledgeDoc:
+    """创建文档；doc_id 由调用方预生成时，可先落盘原件再入库。
+
+    上传流程先存原件后建文档，嵌入失败时调用方负责删除已存原件，
+    避免「文档不存在但原件残留」。
+    """
+
     if source_type not in ("manual", "upload", "vault"):
         raise ValueError(f"不支持的 source_type: {source_type}")
     doc = KnowledgeDoc(
-        id=str(uuid.uuid4()),
+        id=doc_id or str(uuid.uuid4()),
         source_type=source_type,
         title=title,
         title_en=title_en,
@@ -390,9 +457,19 @@ async def delete_doc(db: AsyncSession, doc_id: str) -> None:
     doc = await get_doc(db, doc_id)
     if doc.source_type == "vault":
         raise PermissionError("内置知识库文档只读，禁止删除")
+    # 先记切块 id：业务行删掉后就查不到要清哪些向量了
+    chunk_ids: list[int] = list(
+        (await db.scalars(select(KnowledgeChunk.id).where(KnowledgeChunk.doc_id == doc_id))).all()
+    )
     await db.delete(doc)
     await db.commit()
-    logger.info("删除文档 doc_id=%s", doc_id)
+    vs = get_vector_store()
+    if vs is not None and chunk_ids:
+        await vs.delete_refs(KNOWLEDGE_NAMESPACE, [str(i) for i in chunk_ids])
+    # 原件与文档同生命周期；文件缺失（老数据/手工清理）不阻塞删除
+    if doc.source_filename:
+        delete_source_file(doc_id=doc_id, filename=doc.source_filename)
+    logger.info("删除文档 doc_id=%s chunks=%s", doc_id, len(chunk_ids))
 
 
 async def list_paths(db: AsyncSession, builtin: bool | None = None) -> list[dict]:
@@ -438,7 +515,7 @@ def _apply_doc_filters(
         stmt = stmt.where(KnowledgeDoc.source_type == source_type)
     if tags:
         for t in tags:
-            stmt = stmt.where(KnowledgeDoc.tags.contains([t]))
+            stmt = stmt.where(_tag_condition(t))
     # 助理范围：与上面的 path/tags 过滤是 AND 关系
     scope_cond = scope_condition(scope)
     if scope_cond is not None:
@@ -488,7 +565,12 @@ async def search_docs(
     builtin: bool | None = None,
     source_type: str | None = None,
 ) -> list[KnowledgeHit]:
-    """混合检索：向量余弦 + 关键词 ILIKE，RRF 融合后聚合到文档。"""
+    """混合检索：向量余弦 + 关键词 ILIKE，RRF 融合后聚合到文档。
+
+    向量通道：先在向量存储里取 top-pool 的 (ref_id, similarity)，
+    再回业务库 join 出切块与文档并做启停/目录/范围过滤——
+    过滤发生在向量截断之后，极端情况下向量通道命中数可能少于 pool。
+    """
 
     query = query.strip()
     if query == "":
@@ -496,27 +578,40 @@ async def search_docs(
     if limit < 1:
         raise ValueError("limit 必须 >= 1")
 
+    vs = get_vector_store()
+    if vs is None:
+        raise_vector_store_unavailable()
+
     pool = limit * 4
     query_vec = await embed_text(query)
-    distance = KnowledgeChunk.embedding.cosine_distance(query_vec)
-    vec_stmt = (
-        select(KnowledgeChunk, KnowledgeDoc, distance.label("distance"))
-        .join(KnowledgeDoc, KnowledgeDoc.id == KnowledgeChunk.doc_id)
-        .where(KnowledgeDoc.enabled.is_(True))
-        .order_by(distance)
-        .limit(pool)
-    )
-    if builtin is not None:
-        vec_stmt = vec_stmt.where(_source_condition(builtin))
-    vec_stmt = _apply_doc_filters(
-        vec_stmt,
-        path=path,
-        path_prefix=path_prefix,
-        tags=tags,
-        scope=scope,
-        source_type=source_type,
-    )
-    vec_rows = (await db.execute(vec_stmt)).all()
+    vec_hits = await vs.search(KNOWLEDGE_NAMESPACE, query_vec, pool)
+    # (chunk, doc, similarity) 三元组，顺序保持向量相似度降序
+    vec_rows: list[tuple[KnowledgeChunk, KnowledgeDoc, float]] = []
+    if vec_hits:
+        int_ids = [int(ref_id) for ref_id, _ in vec_hits]
+        vec_stmt = (
+            select(KnowledgeChunk, KnowledgeDoc)
+            .join(KnowledgeDoc, KnowledgeDoc.id == KnowledgeChunk.doc_id)
+            .where(KnowledgeChunk.id.in_(int_ids))
+            .where(KnowledgeDoc.enabled.is_(True))
+        )
+        if builtin is not None:
+            vec_stmt = vec_stmt.where(_source_condition(builtin))
+        vec_stmt = _apply_doc_filters(
+            vec_stmt,
+            path=path,
+            path_prefix=path_prefix,
+            tags=tags,
+            scope=scope,
+            source_type=source_type,
+        )
+        row_map: dict[int, tuple[KnowledgeChunk, KnowledgeDoc]] = {
+            chunk.id: (chunk, doc) for chunk, doc in (await db.execute(vec_stmt)).all()
+        }
+        for ref_id, similarity in vec_hits:
+            row = row_map.get(int(ref_id))
+            if row is not None:
+                vec_rows.append((row[0], row[1], similarity))
 
     kw_stmt = (
         select(KnowledgeChunk, KnowledgeDoc)
@@ -547,10 +642,10 @@ async def search_docs(
     vector_score: dict[str, float] = {}
     vector_rank: dict[str, int] = {}
     keyword_rank: dict[str, int] = {}
-    for rank, (chunk, doc, dist) in enumerate(vec_rows, start=1):
+    for rank, (chunk, doc, similarity) in enumerate(vec_rows, start=1):
         docs[doc.id] = doc
         best_chunk.setdefault(doc.id, chunk)
-        vector_score.setdefault(doc.id, 1.0 - float(dist))
+        vector_score.setdefault(doc.id, similarity)
         vector_rank.setdefault(doc.id, rank)
     for rank, (chunk, doc) in enumerate(kw_rows, start=1):
         docs[doc.id] = doc
@@ -672,6 +767,35 @@ def extract_upload_text(*, filename: str, raw: bytes) -> str:
             raise ValueError("DOCX 未解析出文本")
         return content
     raise ValueError("仅支持 .md / .txt / .pdf / .docx")
+
+
+def source_file_path(doc_id: str, filename: str) -> Path:
+    """上传原件的落盘路径：{存储目录}/{文档 id}{原扩展名}。
+
+    扩展名取自原件名且必须在上传白名单内，防止任意路径拼接。
+    """
+
+    lower = filename.lower()
+    ext = Path(lower).suffix
+    if ext not in (".md", ".txt", ".pdf", ".docx"):
+        raise ValueError(f"源文件扩展名不受支持: {ext or '(无)'}")
+    directory = Path(get_settings().knowledge_upload_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / f"{doc_id}{ext}"
+
+
+def save_source_file(*, doc_id: str, filename: str, raw: bytes) -> None:
+    """上传时保存原件字节；写盘失败显式抛错，不静默降级。"""
+
+    path = source_file_path(doc_id, filename)
+    path.write_bytes(raw)
+
+
+def delete_source_file(*, doc_id: str, filename: str) -> None:
+    """删除文档时清理原件；文件已不存在视为已清理。"""
+
+    path = source_file_path(doc_id, filename)
+    path.unlink(missing_ok=True)
 
 
 async def search_for_agent(
