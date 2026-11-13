@@ -5,7 +5,7 @@
 禁止提权，宿主机碰不到、代码也碰不到宿主机。
 
 为什么不自己撸 Docker 调用：
-- 容器生命周期、镜像拉取、输出编码、依赖安装这些细节 llm-sandbox 已经踩过坑；
+- 容器生命周期、镜像拉取、输出编码、依赖安装这些细节 llm-sandbox 已处理成熟；
 - 它有官方 Google ADK 集成示例，接进本项目的 SkillToolset 是同一条路；
 - 换后端（Podman / Bubblewrap / NsJail）不用动业务代码，只换 runtime_configs。
 
@@ -17,8 +17,11 @@
 三者的差别只有来源标识与上下文，执行路径完全一致，
 所以只有这一个 run_code()：差异在调用方，不在执行器。
 
-一条硬规矩：沙盒不可用时绝不退回宿主机执行。
-退回执行等于把隔离承诺变成假的，比直接报错严重得多。
+执行器按 SANDBOX_EXECUTOR 配置切换：
+- docker（默认）：llm-sandbox 容器隔离；
+- local：本地不安全执行——直接用当前解释器跑用户代码，无隔离，
+  仅供可信开发环境显式选择；绝不在 Docker 不可用时自动退回，
+  退回执行等于把隔离承诺变成假的，比直接报错严重得多。
 """
 
 from __future__ import annotations
@@ -26,11 +29,15 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import subprocess
+import sys
 import tarfile
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -276,24 +283,41 @@ async def run_code(
     libraries: list[str] | None = None,
     timeout_seconds: int | None = None,
 ) -> SandboxResult:
-    """在沙盒里跑一段 Python 代码，并记录这次执行。
+    """按配置的执行器跑一段 Python 代码，并记录这次执行。
 
-    代码在容器内执行，宿主机只拿到 stdout / stderr / 退出码。
+    docker = 容器隔离执行，宿主机只拿到 stdout / stderr / 退出码；
+    local  = 本地不安全执行（无隔离），仅供可信开发环境。
     执行记录无论成功失败都写一条：失败的那次恰恰最需要留痕。
     """
 
     if code.strip() == "":
         raise ValueError("沙盒代码不能为空")
 
-    packages = _validate_libraries(libraries or [])
-    image, network_enabled, default_timeout = _sandbox_settings()
-    if packages and not network_enabled:
-        # pip 需要联网。断网是默认姿态，与其让 pip 在容器里报一堆网络错误，
-        # 不如在这里明确告诉调用方：要么换预装好依赖的镜像，要么显式打开联网。
-        raise ValueError(
-            "沙盒默认断网，无法安装依赖；请改用预装好依赖的镜像，"
-            "或打开 SANDBOX_NETWORK_ENABLED 后重试"
+    settings = get_settings()
+    executor = settings.sandbox_executor
+    if executor not in ("docker", "local"):
+        raise SandboxUnavailable(
+            f"沙盒执行器配置非法: {executor}（可选 docker / local）"
         )
+
+    packages = _validate_libraries(libraries or [])
+    if executor == "docker":
+        image, network_enabled, default_timeout = _sandbox_settings()
+        if packages and not network_enabled:
+            # pip 需要联网。断网是默认姿态，与其让 pip 在容器里报一堆网络错误，
+            # 不如在这里明确告诉调用方：要么换预装好依赖的镜像，要么显式打开联网。
+            raise ValueError(
+                "沙盒默认断网，无法安装依赖；请改用预装好依赖的镜像，"
+                "或打开 SANDBOX_NETWORK_ENABLED 后重试"
+            )
+    else:
+        image = ""
+        network_enabled = False
+        default_timeout = settings.sandbox_timeout_seconds
+        if packages:
+            # 本地执行器不隔离，往宿主机环境装依赖既污染又危险：
+            # 显式拒绝，需要依赖请改用 docker 执行器。
+            raise ValueError("local 执行器不支持安装依赖；请改用 docker 执行器")
     timeout = default_timeout if timeout_seconds is None else timeout_seconds
     if timeout <= 0 or timeout > MAX_TIMEOUT_SECONDS:
         raise ValueError(f"沙盒超时非法: {timeout}（范围 1..{MAX_TIMEOUT_SECONDS}）")
@@ -312,17 +336,23 @@ async def run_code(
         # 外层再套一层总墙钟：容器里的超时由 llm-sandbox 管，
         # 但 Docker 守护进程卡住时执行线程不会返回，没有这层请求会一直挂着。
         # 取消只能让调用方脱身，线程本身无法回收。
-        stdout, stderr, exit_code = await asyncio.wait_for(
-            asyncio.to_thread(
-                _execute_in_container,
-                image=image,
-                code=code,
-                libraries=packages,
-                network_enabled=network_enabled,
-                timeout=timeout,
-            ),
-            timeout=timeout + HARD_TIMEOUT_GRACE_SECONDS,
-        )
+        if executor == "docker":
+            stdout, stderr, exit_code = await asyncio.wait_for(
+                asyncio.to_thread(
+                    _execute_in_container,
+                    image=image,
+                    code=code,
+                    libraries=packages,
+                    network_enabled=network_enabled,
+                    timeout=timeout,
+                ),
+                timeout=timeout + HARD_TIMEOUT_GRACE_SECONDS,
+            )
+        else:
+            stdout, stderr, exit_code = await asyncio.wait_for(
+                asyncio.to_thread(_execute_locally, code=code, timeout=timeout),
+                timeout=timeout + HARD_TIMEOUT_GRACE_SECONDS,
+            )
         status = STATUS_SUCCEEDED if exit_code == 0 else STATUS_FAILED
         if status == STATUS_FAILED and stderr == "":
             error = f"沙盒执行失败，退出码 {exit_code}"
@@ -367,7 +397,8 @@ async def run_code(
         started_at=started_at,
     )
     logger.info(
-        "沙盒执行完成 execution_id=%s source=%s ref=%s status=%s exit=%s duration_ms=%s",
+        "沙盒执行完成 executor=%s execution_id=%s source=%s ref=%s status=%s exit=%s duration_ms=%s",
+        executor,
         execution_id,
         ctx.source,
         ctx.source_ref,
@@ -384,6 +415,35 @@ async def run_code(
         error=error,
         duration_ms=duration_ms,
     )
+
+
+def _execute_locally(*, code: str, timeout: int) -> tuple[str, str, int | None]:
+    """本地不安全执行器（SANDBOX_EXECUTOR=local）：当前解释器直接跑用户代码。
+
+    无隔离、无网络限制、无资源配额：代码拥有后端进程的全部权限，
+    必须由配置显式选择才生效。输出超长由 _record 截断，这里不截。
+    """
+
+    with tempfile.TemporaryDirectory(prefix="aiwb-local-exec-") as tmp:
+        path = Path(tmp) / "main.py"
+        path.write_text(code, encoding="utf-8")
+        try:
+            proc = subprocess.run(
+                # -I：隔离模式，忽略 PYTHONPATH 等环境注入；
+                # -X utf8：Windows 上强制 UTF-8，避免中文输出按本地代码页解码报错。
+                [sys.executable, "-I", "-X", "utf8", str(path)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                # 用户代码可以打印任意字节流，解码失败会让整次执行
+                # 被误报成异常：非法字节按替换符落到 stderr 侧展示
+                errors="replace",
+                timeout=timeout,
+                cwd=tmp,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError(f"本地执行超时（{timeout} 秒）") from exc
+        return proc.stdout or "", proc.stderr or "", proc.returncode
 
 
 def _execute_in_container(
