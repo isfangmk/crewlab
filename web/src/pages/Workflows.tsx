@@ -305,7 +305,7 @@ export default function WorkflowsPage() {
                   />
                 }
               >
-                <table className={tableLayout(72)}>
+                <table {...tableLayout(52)}>
                   <colgroup>
                     <col className={COL.main} />
                     <col className={COL.tag} />
@@ -313,7 +313,7 @@ export default function WorkflowsPage() {
                     <col className={COL.detail} />
                     <col className={COL.tag} />
                     <col className={COL.time} />
-                    <col className={COL.actions} />
+                    <col className={COL.actionsNarrow} />
                   </colgroup>
                   <TableHead>
                     <tr className="whitespace-nowrap">
@@ -692,7 +692,7 @@ function RunsTab({
               />
             }
           >
-            <table className={tableLayout(66)}>
+            <table {...tableLayout(56)}>
               <colgroup>
                 <col className={COL.main} />
                 <col className={COL.tag} />
@@ -700,7 +700,7 @@ function RunsTab({
                 <col className={COL.person} />
                 <col className={COL.time} />
                 <col className={COL.tag} />
-                <col className={COL.actions} />
+                <col className={COL.actionsNarrow} />
               </colgroup>
               <TableHead>
                 <tr className="whitespace-nowrap">

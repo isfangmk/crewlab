@@ -26,6 +26,8 @@ export const COL = {
   detail: 'w-[12rem]',
   /** 操作列：带文字按钮（导出 / 编辑 / 删除）。 */
   actions: 'w-[13rem]',
+  /** 操作列：一到两个短文字按钮（运行 / 再次运行）。 */
+  actionsNarrow: 'w-[8rem]',
   /** 操作列：纯图标按钮。 */
   actionsIcon: 'w-[5.5rem]',
   /** 序号列。 */
@@ -35,8 +37,16 @@ export const COL = {
 } as const;
 
 /**
- * 表格容器的统一类名：固定布局 + 最小宽度，避免窄屏把列挤变形。
+ * 表格容器的统一属性：固定布局 + 最小宽度，避免窄屏把列挤变形。
+ *
+ * 最小宽度必须走内联 style：`min-w-[${n}rem]` 是运行时拼出来的类名，
+ * Tailwind 静态扫描看不到它，CSS 里根本不存在这个类——
+ * 结果固定列总宽超出容器时不会出横向滚动，而是把主内容列挤成 0 宽。
+ * 返回 { className, style }，调用处用 <table {...tableLayout(n)}> 展开。
  */
 export function tableLayout(minWidthRem: number) {
-  return cn('og-action-table w-full text-sm', 'table-fixed', `min-w-[${minWidthRem}rem]`);
+  return {
+    className: cn('og-action-table w-full text-sm', 'table-fixed'),
+    style: { minWidth: `${minWidthRem}rem` } as const,
+  };
 }

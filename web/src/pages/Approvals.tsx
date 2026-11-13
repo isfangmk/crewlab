@@ -575,7 +575,7 @@ export default function ApprovalsPage() {
                 ) : undefined
               }
             >
-              <table className={tableLayout(60)}>
+              <table {...tableLayout(60)}>
                 <colgroup>
                   <col className={COL.handle} />
                   <col className={COL.main} />

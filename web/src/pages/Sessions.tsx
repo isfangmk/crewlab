@@ -460,7 +460,7 @@ export default function SessionsPage() {
                 <Link
                   to={`/chat/${session.id}`}
                   title={title}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] font-medium text-zinc-100 hover:underline"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-[12.5px] font-medium text-zinc-100 hover:underline"
                 >
                   {session.pinned ? <Pin size={12} className="shrink-0 text-amber-400" aria-hidden /> : null}
                   <span className="truncate">{title}</span>
@@ -985,7 +985,7 @@ export default function SessionsPage() {
                 />
               }
             >
-                <table className={tableLayout(86)}>
+                <table {...tableLayout(86)}>
                   <colgroup>
                     <col className={COL.handle} />
                     <col className={COL.main} />

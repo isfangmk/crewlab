@@ -462,7 +462,7 @@ export default function AuditPage() {
                 />
               }
             >
-              <table className={tableLayout(58)}>
+              <table {...tableLayout(58)}>
                 <colgroup>
                   <col className={COL.time} />
                   <col className={COL.person} />

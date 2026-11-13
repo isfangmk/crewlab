@@ -210,8 +210,8 @@ export default function SandboxPage() {
       <PageHeader
         title={tr('沙箱', 'Sandbox')}
         subtitle={tr(
-          '不可信代码的统一执行入口：技能脚本、工作流代码节点与手动试跑都在容器里跑，宿主只拿到输出',
-          'One execution path for untrusted code: skill scripts, workflow code nodes and manual runs all run in a container',
+          '不可信代码的统一执行入口：技能脚本、工作流代码节点与手动试跑都走沙盒执行器（SANDBOX_EXECUTOR 配置 docker/local），宿主只拿到输出',
+          'One execution path for untrusted code: skill scripts, workflow code nodes and manual runs all go through the configured executor (SANDBOX_EXECUTOR: docker/local)',
         )}
         actions={
           <>
@@ -428,7 +428,7 @@ export default function SandboxPage() {
               />
             }
           >
-            <table className={tableLayout(52)}>
+            <table {...tableLayout(52)}>
               <colgroup>
                 <col className={COL.main} />
                 <col className={COL.tag} />

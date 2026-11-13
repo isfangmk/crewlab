@@ -291,7 +291,7 @@ function CatalogTab() {
             />
           ) : (
             <TableCard className="min-h-0 flex-1">
-              <table className={tableLayout(64)}>
+              <table {...tableLayout(64)}>
                 <colgroup>
                   <col className={COL.id} />
                   <col className={COL.tag} />

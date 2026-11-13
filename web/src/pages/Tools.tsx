@@ -246,7 +246,7 @@ export default function ToolsPage() {
             />
           ) : (
             <TableCard className="min-h-0 flex-1">
-              <table className={tableLayout(48)}>
+              <table {...tableLayout(48)}>
                 <colgroup>
                   <col className={COL.main} />
                   <col className={COL.tag} />

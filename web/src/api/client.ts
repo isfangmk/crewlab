@@ -135,7 +135,15 @@ export async function requestFile(
   }
 
   const disposition = res.headers.get('content-disposition') ?? '';
-  const match = /filename="([^"]+)"/.exec(disposition);
-  return { blob: await res.blob(), filename: match ? match[1] : 'download' };
+  // 非 ASCII 文件名只有 RFC 5987 的 filename*=utf-8''… 形式（Starlette 行为）；
+  // 纯 ASCII 时才是 filename="…"。两种都解，中文经 decodeURIComponent 还原。
+  const star = /filename\*=utf-8''([^;]+)/i.exec(disposition);
+  const plain = /filename="([^"]+)"/.exec(disposition);
+  const filename = star
+    ? decodeURIComponent(star[1])
+    : plain
+      ? plain[1]
+      : 'download';
+  return { blob: await res.blob(), filename };
 }
 

@@ -1,4 +1,4 @@
-import { request } from './client';
+import { request, requestFile } from './client';
 import { getToken } from '@/store/auth';
 import { tr as trInline } from '@/i18n/locale';
 
@@ -103,6 +103,11 @@ export function updateDoc(
 
 export function deleteDoc(id: string) {
   return request<void>('DELETE', `/knowledge/docs/${id}`);
+}
+
+// 下载上传原件（仅 upload 来源有源文件）；文件名取自 Content-Disposition。
+export function downloadDocSource(id: string) {
+  return requestFile(`/knowledge/docs/${id}/source`);
 }
 
 // 移动组织文档（manual/upload）到新目录；path 为空表示根目录。

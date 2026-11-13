@@ -99,7 +99,7 @@ describe('AgentsPage', () => {
     // 淡色卡片操作不能被实心主按钮背景覆盖，否则浅色主题下紫字落在紫底上。
     const useButton = (await screen.findAllByRole('button', { name: '使用此助理' }))[0];
     expect(useButton).toHaveAttribute('data-variant', 'plain');
-    expect(useButton).toHaveClass('bg-indigo-500/10', 'text-indigo-200');
+    expect(useButton).toHaveClass('bg-indigo-500/10', 'text-indigo-300');
     // 卡片标题用短名；名称是唯一的详情入口（卡片本身不响应点击）
     await userEvent.click(await screen.findByRole('button', { name: 'SRE 专家' }));
 

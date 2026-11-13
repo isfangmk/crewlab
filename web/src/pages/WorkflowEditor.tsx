@@ -65,6 +65,7 @@ import {
 import { WorkflowConnectionLine, WorkflowEdge, type CanvasFlowEdge } from '@/components/workflow/WorkflowEdge';
 import { WorkflowPalette } from '@/components/workflow/WorkflowPalette';
 import {
+  EmptyStateCard,
   ErrorBanner, Button, PageHeader, RowAction, Toast, type ToastTone } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { cn } from '@/lib/cn';
@@ -124,10 +125,10 @@ function InvalidId() {
   const { tr } = useI18n();
   return (
     <main className="flex flex-1 items-center justify-center">
-      <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/40 px-6 py-8 text-center">
-        <div className="text-[13px] text-zinc-200">{tr('工作流 ID 不合法', 'Invalid workflow ID')}</div>
-        <div className="mt-1 text-[11.5px] text-zinc-500">{tr('请从工作流列表进入编排页', 'Open the editor from the workflow list')}</div>
-      </div>
+      <EmptyStateCard
+        title={tr('工作流 ID 不合法', 'Invalid workflow ID')}
+        hint={tr('请从工作流列表进入编排页', 'Open the editor from the workflow list')}
+      />
     </main>
   );
 }

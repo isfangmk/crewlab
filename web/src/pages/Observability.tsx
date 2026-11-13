@@ -680,7 +680,7 @@ export default function ObservabilityPage() {
               />
             }
           >
-              <table className={tableLayout(50)}>
+              <table {...tableLayout(50)}>
                 <colgroup>
                   <col className={COL.time} />
                   <col className={COL.tag} />

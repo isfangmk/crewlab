@@ -28,6 +28,7 @@ import {
   SearchX,
   Trash2,
   Upload,
+  Download,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -77,6 +78,7 @@ import {
   setDocEnabled,
   updateDoc,
   uploadDoc,
+  downloadDocSource,
   type KnowledgeDoc,
   type DocSource,
   type PathRow,
@@ -343,6 +345,25 @@ export default function KnowledgePage() {
       }
     },
     [fetchList, fetchTrees, pickFolder, tr],
+  );
+
+  // 下载上传原件：blob 落成临时链触发浏览器保存；文件名取自 Content-Disposition
+  const downloadSource = useCallback(
+    async (doc: KnowledgeDoc) => {
+      try {
+        const { blob, filename } = await downloadDocSource(doc.id);
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename || doc.source_filename || 'download';
+        anchor.click();
+        URL.revokeObjectURL(url);
+        setToast({ kind: 'ok', text: tr(`已开始下载 ${filename}`, `Downloading ${filename}`) });
+      } catch (e) {
+        setToast({ kind: 'err', text: tr(`下载失败：${errorText(e)}`, `Download failed: ${errorText(e)}`) });
+      }
+    },
+    [tr],
   );
 
   const onMoveDoc = useCallback(
@@ -679,7 +700,7 @@ export default function KnowledgePage() {
                 />
               }
             >
-                <table className={tableLayout(64)}>
+                <table {...tableLayout(64)}>
                   <colgroup>
                     <col className={COL.handle} />
                     <col className={COL.main} />
@@ -735,6 +756,7 @@ export default function KnowledgePage() {
                         setDocModal({ doc, mode: 'edit' });
                       }}
                       onDelete={() => setDeleting(doc)}
+                      onDownload={() => void downloadSource(doc)}
                       onToggleEnabled={(enabled) => void onToggleDocEnabled(doc, enabled)}
                     />
                   ))}
@@ -1010,6 +1032,7 @@ function DocRow({
   onView,
   onEdit,
   onDelete,
+  onDownload,
   onToggleEnabled,
 }: {
   doc: KnowledgeDoc;
@@ -1017,6 +1040,7 @@ function DocRow({
   onView(): void;
   onEdit(): void;
   onDelete(): void;
+  onDownload(): void;
   onToggleEnabled(enabled: boolean): void;
 }) {
   const { tr } = useI18n();
@@ -1093,7 +1117,7 @@ function DocRow({
           {doc.path ? (
             <span className="inline-flex min-w-0 shrink items-center gap-1 text-zinc-500" title={localizedPath(doc.path)}>
               <Folder size={10} className="shrink-0 text-zinc-600" aria-hidden />
-              <span className="truncate font-mono">{localizedPath(doc.path)}</span>
+              <span className="truncate">{localizedPath(doc.path)}</span>
             </span>
           ) : (
             <span className="shrink-0 text-zinc-600">{tr('未归目录', 'No folder')}</span>
@@ -1118,9 +1142,10 @@ function DocRow({
           {(doc.source_filename || doc.url) && (
             <>
               <span aria-hidden className="shrink-0 text-zinc-600">·</span>
-              {/* 大小统一由索引列展示，元信息行只保留原件名 / URL 与 MIME */}
+              {/* 大小统一由索引列展示，元信息行只保留原件名 / URL 与 MIME；
+                  文件名允许中文，不套等宽字体（中文会回落成异形字形） */}
               <span
-                className="min-w-0 flex-1 truncate font-mono text-zinc-600"
+                className="min-w-0 flex-1 truncate text-zinc-600"
                 title={
                   doc.source_filename
                     ? [doc.source_filename, doc.source_mime].filter(Boolean).join(' · ')
@@ -1199,6 +1224,14 @@ function DocRow({
       </td>
       <td className="px-3 py-[7px]">
         <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          {doc.source_type === 'upload' && doc.source_filename ? (
+            <RowActionIcon
+              icon={Download}
+              label={tr('下载源文件', 'Download source file')}
+              aria-label={tr(`下载源文件 ${title}`, `Download source file ${title}`)}
+              onClick={onDownload}
+            />
+          ) : null}
           {editable ? (
             <>
               <RowActionIcon
@@ -1236,7 +1269,7 @@ function SearchHitRow({ hit, rank, onOpen }: { hit: SearchHit; rank: number; onO
             {title}
           </span>
           {hit.doc.path && (
-            <span className="max-w-[14rem] truncate font-mono text-[10px] text-zinc-500">
+            <span className="max-w-[14rem] truncate text-[10px] text-zinc-500">
               {localizedPath(hit.doc.path)}
             </span>
           )}
@@ -1246,13 +1279,13 @@ function SearchHitRow({ hit, rank, onOpen }: { hit: SearchHit; rank: number; onO
           {hit.excerpt}
         </p>
       </td>
-      <td className="whitespace-nowrap px-3 py-2.5 text-right align-top font-mono text-[10px] leading-4 text-zinc-500">
+      <td className="whitespace-nowrap px-3 py-2.5 text-right align-top text-[10px] leading-4 text-zinc-500">
         <span className="block">
-          RRF <span className="text-zinc-300">{hit.score.toFixed(4)}</span>
+          RRF <span className="font-mono text-zinc-300">{hit.score.toFixed(4)}</span>
         </span>
         {hit.vector_score !== null && (
           <span className="block">
-            {tr('向量相似度', 'vector sim')} <span className="text-zinc-300">{hit.vector_score.toFixed(3)}</span>
+            {tr('向量相似度', 'vector sim')} <span className="font-mono text-zinc-300">{hit.vector_score.toFixed(3)}</span>
           </span>
         )}
         {hit.keyword_rank !== null && (
@@ -1352,12 +1385,12 @@ function SemanticSearchPanel({
         />
       ) : (
         <TableCard className="min-h-0 flex-1">
-          <table className={tableLayout(40)}>
+          <table {...tableLayout(40)}>
             <colgroup>
               <col className={COL.index} />
               <col className={COL.main} />
               <col className={COL.tag} />
-              <col className={COL.actionsIcon} />
+              <col className={COL.actionsNarrow} />
             </colgroup>
             <TableHead>
               <tr className="whitespace-nowrap">

@@ -438,7 +438,7 @@ export default function UsersPage() {
                 />
               }
             >
-              <table className={tableLayout(59)}>
+              <table {...tableLayout(59)}>
                 <colgroup>
                   <col className={COL.main} />
                   <col className={COL.person} />

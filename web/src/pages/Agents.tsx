@@ -37,6 +37,7 @@ import {
   Trash2,
   Users,
   Wrench,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -221,7 +222,7 @@ export default function AgentsPage() {
         ) : err && items.length === 0 ? null : filtered.length === 0 ? (
           <AgentsEmpty canCreate={canMutate} hasItems={!!query.trim()} onClear={() => setQuery('')} onCreate={() => setEditing({ mode: 'create' })} />
         ) : (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filtered.map((a) => (
               <AgentCard
                 key={a.name}
@@ -397,8 +398,8 @@ function AgentCard({
     <Card className="group flex flex-col">
       {/* 头部：头像 + 名称/来源 + 行内操作。只有名称是进详情的入口。 */}
       <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/25 to-sky-500/10 text-indigo-300 ring-1 ring-inset ring-indigo-500/30">
-          <Bot size={16} />
+        <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/30 to-violet-500/10 text-indigo-300 ring-1 ring-inset ring-indigo-500/30">
+          <Bot size={17} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
@@ -406,7 +407,7 @@ function AgentCard({
               <button
                 type="button"
                 onClick={onView}
-                className="min-w-0 truncate text-[13px] font-semibold leading-5 text-zinc-100 transition-colors hover:text-indigo-300"
+                className="min-w-0 truncate text-[12.5px] font-semibold leading-5 text-zinc-100 transition-colors hover:text-indigo-300"
               >
                 {displayName}
               </button>
@@ -414,7 +415,7 @@ function AgentCard({
             <SourceLabel source={agent.source} />
             {agent.permission_mode === 'read-only' && <Chip dense tone="success">{tr('只读', 'Read-only')}</Chip>}
           </div>
-          <div className="truncate font-mono text-[10.5px] leading-4 text-zinc-500">{agent.name}</div>
+          <div className="truncate font-mono text-[10px] leading-4 text-zinc-500">{agent.name}</div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           {isUser && (
@@ -440,35 +441,31 @@ function AgentCard({
       </div>
 
       {/* 描述固定两行高度，同一行的卡片底部元信息才能对齐。 */}
-      <p className="mt-2.5 line-clamp-2 min-h-[2.4em] text-[11.5px] leading-relaxed text-zinc-400">
+      <p className="mt-3 line-clamp-2 min-h-[2.6em] text-[12.5px] leading-5 text-zinc-200">
         {agent.description}
       </p>
 
+      {/* 何时使用：单行元信息，与四格元信息同层，不单独做标签行。 */}
       {agent.when_to_use && (
-        <div className="mt-1.5 flex items-baseline gap-1.5">
-          <span className="shrink-0 text-[10px] uppercase tracking-wide text-zinc-400">
-            {tr('何时使用', 'When')}
-          </span>
-          <span className="line-clamp-1 text-[11px] leading-snug text-zinc-500" title={agent.when_to_use}>
-            {agent.when_to_use}
-          </span>
-        </div>
+        <Fact
+          icon={Zap}
+          label={tr('何时使用', 'When')}
+          value={agent.when_to_use}
+          className="mt-1.5"
+        />
       )}
 
       {/* 关键提醒是运行时真正注入的约束，卡片上直接露出来，不用点进详情才知道。 */}
       {agent.critical_reminder && (
         <div className="mt-2.5 rounded-md border-l-2 border-amber-500/50 bg-amber-500/[0.06] py-1.5 pl-2 pr-2">
-          <div className="text-[9.5px] font-medium uppercase tracking-wide text-amber-300/80">
-            {tr('关键提醒', 'Reminder')}
-          </div>
-          <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-zinc-400" title={agent.critical_reminder}>
+          <p className="line-clamp-2 text-[11px] leading-snug text-zinc-400" title={agent.critical_reminder}>
             {agent.critical_reminder}
           </p>
         </div>
       )}
 
       {/* 四格元信息：工具 / 知识范围 / 输出格式 / 示例，回答「这个助理到底怎么配的」。 */}
-      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-zinc-800/60 pt-2.5">
+      <div className="mt-3 mb-3 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-zinc-800/60 pt-2.5">
         <Fact
           icon={Wrench}
           label={tr('工具', 'Tools')}
@@ -487,8 +484,12 @@ function AgentCard({
         />
       </div>
 
-      <div className="mt-auto flex items-center justify-between gap-2 pt-2.5">
-        <span className="min-w-0 truncate text-[10.5px] text-zinc-500" title={agent.model || undefined}>
+      <div className="mt-auto flex items-center justify-between gap-2 border-t border-zinc-800/60 pt-2.5">
+        {/* 等宽字体只给模型 id（ASCII）；中文标签落等宽栈会回退到异形字形 */}
+        <span
+          className={cn('min-w-0 truncate text-[10px] text-zinc-500', agent.model !== '' && 'font-mono')}
+          title={agent.model || undefined}
+        >
           {agent.model !== '' ? agent.model : tr('模型继承默认', 'Model inherited')}
         </span>
         <Hint content={tr('用此助理开新会话', 'Start a new session with this assistant')}>
@@ -498,7 +499,7 @@ function AgentCard({
               void onUse();
             }}
             disabled={busy}
-            className="gap-1 border border-indigo-500/40 bg-indigo-500/10 px-2 text-[11px] text-indigo-200 hover:bg-indigo-500/20"
+            className="gap-1 border border-indigo-500/40 bg-indigo-500/10 px-2.5 text-[11px] font-medium text-indigo-300 hover:border-indigo-500/60 hover:bg-indigo-500/20 hover:text-indigo-200"
           >
             <MessageSquarePlus size={12} />
             {busy ? tr('创建中…', 'Creating…') : tr('使用此助理', 'Use this')}
@@ -511,12 +512,12 @@ function AgentCard({
 }
 
 /** 卡片元信息一格：图标 + 字段名 + 值（值过长单行省略，悬停看全文）。 */
-function Fact({ icon: Icon, label, value, title }: { icon: LucideIcon; label: string; value: string; title?: string }) {
+function Fact({ icon: Icon, label, value, title, className }: { icon: LucideIcon; label: string; value: string; title?: string; className?: string }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
+    <div className={cn('flex min-w-0 items-center gap-1.5', className)}>
       <Icon size={11} className="shrink-0 text-zinc-500" />
-      <span className="shrink-0 text-[10px] text-zinc-400">{label}</span>
-      <span className="truncate text-[10.5px] font-medium text-zinc-300" title={title ?? value}>
+      <span className="shrink-0 text-[10px] text-zinc-500">{label}</span>
+      <span className="truncate text-[11px] font-medium text-zinc-200" title={title ?? value}>
         {value}
       </span>
     </div>

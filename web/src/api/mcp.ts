@@ -14,6 +14,7 @@ export interface McpServer {
   approval_policy: McpApprovalPolicy;
   enabled: boolean;
   status: string;
+  updated_at?: string | null;
   last_error: string;
   tools_cache_json: string;
   embedding_sync_status?: string;
