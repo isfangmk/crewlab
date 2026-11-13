@@ -374,17 +374,32 @@ async def list_session_stats(
         for sid, message_count, turn_count, last_message_at in message_rows
     }
 
-    # DISTINCT ON：按 seq 倒序取每个会话的第一条，结果集只等于会话数。
+    # 窗口函数按 seq 倒序取每个会话的第一条有正文消息，结果集只等于会话数。
+    # 不用 PG 的 DISTINCT ON：它在 SQLite 上会被静默降级成普通 DISTINCT，
+    # 取哪一行就不再由 seq 决定（摘要会变成旧消息）。
+    preview_window = (
+        select(
+            ChatMessage.session_id.label("sid"),
+            ChatMessage.content.label("content"),
+            func.row_number()
+            .over(
+                partition_by=ChatMessage.session_id,
+                order_by=ChatMessage.seq.desc(),
+            )
+            .label("rn"),
+        )
+        .where(
+            ChatMessage.session_id.in_(session_ids),
+            ChatMessage.content.is_not(None),
+            ChatMessage.content != "",
+        )
+        .subquery()
+    )
     preview_rows = (
         await db.execute(
-            select(ChatMessage.session_id, ChatMessage.content)
-            .where(
-                ChatMessage.session_id.in_(session_ids),
-                ChatMessage.content.is_not(None),
-                ChatMessage.content != "",
+            select(preview_window.c.sid, preview_window.c.content).where(
+                preview_window.c.rn == 1
             )
-            .order_by(ChatMessage.session_id, ChatMessage.seq.desc())
-            .distinct(ChatMessage.session_id)
         )
     ).all()
     previews = {

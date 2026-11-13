@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -251,23 +252,47 @@ async def summarize_turns(
         started_to=started_to,
         min_duration_ms=min_duration_ms,
     )
+    from app.db import engine
+
+    use_percentile_cont = engine.dialect.name == "postgresql"
     stmt = select(
         func.count().label("total"),
         func.count().filter(ObservationTurn.status == STATUS_ERROR).label("error_count"),
         func.count().filter(ObservationTurn.status == _STATUS_RUNNING).label("running_count"),
         func.avg(ObservationTurn.duration_ms).label("avg_duration_ms"),
-        func.percentile_cont(0.95)
-        .within_group(ObservationTurn.duration_ms.asc())
-        .label("p95_duration_ms"),
         func.coalesce(func.sum(ObservationTurn.total_tokens), 0).label("total_tokens"),
         func.coalesce(func.sum(ObservationTurn.tool_call_count), 0).label("tool_call_total"),
         func.coalesce(func.sum(ObservationTurn.skill_call_count), 0).label("skill_call_total"),
     ).select_from(ObservationTurn)
+    if use_percentile_cont:
+        # PG：有序集聚合直接算连续分位数
+        stmt = stmt.add_columns(
+            func.percentile_cont(0.95)
+            .within_group(ObservationTurn.duration_ms.asc())
+            .label("p95_duration_ms")
+        )
     if filters:
         stmt = stmt.where(*filters)
     row = (await db.execute(stmt)).one()
     avg_duration_ms = row.avg_duration_ms
-    p95_duration_ms = row.p95_duration_ms
+    if use_percentile_cont:
+        p95_duration_ms = row.p95_duration_ms
+    else:
+        # SQLite 没有 percentile_cont：按最近秩取 P95（0 起，第 ceil(0.95*N)-1 位）
+        total = int(row.total or 0)
+        if total == 0:
+            p95_duration_ms = None
+        else:
+            offset = max(0, math.ceil(0.95 * total) - 1)
+            p95_stmt = (
+                select(ObservationTurn.duration_ms)
+                .order_by(ObservationTurn.duration_ms.asc())
+                .limit(1)
+                .offset(offset)
+            )
+            if filters:
+                p95_stmt = p95_stmt.where(*filters)
+            p95_duration_ms = await db.scalar(p95_stmt)
     return {
         "total": int(row.total),
         "error_count": int(row.error_count),
