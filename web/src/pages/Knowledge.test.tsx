@@ -45,6 +45,15 @@ const manualDoc = {
   enabled: true,
   created_at: '2026-06-01T00:00:00Z',
   updated_at: '2026-06-01T00:00:00Z',
+  chunk_count: 2,
+  content_chars: 4,
+  content_bytes: 12,
+  indexed_at: '2026-06-01T00:00:00Z',
+  source_filename: null,
+  source_mime: null,
+  source_bytes: null,
+  hit_count: 3,
+  last_hit_at: '2026-06-02T03:04:00Z',
 };
 
 const listURL = '/api/v1/knowledge/docs';
@@ -199,12 +208,17 @@ describe('KnowledgePage', () => {
     expect(createdBody).not.toHaveProperty('url');
   });
 
-  it('文档启停：切换开关只 PATCH enabled，并标记已停用', async () => {
+  it('文档启停：切换开关只 PATCH enabled，索引统计不丢失', async () => {
     let toggleBody: Record<string, unknown> | null = null;
     server.use(
       http.patch(`${listURL}/202/enabled`, async ({ request }) => {
         toggleBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json({ ...manualDoc, enabled: false });
+        // 后端 wire 文档不含列表统计字段：前端必须合并而不是覆盖
+        const wire = { ...manualDoc } as Record<string, unknown>;
+        for (const key of ['chunk_count', 'content_chars', 'content_bytes', 'indexed_at']) {
+          delete wire[key];
+        }
+        return HttpResponse.json({ ...wire, enabled: false });
       }),
     );
 
@@ -214,6 +228,115 @@ describe('KnowledgePage', () => {
 
     await waitFor(() => expect(toggleBody).toEqual({ enabled: false }));
     expect(await screen.findByText('已停用')).toBeInTheDocument();
+    expect(screen.getByText('2 块')).toBeInTheDocument();
+    expect(screen.getByText('12 B')).toBeInTheDocument();
+    expect(screen.getByText('已索引')).toBeInTheDocument();
+  });
+
+  it('文档行：状态用语义胶囊兼开关，停用不再整行变灰', async () => {
+    render(<KnowledgePage />);
+    const toggle = await screen.findByRole('switch', { name: /^参与检索/ });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(toggle).toHaveTextContent('参与检索');
+
+    const row = toggle.closest('tr');
+    expect(row).not.toBeNull();
+    expect(row).not.toHaveClass('opacity-60');
+    // 类型字形与来源胶囊分层展示，元信息不再是一片同级灰字
+    expect(within(row as HTMLElement).getByText('MD')).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText('手动')).toBeInTheDocument();
+  });
+
+  it('索引列：展示分块数、文件大小、已索引状态与命中次数', async () => {
+    render(<KnowledgePage />);
+    expect(await screen.findByText('2 块')).toBeInTheDocument();
+    expect(screen.getByText('12 B')).toBeInTheDocument();
+    expect(screen.getByText('已索引')).toBeInTheDocument();
+    expect(screen.getByText('3 次命中')).toBeInTheDocument();
+  });
+
+  it('元信息行：只展示文件名，大小统一由索引列展示', async () => {
+    server.use(
+      http.get(listURL, () =>
+        HttpResponse.json({
+          items: [
+            {
+              ...manualDoc,
+              source_type: 'upload',
+              source_filename: '巡检记录.pdf',
+              source_mime: 'application/pdf',
+              source_bytes: 253952,
+            },
+          ],
+          total: 1,
+        }),
+      ),
+    );
+    render(<KnowledgePage />);
+    expect(await screen.findByText('巡检记录.pdf')).toBeInTheDocument();
+    expect(screen.getByText('PDF')).toBeInTheDocument();
+    // 大小只在索引列出现一次，元信息行不再重复
+    expect(screen.getByText('12 B')).toBeInTheDocument();
+    expect(screen.queryByText(/248\.0 KB/)).not.toBeInTheDocument();
+  });
+
+  it('类型标签：按文件扩展名区分语义色', async () => {
+    server.use(
+      http.get(listURL, () =>
+        HttpResponse.json({
+          items: [
+            { ...manualDoc, id: 'md-doc', title: 'MD 文档', source_filename: 'spec.md' },
+            { ...manualDoc, id: 'txt-doc', title: 'TXT 文档', source_filename: 'note.txt' },
+            { ...manualDoc, id: 'pdf-doc', title: 'PDF 文档', source_filename: 'manual.pdf' },
+            { ...manualDoc, id: 'word-doc', title: 'DOC 文档', source_filename: 'guide.docx' },
+            { ...manualDoc, id: 'zip-doc', title: 'ZIP 文档', source_filename: 'data.zip' },
+          ],
+          total: 5,
+        }),
+      ),
+    );
+    render(<KnowledgePage />);
+    const toneOf = (label: string) =>
+      screen.getByText(label).closest('[data-slot="badge"]')?.getAttribute('data-tone');
+    expect(await screen.findByText('MD')).toBeInTheDocument();
+    expect(toneOf('MD')).toBe('accent');
+    expect(toneOf('TXT')).toBe('info');
+    expect(toneOf('PDF')).toBe('warning');
+    expect(toneOf('DOC')).toBe('success');
+    // 未知后缀用中性兜底，不硬猜成 MD
+    expect(toneOf('FILE')).toBe('default');
+  });
+
+  it('上传文档编辑表单：来源文件展示原件名且只读', async () => {
+    const upload = {
+      ...manualDoc,
+      id: '707',
+      source_type: 'upload',
+      title: '巡检记录',
+      source_filename: '巡检记录.pdf',
+      source_mime: 'application/pdf',
+    };
+    server.use(
+      http.get(listURL, () => HttpResponse.json({ items: [upload], total: 1 })),
+      http.get(`${listURL}/707`, () => HttpResponse.json({ ...upload, content: '巡检正文' })),
+    );
+    render(<KnowledgePage />);
+    await clickRowAction('巡检记录', '编辑');
+
+    // 上传文档的 url 为空，来源必须是原件名；且后端不接受改 url，输入框只读
+    const source = await screen.findByDisplayValue('巡检记录.pdf');
+    expect(source).toHaveAttribute('readonly');
+  });
+
+  it('索引列：0 块文档标为未索引', async () => {
+    server.use(
+      http.get(listURL, () =>
+        HttpResponse.json({ items: [{ ...manualDoc, chunk_count: 0, indexed_at: null }], total: 1 }),
+      ),
+    );
+    render(<KnowledgePage />);
+    expect(await screen.findByText('0 块')).toBeInTheDocument();
+    expect(screen.getByText('未索引')).toBeInTheDocument();
   });
 
   it('检索命中块：展示分道得分，点击结果打开文档并选中命中块', async () => {

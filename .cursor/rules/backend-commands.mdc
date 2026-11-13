@@ -9,14 +9,16 @@ alwaysApply: true
 
 ```powershell
 cd backend
-uv run python -m pytest            # 全量
-uv run python -m pytest tests/test_skills_api.py -q
+uv run python -m pytest tests/test_skills_api.py -q   # 只跑改动到的测试
 ```
 
 - **禁止**直接 `python -m pytest` / `pytest`：系统 conda 的 `python` 是 ADK 2.11，
   缺 `google.adk.utils._function_call_names`，`import app.adk_runtime.stream_bridge`
   直接 `ModuleNotFoundError`，测试连收集阶段都过不去。
 - 项目真实环境是 `backend/.venv`（ADK 2.14），只有 `uv run` 会用它。
+- **禁止全量跑测试**：只跑本次改动涉及的那几个测试文件。前端同理，
+  只跑改动到的页面测试（`npx vitest run src/pages/<改动的页面>.test.tsx`）。
+  全量跑既慢，又会被与本次改动无关的历史失败带偏，掩盖真实回归。
 
 ## 类型检查
 

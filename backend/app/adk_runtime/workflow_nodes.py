@@ -58,6 +58,8 @@ class RunContext:
     stopped: bool = False
     # 实时事件回调：节点开始/结束即时推给运行服务，未订阅时为 None
     on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+    # 本次运行的标识：沙盒执行记录要能回指到是哪一次运行
+    run_uid: str = ""
 
     def next_attempt(self, node_id: str) -> int:
         attempt = self.attempts.get(node_id, 0) + 1

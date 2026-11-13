@@ -8,8 +8,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.services.embedding_client import embed_text, embed_texts
 from app.services.knowledge_scope import KnowledgeScope, path_condition, scope_condition
@@ -121,6 +122,12 @@ def doc_to_wire(doc: KnowledgeDoc, *, include_content: bool) -> dict:
         "enabled": doc.enabled,
         "created_at": doc.created_at.isoformat(),
         "updated_at": doc.updated_at.isoformat(),
+        # 上传原件信息（手动 / 内置文档为 None）与检索命中累计
+        "source_filename": doc.source_filename,
+        "source_mime": doc.source_mime,
+        "source_bytes": doc.source_bytes,
+        "hit_count": doc.hit_count,
+        "last_hit_at": doc.last_hit_at.isoformat() if doc.last_hit_at is not None else None,
     }
     if doc.title_en is not None:
         out["title_en"] = doc.title_en
@@ -206,13 +213,69 @@ async def list_docs(
         if sort_dir == "asc"
         else KnowledgeDoc.updated_at.desc()
     )
-    stmt = select(KnowledgeDoc).where(*filters).order_by(order, KnowledgeDoc.id)
+    # 列表页不需要正文：延迟加载 content，避免每页把几十篇全文从 DB 拉进内存
+    stmt = (
+        select(KnowledgeDoc)
+        .options(defer(KnowledgeDoc.content))
+        .where(*filters)
+        .order_by(order, KnowledgeDoc.id)
+    )
     if limit is not None:
         stmt = stmt.limit(limit).offset(offset)
     result = await db.execute(stmt)
     rows = list(result.scalars().all())
     logger.info("已列出文档 total=%s 返回=%s offset=%s", total, len(rows), offset)
     return rows, int(total or 0)
+
+
+async def doc_list_stats(db: AsyncSession, doc_ids: list[str]) -> dict[str, dict]:
+    """列表统计：一条 SQL 取齐切块数、最后索引时间、正文字符数与 UTF-8 字节数。
+
+    长度在数据库侧算，正文不进应用内存；只处理当页文档，不做逐行 N+1。
+    切块数为 0 表示正文尚未成功索引，列表据此给出「未索引」状态。
+    """
+
+    empty = {
+        "chunk_count": 0,
+        "indexed_at": None,
+        "content_chars": 0,
+        "content_bytes": 0,
+    }
+    stats: dict[str, dict] = {doc_id: dict(empty) for doc_id in doc_ids}
+    if not doc_ids:
+        return stats
+
+    chunk_agg = (
+        select(
+            KnowledgeChunk.doc_id.label("doc_id"),
+            func.count(KnowledgeChunk.id).label("chunk_count"),
+            func.max(KnowledgeChunk.created_at).label("indexed_at"),
+        )
+        .where(KnowledgeChunk.doc_id.in_(doc_ids))
+        .group_by(KnowledgeChunk.doc_id)
+        .subquery()
+    )
+    rows = (
+        await db.execute(
+            select(
+                KnowledgeDoc.id,
+                func.char_length(KnowledgeDoc.content),
+                func.octet_length(KnowledgeDoc.content),
+                func.coalesce(chunk_agg.c.chunk_count, 0),
+                chunk_agg.c.indexed_at,
+            )
+            .outerjoin(chunk_agg, chunk_agg.c.doc_id == KnowledgeDoc.id)
+            .where(KnowledgeDoc.id.in_(doc_ids))
+        )
+    ).all()
+    for doc_id, chars, bytes_, count, indexed_at in rows:
+        stats[doc_id] = {
+            "chunk_count": int(count or 0),
+            "indexed_at": indexed_at.isoformat() if indexed_at is not None else None,
+            "content_chars": int(chars or 0),
+            "content_bytes": int(bytes_ or 0),
+        }
+    return stats
 
 
 def _escape_like(value: str) -> str:
@@ -238,6 +301,9 @@ async def create_doc(
     url: str | None,
     path: str | None,
     tags: list[str] | None,
+    source_filename: str | None = None,
+    source_mime: str | None = None,
+    source_bytes: int | None = None,
 ) -> KnowledgeDoc:
     if source_type not in ("manual", "upload", "vault"):
         raise ValueError(f"不支持的 source_type: {source_type}")
@@ -250,6 +316,9 @@ async def create_doc(
         path=_resolve_path(path),
         url=url,
         tags=_resolve_tags(tags),
+        source_filename=source_filename,
+        source_mime=source_mime,
+        source_bytes=source_bytes,
     )
     db.add(doc)
     await db.flush()
@@ -421,6 +490,7 @@ async def search_docs(
 ) -> list[KnowledgeHit]:
     """混合检索：向量余弦 + 关键词 ILIKE，RRF 融合后聚合到文档。"""
 
+    query = query.strip()
     if query == "":
         raise ValueError("q 不能为空")
     if limit < 1:
@@ -452,7 +522,8 @@ async def search_docs(
         select(KnowledgeChunk, KnowledgeDoc)
         .join(KnowledgeDoc, KnowledgeDoc.id == KnowledgeChunk.doc_id)
         .where(KnowledgeDoc.enabled.is_(True))
-        .where(KnowledgeChunk.content.ilike(f"%{query}%"))
+        # 与列表标题筛选同口径：% / _ / \ 是用户输入的字面量，不能变成 LIKE 通配
+        .where(KnowledgeChunk.content.ilike(f"%{_escape_like(query)}%", escape="\\"))
         # 关键词分道没有相关性打分，固定按切块 id 排序保证排名可复现
         .order_by(KnowledgeChunk.id)
         .limit(pool)
@@ -524,6 +595,28 @@ async def search_docs(
         hits[0].score if hits else None,
     )
     return hits
+
+
+async def record_search_hits(db: AsyncSession, doc_ids: list[str]) -> None:
+    """累加检索命中次数与最近命中时间；一次检索对同一文档只计 1 次。
+
+    只更新计数器，不触碰 updated_at，避免把「被检索过」误当成「正文被改过」。
+    """
+
+    unique = list(dict.fromkeys(doc_ids))
+    if not unique:
+        return
+    await db.execute(
+        update(KnowledgeDoc)
+        .where(KnowledgeDoc.id.in_(unique))
+        .values(
+            hit_count=KnowledgeDoc.hit_count + 1,
+            last_hit_at=datetime.now(timezone.utc),
+            # 显式带上 updated_at，阻止列级 onupdate 把「被检索」写成「正文被改」
+            updated_at=KnowledgeDoc.updated_at,
+        )
+    )
+    await db.commit()
 
 
 async def reindex_all_docs(db: AsyncSession) -> int:
@@ -619,4 +712,11 @@ async def search_for_agent(
             }
             for hit in hits
         ]
+        # 助理检索同样是「被用到」：与页面检索共用一个计数器，避免命中次数系统性偏低。
+        # 用本次自建的短会话写，失败只记日志，不让统计影响检索结果。
+        if items:
+            try:
+                await record_search_hits(db, [i["doc_id"] for i in items])
+            except Exception:
+                logger.warning("助理检索命中统计失败", exc_info=True)
         return {"items": items, "total": len(items)}

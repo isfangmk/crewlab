@@ -3,13 +3,12 @@ import { getToken } from '@/store/auth';
 import { tr as trInline } from '@/i18n/locale';
 
 // 知识库文档 API。id 为 UUID 字符串。
-// source_type：后端创建只接受 manual / upload / vault。
-export type DocSource = 'manual' | 'repo' | 'url' | 'vault' | 'upload';
+// source_type：创建只收 manual / upload / vault；repo 是同步侧入库，列表筛选支持全部四种。
+export type DocSource = 'manual' | 'repo' | 'vault' | 'upload';
 
 export type KnowledgeDoc = {
   id: string;
   source_type: DocSource;
-  repo_id?: string | null;
   url?: string;
   title: string;
   // 英文标题；en-US 优先展示，缺省用 title。
@@ -21,6 +20,17 @@ export type KnowledgeDoc = {
   enabled: boolean;
   created_at: string;
   updated_at: string;
+  // 列表接口附加的索引统计；详情 / 检索接口不返回，缺省时列表容错显示 —
+  chunk_count?: number;
+  content_chars?: number;
+  content_bytes?: number;
+  indexed_at?: string | null;
+  // 上传原件信息（手动 / 内置文档为 null）与检索命中累计
+  source_filename?: string | null;
+  source_mime?: string | null;
+  source_bytes?: number | null;
+  hit_count?: number;
+  last_hit_at?: string | null;
 };
 
 export type SearchHit = {
@@ -40,7 +50,6 @@ export type PathRow = { path: string; count: number };
 
 export function listDocs(params?: {
   source_type?: DocSource;
-  repo_id?: number;
   path?: string;
   path_prefix?: string;
   tag?: string;
@@ -55,7 +64,6 @@ export function listDocs(params?: {
 }) {
   const q = new URLSearchParams();
   if (params?.source_type) q.set('source_type', params.source_type);
-  if (params?.repo_id != null) q.set('repo_id', String(params.repo_id));
   if (params?.path) q.set('path', params.path);
   if (params?.path_prefix) q.set('path_prefix', params.path_prefix);
   if (params?.tag) q.set('tag', params.tag);

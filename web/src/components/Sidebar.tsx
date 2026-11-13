@@ -376,7 +376,7 @@ export function Sidebar() {
             { key: 'skills', to: '/skills', icon: Wrench, label: tr('技能', 'Skills') },
             { key: 'mcp', to: '/mcp', icon: Plug, label: 'MCP' },
             { key: 'packages', icon: Package, label: tr('插件包', 'Plugin packs'), planned: true },
-            { key: 'sandbox', icon: Terminal, label: tr('沙箱', 'Sandbox'), planned: true },
+            { key: 'sandbox', to: '/sandbox', icon: Terminal, label: tr('沙箱', 'Sandbox') },
           ]}
         />
 

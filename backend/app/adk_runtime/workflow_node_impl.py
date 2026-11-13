@@ -99,6 +99,154 @@ def _code_builtins() -> dict[str, Any]:
     return allowed
 
 
+# 沙盒脚本的输出标记：容器里跑完把结果打到 stdout，宿主机靠它把
+# 「脚本输出」和「结果信封」分开。用户的 print 也会进 stdout，
+# 所以标记必须是不会被正常打印撞上的形式。
+SANDBOX_RESULT_MARKER = "__ONGRID_SANDBOX_RESULT__"
+
+# 沙盒脚本的信封字段：
+#   result：run(state) 的返回值
+#   reads：代码实际读到的状态键（面板的「输入」）
+#   error：失败信息
+SANDBOX_SCRIPT_TEMPLATE = '''
+import json as _json
+import traceback as _traceback
+
+_STATE = _json.loads({state_json!r})
+_READS = {{}}
+
+
+class _TrackedState(dict):
+    """记录代码读到了哪些键；与宿主侧受限模式的语义一致。"""
+
+    def __init__(self, source):
+        super().__init__(source)
+
+    def _hit(self, key):
+        value = dict.__getitem__(self, key)
+        _READS[str(key)] = value
+        return value
+
+    def _note(self, key):
+        name = str(key)
+        _READS[name] = dict.__getitem__(self, key) if dict.__contains__(self, key) else None
+
+    def __getitem__(self, key):
+        return self._hit(key)
+
+    def __iter__(self):
+        # 故意覆盖迭代器：整份复制只有在不走 C 层快速路径时才会逐个键取值，
+        # 否则整份复制不会被记录，面板就看不到它读了什么。
+        return dict.__iter__(self)
+
+    def __contains__(self, key):
+        self._note(key)
+        return dict.__contains__(self, key)
+
+    def get(self, key, default=None):
+        if dict.__contains__(self, key):
+            return self._hit(key)
+        _READS[str(key)] = default
+        return default
+
+    def setdefault(self, key, default=None):
+        if dict.__contains__(self, key):
+            return self._hit(key)
+        _READS[str(key)] = default
+        return dict.setdefault(self, key, default)
+
+    def pop(self, key, *args):
+        self._note(key)
+        return dict.pop(self, key, *args)
+
+    def keys(self):
+        for key in dict.keys(self):
+            _READS[str(key)] = dict.__getitem__(self, key)
+        return dict.keys(self)
+
+    def values(self):
+        for key in dict.keys(self):
+            _READS[str(key)] = dict.__getitem__(self, key)
+        return dict.values(self)
+
+    def items(self):
+        for key in dict.keys(self):
+            _READS[str(key)] = dict.__getitem__(self, key)
+        return dict.items(self)
+
+    def copy(self):
+        for key in dict.keys(self):
+            _READS[str(key)] = dict.__getitem__(self, key)
+        return dict(self)
+
+
+def _emit(payload):
+    print({marker!r} + _json.dumps(payload, ensure_ascii=False, default=str))
+
+
+try:
+    _namespace = {{"__name__": "__main__"}}
+    exec(compile({code!r}, "<workflow-sandbox>", "exec"), _namespace, _namespace)
+    _run = _namespace.get("run")
+    if not callable(_run):
+        raise ValueError("代码节点必须定义 run(state)")
+    _value = _run(_TrackedState(_STATE))
+    _emit({{"result": _value, "reads": _READS, "error": ""}})
+except BaseException as _exc:  # noqa: BLE001
+    _emit({{"result": None, "reads": _READS, "error": _traceback.format_exc()}})
+'''
+
+
+def _build_sandbox_script(*, code: str, state: dict[str, Any]) -> str:
+    """把节点代码包成能在沙盒里独立跑起来的脚本。
+
+    沙盒是另一个进程，节点代码拿不到宿主的状态对象：
+    所以状态以 JSON 传进去，返回值以 JSON 传回来。
+    """
+
+    state_json = json.dumps(state, ensure_ascii=False, default=str)
+    return SANDBOX_SCRIPT_TEMPLATE.format(
+        state_json=state_json,
+        code=code,
+        marker=SANDBOX_RESULT_MARKER,
+    )
+
+
+def _parse_sandbox_payload(stdout: str) -> dict[str, Any]:
+    """从沙盒 stdout 里取出结果信封。
+
+    用户代码的 print 会混在 stdout 里，所以按标记行从后往前找；
+    找不到说明脚本没跑到发结果那步，视为失败。
+    """
+
+    for line in reversed(stdout.splitlines()):
+        stripped = line.strip()
+        if not stripped.startswith(SANDBOX_RESULT_MARKER):
+            continue
+        raw = stripped[len(SANDBOX_RESULT_MARKER) :]
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"沙盒结果解析失败: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError("沙盒结果格式非法：不是对象")
+        return payload
+    raise RuntimeError("沙盒没有返回结果信封")
+
+
+def _parse_sandbox_reads(stdout: str) -> dict[str, Any]:
+    """取出代码读到的状态键；结果信封缺失时返回空。"""
+
+    try:
+        payload = _parse_sandbox_payload(stdout)
+    except RuntimeError:
+        return {}
+    reads = payload.get("reads")
+    if not isinstance(reads, dict):
+        return {}
+    return {str(key): value for key, value in reads.items()}
+
+
 class StartNode(CanvasNode):
     """开始节点：把运行输入写进共享状态，后续节点用 {{变量}} 读取。"""
 
@@ -337,7 +485,6 @@ class _TrackedState(dict[str, Any]):
     只要代码按名字取到了某个键，就算读了这个键：包括取值、取默认值、
     判断存在、遍历键名这些写法。
     """
-
     def __init__(self, source: dict[str, Any]) -> None:
         super().__init__(source)
         self.reads: dict[str, Any] = {}
@@ -407,14 +554,22 @@ class _TrackedState(dict[str, Any]):
 
 
 class CodeNode(CanvasNode):
-    """代码节点：在受限命名空间里执行 run(state)。
+    """代码节点：在沙盒里执行 run(state)。
 
-    命名空间只暴露纯计算用的内置函数，open / __import__ / eval 这些
-    能碰到宿主资源的能力不给；需要外部服务请改用 HTTP / MCP 节点。
+    默认走沙盒：画布上的代码是不可信输入（用户随手贴一段），
+    在宿主进程里执行等于把宿主进程交给它。沙盒里跑则碰不到宿主机，
+    代价是每次执行要开一次容器（几秒）。
+
+    节点代码的契约与原来一致：定义 run(state) -> Any，
+    返回值要能 JSON 序列化。跨沙盒边界只能传 JSON，
+    所以返回非 JSON 值会被转成字符串（datetime 等）。
 
     读的是哪几个键要跑一趟才知道，所以这里自己执行一遍 run(state)：执行前
     跑一次拿到真实读取清单（面板在运行中就要看到输入），execute 复用这次结果，
     代码只跑一次。
+
+    execution_mode = "restricted" 时回到旧的受限命名空间执行：
+    纯计算、不能碰宿主资源，但也不能用第三方库、没有沙盒开销。
     """
 
     # 单个节点实例串行执行：提前执行的调用与 execute 不会撞在一起
@@ -422,6 +577,8 @@ class CodeNode(CanvasNode):
     # 提前执行已经算出、等着 execute 收下的结果
     _planned: Any = PrivateAttr(default=None)
     _has_plan: bool = PrivateAttr(default=False)
+    # 本次执行读到的状态键（面板的「输入」）
+    _reads: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
         return dict(self._reads)
@@ -443,6 +600,13 @@ class CodeNode(CanvasNode):
 
     async def _run_code(self, state: dict[str, Any]) -> Any:
         self._reads = {}
+        if self.node_def.execution_mode == "restricted":
+            return await self._run_restricted(state)
+        return await self._run_sandbox(state)
+
+    async def _run_restricted(self, state: dict[str, Any]) -> Any:
+        """受限模式：进程内执行，只给纯计算用的内置函数。"""
+
         code = self.node_def.code
         namespace: dict[str, Any] = {
             "json": json,
@@ -463,6 +627,37 @@ class CodeNode(CanvasNode):
             # 抛错时也留下已经读到的键：失败原因往往就出在这些值上
             self._reads = dict(tracked.reads)
         return result
+
+    async def _run_sandbox(self, state: dict[str, Any]) -> Any:
+        """沙盒模式：代码在容器里跑，宿主机只拿结果与读过的键。"""
+
+        from app.services import sandbox_service
+
+        script = _build_sandbox_script(
+            code=self.node_def.code,
+            state=state,
+        )
+        result = await sandbox_service.run_code(
+            code=script,
+            ctx=sandbox_service.SandboxContext(
+                source=sandbox_service.SOURCE_WORKFLOW,
+                source_ref=self.node_def.id,
+                workflow_run_id=self.run_ctx.run_uid,
+            ),
+            libraries=list(self.node_def.libraries),
+        )
+        # 无论成功失败都把读到的键登记下来：失败原因往往就出在这些值上
+        self._reads = _parse_sandbox_reads(result.stdout)
+        if result.status != sandbox_service.STATUS_SUCCEEDED:
+            raise RuntimeError(
+                f"沙盒执行失败: {result.error or result.stderr or '未知原因'}"
+            )
+        payload = _parse_sandbox_payload(result.stdout)
+        # 脚本自己把异常收进了信封，所以退出码是 0 也不代表代码跑成功了
+        error = payload.get("error")
+        if isinstance(error, str) and error != "":
+            raise RuntimeError(f"代码节点执行失败:\n{error}")
+        return payload["result"]
 
 
 class AssignNode(CanvasNode):

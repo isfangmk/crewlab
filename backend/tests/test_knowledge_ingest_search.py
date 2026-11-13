@@ -11,6 +11,39 @@ from app.services.knowledge_service import chunk_text, extract_upload_text
 from tests.conftest import login_access_token
 
 
+def test_like_wildcards_are_escaped() -> None:
+    """检索关键词与目录前缀里的 % _ \\ 是字面量，不能变成 LIKE 通配。"""
+
+    from sqlalchemy.dialects import postgresql
+
+    from app.models_orm.knowledge import KnowledgeChunk
+    from app.services.knowledge_scope import path_condition
+    from app.services.knowledge_service import _escape_like
+
+    dialect = postgresql.dialect()
+    compile_kwargs = {"literal_binds": True}
+
+    assert _escape_like("50%_off\\") == "50\\%\\_off\\\\"
+    keyword = KnowledgeChunk.content.ilike(
+        f"%{_escape_like('50%_off')}%", escape="\\"
+    )
+    kw_sql = str(keyword.compile(dialect=dialect, compile_kwargs=compile_kwargs))
+    assert "ESCAPE" in kw_sql
+    # pyformat 会把字面 % 渲染成 %%，这里只校验转义序列本身
+    assert r"\%" in kw_sql
+    assert r"\_off" in kw_sql
+
+    prefix_sql = str(
+        path_condition("网络%_组").compile(dialect=dialect, compile_kwargs=compile_kwargs)
+    )
+    assert "ESCAPE" in prefix_sql
+    # 空路径只匹配根目录本身，不能退化成 `/...` 的前缀匹配
+    root_sql = str(
+        path_condition("").compile(dialect=dialect, compile_kwargs=compile_kwargs)
+    )
+    assert "LIKE" not in root_sql
+
+
 def test_chunk_text_window() -> None:
     content = "a" * 1000
     parts = chunk_text(content, chunk_size=200, chunk_overlap=20)

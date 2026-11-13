@@ -128,16 +128,22 @@ async def assemble(
     approved_gates: set[str] | None = None,
     stop_after: str | None = None,
     on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    run_uid: str = "",
 ) -> RunAssembly:
     """装配可执行的 ADK 图；run_values 交给开始节点写进共享状态。
 
     approved_gates 是已确认过的人工节点，恢复时把它们换成直通节点。
     stop_after 用于单节点试跑：跑到该节点就收工。
     on_event 为流式订阅者：节点开始/结束会即时推出去。
+    run_uid 记进运行上下文：代码节点在沙盒里跑时，执行记录要能回指这次运行。
     """
 
     run_ctx = RunContext(
-        definition=definition, db=db, stop_after=stop_after, on_event=on_event
+        definition=definition,
+        db=db,
+        stop_after=stop_after,
+        on_event=on_event,
+        run_uid=run_uid,
     )
     tools = await _load_tools(db, definition)
     tools["run_values"] = run_values

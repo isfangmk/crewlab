@@ -293,6 +293,7 @@ async def run_single_node(
             definition=definition,
             run_values=initial,
             stop_after=node_id,
+            run_uid=run.run_uid,
         )
         runner = Runner(
             app_name=WORKFLOW_APP_NAME,
@@ -524,6 +525,7 @@ async def _drive(
             # 恢复时已经确认过的人工节点不再拦路
             approved_gates=approved,
             on_event=on_event,
+            run_uid=run.run_uid,
         )
         runner = Runner(
             app_name=WORKFLOW_APP_NAME,

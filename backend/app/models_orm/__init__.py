@@ -10,6 +10,7 @@ from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.models_orm.llm import AppSetting, LlmProvider
 from app.models_orm.mcp import McpServer, McpToolEmbedding
 from app.models_orm.observation import ObservationToolCall, ObservationTurn
+from app.models_orm.sandbox import SandboxExecution
 from app.models_orm.secret import SecretCredential
 from app.models_orm.share import ShareToken
 from app.models_orm.skill import UserSkill
@@ -36,6 +37,7 @@ __all__ = [
     "ShareToken",
     "ObservationTurn",
     "ObservationToolCall",
+    "SandboxExecution",
     "UserSkill",
     "Workflow",
     "WorkflowRun",

@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth, require_not_viewer
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.schemas.knowledge import DocCreateIn, DocEnabledIn, DocMoveIn, DocUpdateIn, ScopePreviewIn
 from app.services import knowledge_service
 from app.services.audit_service import write_audit
@@ -23,6 +32,18 @@ _ALLOWED_UPLOAD_SUFFIX = (".md", ".txt", ".pdf", ".docx")
 
 # 检索可按来源收口；与文档入库时的 source_type 取值集合一致
 DOC_SOURCE_TYPES = frozenset({"manual", "upload", "vault", "repo"})
+
+
+async def _record_search_hits_async(doc_ids: list[str]) -> None:
+    """命中统计在响应发送后执行：不增加检索响应时间，写失败只记日志。"""
+
+    if not doc_ids:
+        return
+    try:
+        async with SessionLocal() as db:
+            await knowledge_service.record_search_hits(db, doc_ids)
+    except Exception:
+        logger.warning("记录检索命中失败", exc_info=True)
 
 
 @router.get("/knowledge/docs")
@@ -58,13 +79,24 @@ async def list_docs(
         path_prefix=path_prefix,
         tag=tag,
         builtin=builtin,
-        q=q if q not in (None, "") else None,
+        q=q.strip() if q and q.strip() else None,
         sort_dir=sort_dir,
         limit=limit,
         offset=offset,
     )
+    stats = await knowledge_service.doc_list_stats(db, [d.id for d in items])
     return {
-        "items": [knowledge_service.doc_to_wire(d, include_content=False) for d in items],
+        "items": [
+            {
+                **knowledge_service.doc_to_wire(d, include_content=False),
+                # 统计值全部在库侧算好，正文既不进内存也不回传
+                "chunk_count": stats[d.id]["chunk_count"],
+                "content_chars": stats[d.id]["content_chars"],
+                "content_bytes": stats[d.id]["content_bytes"],
+                "indexed_at": stats[d.id]["indexed_at"],
+            }
+            for d in items
+        ],
         "total": total,
     }
 
@@ -240,8 +272,11 @@ async def upload_doc(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    doc_title = title if title is not None else filename
-    tag_list: list[str] | None = None if tags is None else tags.split(",")
+    doc_title = (title or "").strip() or filename
+    # 与新建表单同口径：去空白、丢空标签；尾逗号或中文逗号不应让整个上传失败
+    tag_list: list[str] | None = None
+    if tags is not None:
+        tag_list = [t.strip() for t in tags.replace("，", ",").split(",") if t.strip()]
 
     try:
         doc = await knowledge_service.create_doc(
@@ -253,6 +288,9 @@ async def upload_doc(
             url=None,
             path=path,
             tags=tag_list,
+            source_filename=filename,
+            source_mime=file.content_type,
+            source_bytes=len(raw),
         )
     except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -289,8 +327,10 @@ async def reindex_knowledge(
 
 @router.get("/knowledge/search")
 async def search_knowledge(
-    q: str = Query(...),
-    limit: int = Query(10),
+    background_tasks: BackgroundTasks,
+    q: str = Query(..., max_length=200),
+    # 上限避免 limit * 4 的向量候选池被放大成重型查询
+    limit: int = Query(10, ge=1, le=50),
     path: str | None = None,
     path_prefix: str | None = None,
     tag: list[str] | None = Query(None),
@@ -303,6 +343,9 @@ async def search_knowledge(
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    query = q.strip()
+    if query == "":
+        raise HTTPException(status_code=400, detail="q 不能为空")
     if source_type is not None and source_type not in DOC_SOURCE_TYPES:
         raise HTTPException(status_code=400, detail=f"不支持的 source_type: {source_type}")
     try:
@@ -311,7 +354,7 @@ async def search_knowledge(
         )
         hits = await knowledge_service.search_docs(
             db,
-            query=q,
+            query=query,
             limit=limit,
             path=path,
             path_prefix=path_prefix,
@@ -322,7 +365,7 @@ async def search_knowledge(
         )
     except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {
+    payload = {
         "items": [
             {
                 "doc": knowledge_service.doc_to_wire(hit.doc, include_content=False),
@@ -336,6 +379,9 @@ async def search_knowledge(
         ],
         "total": len(hits),
     }
+    # 命中统计放到响应之后：读接口不在关键路径上同步写库
+    background_tasks.add_task(_record_search_hits_async, list({hit.doc.id for hit in hits}))
+    return payload
 
 
 @router.get("/knowledge/paths")

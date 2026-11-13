@@ -77,11 +77,17 @@ def scope_to_wire(scope: KnowledgeScope) -> dict:
 
 
 def path_condition(path: str) -> ColumnElement[bool]:
-    """本级或子级：`p` 与 `p/...`；避免 `网络` 误命中 `网络安全`。"""
+    """本级或子级：`p` 与 `p/...`；避免 `网络` 误命中 `网络安全`。
 
+    目录名里的 `%` / `_` 必须当字面量，否则 LIKE 前缀会连带命中兄弟目录；
+    空路径按「根目录直属文档」处理，不做前缀匹配（`/...` 不是有效目录）。
+    """
+
+    if path == "":
+        return KnowledgeDoc.path == ""
     return or_(
         KnowledgeDoc.path == path,
-        KnowledgeDoc.path.startswith(f"{path}/"),
+        KnowledgeDoc.path.startswith(f"{path}/", autoescape=True),
     )
 
 

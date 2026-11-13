@@ -543,7 +543,10 @@ def test_preview_input_keeps_variables_and_valid_json() -> None:
 
 @pytest.mark.asyncio
 async def test_code_node_cannot_reach_host_resources() -> None:
-    """代码节点只能算：命名空间里没有 import / open / eval。"""
+    """受限模式只能算：命名空间里没有 import / open / eval。
+
+    默认模式是沙盒，隔离靠容器而不是禁用内置函数，所以这里显式切到受限模式。
+    """
 
     payload = {
         "nodes": [
@@ -552,6 +555,7 @@ async def test_code_node_cannot_reach_host_resources() -> None:
                 "sneaky",
                 "code",
                 output_key="out",
+                execution_mode="restricted",
                 code="def run(state):\n    import os\n    return os.getcwd()",
             ),
         ],
@@ -567,7 +571,10 @@ async def test_code_node_cannot_reach_host_resources() -> None:
 
 @pytest.mark.asyncio
 async def test_code_node_cannot_open_files() -> None:
-    """代码节点不能碰宿主文件：open 不在白名单里。"""
+    """受限模式不能碰宿主文件：open 不在白名单里。
+
+    默认模式是沙盒，隔离靠容器而不是禁用内置函数，所以这里显式切到受限模式。
+    """
 
     payload = {
         "nodes": [
@@ -576,6 +583,7 @@ async def test_code_node_cannot_open_files() -> None:
                 "reader",
                 "code",
                 output_key="out",
+                execution_mode="restricted",
                 code="def run(state):\n    return open('/etc/passwd').read()",
             ),
         ],

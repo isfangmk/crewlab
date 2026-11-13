@@ -54,6 +54,8 @@ export function scopeSelectionIsIncomplete(sel: ScopeSelection): boolean {
 
 const ROOT_PATH_LABEL = { zh: '（根目录）', en: '(root)' };
 const DOC_FILTER_LIMIT = 50;
+// 选择器只加载可用的一页：不传 limit 会让后端拉全库并计算全库正文统计
+const DOC_LOAD_LIMIT = 200;
 
 export function KnowledgeScopePicker({
   value,
@@ -78,7 +80,7 @@ export function KnowledgeScopePicker({
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([listPaths(), listDocs()])
+    void Promise.all([listPaths(), listDocs({ limit: DOC_LOAD_LIMIT })])
       .then(([pathResp, docResp]) => {
         if (cancelled) return;
         setPaths(pathResp.items);
@@ -152,10 +154,17 @@ export function KnowledgeScopePicker({
     return base.slice(0, DOC_FILTER_LIMIT);
   }, [docs, docQuery]);
 
-  const selectedDocs = useMemo(() => {
-    const map = new Map(docs.map((doc) => [doc.id, doc]));
-    return value.doc_ids.map((id) => map.get(id) ?? null).filter((d): d is KnowledgeDoc => d !== null);
-  }, [docs, value.doc_ids]);
+  // 已选文档可能不在已加载的一页里：回退展示 id，避免「选了却不显示」
+  const selectedDocs = useMemo(
+    () =>
+      value.doc_ids.map((id) => {
+        const found = docs.find((doc) => doc.id === id);
+        return { id, title: found ? localizedDocTitle(found) : id };
+      }),
+    [docs, value.doc_ids],
+  );
+  // 根目录不是可选范围：空范围已经代表「全部知识库」，后端也拒绝空路径
+  const folderRows = useMemo(() => paths.filter((row) => row.path !== ''), [paths]);
 
   const runTrial = useCallback(async () => {
     if (trialQuery.trim() === '') return;
@@ -212,13 +221,13 @@ export function KnowledgeScopePicker({
             <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
               {tr('目录（含子目录）', 'Folders (with subfolders)')}
             </div>
-            {paths.length === 0 ? (
+            {folderRows.length === 0 ? (
               <p className="text-[11px] text-zinc-500">{tr('知识库暂无目录。', 'No folders yet.')}</p>
             ) : (
               <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-                {paths.map((row) => {
+                {folderRows.map((row) => {
                   const checked = value.paths.includes(row.path);
-                  const label = row.path === '' ? tr(ROOT_PATH_LABEL.zh, ROOT_PATH_LABEL.en) : localizedPath(row.path);
+                  const label = localizedPath(row.path);
                   return (
                     <label
                       key={row.path}
@@ -257,7 +266,7 @@ export function KnowledgeScopePicker({
                     key={doc.id}
                     className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 text-[10px] text-zinc-400"
                   >
-                    {localizedDocTitle(doc)}
+                    {doc.title}
                   </span>
                 ))}
               </div>

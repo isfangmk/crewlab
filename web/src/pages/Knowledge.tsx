@@ -1,14 +1,13 @@
 // Knowledge page — 知识库工作台。
 //
 // 骨架（与 docs/UI设计规范.md 一致）：
-//   PageHeader   标题 / 计数 / 刷新
-//   FilterBar    统一搜索框（回车检索）+ 来源筛选胶囊 + 检索词胶囊
+//   PageHeader   标题 / 计数 / 刷新 + 页级 Tabs（文档 / 语义检索）
+//   FilterBar    标题筛选 + 来源胶囊；第二行放目录条件
 //   aside        来源分组 + 目录树（组织 / 内置两棵树常驻）
-//   TableCard    文档表（文档 / 更新时间 / 参与检索 / 操作）+ 分页，检索后换成命中表
+//   TableCard    文档表（文档 / 更新时间 / 参与检索 / 操作）+ 分页
 //
-// 目录树由文档自身的 path 分段临时构建，不再依赖 /knowledge/paths 聚合接口；
-// 每个来源组各自一棵树，切换分组即切换右侧列表。
-// 建/改/上传文档时后端已同步重切块并重嵌入，因此页面不再提供「重建索引」手动入口。
+// 目录树由 /knowledge/paths 按来源组聚合；建/改/上传文档时后端已同步重切块并重嵌入，
+// 因此页面不再提供「重建索引」手动入口。
 import { useAssistantPage } from '@/lib/assistantPage';
 import { usePermissions } from '@/store/me';
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
@@ -44,6 +43,7 @@ import {
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
+  FilterChip,
   FilterPill,
   Input,
   PageHeader,
@@ -51,7 +51,7 @@ import {
   RowActionIcon,
   SearchInput,
   Select,
-  Switch,
+  StatusPill,
   TableCard,
   TableHead,
   TablePager,
@@ -131,8 +131,38 @@ function buildTree(rows: PathRow[]): TreeNode {
   return root;
 }
 
-function isBuiltinDoc(doc: KnowledgeDoc): boolean {
-  return doc.source_type === 'vault';
+// 行首类型标签：来源类型优先，上传文档按文件名后缀细分。
+// 用 Chip 的语义色区分文件格式，不用多色图标；来源胶囊仍保持中性。
+function docKindLabel(doc: KnowledgeDoc): string {
+  if (doc.source_type === 'repo') return 'REPO';
+  // 只有上传文档带原件名；手动 / 内置文档的正文本身就是 markdown
+  const fileName = doc.source_filename;
+  if (!fileName) return 'MD';
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+  if (ext === 'pdf') return 'PDF';
+  if (ext === 'doc' || ext === 'docx') return 'DOC';
+  if (ext === 'txt') return 'TXT';
+  if (ext === 'md' || ext === 'markdown') return 'MD';
+  // 未知后缀不能硬猜成 MD：给中性标签，避免格式信息失真
+  return 'FILE';
+}
+
+// 常见格式各占一个语义色；repo / 未知格式属于来源或兜底，保持中性
+const DOC_KIND_TONE: Record<string, 'accent' | 'info' | 'warning' | 'success' | 'default'> = {
+  MD: 'accent',
+  TXT: 'info',
+  PDF: 'warning',
+  DOC: 'success',
+  REPO: 'default',
+  FILE: 'default',
+};
+
+// 列表只回传正文 UTF-8 字节数，按 B / KB / MB 归一展示
+function formatDocBytes(bytes: number | undefined): string {
+  if (bytes === undefined) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function sourceLabel(doc: KnowledgeDoc, tr: (zh: string, en: string) => string): string {
@@ -206,6 +236,8 @@ export default function KnowledgePage() {
   const [orgTotal, setOrgTotal] = useState(0);
   const [builtinTotal, setBuiltinTotal] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // 语义检索自己的请求序号：与文档列表互不干扰，避免旧检索结果覆盖新结果
+  const searchSeq = useRef(0);
 
   // 文档列表：服务端筛选（来源组 / 目录 / 来源类型 / 标题关键字）+ 分页
   const fetchList = useCallback(async (silent = false) => {
@@ -299,6 +331,8 @@ export default function KnowledgePage() {
           await uploadDoc(file);
         }
         pickFolder('org', '');
+        // 新文档按更新时间排在首页：停在后面的分页会看不到刚上传的内容
+        setPage(0);
         await Promise.all([fetchList(true), fetchTrees()]);
         setToast({ kind: 'ok', text: tr(`已上传 ${files.length} 个文件`, `Uploaded ${files.length} file(s)`) });
       } catch (e) {
@@ -330,7 +364,9 @@ export default function KnowledgePage() {
       setErr(null);
       try {
         const saved = await setDocEnabled(doc.id, enabled);
-        setItems((prev) => prev.map((d) => (d.id === saved.id ? saved : d)));
+        // PATCH 返回的是 wire 文档（不含列表统计）：合并而不是整体覆盖，
+        // 否则启停一次就会把分块数、正文大小与索引状态抹成「—」
+        setItems((prev) => prev.map((d) => (d.id === saved.id ? { ...d, ...saved } : d)));
         setToast({
           kind: 'ok',
           text: enabled ? tr('已启用，重新参与检索', 'Enabled for retrieval') : tr('已停用，不再参与检索', 'Excluded from retrieval'),
@@ -344,6 +380,7 @@ export default function KnowledgePage() {
 
   // 语义检索：独立功能，不是筛选条件。作用范围 = 当前来源组 + 当前目录
   const runSearch = async () => {
+    const current = ++searchSeq.current;
     const nextQuery = searchQuery.trim();
     if (nextQuery === '') {
       setHits([]);
@@ -359,14 +396,18 @@ export default function KnowledgePage() {
         // 来源筛选只在组织文档下有意义；内置组的所有文档都是 vault
         sourceType: group === 'org' && sourceFilter !== '' ? sourceFilter : undefined,
       });
+      // 连续检索时只有最后一次结果可以落到界面上
+      if (searchSeq.current !== current) return;
       setHits(res.items ?? []);
       setSearchedQuery(nextQuery);
     } catch (e) {
+      if (searchSeq.current !== current) return;
       setErr(errorText(e));
     }
   };
 
   const resetSearch = useCallback(() => {
+    searchSeq.current += 1;
     setSearchQuery('');
     setHits([]);
     setSearchedQuery(null);
@@ -406,6 +447,13 @@ export default function KnowledgePage() {
     { value: 'upload', label: tr('上传', 'Uploaded') },
     { value: 'repo', label: 'repo' },
   ];
+
+  // 目录条件来自左栏，没有就地清除入口；放到筛选卡第二行统一撤销
+  const resetFilters = useCallback(() => {
+    setActivePath('');
+    setTitleQuery('');
+    setSourceFilter('');
+  }, []);
 
   // 筛选卡只承载「文档标题」筛选；语义检索走独立的检索视图
   return (
@@ -465,7 +513,22 @@ export default function KnowledgePage() {
         />
       ) : (
         <>
-          <FilterBar className="mx-6 mt-3">
+          <FilterBar
+            className="mx-6 mt-3"
+            footer={
+              activePath !== '' ? (
+                <>
+                  <FilterChip
+                    label={tr(`目录：${localizedPath(activePath)}`, `Folder: ${localizedPath(activePath)}`)}
+                    onClear={() => setActivePath('')}
+                  />
+                  <Button variant="ghost" size="sm" onClick={resetFilters}>
+                    {tr('清除全部', 'Clear all')}
+                  </Button>
+                </>
+              ) : null
+            }
+          >
             <SearchInput
               value={titleQuery}
               onChange={setTitleQuery}
@@ -616,43 +679,46 @@ export default function KnowledgePage() {
                 />
               }
             >
-                <table className={tableLayout(52)}>
+                <table className={tableLayout(64)}>
                   <colgroup>
                     <col className={COL.handle} />
                     <col className={COL.main} />
                     <col className={COL.time} />
+                    <col className={COL.detail} />
                     <col className={COL.tag} />
                     <col className={COL.actionsIcon} />
                   </colgroup>
                   <TableHead>
                     <tr className="whitespace-nowrap">
-                      <th className="px-2 py-2">
-                        <span className="sr-only">{tr('排序', 'Reorder')}</span>
+                      <th scope="col" className="px-2 py-2">
+                        <span className="sr-only">{tr('拖动把手', 'Drag handle')}</span>
                       </th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
-                    <th
-                      className="px-3 py-2 text-left font-medium"
-                      aria-sort={updatedSort === 'asc' ? 'ascending' : 'descending'}
-                    >
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 hover:text-zinc-200"
-                        onClick={() => {
-                          setPage(0);
-                          setUpdatedSort((d) => (d === 'desc' ? 'asc' : 'desc'));
-                        }}
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
+                      <th
+                        scope="col"
+                        className="px-3 py-2 text-left font-medium"
+                        aria-sort={updatedSort === 'asc' ? 'ascending' : 'descending'}
                       >
-                        {tr('更新时间', 'Updated')}
-                        {updatedSort === 'desc' ? (
-                          <ArrowDown size={12} aria-hidden />
-                        ) : (
-                          <ArrowUp size={12} aria-hidden />
-                        )}
-                      </button>
-                    </th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('参与检索', 'Retrieval')}</th>
-                    <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
-                  </tr>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 hover:text-zinc-200"
+                          onClick={() => {
+                            setPage(0);
+                            setUpdatedSort((d) => (d === 'desc' ? 'asc' : 'desc'));
+                          }}
+                        >
+                          {tr('更新时间', 'Updated')}
+                          {updatedSort === 'desc' ? (
+                            <ArrowDown size={12} aria-hidden />
+                          ) : (
+                            <ArrowUp size={12} aria-hidden />
+                          )}
+                        </button>
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('索引', 'Index')}</th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('参与检索', 'Retrieval')}</th>
+                      <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
+                    </tr>
                   </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
                   {items.map((doc) => (
@@ -712,10 +778,16 @@ export default function KnowledgePage() {
             </p>
           }
           onConfirm={async () => {
-            await deleteDoc(deleting.id);
-            setToast({ kind: 'ok', text: tr('文档已删除', 'Document deleted') });
-            setDeleting(null);
-            await Promise.all([fetchList(true), fetchTrees()]);
+            try {
+              await deleteDoc(deleting.id);
+              setToast({ kind: 'ok', text: tr('文档已删除', 'Document deleted') });
+              setDeleting(null);
+              await Promise.all([fetchList(true), fetchTrees()]);
+            } catch (e) {
+              // 保持对话框打开，并把失败原因显式反馈，而不是让异常静默冒泡
+              setErr(errorText(e));
+              setToast({ kind: 'err', text: errorText(e) });
+            }
           }}
           onClose={() => setDeleting(null)}
         />
@@ -930,8 +1002,8 @@ function FolderNode({
   );
 }
 
-// 文档行：主信息一行（来源胶囊 + 标题），元信息一行（目录 / 来源地址）；
-// 标签单独成列，统一用中性胶囊；整行不响应点击，看详情只点标题。
+// 文档行：主信息一行（类型字形 + 标题），元信息一行（来源 · 目录 · 标签 · 地址）；
+// 状态由 StatusPill 表达并兼作开关；整行不响应点击，看详情只点标题。
 function DocRow({
   doc,
   canMutate,
@@ -950,8 +1022,11 @@ function DocRow({
   const { tr } = useI18n();
   const editable = doc.source_type === 'manual' || doc.source_type === 'upload';
   const title = localizedDocTitle(doc);
-  const DocIcon = isBuiltinDoc(doc) ? BookOpen : FileText;
+  const kind = docKindLabel(doc);
   const tags = doc.tags ?? [];
+  const chunkCount = doc.chunk_count;
+  // 0 块 = 正文从未成功索引；字段缺省（详情 / 检索结果）时不给状态，只显示 —
+  const indexTone: 'ok' | 'warn' | null = chunkCount === undefined ? null : chunkCount > 0 ? 'ok' : 'warn';
 
   // 拖拽预览只保留标题胶囊，避免把整行的开关与操作按钮一起拎起
   const onDragStart = (e: DragEvent<HTMLSpanElement>) => {
@@ -967,8 +1042,13 @@ function DocRow({
   };
 
   return (
-    <tr className={cn('group', !doc.enabled && 'opacity-60')}>
-      <td className="w-6 py-2 pl-2 pr-0">
+    <tr className="group">
+      <td className="relative w-6 py-2 pl-2 pr-0">
+        {/* hover 时行首 2px 条与左栏目录选中态呼应，指明当前扫读的行 */}
+        <span
+          aria-hidden
+          className="absolute inset-y-1 left-0 hidden w-0.5 rounded-full bg-indigo-400 group-hover:block group-focus-within:block"
+        />
         {editable ? (
           <span
             draggable
@@ -985,43 +1065,71 @@ function DocRow({
       </td>
       <td className="px-3 py-[7px]">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-zinc-800/60 bg-zinc-900/50 text-zinc-500">
-            <DocIcon size={12} aria-hidden />
-          </span>
+          <Chip
+            dense
+            tone={DOC_KIND_TONE[kind] ?? 'default'}
+            aria-label={tr(`文档类型 ${kind}`, `Document type ${kind}`)}
+            title={tr(`文档类型 ${kind}`, `Document type ${kind}`)}
+            className="inline-flex h-[18px] min-w-[24px] shrink-0 items-center justify-center font-mono text-[9px] font-medium tracking-tight"
+          >
+            {kind}
+          </Chip>
           <button
             type="button"
             onClick={onView}
-            className="truncate text-[12.5px] font-medium text-zinc-100 transition-colors hover:text-indigo-300"
+            className={cn(
+              'truncate text-[12.5px] font-medium transition-colors hover:text-indigo-300',
+              doc.enabled ? 'text-zinc-100' : 'text-zinc-300',
+            )}
             title={title}
           >
             {title}
           </button>
-          {!doc.enabled && <Chip dense tone="warning">{tr('已停用', 'Disabled')}</Chip>}
         </div>
-        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pl-8 text-[10.5px] leading-4">
-          <Chip dense>{sourceLabel(doc, tr)}</Chip>
+        {/* 元信息按「来源 · 目录 · 标签 · 地址」分组，保持单行，避免行高随内容跳动 */}
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden pl-8 text-[10.5px] leading-4">
+          <Chip dense className="shrink-0">{sourceLabel(doc, tr)}</Chip>
+          <span aria-hidden className="shrink-0 text-zinc-600">·</span>
           {doc.path ? (
-            <span className="inline-flex min-w-0 items-center gap-1 text-zinc-500" title={localizedPath(doc.path)}>
+            <span className="inline-flex min-w-0 shrink items-center gap-1 text-zinc-500" title={localizedPath(doc.path)}>
               <Folder size={10} className="shrink-0 text-zinc-600" aria-hidden />
               <span className="truncate font-mono">{localizedPath(doc.path)}</span>
             </span>
           ) : (
-            <span className="text-zinc-600">{tr('未归目录', 'No folder')}</span>
+            <span className="shrink-0 text-zinc-600">{tr('未归目录', 'No folder')}</span>
           )}
-          {tags.slice(0, 3).map((tag) => (
-            <Chip key={tag} dense className="max-w-[9rem] truncate" title={`#${tag}`}>
-              #{tag}
-            </Chip>
-          ))}
-          {tags.length > 3 && (
-            <Chip dense title={tags.slice(3).map((t) => `#${t}`).join(' ')}>
-              +{tags.length - 3}
-            </Chip>
+          {tags.length > 0 && (
+            <>
+              <span aria-hidden className="shrink-0 text-zinc-600">·</span>
+              <span className="flex shrink-0 items-center gap-1">
+                {tags.slice(0, 3).map((tag) => (
+                  <Chip key={tag} dense className="max-w-[9rem] truncate" title={`#${tag}`}>
+                    #{tag}
+                  </Chip>
+                ))}
+                {tags.length > 3 && (
+                  <Chip dense title={tags.slice(3).map((t) => `#${t}`).join(' ')}>
+                    +{tags.length - 3}
+                  </Chip>
+                )}
+              </span>
+            </>
           )}
-          {doc.url && (
-            <span className="max-w-[18rem] truncate font-mono text-zinc-600" title={doc.url}>
-              {doc.url}
-            </span>
+          {(doc.source_filename || doc.url) && (
+            <>
+              <span aria-hidden className="shrink-0 text-zinc-600">·</span>
+              {/* 大小统一由索引列展示，元信息行只保留原件名 / URL 与 MIME */}
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-zinc-600"
+                title={
+                  doc.source_filename
+                    ? [doc.source_filename, doc.source_mime].filter(Boolean).join(' · ')
+                    : doc.url
+                }
+              >
+                {doc.source_filename || doc.url}
+              </span>
+            </>
           )}
         </div>
       </td>
@@ -1032,12 +1140,62 @@ function DocRow({
         </span>
       </td>
       <td className="px-3 py-[7px]">
-        <Switch
-          checked={doc.enabled}
-          onCheckedChange={onToggleEnabled}
-          disabled={!canMutate}
+        {/* 索引可观测性：分块数 + 文件大小，异常（0 块）用状态色说话 */}
+        <div
+          className="flex items-center gap-1.5 whitespace-nowrap text-[11.5px] tabular-nums text-zinc-400"
+          title={[
+            doc.content_chars === undefined
+              ? ''
+              : tr(
+                  // tooltip 给精确数值，不再重复可见列里已经格式化过的大小
+                  `${doc.content_chars} 字符 · ${doc.content_bytes ?? 0} 字节`,
+                  `${doc.content_chars} chars · ${doc.content_bytes ?? 0} bytes`,
+                ),
+            doc.indexed_at
+              ? tr(`最后索引 ${fullDateTime(doc.indexed_at)}`, `Indexed ${fullDateTime(doc.indexed_at)}`)
+              : tr('尚无索引记录', 'No index record'),
+            doc.last_hit_at
+              ? tr(`最近命中 ${fullDateTime(doc.last_hit_at)}`, `Last hit ${fullDateTime(doc.last_hit_at)}`)
+              : tr('尚未被检索命中', 'Never hit'),
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        >
+          <span>{chunkCount === undefined ? '—' : tr(`${chunkCount} 块`, `${chunkCount} chunks`)}</span>
+          <span aria-hidden className="text-zinc-600">·</span>
+          <span>{formatDocBytes(doc.content_bytes)}</span>
+        </div>
+        {indexTone && (
+          <div className="mt-0.5 flex items-center gap-1.5">
+            <StatusPill
+              tone={indexTone}
+              label={indexTone === 'ok' ? tr('已索引', 'Indexed') : tr('未索引', 'Not indexed')}
+            />
+            {doc.hit_count !== undefined && doc.hit_count > 0 && (
+              <span className="whitespace-nowrap text-[10px] tabular-nums text-zinc-600">
+                {tr(`${doc.hit_count} 次命中`, `${doc.hit_count} hits`)}
+              </span>
+            )}
+          </div>
+        )}
+      </td>
+      <td className="px-3 py-[7px]">
+        {/* 状态用语义色说话，胶囊本身即开关，不再并排放一个裸 Switch */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={doc.enabled}
           aria-label={tr(`参与检索 ${title}`, `Include ${title} in retrieval`)}
-        />
+          disabled={!canMutate}
+          onClick={() => onToggleEnabled(!doc.enabled)}
+          title={tr('点击切换是否参与检索', 'Toggle retrieval')}
+          className="inline-flex rounded-full transition-opacity hover:opacity-75 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <StatusPill
+            tone={doc.enabled ? 'ok' : 'neutral'}
+            label={doc.enabled ? tr('参与检索', 'Included') : tr('已停用', 'Disabled')}
+          />
+        </button>
       </td>
       <td className="px-3 py-[7px]">
         <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
@@ -1203,10 +1361,10 @@ function SemanticSearchPanel({
             </colgroup>
             <TableHead>
               <tr className="whitespace-nowrap">
-                <th className="px-3 py-2 text-left font-medium">#</th>
-                <th className="px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
-                <th className="px-3 py-2 text-right font-medium">{tr('检索得分', 'Score')}</th>
-                <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
+                <th scope="col" className="px-3 py-2 text-left font-medium">#</th>
+                <th scope="col" className="px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">{tr('检索得分', 'Score')}</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
               </tr>
             </TableHead>
             <tbody className="divide-y divide-zinc-800/40">
@@ -1295,7 +1453,7 @@ function DocEditor({
   const [title, setTitle] = useState(existing?.title ?? '');
   const [titleEN, setTitleEN] = useState(existing?.title_en ?? '');
   const [content, setContent] = useState(existing?.content ?? '');
-  const [url, setUrl] = useState(existing?.url ?? '');
+  const [url, setUrl] = useState(existing?.source_filename ?? existing?.url ?? '');
   const [path, setPath] = useState(existing?.path ?? defaultPath ?? '');
   const [tagsText, setTagsText] = useState((existing?.tags ?? []).join(', '));
   const [submitting, setSubmitting] = useState(false);
@@ -1314,8 +1472,9 @@ function DocEditor({
   // 复制成组织文档后进入编辑表单，不再停在只读查看器。
   const viewer =
     !forked && !toEditor && (mode === 'view' || (mode === 'edit' && sourceReadOnly));
-  // 上传文档的 url 是它的身份（文件名），后端不允许改，这里只读展示
-  const urlLocked = mode !== 'create' && existing?.source_type === 'upload';
+  // 后端 PATCH 不接收 url：编辑态一律只读，避免「改了却没生效」。
+  // 上传文档的来源就是原件名（url 为 None），优先展示它。
+  const urlReadOnly = mode !== 'create' && !forked;
 
   useEffect(() => {
     if (mode !== 'create' && existing && !content) {
@@ -1556,23 +1715,26 @@ function DocEditor({
             />
           </Field>
         </div>
-        <Field
-          htmlFor="knowledge-doc-url"
-          label={
-            urlLocked
-              ? tr('来源文件（不可修改）', 'Source file (read-only)')
-              : tr('来源 URL（可选）', 'Source URL (optional)')
-          }
-        >
-          <Input
-            id="knowledge-doc-url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            readOnly={urlLocked}
-            placeholder="https://wiki.internal/runbook/nginx-restart"
-            className={cn('font-mono text-[11.5px]', urlLocked && 'cursor-not-allowed')}
-          />
-        </Field>
+        {/* 副本是新组织文档，不带原文档来源地址，直接隐藏该字段 */}
+        {!forked && (
+          <Field
+            htmlFor="knowledge-doc-url"
+            label={
+              mode === 'create'
+                ? tr('来源 URL（可选）', 'Source URL (optional)')
+                : tr('来源文件 / URL（不可修改）', 'Source file / URL (read-only)')
+            }
+          >
+            <Input
+              id="knowledge-doc-url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              readOnly={urlReadOnly}
+              placeholder="https://wiki.internal/runbook/nginx-restart"
+              className={cn('font-mono text-[11.5px]', urlReadOnly && 'cursor-not-allowed')}
+            />
+          </Field>
+        )}
         <Field label={tr('内容（markdown） *', 'Content (markdown) *')} htmlFor="knowledge-doc-content">
           <Textarea
             id="knowledge-doc-content"

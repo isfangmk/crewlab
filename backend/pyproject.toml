@@ -21,6 +21,10 @@ dependencies = [
   "adk-tool-search>=0.3.0",
   "pypdf",
   "python-docx",
+  # 沙盒执行：llm-sandbox 负责容器生命周期，docker 是它的 daemon 客户端。
+  # 二者缺一，沙盒会在 import 阶段失败并被记成「代码执行失败」，所以必须声明。
+  "llm-sandbox[docker]>=0.3.46",
+  "docker>=7.2.0",
 ]
 
 [dependency-groups]

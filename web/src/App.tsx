@@ -19,6 +19,7 @@ const McpPage = lazy(() => import('@/pages/Mcp'));
 const WorkflowsPage = lazy(() => import('@/pages/Workflows'));
 const WorkflowEditorPage = lazy(() => import('@/pages/WorkflowEditor'));
 const WorkflowRunPage = lazy(() => import('@/pages/WorkflowRun'));
+const SandboxPage = lazy(() => import('@/pages/Sandbox'));
 const KnowledgePage = lazy(() => import('@/pages/Knowledge'));
 const SessionsPage = lazy(() => import('@/pages/Sessions'));
 const ObservabilityPage = lazy(() => import('@/pages/Observability'));
@@ -84,6 +85,7 @@ export default function App() {
         <Route path="/approvals" element={<ApprovalsPage />} />
         <Route path="/approvals/:id" element={<ApprovalDetailPage key={location.pathname} />} />
         <Route path="/observability" element={<ObservabilityPage />} />
+        <Route path="/sandbox" element={<SandboxPage />} />
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/users" element={<UsersPage />} />
         <Route path="/agents" element={<AgentsPage />} />

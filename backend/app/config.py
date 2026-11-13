@@ -41,6 +41,18 @@ class Settings(BaseSettings):
     # 可选 OTLP：未配置则不装 exporter，禁止假装已观测
     otlp_endpoint: str = Field(alias="OTLP_ENDPOINT", default="")
     otlp_service_name: str = Field(alias="OTLP_SERVICE_NAME", default="ai-workbench")
+    # 沙盒：Docker 守护进程地址；留空则用本机默认（docker.from_env）
+    sandbox_docker_host: str = Field(alias="SANDBOX_DOCKER_HOST", default="")
+    # 沙盒镜像：只做 Python，够用且体积小
+    sandbox_image: str = Field(
+        alias="SANDBOX_IMAGE", default="python:3.12-slim"
+    )
+    # 沙盒默认是否联网：默认断网，防数据外泄
+    sandbox_network_enabled: bool = Field(alias="SANDBOX_NETWORK_ENABLED", default=False)
+    # 沙盒单次执行超时（秒）
+    sandbox_timeout_seconds: int = Field(
+        alias="SANDBOX_TIMEOUT_SECONDS", default=120
+    )
 
 
 @lru_cache

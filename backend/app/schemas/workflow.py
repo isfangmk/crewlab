@@ -16,6 +16,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ADK 节点名会进 node_path 与日志，限制成标识符，避免出现 `/`、`@` 等路径分隔符。
+# pip 包名：字母数字与 - _ . ，版本号用 == 固定。
+# 沙盒服务安装依赖时也复用它，保证「画布上能填的」与「容器里肯装的」同一套规则。
+PIP_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(==[A-Za-z0-9._+!-]{1,32})?$")
 _NODE_ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 # 变量名：与节点 ID 同规则，便于 {{var}} 插值时不会误吞标点。
 _VAR_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
@@ -167,6 +170,11 @@ class WorkflowNode(BaseModel):
 
     # code：Python 片段，必须定义 run(state) -> Any
     code: str = Field(default="", max_length=20000)
+    # code：执行模式。sandbox = 沙盒内执行（默认，可装第三方库、碰不到宿主机）；
+    # restricted = 进程内受限命名空间（纯计算、无沙盒开销）
+    execution_mode: Literal["sandbox", "restricted"] = "sandbox"
+    # code：沙盒执行前要装的第三方库（pip 包名）
+    libraries: list[str] = Field(default_factory=list)
 
     # assign：按顺序写多个变量
     assignments: dict[str, str] = Field(default_factory=dict)
@@ -214,6 +222,27 @@ class WorkflowNode(BaseModel):
             raise ValueError("retry_count 范围是 0..5")
         return value
 
+    @field_validator("libraries")
+    @classmethod
+    def _check_libraries(cls, value: list[str]) -> list[str]:
+        """校验 pip 包名。
+
+        包名会被拼进容器里的 pip install 命令，必须先挡掉 shell 元字符
+        与路径穿越类写法，不能把画布上的输入直接交给命令。
+        """
+
+        names: list[str] = []
+        for raw in value:
+            name = raw.strip()
+            if name == "":
+                raise ValueError("libraries 不能包含空字符串")
+            if not PIP_NAME_PATTERN.fullmatch(name):
+                raise ValueError(f"非法的 pip 包名: {raw}")
+            names.append(name)
+        if len(names) > 20:
+            raise ValueError("libraries 最多 20 个")
+        return names
+
     @field_validator("timeout_seconds")
     @classmethod
     def _check_timeout(cls, value: float | None) -> float | None:
@@ -240,29 +269,29 @@ class WorkflowNode(BaseModel):
             names = [v.name for v in self.variables]
             if len(set(names)) != len(names):
                 raise ValueError(f"开始节点变量名重复: {self.id}")
-            self._reject(kind, agent=True, query=True, mcp=True, http=True, code=True)
+            self._reject(kind, agent=True, query=True, mcp=True, http=True, code=True, code_exec=True)
         elif kind == "agent":
             if self.provider == "" or self.model == "":
                 raise ValueError(f"LLM 节点必须指定模型: {self.id}")
             if self.instruction == "":
                 raise ValueError(f"LLM 节点必须有指令: {self.id}")
-            self._reject(kind, variables=True, query=True, mcp=True, http=True, code=True)
+            self._reject(kind, variables=True, query=True, mcp=True, http=True, code=True, code_exec=True)
         elif kind == "knowledge":
             if self.query == "":
                 raise ValueError(f"知识检索节点必须有 query: {self.id}")
-            self._reject(kind, variables=True, agent=True, mcp=True, http=True, code=True)
+            self._reject(kind, variables=True, agent=True, mcp=True, http=True, code=True, code_exec=True)
         elif kind == "search":
             if self.query == "":
                 raise ValueError(f"联网搜索节点必须有 query: {self.id}")
-            self._reject(kind, variables=True, agent=True, mcp=True, http=True, code=True)
+            self._reject(kind, variables=True, agent=True, mcp=True, http=True, code=True, code_exec=True)
         elif kind == "mcp":
             if self.mcp_server == "" or self.mcp_tool == "":
                 raise ValueError(f"MCP 节点必须指定 mcp_server 与 mcp_tool: {self.id}")
-            self._reject(kind, variables=True, agent=True, query=True, http=True, code=True)
+            self._reject(kind, variables=True, agent=True, query=True, http=True, code=True, code_exec=True)
         elif kind == "http":
             if self.url == "":
                 raise ValueError(f"HTTP 节点必须有 url: {self.id}")
-            self._reject(kind, variables=True, agent=True, query=True, mcp=True, code=True)
+            self._reject(kind, variables=True, agent=True, query=True, mcp=True, code=True, code_exec=True)
         elif kind == "code":
             if self.code.strip() == "":
                 raise ValueError(f"代码节点必须有 code: {self.id}")
@@ -270,7 +299,7 @@ class WorkflowNode(BaseModel):
         elif kind == "assign":
             if len(self.assignments) == 0:
                 raise ValueError(f"变量赋值节点必须有至少一个赋值: {self.id}")
-            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True, code=True)
+            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True)
         elif kind == "switch":
             if len(self.branches) < 2:
                 raise ValueError(f"条件分支至少要两个分支: {self.id}")
@@ -281,22 +310,22 @@ class WorkflowNode(BaseModel):
                     raise ValueError(f"分支名只能是标识符: {branch}")
             if self.branch_mode == "expr" and self.expression == "":
                 raise ValueError(f"表达式模式必须填写表达式: {self.id}")
-            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True, code=True)
+            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True)
         elif kind == "loop":
             if self.max_iterations < 1:
                 raise ValueError(f"循环轮次至少为 1: {self.id}")
-            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True, code=True)
+            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True)
         elif kind == "approval":
             if self.prompt == "":
                 raise ValueError(f"人工审批节点必须有说明文案: {self.id}")
-            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True, code=True)
+            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True)
         elif kind == "input":
             if self.prompt == "":
                 raise ValueError(f"人工输入节点必须有提示文案: {self.id}")
-            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True, code=True)
+            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True)
         else:
             # join / end 只允许位置、标签与 output_key
-            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True, code=True)
+            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True)
         return self
 
     def _reject(self, kind: str, **flags: bool) -> None:
@@ -309,6 +338,11 @@ class WorkflowNode(BaseModel):
             "mcp": self.mcp_server or self.mcp_tool or self.arguments,
             "http": (self.url or self.method != "GET" or self.headers or self.body),
             "code": self.code,
+            # 代码节点的执行模式与依赖库：默认的 sandbox 对所有节点都成立
+            # （不填就是沙盒），只有显式改成 restricted 或填了库才算「填了」。
+            "code_exec": (
+                self.execution_mode != "sandbox" or bool(self.libraries)
+            ),
         }
         for key, value in checks.items():
             if not flags.get(key):

@@ -26,6 +26,7 @@ const ROUTE_DEFS: RouteDef[] = [
   { path: '/tools', zh: '工具', en: 'Tools', keywords: ['tools', 'builtin', 'gongju'], group: '能力' },
   { path: '/skills', zh: '技能', en: 'Skills', keywords: ['skills', 'jineng'], group: '能力' },
   { path: '/mcp', zh: 'MCP', en: 'MCP', keywords: ['mcp', 'server'], group: '能力' },
+  { path: '/sandbox', zh: '沙箱', en: 'Sandbox', keywords: ['sandbox', 'shaxiang', 'code', 'exec', 'python'], group: '能力' },
 
   // 知识库：文档与检索；后续可挂检索试跑子页
   { path: '/knowledge', zh: '知识库', en: 'Knowledge', keywords: ['knowledge', 'kb', 'docs', 'rag', 'zhishiku', 'upload'], group: '知识库' },

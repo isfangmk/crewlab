@@ -47,7 +47,7 @@ describe('Sidebar workbench nav', () => {
     expect(screen.getByLabelText('试玩台（规划中）')).toBeInTheDocument();
     expect(screen.getByLabelText('记忆（规划中）')).toBeInTheDocument();
     expect(screen.getByLabelText('插件包（规划中）')).toBeInTheDocument();
-    expect(screen.getByLabelText('沙箱（规划中）')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '沙箱' })).toHaveAttribute('href', '/sandbox');
     expect(screen.getByLabelText('外部源（规划中）')).toBeInTheDocument();
     expect(screen.getByLabelText('检索试跑（规划中）')).toBeInTheDocument();
     expect(screen.getByLabelText('定时触发（规划中）')).toBeInTheDocument();

@@ -6,6 +6,7 @@ sort_dir / limit / offset，以及 GET /knowledge/paths 的 builtin 分组口径
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import httpx
@@ -56,6 +57,15 @@ async def test_docs_list_filters_and_paginates(env: dict[str, str], api_base: st
             body = by_title.json()
             assert body["total"] == 2
             assert {d["id"] for d in body["items"]} == {alpha["id"], beta["id"]}
+
+            # 列表附带索引统计：分块数、正文字符/字节数、最后索引时间
+            sample = next(d for d in body["items"] if d["id"] == alpha["id"])
+            assert sample["chunk_count"] >= 1
+            assert sample["content_chars"] == len("正文甲")
+            assert sample["content_bytes"] == len("正文甲".encode("utf-8"))
+            assert sample["indexed_at"] is not None
+            assert sample["source_filename"] is None
+            assert sample["hit_count"] >= 0
 
             # 标题关键字匹配不到：total 为 0，不是全量
             no_hit = await client.get(
@@ -177,3 +187,108 @@ async def test_docs_list_builtin_groups_are_disjoint(env: dict[str, str], api_ba
             assert all(p["path"] != "分组目录" for p in builtin_paths.json()["items"])
         finally:
             await client.delete(f"/api/v1/knowledge/docs/{org['id']}", headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_docs_list_upload_source_and_hit_stats(
+    env: dict[str, str], api_base: str
+) -> None:
+    """上传原件信息入库；被检索命中后累计 hit_count 与 last_hit_at。"""
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=120.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        marker = f"原件{uuid.uuid4().hex[:8]}"
+        raw = f"{marker} 正文".encode("utf-8")
+        filename = f"{marker}.txt"
+        up = await client.post(
+            "/api/v1/knowledge/upload",
+            headers=headers,
+            files={"file": (filename, raw, "text/plain")},
+            data={"path": "原件目录", "title": marker},
+        )
+        if up.status_code >= 500:
+            pytest.skip(f"嵌入服务不可用: {up.text}")
+        assert up.status_code == 200, up.text
+        doc = up.json()
+        try:
+            assert doc["source_filename"] == filename
+            assert doc["source_mime"] == "text/plain"
+            assert doc["source_bytes"] == len(raw)
+            assert doc["hit_count"] == 0
+
+            search = await client.get(
+                "/api/v1/knowledge/search",
+                headers=headers,
+                params={"q": marker, "path_prefix": "原件目录", "limit": 5},
+            )
+            assert search.status_code == 200, search.text
+            assert search.json()["total"] >= 1
+
+            # 命中统计在响应后异步写入，轮询等待最终一致
+            item: dict = {}
+            for _ in range(15):
+                row = await client.get(
+                    "/api/v1/knowledge/docs",
+                    headers=headers,
+                    params={"q": marker, "limit": 1},
+                )
+                assert row.status_code == 200, row.text
+                item = row.json()["items"][0]
+                if item["hit_count"] >= 1:
+                    break
+                await asyncio.sleep(0.2)
+            assert item["hit_count"] >= 1, item
+            assert item["last_hit_at"] is not None, item
+        finally:
+            await client.delete(f"/api/v1/knowledge/docs/{doc['id']}", headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_upload_tags_normalization_and_search_bounds(
+    env: dict[str, str], api_base: str
+) -> None:
+    """上传标签去空白/空项、空标题回退原件名；检索参数有边界且空白词显式失败。"""
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=120.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        marker = f"标签{uuid.uuid4().hex[:8]}"
+        filename = f"{marker}.txt"
+        up = await client.post(
+            "/api/v1/knowledge/upload",
+            headers=headers,
+            files={"file": (filename, f"{marker} 正文".encode("utf-8"), "text/plain")},
+            data={
+                "path": "标签目录",
+                "title": "  ",
+                "tags": " 巡检, , 网络，DNS, ",
+            },
+        )
+        if up.status_code >= 500:
+            pytest.skip(f"嵌入服务不可用: {up.text}")
+        assert up.status_code == 200, up.text
+        doc = up.json()
+        try:
+            assert doc["title"] == filename
+            assert doc["tags"] == ["巡检", "网络", "DNS"]
+
+            # 边界校验要在调用嵌入服务之前拦住
+            blank = await client.get(
+                "/api/v1/knowledge/search", headers=headers, params={"q": "   "}
+            )
+            assert blank.status_code == 400, blank.text
+            too_many = await client.get(
+                "/api/v1/knowledge/search",
+                headers=headers,
+                params={"q": marker, "limit": 51},
+            )
+            assert too_many.status_code == 422, too_many.text
+        finally:
+            await client.delete(f"/api/v1/knowledge/docs/{doc['id']}", headers=headers)

@@ -26,11 +26,13 @@ source = { editable = "." }
 dependencies = [
     { name = "adk-tool-search" },
     { name = "asyncpg" },
+    { name = "docker" },
     { name = "fastapi" },
     { name = "google-adk" },
     { name = "greenlet" },
     { name = "httpx" },
     { name = "litellm" },
+    { name = "llm-sandbox", extra = ["docker"] },
     { name = "mcp" },
     { name = "pgvector" },
     { name = "pydantic-settings" },
@@ -53,11 +55,13 @@ dev = [
 requires-dist = [
     { name = "adk-tool-search", specifier = ">=0.3.0" },
     { name = "asyncpg" },
+    { name = "docker", specifier = ">=7.2.0" },
     { name = "fastapi" },
     { name = "google-adk" },
     { name = "greenlet" },
     { name = "httpx" },
     { name = "litellm" },
+    { name = "llm-sandbox", extras = ["docker"], specifier = ">=0.3.46" },
     { name = "mcp", specifier = ">=2.3.0" },
     { name = "pgvector" },
     { name = "pydantic-settings" },
@@ -717,6 +721,20 @@ source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/fc/f8/98eea607f65de6527f8a2e8885fc8015d3e6f5775df186e443e0964a11c3/distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed" }
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2" },
+]
+
+[[package]]
+name = "docker"
+version = "7.2.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
+    { name = "requests" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/88/7f/731ff914b0255d3d065f45fd4e626d4b8c95dbcbaada049f337a6ac16410/docker-7.2.0.tar.gz", hash = "sha256:cebb93773d334f778e023a7ee352a8d6e13ab1bd3b863a4d4a59dec897df43ac" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/75/23/529140fe1aab80fc6992f93a706deec709140a6397439139a054e1515c45/docker-7.2.0-py3-none-any.whl", hash = "sha256:a3f45fdeb9165e2d25d9a1d02ddf3bc70fb572cf5ebbf9b58558c22caf29b71f" },
 ]
 
 [[package]]
@@ -1502,6 +1520,23 @@ wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/c9/43/17dcecf20777f791ba5f2b5bdc96fb20db2fc83012e62f97558aa69d3662/litellm-1.108.2-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:d09a07daaf2d8776b8be7467ed569869641a32f7bea77323cb038bd3c472c38e" },
     { url = "https://mirrors.aliyun.com/pypi/packages/8f/d8/9bfe7e2984bcbb3d573267731f6d12844f66754377f44261b5c56d824b04/litellm-1.108.2-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:8c1b93f1a065e5821e73a08d926f426c10ebdfaf9ba345828977f8a2c798a280" },
     { url = "https://mirrors.aliyun.com/pypi/packages/fb/10/7fe09e9fb792e2aa6f090b0c6a0ca8345256ace559d8445277c9afa7b68c/litellm-1.108.2-cp310-abi3-win_amd64.whl", hash = "sha256:8b29865e28558e396de2365cf7791d253532b448d9a9e1aaf4efcbb0c0223feb" },
+]
+
+[[package]]
+name = "llm-sandbox"
+version = "0.3.46"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/08/34/05f30c1a3a5875b3154f478eb7e0f1c545fb2102d6fa54e16c58cd25e830/llm_sandbox-0.3.46.tar.gz", hash = "sha256:4a5346fdf42b8367cc6a6d0d05bd0a8b231de7126c480d0926a5409f2a14eaf3" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/ba/42/a3e51053f10925c3a6ec99b5368a48936722c58bf776048843819e5e14df/llm_sandbox-0.3.46-py3-none-any.whl", hash = "sha256:3d3eb597a5a6e0861a1f3a539b2782c88c708d095e17f38492ab3c68a5c89444" },
+]
+
+[package.optional-dependencies]
+docker = [
+    { name = "docker" },
 ]
 
 [[package]]

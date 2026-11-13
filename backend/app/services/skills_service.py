@@ -15,14 +15,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Union, cast
 
-from google.adk.code_executors.unsafe_local_code_executor import (
-    UnsafeLocalCodeExecutor,
-)
 from google.adk.skills import Script, Skill, load_skills_from_dir
 from google.adk.tools.skill_toolset import SkillDiscoveryMode, SkillToolset
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.adk_runtime.sandbox_code_executor import SandboxCodeExecutor
 from app.adk_runtime.toolset import build_knowledge_tools
 from app.tools.catalog import tool_param_specs
 from app.models_orm.skill import UserSkill
@@ -83,8 +81,9 @@ def build_skill_toolset(
         skills=resolved,
         discovery_mode=SkillDiscoveryMode.EAGER,
         additional_tools=knowledge_tools,
-        # 技能脚本要有地方才能跑；当前用本机执行器，后续换成沙盒执行器
-        code_executor=UnsafeLocalCodeExecutor(),
+        # 技能脚本在沙盒里跑：技能可以来自用户 zip 导入，
+        # 直接在宿主进程执行等于把宿主机交给第三方脚本。
+        code_executor=SandboxCodeExecutor(),
     )
 
 
