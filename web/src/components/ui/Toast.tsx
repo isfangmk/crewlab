@@ -1,4 +1,4 @@
-// Toast — 统一的轻提示：右下角浮层，成功/失败两种语气。
+// Toast — 统一的轻提示：右上角浮层，成功/失败两种语气。
 //
 // 用于「操作已生效」这类不需要用户决策的反馈，替代 window.alert；
 // 需要用户确认的破坏性操作请用 ConfirmDialog。
@@ -21,7 +21,7 @@ export function Toast({ tone, text }: { tone: ToastTone; text: string }) {
   return (
     <div
       role={tone === 'ok' ? 'status' : 'alert'}
-      className="anim-rise fixed bottom-6 right-6 z-50 flex max-w-sm items-start gap-2.5 rounded-xl border border-border bg-card px-3.5 py-3 shadow-2xl"
+      className="anim-rise fixed top-[4.5rem] right-5 z-50 flex max-w-sm items-start gap-2.5 rounded-xl border border-border bg-card px-3.5 py-3 shadow-2xl"
     >
       <Icon size={15} className={cn('mt-0.5 shrink-0', cls)} aria-hidden />
       <span className="text-[12.5px] leading-5 text-text">{text}</span>
