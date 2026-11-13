@@ -72,9 +72,8 @@ def provider_extra_body(provider: LlmProvider) -> dict[str, Any]:
 async def ensure_seed_provider(db: AsyncSession) -> None:
     """若库中无任何 Provider，用环境变量种子写入一条。
 
-    种子 provider 已存在时只补齐「新增字段」：
-    前缀 / 厂商请求体是后加的列，老库里是空值，
-    不补的话对话会拿不到 openai/ 前缀而请求失败。
+    种子 provider 已存在时不覆盖既有配置，只把模型前缀 / 厂商请求体
+    两个非空种子值补进空缺字段：对话请求依赖 openai/ 前缀拼模型名。
     """
 
     settings = get_settings()
