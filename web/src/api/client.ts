@@ -135,15 +135,26 @@ export async function requestFile(
   }
 
   const disposition = res.headers.get('content-disposition') ?? '';
-  // 非 ASCII 文件名只有 RFC 5987 的 filename*=utf-8''… 形式（Starlette 行为）；
-  // 纯 ASCII 时才是 filename="…"。两种都解，中文经 decodeURIComponent 还原。
+  return { blob: await res.blob(), filename: parseContentDisposition(disposition) };
+}
+
+/** 解析 Content-Disposition 里的下载文件名。
+ *
+ *  非 ASCII 文件名只有 RFC 5987 的 filename*=utf-8''… 形式（Starlette 行为），
+ *  纯 ASCII 时才是 filename="…"；两种都解，中文经 decodeURIComponent 还原。
+ *  头缺失或两种形式都不在时回退 'download'。
+ */
+export function parseContentDisposition(disposition: string): string {
   const star = /filename\*=utf-8''([^;]+)/i.exec(disposition);
   const plain = /filename="([^"]+)"/.exec(disposition);
-  const filename = star
-    ? decodeURIComponent(star[1])
-    : plain
-      ? plain[1]
-      : 'download';
-  return { blob: await res.blob(), filename };
+  if (star) {
+    try {
+      return decodeURIComponent(star[1]);
+    } catch {
+      // 编码串损坏时退回原样，不让下载整体失败
+      return star[1];
+    }
+  }
+  return plain ? plain[1] : 'download';
 }
 

@@ -314,7 +314,7 @@ async def upload_doc(
         tag_list = [t.strip() for t in tags.replace("，", ",").split(",") if t.strip()]
 
     # 原件先落盘再入库（文档 id 预生成）；入库失败删原件，避免孤儿文件
-    doc_id = str(uuid.uuid4())
+    doc_id = str(uuid4())
     try:
         knowledge_service.save_source_file(doc_id=doc_id, filename=filename, raw=raw)
     except OSError as exc:
