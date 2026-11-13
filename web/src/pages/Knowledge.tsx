@@ -18,7 +18,6 @@ import {
   BookOpen,
   ChevronRight,
   Copy,
-  Eye,
   FileText,
   Folder,
   FolderOpen,
@@ -178,7 +177,8 @@ export default function KnowledgePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [editing, setEditing] = useState<KnowledgeDoc | 'create' | null>(null);
+  // 打开的文档弹窗：'create' 新建；其余为某篇文档，mode 决定是查看还是编辑。
+  const [docModal, setDocModal] = useState<{ doc: KnowledgeDoc | 'create'; mode: 'create' | 'edit' | 'view' } | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDoc | null>(null);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   // 文档标题筛选（服务端 q 过滤）
@@ -460,7 +460,7 @@ export default function KnowledgePage() {
           scopeLabel={searchScopeLabel}
           onOpenHit={(hit) => {
             setLocate({ chunkIndex: hit.chunk_index, excerpt: hit.excerpt });
-            setEditing(hit.doc);
+            setDocModal({ doc: hit.doc, mode: 'edit' });
           }}
         />
       ) : (
@@ -520,7 +520,7 @@ export default function KnowledgePage() {
                     label={tr('新建文档', 'New doc')}
                     onClick={() => {
                       setGroup('org');
-                      setEditing('create');
+                      setDocModal({ doc: 'create', mode: 'create' });
                     }}
                   />
                 </>
@@ -590,7 +590,7 @@ export default function KnowledgePage() {
                     <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                       <Upload size={12} /> {tr('上传文件', 'Upload')}
                     </Button>
-                    <Button variant="primary" size="sm" onClick={() => setEditing('create')}>
+                    <Button variant="primary" size="sm" onClick={() => setDocModal({ doc: 'create', mode: 'create' })}>
                       <Plus size={12} /> {tr('新建文档', 'New doc')}
                     </Button>
                   </div>
@@ -660,9 +660,13 @@ export default function KnowledgePage() {
                       key={doc.id}
                       doc={doc}
                       canMutate={canMutate}
+                      onView={() => {
+                        setLocate(null);
+                        setDocModal({ doc, mode: 'view' });
+                      }}
                       onEdit={() => {
                         setLocate(null);
-                        setEditing(doc);
+                        setDocModal({ doc, mode: 'edit' });
                       }}
                       onDelete={() => setDeleting(doc)}
                       onToggleEnabled={(enabled) => void onToggleDocEnabled(doc, enabled)}
@@ -677,18 +681,18 @@ export default function KnowledgePage() {
         </>
       )}
 
-      {editing && (
+      {docModal && (
         <DocEditor
-          mode={editing === 'create' ? 'create' : 'edit'}
-          existing={editing === 'create' ? null : editing}
-          defaultPath={editing === 'create' ? activePath : undefined}
+          mode={docModal.mode}
+          existing={docModal.doc === 'create' ? null : docModal.doc}
+          defaultPath={docModal.doc === 'create' ? activePath : undefined}
           locate={locate}
           onClose={() => {
-            setEditing(null);
+            setDocModal(null);
             setLocate(null);
           }}
           onSaved={() => {
-            setEditing(null);
+            setDocModal(null);
             setLocate(null);
             void Promise.all([fetchList(true), fetchTrees()]);
           }}
@@ -927,16 +931,18 @@ function FolderNode({
 }
 
 // 文档行：主信息一行（来源胶囊 + 标题），元信息一行（目录 / 来源地址）；
-// 标签单独成列，统一用中性胶囊；整行不响应点击，打开文档只走行内「编辑 / 查看」。
+// 标签单独成列，统一用中性胶囊；整行不响应点击，看详情只点标题。
 function DocRow({
   doc,
   canMutate,
+  onView,
   onEdit,
   onDelete,
   onToggleEnabled,
 }: {
   doc: KnowledgeDoc;
   canMutate: boolean;
+  onView(): void;
   onEdit(): void;
   onDelete(): void;
   onToggleEnabled(enabled: boolean): void;
@@ -982,9 +988,14 @@ function DocRow({
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-zinc-800/60 bg-zinc-900/50 text-zinc-500">
             <DocIcon size={12} aria-hidden />
           </span>
-          <span className="truncate text-[12.5px] font-medium text-zinc-100" title={title}>
+          <button
+            type="button"
+            onClick={onView}
+            className="truncate text-[12.5px] font-medium text-zinc-100 transition-colors hover:text-indigo-300"
+            title={title}
+          >
             {title}
-          </span>
+          </button>
           {!doc.enabled && <Chip dense tone="warning">{tr('已停用', 'Disabled')}</Chip>}
         </div>
         <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pl-8 text-[10.5px] leading-4">
@@ -1046,14 +1057,7 @@ function DocRow({
                 onClick={onDelete}
               />
             </>
-          ) : (
-            <RowActionIcon
-              icon={Eye}
-              label={tr('查看', 'View')}
-              aria-label={tr(`查看 ${title}`, `View ${title}`)}
-              onClick={onEdit}
-            />
-          )}
+          ) : null}
         </div>
       </td>
     </tr>
@@ -1280,7 +1284,7 @@ function DocEditor({
   onClose,
   onSaved,
 }: {
-  mode: 'create' | 'edit';
+  mode: 'create' | 'edit' | 'view';
   existing: KnowledgeDoc | null;
   defaultPath?: string;
   locate?: { chunkIndex: number; excerpt: string } | null;
@@ -1304,12 +1308,17 @@ function DocEditor({
   // 只读查看 + 「复制为组织文档」是受支持的自定义方式。
   const sourceReadOnly = existing?.source_type === 'repo' || existing?.source_type === 'vault';
   const [forked, setForked] = useState(false);
-  const readOnly = mode === 'edit' && sourceReadOnly && !forked;
+  // 「查看」模式进来后可以就地切到编辑表单，不必关掉弹窗再点一次编辑。
+  const [toEditor, setToEditor] = useState(false);
+  // 走查看器的三种情况：显式查看模式；或编辑内置/repo 文档（内容不可改）。
+  // 复制成组织文档后进入编辑表单，不再停在只读查看器。
+  const viewer =
+    !forked && !toEditor && (mode === 'view' || (mode === 'edit' && sourceReadOnly));
   // 上传文档的 url 是它的身份（文件名），后端不允许改，这里只读展示
-  const urlLocked = mode === 'edit' && existing?.source_type === 'upload';
+  const urlLocked = mode !== 'create' && existing?.source_type === 'upload';
 
   useEffect(() => {
-    if (mode === 'edit' && existing && !content) {
+    if (mode !== 'create' && existing && !content) {
       setLoading(true);
       void (async () => {
         try {
@@ -1327,7 +1336,7 @@ function DocEditor({
 
   // 命中块定位：正文加载完成后选中 excerpt，并把编辑框滚到对应行
   useEffect(() => {
-    if (!locate || !content || readOnly || locatedRef.current) return;
+    if (!locate || !content || viewer || locatedRef.current) return;
     const el = textareaRef.current;
     if (!el) return;
     const start = content.indexOf(locate.excerpt);
@@ -1337,7 +1346,7 @@ function DocEditor({
     el.setSelectionRange(start, start + locate.excerpt.length);
     const line = content.slice(0, start).split('\n').length;
     el.scrollTop = Math.max(0, (line - 3) * 19);
-  }, [locate, content, readOnly]);
+  }, [locate, content, viewer]);
 
   const submit = async () => {
     setSubmitting(true);
@@ -1379,7 +1388,7 @@ function DocEditor({
   };
 
   // 只读查看器：渲染 markdown 正文 + 顶部元信息条
-  if (readOnly) {
+  if (viewer && !toEditor) {
     const isVault = existing?.source_type === 'vault';
     return (
       <Modal
@@ -1394,33 +1403,41 @@ function DocEditor({
             <Button variant="outline" size="sm" onClick={onClose}>
               {tr('关闭', 'Close')}
             </Button>
-            <Hint
-              content={
-                isVault
-                  ? tr(
-                      '内置文档随同步更新、不可直接修改；复制一份到组织知识库后即可编辑',
-                      'Built-in docs are refreshed on sync and not directly editable; copy into the org knowledge base to edit',
-                    )
-                  : tr(
-                      'repo 文档随同步更新、不可直接修改；复制一份到组织知识库后即可编辑',
-                      'Repo docs are refreshed on sync and not directly editable; copy into the org knowledge base to edit',
-                    )
-              }
-            >
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => {
-                  // 副本是新组织文档，不带内置/repo 的来源地址
-                  setUrl('');
-                  setForked(true);
-                }}
-                disabled={loading || !content}
-              >
-                <Copy size={11} />
-                {tr('复制为组织文档', 'Copy as org doc')}
+            {/* 可编辑的文档给「编辑」入口；内置/repo 文档只能复制成组织文档后改。 */}
+            {mode === 'view' && !sourceReadOnly ? (
+              <Button variant="primary" size="sm" onClick={() => setToEditor(true)}>
+                <Pencil size={11} />
+                {tr('编辑', 'Edit')}
               </Button>
-            </Hint>
+            ) : (
+              <Hint
+                content={
+                  isVault
+                    ? tr(
+                        '内置文档随同步更新、不可直接修改；复制一份到组织知识库后即可编辑',
+                        'Built-in docs are refreshed on sync and not directly editable; copy into the org knowledge base to edit',
+                      )
+                    : tr(
+                        'repo 文档随同步更新、不可直接修改；复制一份到组织知识库后即可编辑',
+                        'Repo docs are refreshed on sync and not directly editable; copy into the org knowledge base to edit',
+                      )
+                }
+              >
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    // 副本是新组织文档，不带内置/repo 的来源地址
+                    setUrl('');
+                    setForked(true);
+                  }}
+                  disabled={loading || !content}
+                >
+                  <Copy size={11} />
+                  {tr('复制为组织文档', 'Copy as org doc')}
+                </Button>
+              </Hint>
+            )}
           </>
         }
       >

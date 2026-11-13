@@ -394,8 +394,8 @@ function AgentCard({
   }, [agent, busy, navigate, tr]);
 
   return (
-    <Card interactive className="group flex cursor-pointer flex-col" onClick={onView}>
-      {/* 头部：头像 + 名称/来源 + 行内操作。名称仍是点击进详情的入口。 */}
+    <Card className="group flex flex-col">
+      {/* 头部：头像 + 名称/来源 + 行内操作。只有名称是进详情的入口。 */}
       <div className="flex items-start gap-2.5">
         <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/25 to-sky-500/10 text-indigo-300 ring-1 ring-inset ring-indigo-500/30">
           <Bot size={16} />
@@ -403,7 +403,13 @@ function AgentCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <Hint content={agent.name}>
-              <div className="truncate text-[13px] font-semibold leading-5 text-zinc-100">{displayName}</div>
+              <button
+                type="button"
+                onClick={onView}
+                className="min-w-0 truncate text-[13px] font-semibold leading-5 text-zinc-100 transition-colors hover:text-indigo-300"
+              >
+                {displayName}
+              </button>
             </Hint>
             <SourceLabel source={agent.source} />
             {agent.permission_mode === 'read-only' && <Chip dense tone="success">{tr('只读', 'Read-only')}</Chip>}
@@ -416,10 +422,7 @@ function AgentCard({
               <RowActionIcon
                 icon={Pencil}
                 label={tr('编辑', 'Edit')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEdit();
-                }}
+                onClick={onEdit}
               />
             </Hint>
           )}
@@ -429,10 +432,7 @@ function AgentCard({
                 icon={Trash2}
                 label={isUser ? tr('删除', 'Delete') : tr('从助理列表中移除', 'Remove from the list')}
                 tone="danger"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
+                onClick={onDelete}
               />
             </Hint>
           )}
@@ -494,8 +494,7 @@ function AgentCard({
         <Hint content={tr('用此助理开新会话', 'Start a new session with this assistant')}>
           <Button variant="plain" size="sm"
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
+            onClick={() => {
               void onUse();
             }}
             disabled={busy}

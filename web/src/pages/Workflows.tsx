@@ -8,7 +8,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowDown,
   ArrowUp,
-  ArrowUpRight,
   History,
   Pencil,
   Play,
@@ -753,9 +752,6 @@ function RunsTab({
                               {tr('再次运行', 'Run again')}
                             </RowAction>
                           )}
-                          <RowAction icon={ArrowUpRight} onClick={() => onOpenRun(run.run_uid)}>
-                            {tr('详情', 'Details')}
-                          </RowAction>
                         </div>
                       </td>
                     </tr>

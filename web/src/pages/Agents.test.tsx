@@ -100,8 +100,8 @@ describe('AgentsPage', () => {
     const useButton = (await screen.findAllByRole('button', { name: '使用此助理' }))[0];
     expect(useButton).toHaveAttribute('data-variant', 'plain');
     expect(useButton).toHaveClass('bg-indigo-500/10', 'text-indigo-200');
-    // 卡片标题用短名；点击卡片主体打开详情
-    await userEvent.click(await screen.findByText('SRE 专家'));
+    // 卡片标题用短名；名称是唯一的详情入口（卡片本身不响应点击）
+    await userEvent.click(await screen.findByRole('button', { name: 'SRE 专家' }));
 
     const dialog = await screen.findByRole('dialog');
     // system prompt 原文完整展示
@@ -119,8 +119,8 @@ describe('AgentsPage', () => {
         <AgentsPage />
       </MemoryRouter>,
     );
-    // user 助理无短名，name 同时出现在卡片标题和 mono 行；点标题
-    await userEvent.click((await screen.findAllByText('my_db_helper'))[0]);
+    // user 助理无短名，name 同时出现在标题按钮和 mono 行；点标题按钮
+    await userEvent.click(await screen.findByRole('button', { name: 'my_db_helper' }));
 
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/你是数据库专家/)).toBeInTheDocument();
@@ -276,7 +276,7 @@ describe('AgentsPage', () => {
         <AgentsPage />
       </MemoryRouter>,
     );
-    await userEvent.click((await screen.findAllByText('my_db_helper'))[0]);
+    await userEvent.click(await screen.findByRole('button', { name: 'my_db_helper' }));
 
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('知识范围')).toBeInTheDocument();

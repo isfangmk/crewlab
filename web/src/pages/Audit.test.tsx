@@ -111,7 +111,8 @@ describe('AuditPage', () => {
     );
 
     await screen.findByText('批准审批');
-    await user.click(screen.getAllByRole('button', { name: '详情' })[0]);
+    // 详情入口统一为「点动作名」：不再有独立的「详情」按钮列。
+    await user.click(screen.getByRole('button', { name: '批准审批' }));
 
     expect(await screen.findByText('审计详情')).toBeInTheDocument();
     expect(screen.getByText('req-2')).toBeInTheDocument();

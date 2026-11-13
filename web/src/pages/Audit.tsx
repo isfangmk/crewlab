@@ -2,7 +2,6 @@ import { useAssistantPage } from '@/lib/assistantPage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, Download, RefreshCw, ScrollText, Settings2, Shield } from 'lucide-react';
 import {
-  Button,
   CodeBlock,
   COL,
   EmptyStateCard,
@@ -470,7 +469,6 @@ export default function AuditPage() {
                   <col className={COL.detail} />
                   <col className={COL.detail} />
                   <col className={COL.main} />
-                  <col className={COL.actionsIcon} />
                 </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">
@@ -495,7 +493,6 @@ export default function AuditPage() {
                     <th className="px-3 py-2 text-left font-medium">{tr('动作', 'Action')}</th>
                     <th className="px-3 py-2 text-left font-medium">{tr('资源', 'Resource')}</th>
                     <th className="px-3 py-2 text-left font-medium">{tr('详情', 'Detail')}</th>
-                    <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
                 </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
@@ -513,9 +510,14 @@ export default function AuditPage() {
                           </span>
                         </td>
                         <td className="min-w-0 px-3 py-2">
-                          <span className="block truncate text-[12px] text-zinc-200" title={row.action}>
+                          <button
+                            type="button"
+                            onClick={() => setDetail(row)}
+                            className="block max-w-full truncate text-left text-[12px] text-zinc-200 transition-colors hover:text-indigo-300"
+                            title={row.action}
+                          >
                             {actionMeta ? tr(actionMeta.zh, actionMeta.en) : row.action}
-                          </span>
+                          </button>
                         </td>
                         <td className="min-w-0 px-3 py-2">
                           <span className="block truncate text-[12px] text-zinc-400" title={row.resource_id}>
@@ -527,13 +529,6 @@ export default function AuditPage() {
                           <span className="block truncate font-mono text-[11px] text-zinc-500" title={JSON.stringify(row.detail)}>
                             {summary(JSON.stringify(row.detail))}
                           </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="flex items-center justify-end">
-                            <Button variant="ghost" size="sm" type="button" onClick={() => setDetail(row)}>
-                              {tr('详情', 'Detail')}
-                            </Button>
-                          </div>
                         </td>
                       </tr>
                     );

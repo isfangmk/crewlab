@@ -1,5 +1,5 @@
-// Knowledge 页面测试 — 覆盖「点击操作查看正文 + 编辑保存」链路：
-//   1. 内置(vault)文档点「查看」→ 只读查看器拉取并渲染 markdown 正文
+// Knowledge 页面测试 — 覆盖「点击标题查看正文 + 编辑保存」链路：
+//   1. 内置(vault)文档点标题 → 只读查看器拉取并渲染 markdown 正文
 //   2. 查看器「复制为组织文档」→ 预填编辑表单 → 保存为新建组织文档
 //   3. 组织(manual)文档点「编辑」→ 编辑表单，PATCH 保存
 //   4. 检索命中块：展示分道得分，点击结果打开文档并选中命中块
@@ -112,18 +112,22 @@ describe('KnowledgePage', () => {
     await userEvent.click(await screen.findByRole('tab', { name: '语义检索' }));
   }
 
-  // 行内动作才是入口：整行点击不再打开查看/编辑。
-  // 行内按钮的可访问名带文档标题（「编辑 DNS 排查手册」），按前缀匹配。
-  async function clickRowAction(title: string, action: '查看' | '编辑') {
+  // 详情入口统一为「点标题」；编辑是行内动作，整行不再响应点击。
+  async function clickDocTitle(title: string) {
+    await userEvent.click(await screen.findByRole('button', { name: title }));
+  }
+
+  // 行内编辑动作的可访问名带文档标题（「编辑 DNS 排查手册」），按前缀匹配。
+  async function clickRowAction(title: string, action: '编辑') {
     const row = (await screen.findByText(title)).closest('.group');
     if (!(row instanceof HTMLElement)) throw new Error(`doc row not found: ${title}`);
     await userEvent.click(within(row).getByRole('button', { name: new RegExp(`^${action}`) }));
   }
 
-  it('点击内置文档「查看」打开只读查看器并渲染正文', async () => {
+  it('点击内置文档标题打开只读查看器并渲染正文', async () => {
     render(<KnowledgePage />);
     await openBuiltinScope();
-    await clickRowAction('Host Metric Alerts Runbook', '查看');
+    await clickDocTitle('Host Metric Alerts Runbook');
 
     // 查看器：拉取 GET /knowledge/docs/:id 并渲染 markdown 正文
     expect(await screen.findByText('第一步：查看告警上下文')).toBeInTheDocument();
@@ -147,7 +151,7 @@ describe('KnowledgePage', () => {
     );
     render(<KnowledgePage />);
     await openBuiltinScope();
-    await clickRowAction('Host Metric Alerts Runbook', '查看');
+    await clickDocTitle('Host Metric Alerts Runbook');
 
     expect(await screen.findByText('正文内容')).toBeInTheDocument();
     // 元信息行存在（dt/dd），tags 拆成单个 chip
@@ -175,7 +179,7 @@ describe('KnowledgePage', () => {
 
     render(<KnowledgePage />);
     await openBuiltinScope();
-    await clickRowAction('Host Metric Alerts Runbook', '查看');
+    await clickDocTitle('Host Metric Alerts Runbook');
     await screen.findByText('第一步：查看告警上下文');
     await userEvent.click(screen.getByRole('button', { name: /复制为组织文档/ }));
 
@@ -371,6 +375,23 @@ describe('KnowledgePage', () => {
     await userEvent.click(screen.getByRole('button', { name: /更新时间/ }));
     await waitFor(() => expect(sortDirSeen).toBe('desc'));
     await waitFor(() => expect(firstTitle()).toContain('较新的文档'));
+  });
+
+  it('组织文档点标题进查看器，可在查看器里直接切到编辑', async () => {
+    server.use(
+      http.get(`${listURL}/202`, () => HttpResponse.json({ ...manualDoc, content: '原有正文' })),
+    );
+
+    render(<KnowledgePage />);
+    await clickDocTitle('组织 SOP');
+
+    // 查看器：渲染 markdown 正文，且没有「复制为组织文档」（那是内置/repo 才有的）
+    expect(await screen.findByText('原有正文')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /复制为组织文档/ })).not.toBeInTheDocument();
+
+    // 查看器底部给「编辑」入口，就地切到编辑表单
+    await userEvent.click(screen.getByRole('button', { name: '编辑' }));
+    expect(await screen.findByDisplayValue('原有正文')).toBeInTheDocument();
   });
 
   it('组织文档点击编辑进入表单并 PATCH 保存', async () => {

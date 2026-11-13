@@ -713,9 +713,8 @@ export default function ObservabilityPage() {
                     return (
                       <tr
                         key={row.trace_id}
-                        className="group cursor-pointer transition-colors"
+                        className="group transition-colors"
                         style={isActive ? { backgroundColor: 'rgb(99 102 241 / 0.08)' } : undefined}
-                        onClick={() => void openDetail(row.trace_id)}
                       >
                         <td
                           className="px-3 py-2 align-middle"
@@ -733,20 +732,21 @@ export default function ObservabilityPage() {
                           />
                         </td>
                         <td className="min-w-0 px-3 py-2 align-middle">
-                          <div
+                          <button
+                            type="button"
+                            onClick={() => void openDetail(row.trace_id)}
                             className={cn(
-                              'truncate text-[12.5px] leading-5',
+                              'block max-w-full truncate text-left text-[12.5px] leading-5 transition-colors hover:text-indigo-300',
                               isError ? 'text-red-300' : 'text-zinc-200',
                             )}
                             title={summary || undefined}
                           >
                             {summary || '—'}
-                          </div>
+                          </button>
                           <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-zinc-600">
                             <Link
                               to={`/chat/${row.session_id}`}
                               className="shrink-0 font-mono transition-colors hover:text-indigo-300 hover:underline"
-                              onClick={(e) => e.stopPropagation()}
                               title={row.session_id}
                             >
                               {row.session_id.slice(0, 8)}
