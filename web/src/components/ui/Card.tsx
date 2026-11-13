@@ -24,7 +24,7 @@ export function Card({
   return (
     <Tag
       className={cn(
-        'rounded-xl border border-zinc-800/60 bg-zinc-900/40',
+        'flex flex-col rounded-xl border border-zinc-800/60 bg-zinc-900/40',
         compact ? 'p-3.5' : 'p-4',
         interactive && 'transition-colors hover:border-zinc-700 hover:bg-zinc-900/60',
         className,

@@ -16,8 +16,8 @@ export function PromptCard({ title, description, icon: Icon, onClick, className 
       onClick={onClick}
       aria-label={title}
       className={cn(
-        'group flex flex-col items-start gap-1.5 rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-3.5 text-left transition-colors',
-        'hover:border-zinc-700 hover:bg-zinc-900/60',
+        'group flex flex-col items-start gap-1.5 rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-3.5 text-left transition-all',
+        'hover:-translate-y-0.5 hover:border-zinc-700 hover:bg-zinc-900/60 hover:shadow-lg',
         className
       )}
     >

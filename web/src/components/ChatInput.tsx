@@ -520,17 +520,14 @@ export function ChatInput({
               </Button>
             )}
           </div>
-          <Button variant="subtle" size="sm"
+          <Button
+            variant={empty || disabled ? 'subtle' : 'primary'}
+            size="sm"
             type="button"
             onClick={submit}
             disabled={disabled || empty}
             aria-label={tr('发送消息', 'Send message')}
-            className={cn(
-              'inline-flex w-7 items-center justify-center rounded-full transition-all',
-              empty || disabled
-                ? 'bg-zinc-800 text-zinc-500'
-                : 'bg-zinc-100 text-zinc-900 hover:bg-white'
-            )}
+            className="inline-flex w-7 items-center justify-center rounded-full"
           >
             <Send size={13} />
           </Button>

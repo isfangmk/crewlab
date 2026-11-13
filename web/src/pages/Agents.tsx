@@ -484,7 +484,7 @@ function AgentCard({
         />
       </div>
 
-      <div className="mt-2.5 flex items-center justify-between gap-2">
+      <div className="mt-auto flex items-center justify-between gap-2 pt-2.5">
         <span className="min-w-0 truncate text-[10.5px] text-zinc-500" title={agent.model || undefined}>
           {agent.model !== '' ? agent.model : tr('模型继承默认', 'Model inherited')}
         </span>
