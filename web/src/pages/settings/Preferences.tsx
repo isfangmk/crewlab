@@ -10,6 +10,7 @@ import { useI18n } from '@/i18n/locale';
 import { useThemeMode, type ThemePreference } from '@/store/mode';
 import { getSystemTimezoneLabel, useSystemTimezone } from '@/store/systemTimezone';
 import { cn } from '@/lib/cn';
+import { errorText } from '@/lib/errors';
 
 const THEME_OPTIONS: { id: ThemePreference; icon: typeof Sun }[] = [
   { id: 'system', icon: Monitor },
@@ -48,7 +49,7 @@ export default function SettingsPreferences() {
       setTimezone(getSystemTimezoneLabel());
       setTzErr(null);
     } catch (e) {
-      setTzErr(e instanceof Error ? e.message : String(e));
+      setTzErr(errorText(e));
     } finally {
       setTzLoading(false);
     }
@@ -69,7 +70,7 @@ export default function SettingsPreferences() {
       await setSetting(OBS_CATEGORY, TIMEZONE_KEY, timezone, false);
       setSystemTzLabel(timezone);
     } catch (e) {
-      setTzErr(e instanceof Error ? e.message : String(e));
+      setTzErr(errorText(e));
     } finally {
       setTzSaving(false);
     }

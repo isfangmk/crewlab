@@ -30,6 +30,8 @@ class LlmProvider(Base):
     # 厂商专属请求体（JSON 文本），如 DeepSeek 的 {"thinking":{"type":"enabled"}}。
     # 只对确实需要它的 provider 配，不能强加给所有 provider。
     extra_body_json: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 跳过 TLS 证书校验（自签证书场景）：要真正作用到探测与运行的 HTTP 客户端。
+    tls_insecure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -7,16 +7,6 @@ export type LoginResponse = {
   email?: string;
 };
 
-export type SelfResponse = {
-  email: string;
-  role: string;
-  id?: string;
-};
-
 export function login(email: string, password: string) {
-    return request<LoginResponse>('POST', '/auth/login', { email, password }, { noAuth: true });
-}
-
-export function getSelf() {
-  return request<SelfResponse>('GET', '/auth/self');
+  return request<LoginResponse>('POST', '/auth/login', { email, password }, { noAuth: true });
 }

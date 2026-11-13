@@ -4,6 +4,7 @@
 // 因此这里必须把「命中 0 篇」「路径已不存在」当场拦住，而不是保存时才报错。
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
+import { errorText } from '@/lib/errors';
 
 import type { ScopePreview } from '@/api/knowledge';
 import {
@@ -168,7 +169,7 @@ export function KnowledgeScopePicker({
       setTrialHits(resp.items);
     } catch (e) {
       setTrialHits(null);
-      setTrialError(e instanceof Error ? e.message : String(e));
+      setTrialError(errorText(e));
     } finally {
       setTrialBusy(false);
     }

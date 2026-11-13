@@ -3,7 +3,6 @@ import { Input, Label } from '@/components/ui';
 // LLM 配置：每个 provider 一张卡（key / Base URL / 模型列表 / 默认模型）。
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Download, Eye, EyeOff, Loader2, PlugZap, Plus, Save, Sparkles, Star, Trash2 } from 'lucide-react';
-import { ApiError } from '@/api/client';
 import {
   fetchLLMModels,
   listSettings,
@@ -18,6 +17,7 @@ import { ProviderIcon } from '@/components/icons/Provider';
 import { SettingsProviderPicker } from '@/components/SettingsProviderPicker';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 type LLMProviderID = 'openai' | 'anthropic' | 'zhipu' | 'gemini' | 'deepseek' | 'kimi' | 'minimax' | 'xiaomi' | 'custom';
 
@@ -269,7 +269,7 @@ export default function SettingsLLM() {
         );
       })
       .catch((e) => {
-        if (!cancelled) setLoadError(e instanceof ApiError ? e.message : (e as Error).message);
+        if (!cancelled) setLoadError(errorText(e));
       });
     return () => {
       cancelled = true;
@@ -396,7 +396,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
       setConfigured(providerConfigured(items, meta));
       setRevealed(false);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setLoading(false);
     }
@@ -504,7 +504,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
       setModelFetchMessage(tr(`已获取 ${result.models.length} 个模型，请检查后保存。`, `Fetched ${result.models.length} models. Review and save.`));
     } catch (e) {
       if (probeVersion.current === requestVersion) {
-        setErr(e instanceof ApiError ? e.message : (e as Error).message);
+        setErr(errorText(e));
       }
     } finally {
       setFetchingModels(false);
@@ -534,7 +534,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
       return result;
     } catch (e) {
       if (probeVersion.current !== requestVersion) return null;
-      const detail = e instanceof ApiError ? e.message : (e as Error).message;
+      const detail = errorText(e);
       const result: LLMConfigurationProbeResult = {
         valid: false,
         code: 'probe-request-failed',
@@ -579,7 +579,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
       setProbe(result.disabled ? { kind: 'idle' } : { kind: 'ok', signature, result });
       setSavedOk(true);
     } catch (e) {
-      const detail = e instanceof ApiError ? e.message : (e as Error).message;
+      const detail = errorText(e);
       if (probeVersion.current === requestVersion) {
         setProbe({
           kind: 'error',

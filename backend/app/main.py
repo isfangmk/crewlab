@@ -31,7 +31,6 @@ from app.api import (
 )
 from app.config import get_settings
 from app.db import SessionLocal, engine
-from app.db_schema import ensure_columns
 from app.logging_setup import setup_logging
 from app.middleware_request_id import RequestIdMiddleware
 from app.models_orm import Base
@@ -56,8 +55,6 @@ async def lifespan(_app: FastAPI):
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
-        # create_all 只建新表；新增列必须显式补齐
-        await ensure_columns(conn)
 
     from app.adk_runtime.session_store import prepare_adk_session_tables
 

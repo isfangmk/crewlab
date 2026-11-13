@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_auth
+from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
 from app.services import agent_service
 from app.services.audit_service import write_audit
@@ -131,7 +131,7 @@ async def get_agent(
 async def create_user_agent(
     body: UserAgentInput,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     if body.name is None or body.name == "":
         raise HTTPException(status_code=400, detail="创建助理必须提供 name")
@@ -158,7 +158,6 @@ async def create_user_agent(
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="agent.create",
         resource_type="agent",
@@ -173,7 +172,7 @@ async def update_user_agent(
     name: str,
     body: UserAgentInput,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     scope = await _resolve_agent_scope(db, body)
     allowed_tools, disallowed_tools = await _resolve_agent_tools(db, body)
@@ -200,7 +199,6 @@ async def update_user_agent(
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="agent.update",
         resource_type="agent",
@@ -214,7 +212,7 @@ async def update_user_agent(
 async def delete_user_agent_custom(
     name: str,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> None:
     try:
         await agent_service.delete_user_agent(db, name)
@@ -223,7 +221,6 @@ async def delete_user_agent_custom(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="agent.delete",
         resource_type="agent",
@@ -235,7 +232,7 @@ async def delete_user_agent_custom(
 async def delete_agent(
     name: str,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> None:
     try:
         await agent_service.delete_user_agent(db, name)
@@ -244,7 +241,6 @@ async def delete_agent(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="agent.delete",
         resource_type="agent",

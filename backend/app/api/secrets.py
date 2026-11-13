@@ -124,7 +124,6 @@ async def export_secrets(
         )
     body = "\ufeff" + buf.getvalue()
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="secret.export",
         resource_type="secret",
@@ -167,7 +166,6 @@ async def create_secret(
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="secret.create",
         resource_type="secret",
@@ -220,7 +218,6 @@ async def rotate_secret(
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="secret.rotate",
         resource_type="secret",
@@ -290,7 +287,6 @@ async def verify_secret_usage(
         )
 
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="secret.verify",
         resource_type="secret",
@@ -311,7 +307,6 @@ async def delete_secret(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="secret.delete",
         resource_type="secret",

@@ -28,7 +28,6 @@ import {
   type OnNodesChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ApiError } from '@/api/client';
 import {
   deleteWorkflow,
   getCatalog,
@@ -65,7 +64,8 @@ import {
 } from '@/components/workflow/WorkflowNodeCard';
 import { WorkflowConnectionLine, WorkflowEdge, type CanvasFlowEdge } from '@/components/workflow/WorkflowEdge';
 import { WorkflowPalette } from '@/components/workflow/WorkflowPalette';
-import { Button, PageHeader, RowAction, Toast, type ToastTone } from '@/components/ui';
+import {
+  ErrorBanner, Button, PageHeader, RowAction, Toast, type ToastTone } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
@@ -82,6 +82,8 @@ import {
   withAutoOutputKeys,
 } from '@/lib/workflowMeta';
 import { AlertTriangle, ArrowLeft, Check, Clock, LayoutTemplate, Minus, Pencil, Play, Plus, RefreshCw, Rocket, Save, ShieldCheck, Square, Trash2, X } from 'lucide-react';
+import { errorText } from '@/lib/errors';
+import { useTimeout } from '@/lib/useTimeout';
 
 const KIND_MIME = 'application/x-workflow-kind';
 const NODE_TYPES = { workflow: WorkflowNodeCard };
@@ -213,10 +215,11 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
     setGateBannerOpen(true);
   }, []);
 
+  const flashTimer = useTimeout();
   const flash = useCallback((tone: ToastTone, text: string) => {
     setToast({ tone, text });
-    window.setTimeout(() => setToast(null), 4000);
-  }, []);
+    flashTimer(() => setToast(null), 4000);
+  }, [flashTimer]);
 
   // ---- 加载 ---------------------------------------------------------------
   const load = useCallback(async () => {
@@ -236,7 +239,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       applySnapshot(snapshot.run);
       setLoadError(null);
     } catch (error) {
-      setLoadError(error instanceof ApiError ? error.message : (error as Error).message);
+      setLoadError(errorText(error));
     } finally {
       setLoading(false);
     }
@@ -305,7 +308,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
         }
         return updated;
       } catch (error) {
-        flash('err', error instanceof ApiError ? error.message : (error as Error).message);
+        flash('err', errorText(error));
         return null;
       } finally {
         setSaving(false);
@@ -354,7 +357,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       setSavedAt(new Date());
       flash('ok', tr(`已发布 v${published.version}`, `Published v${published.version}`));
     } catch (error) {
-      flash('err', error instanceof ApiError ? error.message : (error as Error).message);
+      flash('err', errorText(error));
     } finally {
       setPublishing(false);
     }
@@ -651,7 +654,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       const result = await validateDefinition(definition);
       setValidation(result);
     } catch (error) {
-      flash('err', error instanceof ApiError ? error.message : (error as Error).message);
+      flash('err', errorText(error));
     } finally {
       setChecking(false);
     }
@@ -796,7 +799,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
         setRunningRunUid(null);
         setToast({
           tone: 'err',
-          text: error instanceof ApiError ? error.message : (error as Error).message,
+          text: errorText(error),
         });
       } finally {
         if (runAbortRef.current === controller) runAbortRef.current = null;
@@ -833,7 +836,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
         flash('err', tr('这次运行已经结束，无需停止', 'The run had already finished'));
       }
     } catch (error) {
-      flash('err', error instanceof ApiError ? error.message : (error as Error).message);
+      flash('err', errorText(error));
     } finally {
       setStopping(false);
     }
@@ -880,9 +883,9 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
           }
         />
         <div className="p-6">
-          <div role="alert" className="rounded-xl border border-red-500/40 bg-red-500/5 px-4 py-3 text-[12px] text-red-300">
+          <ErrorBanner>
             {loadError ?? tr('工作流不存在', 'Workflow not found')}
-          </div>
+          </ErrorBanner>
         </div>
       </main>
     );

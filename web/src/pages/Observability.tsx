@@ -24,13 +24,13 @@ import {
   type ObservationTurn,
   type ObservationTurnDetail,
 } from '@/api/observability';
-import { ApiError } from '@/api/client';
 import {
   Button,
   DetailSection,
   DetailStat,
   DetailStatGrid,
   EmptyStateCard,
+  ErrorBanner,
   FilterBar,
   FilterChip,
   FilterPill,
@@ -48,9 +48,11 @@ import {
 } from '@/components/ui';
 import type { StatusTone } from '@/components/ui/StatusPill';
 import { Modal } from '@/components/Modal';
+import { useRequestSeq } from '@/lib/requestSeq';
 import { useI18n } from '@/i18n/locale';
 import { formatNumber, fullDateTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { errorText } from '@/lib/errors';
 
 const PAGE_SIZES = [20, 50, 100] as const;
 type RangePreset = 'all' | 'today' | '7d' | '30d' | 'custom';
@@ -161,6 +163,8 @@ export default function ObservabilityPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [selected, setSelected] = useState<ObservationTurnDetail | null>(null);
+  // 筛选条件会连续变化：路数守卫保证只有最新一次请求的结果落进状态
+  const reqSeq = useRequestSeq();
 
   // 任一筛选变化都回到第一页，避免停在越界页看到空表。
   const resetToFirstPage = () => setPage(0);
@@ -201,6 +205,7 @@ export default function ObservabilityPage() {
   }, [q, sessionId, status, agentId, model, range, customFrom, customTo, minDuration, tr]);
 
   const load = useCallback(async () => {
+    const current = reqSeq.next();
     setLoading(true);
     try {
       const filters = buildFilters();
@@ -208,6 +213,8 @@ export default function ObservabilityPage() {
         listObservationTurns({ ...filters, limit: pageSize, offset: page * pageSize }),
         getObservationOverview(filters),
       ]);
+      // 已有更新的请求在途：丢弃这次结果，避免旧响应覆盖新筛选
+      if (reqSeq.isStale(current)) return;
       if (!Array.isArray(res.items)) {
         throw new Error('观测列表缺少 items');
       }
@@ -219,11 +226,14 @@ export default function ObservabilityPage() {
       setOverview(ov);
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      if (reqSeq.isStale(current)) return;
+      setErr(errorText(e));
     } finally {
-      setLoading(false);
+      if (!reqSeq.isStale(current)) {
+        setLoading(false);
+      }
     }
-  }, [buildFilters, page, pageSize]);
+  }, [buildFilters, page, pageSize, reqSeq]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -238,7 +248,7 @@ export default function ObservabilityPage() {
       setSelected(row);
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     }
   };
 
@@ -632,9 +642,9 @@ export default function ObservabilityPage() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-3">
         {err ? (
-          <div className="mb-3 rounded-lg border border-red-500/40 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+          <ErrorBanner>
             {err}
-          </div>
+          </ErrorBanner>
         ) : null}
         {loading && items.length === 0 ? (
           <div className="flex h-40 items-center justify-center gap-2 text-[12px] text-zinc-500">

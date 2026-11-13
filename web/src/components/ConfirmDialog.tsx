@@ -5,10 +5,10 @@
 // 知识库的删除弹窗同一套版式。
 
 import { useState, type ReactNode } from 'react';
+import { errorText } from '@/lib/errors';
 
 import { Modal } from '@/components/Modal';
 import { Button } from '@/components/ui';
-import { ApiError } from '@/api/client';
 import { useI18n } from '@/i18n/locale';
 
 type Props = {
@@ -52,7 +52,7 @@ export function ConfirmDialog({
       await onConfirm();
       onClose();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusy(false);
     }

@@ -6,9 +6,9 @@
 //   if (me?.role !== 'admin') return <EmptyState ... />
 import { useCallback, useEffect, useState } from 'react';
 import { create } from 'zustand';
-import { ApiError } from '@/api/client';
 import { getMe, type Me } from '@/api/users';
 import { useAuth } from '@/store/auth';
+import { errorText } from '@/lib/errors';
 
 type MeStore = {
   me: Me | null;
@@ -48,7 +48,7 @@ export async function loadMe(force = false): Promise<Me | null> {
       return m;
     })
     .catch((e) => {
-      const msg = e instanceof ApiError ? e.message : (e as Error).message;
+      const msg = errorText(e);
       useMeStore.getState().setError(msg);
       throw e;
     })

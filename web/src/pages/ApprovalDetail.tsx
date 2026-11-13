@@ -14,19 +14,20 @@ import {
   RowAction,
   StatusPill,
 } from '@/components/ui';
-import type { StatusTone } from '@/components/ui/StatusPill';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { useI18n } from '@/i18n/locale';
+import { APPROVAL_STATUS_META } from '@/lib/approvalStatus';
 import { fullDateTime } from '@/lib/format';
 import { useAuth } from '@/store/auth';
 
-const STATUS_UI: Record<Approval['status'], { tone: StatusTone; zh: string; en: string }> = {
-  pending: { tone: 'warn', zh: '等待确认', en: 'Awaiting approval' },
-  approved: { tone: 'ok', zh: '已批准，等待执行结果', en: 'Approved; awaiting execution result' },
-  executed: { tone: 'ok', zh: '已执行', en: 'Executed' },
-  rejected: { tone: 'neutral', zh: '已拒绝', en: 'Rejected' },
-  failed: { tone: 'danger', zh: '执行失败或请求已失效', en: 'Execution failed or request invalidated' },
-  expired: { tone: 'neutral', zh: '已过期', en: 'Expired' },
+/** 详情页用长文案说明状态含义；语义色取共享映射，避免同一状态两种颜色。 */
+const STATUS_DETAIL_TEXT: Record<Approval['status'], { zh: string; en: string }> = {
+  pending: { zh: '等待确认', en: 'Awaiting approval' },
+  approved: { zh: '已批准，等待执行结果', en: 'Approved; awaiting execution result' },
+  executed: { zh: '已执行', en: 'Executed' },
+  rejected: { zh: '已拒绝', en: 'Rejected' },
+  failed: { zh: '执行失败或请求已失效', en: 'Execution failed or request invalidated' },
+  expired: { zh: '已过期', en: 'Expired' },
 };
 
 export default function ApprovalDetailPage() {
@@ -111,7 +112,8 @@ export default function ApprovalDetailPage() {
     loading,
   });
 
-  const statusUI = item ? STATUS_UI[item.status] : null;
+  const statusText = item ? STATUS_DETAIL_TEXT[item.status] : null;
+  const statusUI = item ? APPROVAL_STATUS_META[item.status] : null;
 
   return (
     <main className="anim-fade flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -131,7 +133,7 @@ export default function ApprovalDetailPage() {
           statusUI ? (
             <StatusPill
               tone={statusUI.tone}
-              label={tr(statusUI.zh, statusUI.en)}
+              label={statusText === null ? '' : tr(statusText.zh, statusText.en)}
               pulse={item?.status === 'pending'}
               className="h-6 px-2 text-[11px]"
             />

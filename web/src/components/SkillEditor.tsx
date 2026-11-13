@@ -4,6 +4,7 @@
 // 编辑保存走整包覆盖：资源按 [{path, text|base64}] 全量提交，避免删改不同步。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FilePlus2, FileUp, Plus, Trash2 } from 'lucide-react';
+import { errorText } from '@/lib/errors';
 
 import { Modal } from '@/components/Modal';
 import {
@@ -274,7 +275,7 @@ export function SkillEditor({
         onSaved(await updateSkill(existingKey ?? input.key, input), 'edit');
       }
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setSubmitting(false);
     }
@@ -658,7 +659,7 @@ export function SkillImportDialog({ onClose, onImported }: { onClose(): void; on
       if (p.category !== null) setCategory(p.category);
     } catch (e) {
       setPreview(null);
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -675,7 +676,7 @@ export function SkillImportDialog({ onClose, onImported }: { onClose(): void; on
       });
       onImported();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+      setErr(errorText(e));
     } finally {
       setBusy(false);
     }

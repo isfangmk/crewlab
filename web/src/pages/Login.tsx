@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/Button';
-import { Label, Input } from '@/components/ui';
+import {
+  ErrorBanner, Label, Input } from '@/components/ui';
 import { useState, type FormEvent } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { safeLoginReturn } from '@/lib/loginReturn';
@@ -104,12 +105,9 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div
-              role="alert"
-              className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300"
-            >
+            <ErrorBanner>
               {error}
-            </div>
+            </ErrorBanner>
           )}
 
           <Button variant="primary"

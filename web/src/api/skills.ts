@@ -5,7 +5,7 @@ export type SkillClass = 'safe' | 'mutating' | 'dangerous';
 
 export const SKILL_CLASSES: SkillClass[] = ['safe', 'mutating', 'dangerous'];
 
-export type SkillParamType = 'string' | 'int' | 'float' | 'bool' | 'duration' | 'enum';
+export type SkillParamType = 'string' | 'int' | 'float' | 'bool';
 
 export type SkillParamDef = {
   name: string;
@@ -55,7 +55,6 @@ export type SkillSummary = {
   // SKILL.md 正文
   instructions?: string;
   params: SkillParamDef[];
-  result_preview?: string;
   // true：技能声明的工具不在注册表（目录可见，对话侧也调不了）。
   inventory_only?: boolean;
   // 技能 frontmatter 声明的工具名。
@@ -102,9 +101,8 @@ export type SkillZipPreview = {
   scripts: SkillFile[];
 };
 
-export function listSkills(category?: string) {
-  const qs = category ? `?category=${encodeURIComponent(category)}` : '';
-  return request<SkillListResp>('GET', `/skills${qs}`);
+export function listSkills() {
+  return request<SkillListResp>('GET', '/skills');
 }
 
 export function getSkill(key: string) {

@@ -4,6 +4,7 @@ import { Button, Input, Label, SectionCard } from '@/components/ui';
 import { reindexKnowledge } from '@/api/knowledge';
 import { listSettings, setSetting } from '@/api/settings';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 const CATEGORY = 'knowledge';
 
@@ -38,7 +39,7 @@ export default function SettingsKnowledge() {
       setMinScore(read('rrf_min_score'));
       setErr(null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errorText(e));
     } finally {
       setLoading(false);
     }
@@ -95,7 +96,7 @@ export default function SettingsKnowledge() {
         setSavedText(tr('设置已保存', 'Settings saved'));
       }
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errorText(e));
     } finally {
       setSaving(false);
     }

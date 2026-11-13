@@ -1,3 +1,4 @@
+import { ErrorBanner } from '@/components/ui';
 import { useAssistantPage } from '@/lib/assistantPage';
 
 
@@ -1067,19 +1068,7 @@ export default function HomePage() {
 
 
 
-            <div
-
-
-
-              role="alert"
-
-
-
-              className="mt-3 rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300"
-
-
-
-            >
+            <ErrorBanner>
 
 
 
@@ -1087,7 +1076,7 @@ export default function HomePage() {
 
 
 
-            </div>
+            </ErrorBanner>
 
 
 

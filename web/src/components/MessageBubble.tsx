@@ -25,6 +25,7 @@ import { emitChatLive } from '@/lib/chatLiveBus';
 import { cn } from '@/lib/cn';
 import { isConfigDraftConfirmationMessage } from '@/lib/configDraftConfirmation';
 import { useI18n } from '@/i18n/locale';
+import { useTimeout } from '@/lib/useTimeout';
 import { Button, Chip, CodeBlock, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
 import { Modal } from '@/components/Modal';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
@@ -136,6 +137,7 @@ function safeParse(s: string): unknown {
 function CopyButton({ text }: { text: string }) {
   const { tr } = useI18n();
   const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const copyTimer = useTimeout();
 
   const onCopy = async () => {
     try {
@@ -144,7 +146,7 @@ function CopyButton({ text }: { text: string }) {
     } catch {
       setState('error');
     }
-    window.setTimeout(() => setState('idle'), 1500);
+    copyTimer(() => setState('idle'), 1500);
   };
 
   return (

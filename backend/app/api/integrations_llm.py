@@ -85,7 +85,6 @@ async def validate_and_save(
         raise HTTPException(status_code=502, detail=f"厂商连接失败: {exc}") from exc
     # 审计只记配置外形，永不落 api_key。
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="llm.save",
         resource_type="llm_provider",

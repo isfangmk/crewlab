@@ -40,11 +40,11 @@ import {
 import { Checkbox, Input, Select, Textarea } from '@/components/ui';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/DropdownMenu';
 import { RunInputRows } from '@/components/workflow/RunInputRows';
-import { ApiError } from '@/api/client';
 import { cn } from '@/lib/cn';
 import { fullDateTime } from '@/lib/format';
 import { availableVariables, iconOf, kindTitle, nodeIssue, toneOf, VAR_PATTERN } from '@/lib/workflowMeta';
 import { useI18n } from '@/i18n/locale';
+import { errorText } from '@/lib/errors';
 
 export type WorkflowMeta = { name: string; description: string; status: WorkflowStatus };
 
@@ -1120,7 +1120,7 @@ function LastRunBody({
       }
       setState({ loading: false, error: null, run: null });
     } catch (error) {
-      setState({ loading: false, error: error instanceof ApiError ? error.message : (error as Error).message, run: null });
+      setState({ loading: false, error: errorText(error), run: null });
     }
   }, [nodeId, workflowId]);
 

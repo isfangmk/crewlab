@@ -7,7 +7,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_auth
+from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
 from app.schemas.tools import (
     BuiltinToolGroupOut,
@@ -47,7 +47,7 @@ async def run_builtin_tool(
     name: str,
     body: BuiltinToolRunIn,
     db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> BuiltinToolRunOut:
     """手动探测内置 Tool；与对话调用共用同一实现。"""
 
@@ -60,7 +60,6 @@ async def run_builtin_tool(
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="tool.run",
         resource_type="builtin_tool",

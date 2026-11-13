@@ -96,6 +96,17 @@ async def list_llm_settings(db: AsyncSession) -> list[dict]:
                 },
             ]
         )
+        # 自定义端点的 TLS 开关：前端按固定键回读（前端 meta.custom 分支）
+        if p.provider_id == "custom":
+            items.append(
+                {
+                    "category": "llm",
+                    "key": "custom_tls_insecure",
+                    "value": "true" if p.tls_insecure else "false",
+                    "sensitive": False,
+                    "updated_at": now,
+                }
+            )
     return items
 
 
@@ -313,6 +324,7 @@ async def validate_and_save(
             enabled=True,
             model_prefix=model_prefix,
             extra_body_json=extra_body_json,
+            tls_insecure=tls_insecure,
         )
         db.add(row)
     else:
@@ -324,6 +336,7 @@ async def validate_and_save(
         row.enabled = True
         row.model_prefix = model_prefix
         row.extra_body_json = extra_body_json
+        row.tls_insecure = tls_insecure
 
     setting = await db.get(AppSetting, "default_provider")
     if setting is None:

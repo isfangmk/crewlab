@@ -108,7 +108,6 @@ async def create_skill(
     except TypeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="skill.create",
         resource_type="skill",
@@ -142,7 +141,6 @@ async def update_skill(
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="skill.update",
         resource_type="skill",
@@ -170,7 +168,6 @@ async def delete_skill(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="skill.delete",
         resource_type="skill",
@@ -252,7 +249,6 @@ async def import_skill_zip(
         len(payload.scripts),
     )
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="skill.import",
         resource_type="skill",
@@ -283,7 +279,6 @@ async def export_skill(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="skill.export",
         resource_type="skill",
@@ -313,7 +308,6 @@ async def reload_skills(
     except (ValueError, TypeError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
-        db,
         actor_user_id=user.id,
         action="skills.reload",
         resource_type="skill",

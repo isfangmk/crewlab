@@ -2,6 +2,7 @@ import type { AssistantPage } from '@/lib/assistantPage';
 import { ApiError, request } from './client';
 import { readSseFrames } from './sse';
 import { getToken } from '@/store/auth';
+import { errorText } from '@/lib/errors';
 
 export type ChatRole = 'user' | 'assistant' | 'tool' | 'system';
 
@@ -528,7 +529,7 @@ function dispatchFrame(event: string, data: string, cbs: StreamCallbacks) {
   try {
     payload = JSON.parse(data);
   } catch (e) {
-    throw new Error(`SSE JSON 非法: ${e instanceof Error ? e.message : String(e)}`);
+    throw new Error(`SSE JSON 非法: ${errorText(e)}`);
   }
   switch (event) {
     case 'user_message':

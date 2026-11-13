@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models_orm.mcp import McpServer
+from app.services.mcp_catalog_toolset import parse_cached_tools
 
 logger = logging.getLogger(__name__)
 
@@ -271,26 +272,13 @@ def confirm_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
                 server.status,
             )
             continue
-        raw = server.tools_cache_json
-        if raw == "":
-            raise ValueError(f"MCP Server {server.name} 工具缓存为空，请先探测")
-        data = json.loads(raw)
-        if not isinstance(data, list):
-            raise TypeError(f"MCP Server {server.name} tools_cache_json 必须是数组")
-        if len(data) == 0:
-            raise ValueError(f"MCP Server {server.name} 工具缓存为空，请先探测")
-        for i, item in enumerate(data):
-            if not isinstance(item, dict):
-                raise TypeError(f"tools_cache[{i}] 必须是对象")
-            tool_name = item["name"]
-            if not isinstance(tool_name, str) or tool_name == "":
-                raise ValueError(f"tools_cache[{i}].name 无效")
-            desc = item.get("description")
-            if not isinstance(desc, str):
-                desc = ""
-            if policy == "non_readonly" and _tool_looks_readonly(tool_name, desc):
+        cached = parse_cached_tools(
+            server.tools_cache_json, server_name=server.name, require_schema=False
+        )
+        for item in cached:
+            if policy == "non_readonly" and _tool_looks_readonly(item["name"], item["description"]):
                 continue
-            names.add(mcp_tool_wire_name(server.name, tool_name))
+            names.add(mcp_tool_wire_name(server.name, item["name"]))
     logger.info("需审批 MCP 工具数=%s", len(names))
     return names
 
@@ -313,21 +301,11 @@ def all_business_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
                 server.status,
             )
             continue
-        raw = server.tools_cache_json
-        if raw == "":
-            raise ValueError(f"MCP Server {server.name} 工具缓存为空，请先探测")
-        data = json.loads(raw)
-        if not isinstance(data, list):
-            raise TypeError(f"MCP Server {server.name} tools_cache_json 必须是数组")
-        if len(data) == 0:
-            raise ValueError(f"MCP Server {server.name} 工具缓存为空，请先探测")
-        for i, item in enumerate(data):
-            if not isinstance(item, dict):
-                raise TypeError(f"tools_cache[{i}] 必须是对象")
-            tool_name = item["name"]
-            if not isinstance(tool_name, str) or tool_name == "":
-                raise ValueError(f"tools_cache[{i}].name 无效")
-            names.add(mcp_tool_wire_name(server.name, tool_name))
+        cached = parse_cached_tools(
+            server.tools_cache_json, server_name=server.name, require_schema=False
+        )
+        for item in cached:
+            names.add(mcp_tool_wire_name(server.name, item["name"]))
     return names
 
 
@@ -458,29 +436,16 @@ async def mcp_tool_catalog(db: AsyncSession) -> dict[str, McpToolRef]:
     for server in await list_servers(db):
         if server.tools_cache_json.strip() == "":
             continue
-        data = json.loads(server.tools_cache_json)
-        if not isinstance(data, list):
-            raise TypeError(f"MCP Server {server.name} tools_cache_json 必须是数组")
         available = server.enabled and server.status == "ok"
-        for index, item in enumerate(data):
-            if not isinstance(item, dict):
-                raise TypeError(f"MCP Server {server.name} tools_cache[{index}] 必须是对象")
-            tool_name = item.get("name")
-            if not isinstance(tool_name, str) or tool_name == "":
-                raise ValueError(f"MCP Server {server.name} tools_cache[{index}].name 无效")
-            schema = item.get("input_schema")
-            if not isinstance(schema, dict):
-                raise TypeError(
-                    f"MCP Server {server.name} 工具 {tool_name} 缺少 input_schema，请重新测试连接"
-                )
-            description = item.get("description")
+        for item in parse_cached_tools(server.tools_cache_json, server_name=server.name):
+            tool_name = item["name"]
             wire = mcp_tool_wire_name(server.name, tool_name)
             catalog[wire] = McpToolRef(
                 server_name=server.name,
                 tool_name=tool_name,
                 wire_name=wire,
-                description=description if isinstance(description, str) else "",
-                input_schema=schema,
+                description=item["description"],
+                input_schema=item["input_schema"],
                 available=available,
             )
     return catalog
