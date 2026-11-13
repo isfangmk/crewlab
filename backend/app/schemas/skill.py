@@ -25,12 +25,11 @@ class SkillPayloadIn(BaseModel):
     key: str = Field(min_length=1, max_length=64)
     description: str = Field(min_length=1, max_length=1024)
     instructions: str = Field(min_length=1)
-    license: str = ""
-    compatibility: str = ""
     preapproved_tools: str = ""
     # 平台侧属性：ADK 规范外，写入 metadata 一并保存
     risk: str = Field(min_length=1)
-    category: str = Field(min_length=1, max_length=64)
+    # 平台侧分组（固定枚举），驱动技能目录页的筛选条与分组表
+    group: str = Field(min_length=1, max_length=32)
     # metadata.adk_additional_tools
     tools: list[str] = Field(default_factory=list)
     # metadata.adk_inject_state
@@ -41,7 +40,7 @@ class SkillPayloadIn(BaseModel):
 
 
 class SkillImportIn(BaseModel):
-    """zip 导入的补充字段；技能包自带 risk/category 时以包内为准。"""
+    """zip 导入的补充字段；技能包自带 risk/group 时以包内为准。"""
 
     risk: str | None = None
-    category: str | None = None
+    group: str | None = None

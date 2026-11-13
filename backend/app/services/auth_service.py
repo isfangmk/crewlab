@@ -9,7 +9,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 
 _ROLES = frozenset({"admin", "developer", "viewer"})
 _PBKDF2_ITERS = 120_000
+
+
+def known_roles() -> frozenset[str]:
+    """平台角色枚举；API 层校验筛选参数时用同一份口径。"""
+
+    return _ROLES
 
 
 def bootstrap_admin_email() -> str:
@@ -176,9 +182,45 @@ async def create_user(
     return row
 
 
-async def list_users(db: AsyncSession) -> list[User]:
-    result = await db.scalars(select(User).order_by(User.id))
-    return list(result)
+async def list_users(
+    db: AsyncSession,
+    *,
+    q: str | None = None,
+    role: str | None = None,
+    status: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[User], int]:
+    """按筛选条件分页返回用户列表与命中总数。
+
+    筛选与分页都在服务端做：账号量级会随部署增长，前端分页拿不到
+    真实 total，也无法在服务端过滤。
+    """
+
+    filters = []
+    if role is not None:
+        filters.append(User.role == role)
+    if status is not None:
+        filters.append(User.status == status)
+    if q is not None:
+        # 关键字同时命中邮箱与显示名；转义 LIKE 通配符避免 % 变成全表匹配
+        pattern = f"%{_escape_like(q)}%"
+        filters.append(or_(User.email.ilike(pattern, escape="\\"), User.display_name.ilike(pattern, escape="\\")))
+
+    total = await db.scalar(select(func.count()).select_from(User).where(*filters))
+    rows = (
+        await db.scalars(
+            select(User).where(*filters).order_by(User.id).limit(limit).offset(offset)
+        )
+    ).all()
+    logger.info("已列出用户 total=%s 返回=%s offset=%s", total, len(rows), offset)
+    return list(rows), int(total or 0)
+
+
+def _escape_like(value: str) -> str:
+    """转义 LIKE 通配符；不转义会让用户输入的 % 变成全表匹配。"""
+
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 async def set_user_status(db: AsyncSession, user_id: int, status: str) -> User:

@@ -41,10 +41,10 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Button,
   Chip,
+  COL,
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
-  FilterChip,
   FilterPill,
   Input,
   PageHeader,
@@ -54,9 +54,14 @@ import {
   Select,
   Switch,
   TableCard,
+  TableHead,
   TablePager,
+  Tabs,
+  TabsList,
+  TabsTrigger,
   Textarea,
   Toast,
+  tableLayout,
 } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { fullDateTime } from '@/lib/format';
@@ -64,6 +69,7 @@ import {
   createDoc,
   deleteDoc,
   listDocs,
+  listPaths,
   localizedDocTitle,
   localizedPath,
   localizedPathSegment,
@@ -78,14 +84,19 @@ import {
   type SearchHit,
 } from '@/api/knowledge';
 import { useI18n } from '@/i18n/locale';
+import { useRequestSeq } from '@/lib/requestSeq';
 import { errorText } from '@/lib/errors';
 
 // 拖拽移动组织文档时的 dataTransfer MIME；值为文档 id。
 const DOC_DND_MIME = 'application/x-ongrid-doc-id';
 
-// 表头统一规格：11px、sticky、80% 表面。
-const TABLE_HEAD =
-  'sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-900/95 text-[11px] text-zinc-500 backdrop-blur';
+// 分页规格与全站一致：默认 20 条/页，可选 20/50/100。
+const DEFAULT_PAGE_SIZE = 20;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
+
+// 视图模式：文档浏览（列表 + 筛选）与语义检索（命中列表）是两个页级视图，
+// 用共享 Tabs 承载，不把检索塞进 FilterBar 的筛选条件里。
+type ViewMode = 'docs' | 'search';
 
 type SourceGroup = 'org' | 'builtin';
 
@@ -157,6 +168,9 @@ function Field({
 export default function KnowledgePage() {
   const { tr } = useI18n();
   const { canMutate } = usePermissions();
+  // 筛选条件会连续变化：路数守卫保证只有最新一次请求的结果落进状态
+  const reqSeq = useRequestSeq();
+  // 当前页的文档（服务端筛选 + 分页后的一页）
   const [items, setItems] = useState<KnowledgeDoc[]>([]);
   const [group, setGroup] = useState<SourceGroup>('org');
   const [activePath, setActivePath] = useState(''); // '' = 整个分组
@@ -167,39 +181,90 @@ export default function KnowledgePage() {
   const [editing, setEditing] = useState<KnowledgeDoc | 'create' | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDoc | null>(null);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  const [query, setQuery] = useState('');
+  // 文档标题筛选（服务端 q 过滤）
+  const [titleQuery, setTitleQuery] = useState('');
+  // 语义检索是独立功能，不是筛选条件：单独的输入框 + 触发按钮
+  const [searchQuery, setSearchQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
-  // 文档列表前端分页；默认 20 条/页
+  // 视图模式：文档浏览 / 语义检索
+  const [view, setView] = useState<ViewMode>('docs');
+  // 服务端分页；默认 20 条/页
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
   // 来源筛选（空串 = 全部来源）；与侧边栏分组正交，只落在组织文档这一侧
   const [sourceFilter, setSourceFilter] = useState<DocSource | ''>('');
   // 更新时间排序方向；默认按最近更新在前
   const [updatedSort, setUpdatedSort] = useState<'desc' | 'asc'>('desc');
-  // 已完成检索的关键词；非 null 时右侧进入结果态
+  // 已完成语义检索的关键词；非 null 时右侧进入结果态
   const [searchedQuery, setSearchedQuery] = useState<string | null>(null);
   // 打开文档时定位到的命中块；关闭编辑器即清空
   const [locate, setLocate] = useState<{ chunkIndex: number; excerpt: string } | null>(null);
+  // 目录树按来源组聚合，各树计数互不混算
+  const [orgPaths, setOrgPaths] = useState<PathRow[]>([]);
+  const [builtinPaths, setBuiltinPaths] = useState<PathRow[]>([]);
+  const [orgTotal, setOrgTotal] = useState(0);
+  const [builtinTotal, setBuiltinTotal] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const fetchAll = useCallback(async (silent = false) => {
+  // 文档列表：服务端筛选（来源组 / 目录 / 来源类型 / 标题关键字）+ 分页
+  const fetchList = useCallback(async (silent = false) => {
+    const current = reqSeq.next();
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
-      const res = await listDocs();
-      setItems(res.items ?? []);
+      const res = await listDocs({
+        builtin: group === 'builtin',
+        path_prefix: activePath === '' ? undefined : activePath,
+        source_type: group === 'org' && sourceFilter !== '' ? sourceFilter : undefined,
+        q: titleQuery.trim() === '' ? undefined : titleQuery.trim(),
+        sort_dir: updatedSort,
+        limit: pageSize,
+        offset: page * pageSize,
+      });
+      if (reqSeq.isStale(current)) return;
+      setItems(res.items);
+      setTotal(res.total);
+      setErr(null);
+    } catch (e) {
+      if (reqSeq.isStale(current)) return;
+      setErr(errorText(e));
+    } finally {
+      if (!reqSeq.isStale(current)) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, [group, activePath, sourceFilter, titleQuery, updatedSort, page, pageSize, reqSeq]);
+
+  // 目录树计数与分组总数：按来源组分别聚合，不再一次拉回全部文档
+  const fetchTrees = useCallback(async () => {
+    try {
+      const [org, builtin] = await Promise.all([
+        listPaths(false),
+        listPaths(true),
+      ]);
+      setOrgPaths(org.items);
+      setBuiltinPaths(builtin.items);
+      setOrgTotal(org.total);
+      setBuiltinTotal(builtin.total);
       setErr(null);
     } catch (e) {
       setErr(errorText(e));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    void fetchAll();
-  }, [fetchAll]);
+    // 与搜索共享同一 250ms 防抖：输入过程中不打满后端。
+    const timer = window.setTimeout(() => {
+      void fetchList();
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [fetchList]);
+
+  useEffect(() => {
+    void fetchTrees();
+  }, [fetchTrees]);
 
   // 轻提示 5 秒自动消失，与 MCP / 技能页同一节奏
   useEffect(() => {
@@ -208,41 +273,12 @@ export default function KnowledgePage() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const builtinItems = useMemo(() => items.filter(isBuiltinDoc), [items]);
-  const orgItems = useMemo(() => items.filter((d) => !isBuiltinDoc(d)), [items]);
-
-  const treeFrom = useCallback((docs: KnowledgeDoc[]): TreeNode => {
-    const counts = new Map<string, number>();
-    for (const d of docs) {
-      const p = d.path ?? '';
-      if (p) counts.set(p, (counts.get(p) ?? 0) + 1);
-    }
-    return buildTree([...counts.entries()].map(([path, count]) => ({ path, count })));
+  const treeFrom = useCallback((rows: PathRow[]): TreeNode => {
+    return buildTree(rows);
   }, []);
 
-  const builtinTree = useMemo(() => treeFrom(builtinItems), [builtinItems, treeFrom]);
-  const orgTree = useMemo(() => treeFrom(orgItems), [orgItems, treeFrom]);
-
-  const scopedItems = group === 'builtin' ? builtinItems : orgItems;
-
-  // 右侧列表：当前分组 + 来源筛选 + 选中目录（含子目录）的文档，按更新时间排序
-  const visibleDocs = useMemo(() => {
-    const bySource = sourceFilter === '' ? scopedItems : scopedItems.filter((d) => d.source_type === sourceFilter);
-    const scoped = !activePath
-      ? bySource
-      : bySource.filter((d) => d.path === activePath || (d.path ?? '').startsWith(`${activePath}/`));
-    // 更新时间列可点排序；同一时刻按 id 兜底，保证顺序稳定可复现
-    return [...scoped].sort((a, b) => {
-      const diff = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
-      if (diff === 0) return a.id.localeCompare(b.id);
-      return updatedSort === 'asc' ? diff : -diff;
-    });
-  }, [scopedItems, activePath, sourceFilter, updatedSort]);
-
-  const counts = useMemo(
-    () => ({ builtin: builtinItems.length, org: orgItems.length, total: items.length }),
-    [builtinItems.length, orgItems.length, items.length],
-  );
+  const builtinTree = useMemo(() => treeFrom(builtinPaths), [builtinPaths, treeFrom]);
+  const orgTree = useMemo(() => treeFrom(orgPaths), [orgPaths, treeFrom]);
 
   // 选目录 = 切分组 + 切路径；旧检索结果的作用域已失效，退回文档列表
   const pickFolder = useCallback((next: SourceGroup, path: string) => {
@@ -263,7 +299,7 @@ export default function KnowledgePage() {
           await uploadDoc(file);
         }
         pickFolder('org', '');
-        await fetchAll(true);
+        await Promise.all([fetchList(true), fetchTrees()]);
         setToast({ kind: 'ok', text: tr(`已上传 ${files.length} 个文件`, `Uploaded ${files.length} file(s)`) });
       } catch (e) {
         setErr(errorText(e));
@@ -272,7 +308,7 @@ export default function KnowledgePage() {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     },
-    [fetchAll, pickFolder, tr],
+    [fetchList, fetchTrees, pickFolder, tr],
   );
 
   const onMoveDoc = useCallback(
@@ -280,12 +316,12 @@ export default function KnowledgePage() {
       setErr(null);
       try {
         await moveDoc(docId, targetPath);
-        await fetchAll(true);
+        await Promise.all([fetchList(true), fetchTrees()]);
       } catch (e) {
         setErr(errorText(e));
       }
     },
-    [fetchAll],
+    [fetchList, fetchTrees],
   );
 
   // 文档启停只影响检索：停用后切块保留，可随时恢复
@@ -306,9 +342,10 @@ export default function KnowledgePage() {
     [tr],
   );
 
+  // 语义检索：独立功能，不是筛选条件。作用范围 = 当前来源组 + 当前目录
   const runSearch = async () => {
-    const nextQuery = query.trim();
-    if (!nextQuery) {
+    const nextQuery = searchQuery.trim();
+    if (nextQuery === '') {
       setHits([]);
       setSearchedQuery(null);
       return;
@@ -330,50 +367,36 @@ export default function KnowledgePage() {
   };
 
   const resetSearch = useCallback(() => {
-    setQuery('');
+    setSearchQuery('');
     setHits([]);
     setSearchedQuery(null);
     setLocate(null);
   }, []);
 
-  // 分页：列表在前端分页（文档量级有限，后端一次取回）；切换筛选时回到第 1 页
+  // 筛选条件变化时回到第 1 页
   useEffect(() => {
     setPage(0);
-  }, [group, activePath, sourceFilter, searchedQuery, pageSize]);
-
+  }, [group, activePath, sourceFilter, titleQuery, updatedSort, searchedQuery, pageSize]);
   // 删除或筛选后页数变少，把页码夹回最后一页，避免停在空白页
   useEffect(() => {
-    const lastPage = Math.max(0, Math.ceil(visibleDocs.length / pageSize) - 1);
+    const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
     if (page > lastPage) setPage(lastPage);
-  }, [visibleDocs.length, pageSize, page]);
-
-  const pageDocs = useMemo(
-    () => visibleDocs.slice(page * pageSize, page * pageSize + pageSize),
-    [visibleDocs, page, pageSize],
-  );
+  }, [total, pageSize, page]);
 
   useAssistantPage('知识库', 'Knowledge', {
     source: group,
     folder: activePath,
-    visible_documents: visibleDocs.length,
-    sample_document_ids: visibleDocs.slice(0, 6).map((doc) => doc.id).join(', '),
+    visible_documents: total,
+    sample_document_ids: items.slice(0, 6).map((doc) => doc.id).join(', '),
     loading,
   });
 
-  const searchPlaceholder = activePath
-    ? tr(`在「${localizedPath(activePath)}」下语义检索`, `Search under "${localizedPath(activePath)}"`)
+  // 语义检索是独立功能：作用范围 = 当前来源组 + 当前目录
+  const searchScopeLabel = activePath
+    ? tr(`「${localizedPath(activePath)}」`, `"${localizedPath(activePath)}"`)
     : group === 'builtin'
-      ? tr('语义检索内置知识库', 'Search the built-in knowledge base')
-      : tr('语义检索组织知识库', 'Search organization knowledge');
-
-  // 已生效条件只保留检索词：分组与目录在左侧树里已经是可见的选中态，
-  // 再在输入框下面重复一遍只是噪音；来源筛选有独立的胶囊控件，不需要再列一遍。
-  const activeChips: ReactNode[] = [];
-  if (searchedQuery !== null) {
-    activeChips.push(
-      <FilterChip key="q" label={tr(`检索：${searchedQuery}`, `Search: ${searchedQuery}`)} onClear={resetSearch} />,
-    );
-  }
+      ? tr('内置知识库', 'built-in knowledge base')
+      : tr('组织知识库', 'organization knowledge');
 
   // 来源筛选：组织文档里 manual / upload / repo 混在一起，检索与列表都要能按来源收口；
   // 内置组只有 vault，给筛选反而制造「选了也一样」的假控件，因此不显示。
@@ -384,90 +407,101 @@ export default function KnowledgePage() {
     { value: 'repo', label: 'repo' },
   ];
 
+  // 筛选卡只承载「文档标题」筛选；语义检索走独立的检索视图
   return (
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">
-      <PageHeader
-        title={tr('知识库', 'Knowledge base')}
-        subtitle={tr(
-          `共 ${counts.total} 篇 · 组织 ${counts.org} · 内置 ${counts.builtin}`,
-          `${counts.total} docs · ${counts.org} org · ${counts.builtin} built-in`,
-        )}
-        actions={
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".md,.txt,.pdf,.docx"
-              multiple
-              className="hidden"
-              onChange={(e) => void onUploadFiles(e.target.files)}
-            />
-            <RowAction
-              icon={RefreshCw}
-              iconClassName={refreshing ? 'animate-spin' : undefined}
-              disabled={loading || refreshing}
-              onClick={() => void fetchAll(true)}
-            >
-              {tr('刷新', 'Refresh')}
-            </RowAction>
-          </>
-        }
-      />
-
-      <FilterBar
-        className="mx-6 mt-3"
-        footer={
-          activeChips.length > 0 ? (
+      {/* Tabs 只包页头：视图切换的标签栏与页头共用分隔线，样式与 PageHeader.navigation 一致。 */}
+      <Tabs value={view} onValueChange={(v) => setView(v as ViewMode)} className="contents">
+        <PageHeader
+          title={tr('知识库', 'Knowledge base')}
+          subtitle={tr(
+            `共 ${orgTotal + builtinTotal} 篇 · 组织 ${orgTotal} · 内置 ${builtinTotal}`,
+            `${orgTotal + builtinTotal} docs · ${orgTotal} org · ${builtinTotal} built-in`,
+          )}
+          navigation={
+            // 文档浏览与语义检索是两个页级视图，用共享 Tabs 承载；
+            // 语义检索因此是「功能」而不是筛选卡里的一个条件。
+            <TabsList aria-label={tr('知识库视图', 'Knowledge views')}>
+              <TabsTrigger value="docs">{tr('文档', 'Documents')}</TabsTrigger>
+              <TabsTrigger value="search">{tr('语义检索', 'Semantic search')}</TabsTrigger>
+            </TabsList>
+          }
+          actions={
             <>
-              {activeChips}
-              <Button variant="ghost" size="sm" onClick={resetSearch}>
-                {tr('清除检索', 'Clear search')}
-              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".md,.txt,.pdf,.docx"
+                multiple
+                className="hidden"
+                onChange={(e) => void onUploadFiles(e.target.files)}
+              />
+              <RowAction
+                icon={RefreshCw}
+                iconClassName={refreshing ? 'animate-spin' : undefined}
+                disabled={loading || refreshing}
+                onClick={() => void Promise.all([fetchList(true), fetchTrees()])}
+              >
+                {tr('刷新', 'Refresh')}
+              </RowAction>
             </>
-          ) : null
-        }
-      >
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void runSearch();
-          }}
-          placeholder={searchPlaceholder}
-          ariaLabel={tr('检索', 'Search')}
-          className="min-w-[15rem] flex-1"
+          }
         />
-        {group === 'org' && (
-          <FilterPill
-            label={tr('来源', 'Source')}
-            active={sourceFilter !== ''}
-            onClear={() => setSourceFilter('')}
-            width="w-[8.5rem]"
-          >
-            <Select
-              aria-label={tr('来源', 'Source')}
-              value={sourceFilter}
-              onValueChange={(v) => setSourceFilter(v as DocSource | '')}
-              options={sourceOptions}
-              variant="ghost"
-              className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
-            />
-          </FilterPill>
-        )}
-        <span className="ml-auto shrink-0 pr-1 text-[11px] tabular-nums text-zinc-500">
-          {searchedQuery !== null
-            ? tr(`命中 ${hits.length} 条`, `${hits.length} hit(s)`)
-            : tr(`${visibleDocs.length} 篇`, `${visibleDocs.length} docs`)}
-        </span>
-      </FilterBar>
+      </Tabs>
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      {view === 'search' ? (
+        <SemanticSearchPanel
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          onRun={() => void runSearch()}
+          onReset={resetSearch}
+          searchedQuery={searchedQuery}
+          hits={hits}
+          scopeLabel={searchScopeLabel}
+          onOpenHit={(hit) => {
+            setLocate({ chunkIndex: hit.chunk_index, excerpt: hit.excerpt });
+            setEditing(hit.doc);
+          }}
+        />
+      ) : (
+        <>
+          <FilterBar className="mx-6 mt-3">
+            <SearchInput
+              value={titleQuery}
+              onChange={setTitleQuery}
+              placeholder={tr('按文档标题筛选…', 'Filter by document title…')}
+              ariaLabel={tr('按标题筛选', 'Filter by title')}
+                className="min-w-[16rem] flex-1"
+              />
+              {group === 'org' && (
+                <FilterPill
+                  label={tr('来源', 'Source')}
+                  active={sourceFilter !== ''}
+                  onClear={() => setSourceFilter('')}
+                  width="w-[8.5rem]"
+                >
+                  <Select
+                    aria-label={tr('来源', 'Source')}
+                    value={sourceFilter}
+                    onValueChange={(v) => setSourceFilter(v as DocSource | '')}
+                    options={sourceOptions}
+                    variant="ghost"
+                    className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+                  />
+                </FilterPill>
+              )}
+              <span className="ml-auto shrink-0 pr-1 text-[11px] tabular-nums text-zinc-500">
+                {tr(`共 ${total} 篇`, `${total} docs`)}
+              </span>
+            </FilterBar>
+
+            <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside className="hidden w-[15rem] shrink-0 flex-col overflow-y-auto border-r border-zinc-800/60 px-2 py-3 md:flex">
           <SourceGroupSection
             label={tr('组织知识库', 'Organization')}
             icon={FileText}
             tree={orgTree}
-            total={orgItems.length}
+            total={orgTotal}
             active={group === 'org'}
             activePath={activePath}
             onPick={(path) => pickFolder('org', path)}
@@ -498,7 +532,7 @@ export default function KnowledgePage() {
             label={tr('内置知识库', 'Built-in')}
             icon={BookOpen}
             tree={builtinTree}
-            total={builtinItems.length}
+            total={builtinTotal}
             active={group === 'builtin'}
             activePath={activePath}
             onPick={(path) => pickFolder('builtin', path)}
@@ -519,62 +553,39 @@ export default function KnowledgePage() {
 
           {loading ? (
             <div className="flex h-40 items-center justify-center text-[11.5px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
-          ) : searchedQuery !== null ? (
-            hits.length > 0 ? (
-              <TableCard className="min-h-0 flex-1">
-                <table className="og-action-table w-full text-sm">
-                  <thead className={TABLE_HEAD}>
-                    <tr className="whitespace-nowrap">
-                      <th className="w-12 px-3 py-2 text-left font-medium">#</th>
-                      <th className="w-full max-w-0 px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
-                      <th className="px-3 py-2 text-right font-medium">{tr('检索得分', 'Score')}</th>
-                      <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800/40">
-                    {hits.map((hit, index) => (
-                      <SearchHitRow
-                        key={hit.doc.id}
-                        rank={index + 1}
-                        hit={hit}
-                        onOpen={() => {
-                          setLocate({ chunkIndex: hit.chunk_index, excerpt: hit.excerpt });
-                          setEditing(hit.doc);
-                        }}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </TableCard>
-            ) : (
-              <EmptyStateCard
-                icon={SearchX}
-                title={tr(`没有命中「${searchedQuery}」的切块`, `No chunks matched "${searchedQuery}"`)}
-                hint={
-                  activePath
-                    ? tr('换个更具体的说法，或把目录切回整个分组再试。', 'Try a more specific phrase, or search the whole group.')
-                    : tr('换个更具体的说法，或在「设置 → 知识库」里调低最低 RRF 分。', 'Try a more specific phrase, or lower the minimum RRF score in Settings → Knowledge.')
-                }
-                action={
-                  <Button variant="outline" size="sm" onClick={resetSearch}>
-                    {tr('返回文档列表', 'Back to documents')}
-                  </Button>
-                }
-              />
-            )
-          ) : visibleDocs.length === 0 ? (
+          ) : total === 0 ? (
             <EmptyStateCard
               icon={BookOpen}
               title={
-                activePath
-                  ? tr(`「${localizedPath(activePath)}」里还没有文档`, `No docs in "${localizedPath(activePath)}" yet`)
-                  : group === 'builtin'
-                    ? tr('内置知识库为空', 'Built-in knowledge base is empty')
-                    : tr('组织知识库还没有内容', 'No organization docs yet')
+                // 有筛选条件时是「没匹配上」，没有条件才是「这个分组真的空」
+                titleQuery.trim() !== '' || sourceFilter !== ''
+                  ? tr('没有匹配的文档', 'No matching documents')
+                  : activePath
+                    ? tr(`「${localizedPath(activePath)}」里还没有文档`, `No docs in "${localizedPath(activePath)}" yet`)
+                    : group === 'builtin'
+                      ? tr('内置知识库为空', 'Built-in knowledge base is empty')
+                      : tr('组织知识库还没有内容', 'No organization docs yet')
               }
-              hint={!canMutate ? tr('请联系管理员添加或同步知识库。', 'Ask an admin to add or sync knowledge.') : undefined}
+              hint={
+                titleQuery.trim() !== '' || sourceFilter !== ''
+                  ? tr('换个关键字或清除筛选条件。', 'Try a different keyword or clear filters.')
+                  : !canMutate
+                    ? tr('请联系管理员添加或同步知识库。', 'Ask an admin to add or sync knowledge.')
+                    : undefined
+              }
               action={
-                canMutate && (
+                titleQuery.trim() !== '' || sourceFilter !== '' ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setTitleQuery('');
+                      setSourceFilter('');
+                    }}
+                  >
+                    {tr('清除筛选', 'Clear filters')}
+                  </Button>
+                ) : canMutate ? (
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                       <Upload size={12} /> {tr('上传文件', 'Upload')}
@@ -583,7 +594,7 @@ export default function KnowledgePage() {
                       <Plus size={12} /> {tr('新建文档', 'New doc')}
                     </Button>
                   </div>
-                )
+                ) : null
               }
             />
           ) : (
@@ -593,11 +604,11 @@ export default function KnowledgePage() {
                 <TablePager
                   page={page}
                   pageSize={pageSize}
-                  total={visibleDocs.length}
-                  shown={pageDocs.length}
+                  total={total}
+                  shown={items.length}
                   loading={refreshing}
                   onPageChange={setPage}
-                  pageSizeOptions={[10, 20, 50, 100]}
+                  pageSizeOptions={PAGE_SIZE_OPTIONS}
                   onPageSizeChange={(size) => {
                     setPage(0);
                     setPageSize(size);
@@ -605,15 +616,22 @@ export default function KnowledgePage() {
                 />
               }
             >
-              <table className="og-action-table w-full text-sm">
-                <thead className={TABLE_HEAD}>
-                  <tr className="whitespace-nowrap">
-                    <th className="w-6 px-2 py-2">
-                      <span className="sr-only">{tr('排序', 'Reorder')}</span>
-                    </th>
-                    <th className="w-full max-w-0 px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
+                <table className={tableLayout(52)}>
+                  <colgroup>
+                    <col className={COL.handle} />
+                    <col className={COL.main} />
+                    <col className={COL.time} />
+                    <col className={COL.tag} />
+                    <col className={COL.actionsIcon} />
+                  </colgroup>
+                  <TableHead>
+                    <tr className="whitespace-nowrap">
+                      <th className="px-2 py-2">
+                        <span className="sr-only">{tr('排序', 'Reorder')}</span>
+                      </th>
+                    <th className="px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
                     <th
-                      className="w-[10.5rem] px-3 py-2 text-left font-medium"
+                      className="px-3 py-2 text-left font-medium"
                       aria-sort={updatedSort === 'asc' ? 'ascending' : 'descending'}
                     >
                       <button
@@ -632,12 +650,12 @@ export default function KnowledgePage() {
                         )}
                       </button>
                     </th>
-                    <th className="w-24 px-3 py-2 text-left font-medium">{tr('参与检索', 'Retrieval')}</th>
-                    <th className="w-20 px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
+                    <th className="px-3 py-2 text-left font-medium">{tr('参与检索', 'Retrieval')}</th>
+                    <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
-                </thead>
+                  </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
-                  {pageDocs.map((doc) => (
+                  {items.map((doc) => (
                     <DocRow
                       key={doc.id}
                       doc={doc}
@@ -654,8 +672,10 @@ export default function KnowledgePage() {
               </table>
             </TableCard>
           )}
-        </section>
-      </div>
+          </section>
+          </div>
+        </>
+      )}
 
       {editing && (
         <DocEditor
@@ -670,7 +690,7 @@ export default function KnowledgePage() {
           onSaved={() => {
             setEditing(null);
             setLocate(null);
-            void fetchAll(true);
+            void Promise.all([fetchList(true), fetchTrees()]);
           }}
         />
       )}
@@ -691,7 +711,7 @@ export default function KnowledgePage() {
             await deleteDoc(deleting.id);
             setToast({ kind: 'ok', text: tr('文档已删除', 'Document deleted') });
             setDeleting(null);
-            await fetchAll(true);
+            await Promise.all([fetchList(true), fetchTrees()]);
           }}
           onClose={() => setDeleting(null)}
         />
@@ -1089,6 +1109,111 @@ function SearchHitRow({ hit, rank, onOpen }: { hit: SearchHit; rank: number; onO
         </RowAction>
       </td>
     </tr>
+  );
+}
+
+// 语义检索面板：语义检索是独立功能（页级视图），不是文档列表的筛选条件。
+// 检索框 + 命中结果表都用共享组件（FilterBar / SearchInput / TableCard / TableHead）。
+function SemanticSearchPanel({
+  query,
+  onQueryChange,
+  onRun,
+  onReset,
+  searchedQuery,
+  hits,
+  scopeLabel,
+  onOpenHit,
+}: {
+  query: string;
+  onQueryChange(next: string): void;
+  onRun(): void;
+  onReset(): void;
+  searchedQuery: string | null;
+  hits: SearchHit[];
+  scopeLabel: string;
+  onOpenHit(hit: SearchHit): void;
+}) {
+  const { tr } = useI18n();
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-5 pt-3">
+      <FilterBar className="mb-3">
+        <SearchInput
+          value={query}
+          onChange={onQueryChange}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onRun();
+          }}
+          placeholder={tr(`语义检索：${scopeLabel}`, `Semantic search: ${scopeLabel}`)}
+          ariaLabel={tr('语义检索', 'Semantic search')}
+          className="min-w-[16rem] flex-1"
+        />
+        <Button
+          variant="primary"
+          size="sm"
+          type="button"
+          disabled={query.trim() === ''}
+          onClick={onRun}
+          className="inline-flex shrink-0 items-center gap-1.5"
+        >
+          <Search size={13} />
+          {tr('检索', 'Search')}
+        </Button>
+        <span className="ml-auto shrink-0 pr-1 text-[11px] tabular-nums text-zinc-500">
+          {searchedQuery !== null
+            ? tr(`命中 ${hits.length} 条`, `${hits.length} hit(s)`)
+            : tr('尚未检索', 'Not searched yet')}
+        </span>
+      </FilterBar>
+
+      {searchedQuery === null ? (
+        <EmptyStateCard
+          icon={Search}
+          title={tr('输入关键词做语义检索', 'Enter a keyword to search')}
+          hint={tr(
+            '按整句提问或描述检索；命中的是文档切块而不是标题。',
+            'Ask with a phrase; matches are document chunks, not titles.',
+          )}
+        />
+      ) : hits.length === 0 ? (
+        <EmptyStateCard
+          icon={SearchX}
+          title={tr(`没有命中「${searchedQuery}」的切块`, `No chunks matched "${searchedQuery}"`)}
+          hint={tr(
+            '换个更具体的说法，或在「设置 → 知识库」里调低最低 RRF 分。',
+            'Try a more specific phrase, or lower the minimum RRF score in Settings → Knowledge.',
+          )}
+          action={
+            <Button variant="outline" size="sm" onClick={onReset}>
+              {tr('重新检索', 'Search again')}
+            </Button>
+          }
+        />
+      ) : (
+        <TableCard className="min-h-0 flex-1">
+          <table className={tableLayout(40)}>
+            <colgroup>
+              <col className={COL.index} />
+              <col className={COL.main} />
+              <col className={COL.tag} />
+              <col className={COL.actionsIcon} />
+            </colgroup>
+            <TableHead>
+              <tr className="whitespace-nowrap">
+                <th className="px-3 py-2 text-left font-medium">#</th>
+                <th className="px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
+                <th className="px-3 py-2 text-right font-medium">{tr('检索得分', 'Score')}</th>
+                <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
+              </tr>
+            </TableHead>
+            <tbody className="divide-y divide-zinc-800/40">
+              {hits.map((hit, index) => (
+                <SearchHitRow key={hit.doc.id} rank={index + 1} hit={hit} onOpen={() => onOpenHit(hit)} />
+              ))}
+            </tbody>
+          </table>
+        </TableCard>
+      )}
+    </div>
   );
 }
 

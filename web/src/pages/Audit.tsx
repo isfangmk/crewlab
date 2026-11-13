@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, Download, RefreshCw, ScrollText, Settings2, Shield 
 import {
   Button,
   CodeBlock,
+  COL,
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
@@ -15,13 +16,14 @@ import {
   TableCard,
   TableHead,
   TablePager,
+  tableLayout,
 } from '@/components/ui';
 import { Select } from '@/components/ui/Select';
 import { useRequestSeq } from '@/lib/requestSeq';
 import { Modal } from '@/components/Modal';
 import { exportAudit, listAudit, type AuditItem } from '@/api/audit';
 import { exportSettings } from '@/api/settings';
-import { listUsers, type ManagedUser } from '@/api/users';
+import { listUserOptions, type UserOption } from '@/api/users';
 import { saveBlob } from '@/lib/download';
 import { useI18n } from '@/i18n/locale';
 import { fullDateTime } from '@/lib/format';
@@ -111,7 +113,7 @@ export default function AuditPage() {
   const [action, setAction] = useState('');
   const [resourceType, setResourceType] = useState('');
   const [actorId, setActorId] = useState<number | ''>('');
-  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [users, setUsers] = useState<UserOption[]>([]);
   const [timePreset, setTimePreset] = useState<TimePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -171,7 +173,7 @@ export default function AuditPage() {
 
   useEffect(() => {
     if (!isAdmin) return;
-    void listUsers()
+    void listUserOptions()
       .then((rows) => setUsers(rows))
       .catch(() => setUsers([]));
   }, [isAdmin]);
@@ -461,14 +463,14 @@ export default function AuditPage() {
                 />
               }
             >
-              <table className="og-action-table w-full min-w-[62rem] table-fixed text-sm">
+              <table className={tableLayout(58)}>
                 <colgroup>
-                  <col className="w-[11rem]" />
-                  <col className="w-[13rem]" />
-                  <col className="w-[11rem]" />
-                  <col className="w-[12rem]" />
-                  <col />
-                  <col className="w-[5.5rem]" />
+                  <col className={COL.time} />
+                  <col className={COL.person} />
+                  <col className={COL.detail} />
+                  <col className={COL.detail} />
+                  <col className={COL.main} />
+                  <col className={COL.actionsIcon} />
                 </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">

@@ -59,6 +59,29 @@ TablePager            分页（客户端分页时才需要）
 - 分组表（工具、技能）：分组行 `bg-zinc-950/50`，可折叠，组内二维码使用 `pl-8` 缩进。
 - 有分页时通过 `footer={<TablePager .../>}` 传入，分页条与表体共用边框。
 
+### 2.4.1 列表列宽口径
+
+分页列表的列宽统一走 `COL` 档位（`@/components/ui`），不再各页手写 `w-[…rem]`。
+
+- 表格类名用 `tableLayout(最小宽度rem)`：固定布局 + 最小宽度，窄屏由 `TableCard` 横向滚动，不把列挤变形。
+- `<colgroup>` 里按列的语义取档位：
+
+| 档位 | 宽度 | 用于 |
+| --- | --- | --- |
+| `COL.main` | 剩余宽度 | 名称、标题、描述等主内容列 |
+| `COL.id` | `13rem` | ID、key、版本号 |
+| `COL.tag` | `7rem` | 状态、类别、数量胶囊 |
+| `COL.person` | `13rem` | 邮箱、操作者、触发人 |
+| `COL.time` | `11rem` | 完整日期时间 |
+| `COL.detail` | `12rem` | 路径、URL、动作名 |
+| `COL.actions` | `13rem` | 带文字的行内操作 |
+| `COL.actionsIcon` | `5.5rem` | 纯图标行内操作 |
+| `COL.index` | `3rem` | 序号列 |
+| `COL.handle` | `1.5rem` | 拖拽把手、展开箭头列 |
+
+- 主内容列必须配 `table-fixed` 才吃满剩余宽度；单元格内文字用 `truncate` + `title` 兜底，不允许把列撑开。
+- 同一类信息在不同页面用同一档位：改一次宽度全站跟着变，不会出现「这里宽那里窄」。
+
 ### 2.5 详情弹窗
 
 - 沿用 Trace 详情的「诊断报告」结构：头部状态 + 主指标、分段标题、键值网格、可复制代码块。
@@ -201,7 +224,37 @@ TablePager            分页（客户端分页时才需要）
 | 技能 `/skills` | FilterBar + 共享 ChoiceChip + 类别胶囊 + TableCard + 技能等级改用状态胶囊 |
 | 助理 `/agents` | 搜索区改为 FilterBar；卡片沿用统一 `Card` 表面 |
 | MCP `/mcp` | 搜索区改为 FilterBar（服务列表仍为卡片） |
-| 知识库 `/knowledge` | 双栏工作台：左侧来源分组 + 目录树常驻，右侧 `FilterBar`（统一搜索框，回车触发；右侧「来源」胶囊按 manual / upload / repo 收口，与侧栏分组正交）+ `TableCard` 文档表（来源 / 标签中性胶囊、更新时间列）+ `TablePager` 客户端分页；提交检索后结果表替换文档表，可一键清除回目录 |
+| 知识库 `/knowledge` | 双栏工作台：左侧来源分组 + 目录树常驻，右侧 `FilterBar`（标题搜索框 + 「来源」胶囊按 manual / upload / repo 收口，与侧栏分组正交）+ `TableCard` 文档表（来源 / 标签中性胶囊、更新时间列）+ `TablePager` 服务端分页；**语义检索是独立页级视图**（`PageHeader navigation` + 共享 `Tabs`），不是筛选条件 |
+| 用户与权限 `/users` | `FilterBar`（搜索 + 角色/状态 `FilterPill`）+ `TableCard` + `TablePager` 服务端分页（20/50/100）；状态列改 `StatusPill`（去掉硬编码 `emerald-400`）；主信息字号 `12.5px`、表头补 `scope="col"`、行补 `hover:bg-zinc-900/40`、行内动作统一 `gap-1.5` |
+
+### 视图切换：页级 Tabs（不是筛选条件）
+
+同一页面里若有两种「做事方式」（浏览列表 vs 检索内容），用 `PageHeader navigation` + 共享 `Tabs` 切成两个页级视图，而不是把第二种塞进筛选卡的 `footer` 里做成条件胶囊。
+
+| 做法 | 位置 | 说明 |
+| --- | --- | --- |
+| ✅ 页级视图 | `PageHeader navigation` 放 `TabsList` / `TabsTrigger` | 切换后整块内容区换掉；`Tabs` 只包页头，样式沿用 `PageHeader.navigation` 的分隔线 |
+| ❌ 筛选条件 | `FilterBar footer` 放 `FilterChip` | 只能表达「缩小结果集」，表达不了「换一种做事方式」 |
+
+- 标签栏必须用共享 `Tabs` / `TabsList` / `TabsTrigger`（`@/components/ui`），不要自己写 tab 样式。
+- 视图内的检索框放该视图内容区顶部的 `FilterBar`，不放页头 `extra`；页头 `extra` 全站不用。
+- 服务端分页列表的防抖口径：`load` 的 `useCallback` 依赖里带上搜索词，effect 内 `window.setTimeout(…, 250)` 统一防抖（与 `/users`、`/approvals` 一致），不另立一个 `debouncedQuery` 状态。
+
+### 列表页「状态列」口径
+
+状态一律用 `StatusPill`（圆点 + 5 种语义色），不写裸文字 + 硬编码色值。
+
+| ✅ 正确 | ❌ 禁止 |
+| --- | --- |
+| `<StatusPill tone="ok" label="启用" />` | `<span className="text-emerald-400">启用</span>` |
+| `<StatusPill tone="neutral" label="已禁用" />` | `<span className="text-zinc-500">已禁用</span>` |
+
+- 语义色走 `--ok` / `--warn` / `--danger` / `--info` token，亮暗主题自动切换；硬编码 `emerald-400` 只在固定底色的场景（如 `Skills.tsx` 的提示条）才允许。
+- 角色这类「分类」而非「状态」的信息用 `Chip`，不要用 `StatusPill`。
+
+### 列表页「行内动作」间距
+
+同一行内既有文字动作（`RowAction`）又有纯图标动作（`RowActionIcon`）时，统一用 `gap-1.5` 单组排布（与 `/workflows`、`/approvals` 一致），不要为图标单独拆一组或用 `gap-1` 折中。
 
 ### 已完成（第二阶段：指标卡 + 双层列表）
 
@@ -274,7 +327,7 @@ TablePager            分页（客户端分页时才需要）
 | --- | --- |
 | 技能 | 表头对齐工具页（sticky、`whitespace-nowrap`、描述列 `w-full max-w-0`）；「仅 AI 调用」改为右侧 `Chip tone="info"`；技能分组行折叠图标换 `RowActionIcon` 风格（20px 热区） |
 | MCP | `ServerRow` 卡片头部：图标块 + 名称 12.5px + 状态/工具数 `Chip` + 地址等宽 11px；错误条与说明条统一 `rounded-lg border … px-3 py-2` |
-| 知识库 | 文档目录改为单容器行列表（标题 + 来源/路径/标签元信息），来源文字与图标统一中性灰，不按来源类型上色；行内动作降到 60% 透明度、悬停/聚焦恢复；行首 16px 把手是唯一拖拽源（整行不设 `draggable`），拖拽预览用标题胶囊；整行不响应点击，只有行内「编辑 / 查看」动作打开文档；目录树选中态用 indigo 底 + 左侧 2px 条，分组头用中性色块图标 + 等宽计数；检索结果按 `01` 起编号，元信息行保留 `向量相似度 / 关键词排名 / RRF`；检索区复用 `FilterBar`，只放默认 `SearchInput`，回车检索，不额外加按钮和范围 footer |
+| 知识库 | 文档目录改为单容器行列表（标题 + 来源/路径/标签元信息），来源文字与图标统一中性灰，不按来源类型上色；行内动作降到 60% 透明度、悬停/聚焦恢复；行首 16px 把手是唯一拖拽源（整行不设 `draggable`），拖拽预览用标题胶囊；整行不响应点击，只有行内「编辑 / 查看」动作打开文档；目录树选中态用 indigo 底 + 左侧 2px 条，分组头用中性色块图标 + 等宽计数；检索结果按 `01` 起编号，元信息行保留 `向量相似度 / 关键词排名 / RRF`；语义检索独立成页级视图（`PageHeader navigation` + 共享 `Tabs`），检索框用 `FilterBar` + 默认 `SearchInput`，回车检索，不额外加范围 footer |
 | 助理 | 卡片加来源 `Chip`（内置/自定义）与工具/技能计数；标题 12.5px；详情入口整卡可点，右侧只留编辑/删除/使用 |
 | 会话 | 表头与审批一致（sticky；标题列固定 `17rem`，批次 7 起不再自适应吃满整行）；列设置/排序按钮 `RowActionIcon` |
 | 工具 | 表格滚动容器与审批一致（sticky thead、`bg-zinc-900/95`） |

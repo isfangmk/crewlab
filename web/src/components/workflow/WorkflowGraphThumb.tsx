@@ -35,11 +35,21 @@ type Props = {
    * - overview：装下整张图，用来一眼看全局结构。
    */
   mode?: 'focus' | 'overview';
+  /**
+   * overview 模式的最大缩放。
+   *
+   * 整图铺满时 fitView 会按图的实际尺寸算缩放，节点因此偏小看不清文字；
+   * 允许放大到上限后，图铺不满但节点可读。运行详情里的画布用较大的上限。
+   */
+  overviewMaxZoom?: number;
   className?: string;
 };
 
 /** 聚焦缩放：能看清节点标题与状态描边的档位。 */
 const FOCUS_ZOOM = 0.75;
+
+/** 总览缩放下限：图很宽时 fitView 会把节点缩到读不出字，用它兜一个可读档位。 */
+const OVERVIEW_MIN_ZOOM = 0.6;
 
 /** 运行快照 → 画布状态；未执行/跳过不染色。 */
 function toCanvasStatus(status: NodeRunStatus | 'running' | undefined): NodeExecutionStatus | undefined {
@@ -47,7 +57,16 @@ function toCanvasStatus(status: NodeRunStatus | 'running' | undefined): NodeExec
   return undefined;
 }
 
-function GraphCanvas({ graph, statuses, gateId, selectedId, onSelect, mode = 'focus', className }: Props) {
+function GraphCanvas({
+  graph,
+  statuses,
+  gateId,
+  selectedId,
+  onSelect,
+  mode = 'focus',
+  overviewMaxZoom = 1,
+  className,
+}: Props) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const { resolved } = useThemeMode();
@@ -151,8 +170,9 @@ function GraphCanvas({ graph, statuses, gateId, selectedId, onSelect, mode = 'fo
       style={{ height: '100%', width: '100%' }}
       onInit={() => {
         if (overview) {
-          // 总览模式装下整张图，一眼看清全局结构
-          void fitView({ padding: 0.2, maxZoom: 1 });
+          // 总览模式装下整张图，一眼看清全局结构；
+          // 图很宽时 fitView 会把节点缩到看不清字，用 minZoom 兜一个可读下限
+          void fitView({ padding: 0.2, minZoom: OVERVIEW_MIN_ZOOM, maxZoom: overviewMaxZoom });
           return;
         }
         // 聚焦模式停在人工节点就看它，否则看选中节点，都没有就看第一个节点。

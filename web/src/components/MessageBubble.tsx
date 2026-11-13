@@ -1,8 +1,6 @@
 import { Hint } from '@/components/ui/Tooltip';
 import { useState, useEffect } from 'react';
 import { resolveToolStatus } from '@/lib/toolStatus';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import {
   AlertCircle,
   Check,
@@ -31,6 +29,7 @@ import { Modal } from '@/components/Modal';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { SourcesSection, collectToolSources, extractSources } from '@/components/SourcesBlock';
+import { ChartMarkdown } from '@/components/ChartMarkdown';
 
 export type ConfigDraftResult = {
   kind: 'config_draft';
@@ -317,7 +316,7 @@ function AssistantBubble({ message, actionsDisabled, onRegenerate, onFork, onCon
     <div className="group flex flex-col items-stretch gap-2">
       {body !== '' && (
         <div className="md-body text-zinc-100">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+          <ChartMarkdown content={body} />
         </div>
       )}
       {message.tool_calls?.map((tc, i) => (

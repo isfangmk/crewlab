@@ -40,6 +40,7 @@ import { RunWorkflowDialog } from '@/components/workflow/RunWorkflowDialog';
 import {
   Button,
   ChoiceChip,
+  COL,
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
@@ -54,6 +55,7 @@ import {
   TablePager,
   Textarea,
   Toast,
+  tableLayout,
   type ToastTone,
 } from '@/components/ui';
 import { cn } from '@/lib/cn';
@@ -304,7 +306,16 @@ export default function WorkflowsPage() {
                   />
                 }
               >
-                <table className="og-action-table w-full text-sm">
+                <table className={tableLayout(72)}>
+                  <colgroup>
+                    <col className={COL.main} />
+                    <col className={COL.tag} />
+                    <col className={COL.tag} />
+                    <col className={COL.detail} />
+                    <col className={COL.tag} />
+                    <col className={COL.time} />
+                    <col className={COL.actions} />
+                  </colgroup>
                   <TableHead>
                     <tr className="whitespace-nowrap">
                       <th className="px-3 py-2 text-left font-medium">{tr('工作流', 'Workflow')}</th>
@@ -682,7 +693,16 @@ function RunsTab({
               />
             }
           >
-            <table className="og-action-table w-full text-sm">
+            <table className={tableLayout(66)}>
+              <colgroup>
+                <col className={COL.main} />
+                <col className={COL.tag} />
+                <col className={COL.tag} />
+                <col className={COL.person} />
+                <col className={COL.time} />
+                <col className={COL.tag} />
+                <col className={COL.actions} />
+              </colgroup>
               <TableHead>
                 <tr className="whitespace-nowrap">
                   <th className="px-3 py-2 text-left font-medium">{tr('运行', 'Run')}</th>

@@ -39,8 +39,41 @@ export type ManagedUser = {
   status: UserStatus;
 };
 
-export function listUsers(): Promise<ManagedUser[]> {
-  return request<ManagedUser[]>('GET', '/users');
+// UserListQuery — 用户列表的筛选与分页参数；后端按这些条件过滤并分页。
+export type UserListQuery = {
+  q?: string;
+  role?: SystemRole;
+  status?: UserStatus;
+  limit?: number;
+  offset?: number;
+};
+
+// UserListResult — 列表响应：当前页条目 + 命中总数（分页与筛选都在服务端）。
+export type UserListResult = {
+  items: ManagedUser[];
+  total: number;
+};
+
+export function listUsers(query: UserListQuery = {}): Promise<UserListResult> {
+  const params = new URLSearchParams();
+  if (query.q) params.set('q', query.q);
+  if (query.role) params.set('role', query.role);
+  if (query.status) params.set('status', query.status);
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.offset !== undefined) params.set('offset', String(query.offset));
+  const qs = params.toString();
+  return request<UserListResult>('GET', `/users${qs ? `?${qs}` : ''}`);
+}
+
+// UserOption — 用户下拉选项（审计页操作者筛选）；只有 id 与邮箱。
+export type UserOption = {
+  id: number;
+  email: string;
+};
+
+// 拉取全部用户下拉选项；不受用户列表分页影响。
+export function listUserOptions(): Promise<UserOption[]> {
+  return request<UserOption[]>('GET', '/users/options');
 }
 
 export function createUser(input: {

@@ -1,13 +1,19 @@
 // 运行详情：一次运行的完整诊断视图。
 //
 // 版面分两层：
-//   顶部信息带 = 四张等宽卡（当前状态 / 耗时 / 节点进度 / 触发方式），横跨下面三栏。
-//   下面三栏：
-//     左栏 = 节点导航：整条流程按执行顺序列出来，● 颜色就是结果，点一下切换中间详情。
-//     中栏 = 选中节点的详情：人工确认 / 输入 / 输出 / 错误都在这里，跟节点绑死。
-//     右栏 = 运行上下文：画布快照、运行输入、运行输出。
+//   顶部信息带 = 四张等宽卡（当前状态 / 耗时 / 节点进度 / 触发方式），横跨整个页面。
+//   下面用页级 Tabs 分成两个互斥视图，各自占满剩余空间：
+//     执行明细 = 左栏节点导航 + 右侧选中节点的详情（人工确认 / 输入 / 输出 / 错误）。
+//     画布     = 整宽摊开的运行画布，一眼看全局结构与节点状态染色。
 //
-// 每条信息只出现一处：状态与耗时只在信息带，run_uid 只在顶栏，运行输入输出只在右栏。
+// 运行级输入输出不展示：节点级输入输出已经覆盖了排查需求，再放一份运行级的
+// 只会让人在两处重复找同一份数据。运行级的产出统一看最后一个节点的输出。
+//
+// 为什么拆 tab：三栏并排（导航 / 节点详情 / 画布）在一屏里互相挤，
+// 画布被压成一条线，节点详情的输出也要缩着看。拆开后每个视图都只有一件事。
+//
+// 每条信息只出现一处：状态与耗时只在信息带，run_uid 只在顶栏，
+// 输入输出只在选中节点的详情里。
 //
 // 运行中通过事件流实时长出行，输入输出随 node_started / node_finished 立即出现，
 // 不需要等整条工作流落库。
@@ -37,17 +43,30 @@ import {
   type WorkflowRunDetail,
 } from '@/api/workflows';
 import { RunWorkflowDialog } from '@/components/workflow/RunWorkflowDialog';
-import { RunContextPanel } from '@/components/workflow/RunContextPanel';
+import { RunCanvasPanel } from '@/components/workflow/RunCanvasPanel';
 import { RunNodeDetail } from '@/components/workflow/RunNodeDetail';
 import { buildRailItems, RunNodeRail, type RailItem } from '@/components/workflow/RunNodeRail';
 import { RunOverviewCards } from '@/components/workflow/RunOverviewCards';
 import { DraftTag } from '@/components/workflow/RunStatusPill';
-import { Button, EmptyStateCard, RowAction, RowActionIcon, Toast, type ToastTone } from '@/components/ui';
+import {
+  Button,
+  EmptyStateCard,
+  RowAction,
+  RowActionIcon,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  Toast,
+  type ToastTone,
+} from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
 import { errorText } from '@/lib/errors';
 
 const TOAST_DURATION_MS = 4000;
+
+/** 页级视图：执行明细 / 画布。 */
+type RunView = 'nodes' | 'canvas';
 
 /**
  * 按事件把节点结果写进时间线。
@@ -147,6 +166,8 @@ export default function WorkflowRunPage() {
   const [runningNodes, setRunningNodes] = useState<Set<string>>(new Set());
   // 用户明确选中的节点；没选过时跟随「当前这一步」
   const [pickedId, setPickedId] = useState<string | null>(null);
+  // 页级视图：节点明细 / 画布 / 输入输出
+  const [view, setView] = useState<RunView>('nodes');
 
   const uid = runUid ?? '';
   // toast 定时器要在组件卸载时清掉，否则会对已卸载的组件 setState
@@ -484,49 +505,72 @@ export default function WorkflowRunPage() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[210px_minmax(0,1fr)] xl:grid-cols-[210px_minmax(0,1fr)_minmax(300px,26%)]">
-        <RunNodeRail
-          items={railItems}
-          labelOf={(nodeId) => labelOfNode(run, nodeId)}
-          selectedId={selectedId}
-          gateId={gate?.gate ?? null}
-          runningIds={runningNodes}
-          onSelect={selectNode}
-        />
+      {/* 页级 Tabs：三个视图互斥，每个视图只做一件事，不再一屏挤三栏 */}
+      <Tabs
+        value={view}
+        onValueChange={(next) => setView(next as RunView)}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <div className="shrink-0 border-b border-zinc-800/60 px-5">
+          <TabsList aria-label={tr('运行详情视图', 'Run detail views')}>
+            <TabsTrigger value="nodes">{tr('执行明细', 'Execution')}</TabsTrigger>
+            <TabsTrigger value="canvas">{tr('画布', 'Canvas')}</TabsTrigger>
+          </TabsList>
+        </div>
 
-        {/* 中栏：选中节点的详情 */}
-        <section className="min-h-0 min-w-0 overflow-y-auto border-b border-zinc-800/60 lg:border-b-0">
-          {selectedId === null ? (
-            <div className="flex h-full items-center justify-center px-6 text-center text-[11.5px] text-text-faint">
-              {tr('从左侧选一个节点查看输入输出', 'Pick a node on the left to inspect it')}
-            </div>
-          ) : (
-            <RunNodeDetail
-              nodeId={selectedId}
-              record={selectedRun}
-              definition={selectedDef}
-              running={runningNodes.has(selectedId)}
-              gate={gate !== null && gate.gate === selectedId ? gate : null}
-              gateNode={gateNode}
-              runError={run.error}
-              busy={busy}
-              gateInput={gateInput}
-              onGateInput={setGateInput}
-              onApprove={() => void decide('approve')}
-              onReject={() => void decide('reject')}
+        {/* 执行明细：左栏节点导航 + 右侧选中节点详情 */}
+        {view === 'nodes' && (
+          <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[210px_minmax(0,1fr)]">
+            <RunNodeRail
+              items={railItems}
+              labelOf={(nodeId) => labelOfNode(run, nodeId)}
+              selectedId={selectedId}
+              gateId={gate?.gate ?? null}
+              runningIds={runningNodes}
+              onSelect={selectNode}
             />
-          )}
-        </section>
 
-        {/* 右栏：画布 + 运行输入输出 */}
-        <RunContextPanel
-          run={run}
-          statuses={buildStatuses(run, runningNodes)}
-          gate={gate}
-          selectedId={selectedId}
-          onSelect={selectNode}
-        />
-      </div>
+            <section className="min-h-0 min-w-0 overflow-y-auto border-b border-zinc-800/60 lg:border-b-0">
+              {selectedId === null ? (
+                <div className="flex h-full items-center justify-center px-6 text-center text-[11.5px] text-text-faint">
+                  {tr('从左侧选一个节点查看输入输出', 'Pick a node on the left to inspect it')}
+                </div>
+              ) : (
+                <RunNodeDetail
+                  nodeId={selectedId}
+                  record={selectedRun}
+                  definition={selectedDef}
+                  running={runningNodes.has(selectedId)}
+                  gate={gate !== null && gate.gate === selectedId ? gate : null}
+                  gateNode={gateNode}
+                  runError={run.error}
+                  busy={busy}
+                  gateInput={gateInput}
+                  onGateInput={setGateInput}
+                  onApprove={() => void decide('approve')}
+                  onReject={() => void decide('reject')}
+                />
+              )}
+            </section>
+          </div>
+        )}
+
+        {/* 画布：整宽摊开，看全局结构 */}
+        {view === 'canvas' && (
+          <RunCanvasPanel
+            run={run}
+            statuses={buildStatuses(run, runningNodes)}
+            gate={gate}
+            selectedId={selectedId}
+            onSelect={(nodeId) => {
+              selectNode(nodeId);
+              // 画布只是入口，看完节点得回到明细里读输入输出
+              setView('nodes');
+            }}
+            onEdit={() => navigate(`/workflows/${run.workflow_id}`)}
+          />
+        )}
+      </Tabs>
 
       {runOpen && (
         <RunWorkflowDialog

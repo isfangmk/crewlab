@@ -17,6 +17,7 @@ import {
   Button,
   ChoiceChip,
   CodeBlock,
+  COL,
   DetailSection,
   EmptyStateCard,
   FilterBar,
@@ -30,6 +31,7 @@ import {
   ErrorBanner,
   TableCard,
   TableHead,
+  tableLayout,
 } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
 import { errorText } from '@/lib/errors';
@@ -144,8 +146,8 @@ export default function ToolsPage() {
       <PageHeader
         title={tr('工具', 'Tools')}
         subtitle={tr(
-          '平台自带 Tool（非 Skill、非 MCP 全量列表）',
-          'Built-in Tools (not Skills, not full MCP catalog)',
+          '平台内置工具目录，可在此直接试跑',
+          'Built-in tool catalog: knowledge retrieval, web search and workflow tools; run them here',
         )}
         actions={
           <RowAction
@@ -244,16 +246,16 @@ export default function ToolsPage() {
             />
           ) : (
             <TableCard className="min-h-0 flex-1">
-              <table className="og-action-table w-full table-fixed text-sm">
+              <table className={tableLayout(48)}>
                 <colgroup>
-                  <col />
-                  <col className="w-[7rem]" />
-                  <col className="w-[8.5rem]" />
-                  <col className="w-[7.5rem]" />
+                  <col className={COL.main} />
+                  <col className={COL.tag} />
+                  <col className={COL.detail} />
+                  <col className={COL.actions} />
                 </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">
-                    <th className="w-full px-3 py-2 text-left font-medium">{tr('工具 / 说明', 'Tool / description')}</th>
+                    <th className="px-3 py-2 text-left font-medium">{tr('工具 / 说明', 'Tool / description')}</th>
                     <th className="px-3 py-2 text-left font-medium">{tr('风险', 'Risk')}</th>
                     <th className="px-3 py-2 text-left font-medium">{tr('参数', 'Params')}</th>
                     <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
@@ -346,10 +348,16 @@ function ToolRow({
   const { tr } = useI18n();
   const required = tool.params.filter((p) => p.required).length;
   return (
-    <tr className="cursor-pointer transition-colors hover:bg-zinc-900/40" onClick={onView}>
+    <tr className="transition-colors hover:bg-zinc-900/40">
       <td className="min-w-0 px-3 py-2 pl-8">
         <div className="flex min-w-0 items-baseline gap-2">
-          <span className="shrink-0 font-mono text-[12.5px] font-medium text-zinc-100">{tool.name}</span>
+          <button
+            type="button"
+            onClick={onView}
+            className="shrink-0 font-mono text-[12.5px] font-medium text-zinc-100 transition-colors hover:text-indigo-300"
+          >
+            {tool.name}
+          </button>
         </div>
         <div className="mt-0.5 line-clamp-1 text-[11px] text-zinc-500" title={tool.description}>
           {tool.description}
@@ -364,7 +372,7 @@ function ToolRow({
         ) : (
           <span className="tabular-nums">
             {tr(`${tool.params.length} 个参数`, `${tool.params.length} params`)}
-            {required > 0 ? <span className="text-zinc-600"> · {tr(`${required} 必填`, `${required} required`)}</span> : null}
+            {required > 0 ? ` · ${tr(`${required} 必填`, `${required} required`)}` : null}
           </span>
         )}
       </td>

@@ -26,7 +26,7 @@ const diskSkill = {
   name: 'database-health',
   description: longDesc,
   class: 'safe',
-  category: 'agent',
+  group: 'observe',
   source: 'disk',
   instructions: '# 数据库体检\n\n1. 先看 references/checks.md\n2. 再输出结论',
   params: [
@@ -46,7 +46,7 @@ const userSkill = {
   name: 'runbook-writer',
   description: '把排障过程整理成 runbook。',
   class: 'safe',
-  category: '知识',
+  group: 'knowledge',
   source: 'user',
   instructions: '# 写 runbook',
   params: [],
@@ -56,6 +56,17 @@ const userSkill = {
   scripts: [],
   inventory_only: false,
   inject_state: false,
+};
+
+// 分组目录：后端给固定枚举 + 中英文标题
+const skillGroups = {
+  groups: [
+    { key: 'observe', title: '观测', title_en: 'Observability' },
+    { key: 'device', title: '设备管理', title_en: 'Devices' },
+    { key: 'knowledge', title: '知识', title_en: 'Knowledge' },
+    { key: 'chart', title: '可视化', title_en: 'Visualization' },
+    { key: 'other', title: '其他', title_en: 'Other' },
+  ],
 };
 
 const builtinTools = [
@@ -105,6 +116,7 @@ describe('SkillsPage', () => {
       http.get('/api/v1/skills', () =>
         HttpResponse.json({ items: [diskSkill, userSkill], total: 2 }),
       ),
+      http.get('/api/v1/skills/groups', () => HttpResponse.json(skillGroups)),
       http.get('/api/v1/tools/builtin', () =>
         HttpResponse.json({ items: builtinTools, total: builtinTools.length }),
       ),
@@ -129,9 +141,71 @@ describe('SkillsPage', () => {
     expect(screen.getByText('logo.png')).toBeInTheDocument();
     expect(screen.getByText('2048 B')).toBeInTheDocument();
     // 内置技能随代码发布：只读、可导出
-    expect(screen.getByText(/内置技能：随 backend\/skills 发布/)).toBeInTheDocument();
+    expect(screen.getByText(/内置技能：随 backend\/skills 发布，不可编辑/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /导出 ZIP/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
+  });
+
+  it('导出技能包：成功后用全局 Toast 提示文件名', async () => {
+    // jsdom 没有 URL.createObjectURL，导出流程会在这里抛错
+    const createObjectURL = vi.fn(() => 'blob:skill');
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    server.use(
+      http.get('/api/v1/skills/:key/export', () =>
+        HttpResponse.json('zip-bytes', {
+          headers: { 'content-disposition': 'attachment; filename="database-health.zip"' },
+        }),
+      ),
+    );
+
+    renderPage();
+    await userEvent.click((await screen.findAllByRole('button', { name: '导出' }))[0]);
+
+    // 全局 Toast：role=status，成功文案带导出的文件名
+    expect(await screen.findByRole('status')).toHaveTextContent('database-health.zip');
+  });
+
+  it('来源列区分内置 / 新建 / ZIP 导入，来源筛选可过滤', async () => {
+    const importedSkill = { ...userSkill, key: 'imported-pack', name: 'imported-pack', origin: 'imported' };
+    server.use(
+      http.get('/api/v1/skills', () =>
+        HttpResponse.json({ items: [diskSkill, userSkill, importedSkill], total: 3 }),
+      ),
+    );
+
+    renderPage();
+    // 三种来源各出现一次
+    expect((await screen.findAllByText('内置')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('新建')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('ZIP 导入')).length).toBeGreaterThan(0);
+
+    // 选中「ZIP 导入」来源后只剩导入的技能
+    const originChip = (await screen.findAllByText('ZIP 导入')).find(
+      (el) => el.closest('button') !== null,
+    );
+    await userEvent.click(originChip as HTMLElement);
+    await waitFor(() => {
+      expect(screen.getAllByText('imported-pack').length).toBeGreaterThan(0);
+      expect(screen.queryByText('runbook-writer')).not.toBeInTheDocument();
+    });
+  });
+
+  it('按分组分组展示，筛选胶囊按后端枚举过滤', async () => {
+    renderPage();
+    // 分组标题出现在筛选胶囊与表格分组头两处
+    expect((await screen.findAllByText('观测')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('知识').length).toBeGreaterThan(0);
+
+    // 点「知识」分组胶囊后，只剩知识组的技能
+    const groupChip = (await screen.findAllByText('知识')).find(
+      (el) => el.closest('button') !== null,
+    );
+    await userEvent.click(groupChip as HTMLElement);
+    await waitFor(() => {
+      expect(screen.queryByText('database-health')).not.toBeInTheDocument();
+      expect(screen.getAllByText('runbook-writer').length).toBeGreaterThan(0);
+    });
   });
 
   it('用户技能可以编辑：表单回填正文与工具声明后提交 PATCH', async () => {
@@ -147,7 +221,8 @@ describe('SkillsPage', () => {
     );
 
     renderPage();
-    await userEvent.click(await screen.findByRole('button', { name: '编辑技能 runbook-writer' }));
+    // 行内操作是带文字的 RowAction：与全站列表行一致
+    await userEvent.click(await screen.findByRole('button', { name: '编辑' }));
 
     // 回填：正文来自详情接口
     expect(await screen.findByDisplayValue(/# 写 runbook/)).toBeInTheDocument();
@@ -161,7 +236,7 @@ describe('SkillsPage', () => {
     expect(String(captured.body?.instructions)).toContain('按时间线与影响面记录');
     // 平台侧字段一并提交
     expect(captured.body?.risk).toBe('safe');
-    expect(captured.body?.category).toBe('知识');
+    expect(captured.body?.group).toBe('knowledge');
   });
 
   it('新建技能：填 key/描述/正文并勾选工具后提交 POST', async () => {
@@ -197,14 +272,15 @@ describe('SkillsPage', () => {
       screen.getByPlaceholderText(/# 什么时候用/),
       '# 慢查询\n\n先读 references/slow.md',
     );
-    await userEvent.type(screen.getByPlaceholderText('知识 / 主机 / 网络…'), '知识');
+    await userEvent.click(screen.getByRole('combobox', { name: '分组' }));
+    await userEvent.click(await screen.findByRole('option', { name: '知识' }));
     await userEvent.click(screen.getByRole('checkbox', { name: '声明工具 query_knowledge' }));
     await userEvent.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => expect(captured.body).toBeDefined());
     expect(captured.body?.key).toBe('db-explain');
     expect(captured.body?.tools).toEqual(['query_knowledge']);
-    expect(captured.body?.category).toBe('知识');
+    expect(captured.body?.group).toBe('knowledge');
     expect(captured.body?.references).toEqual([]);
   });
 
@@ -223,7 +299,8 @@ describe('SkillsPage', () => {
     await userEvent.type(screen.getByPlaceholderText('knowledge-search / my-runbook'), 'mcp-skill');
     await userEvent.type(screen.getByPlaceholderText('一句话说明何时该加载这个技能'), '查主机负载');
     await userEvent.type(screen.getByPlaceholderText(/# 什么时候用/), '# 负载\n\n调用 MCP 工具');
-    await userEvent.type(screen.getByPlaceholderText('知识 / 主机 / 网络…'), '运维');
+    await userEvent.click(screen.getByRole('combobox', { name: '分组' }));
+    await userEvent.click(await screen.findByRole('option', { name: '设备管理' }));
 
     // MCP 工具按 Server 分组出现，勾选后以 wire 名进 tools
     expect(await screen.findByText('mcp · ai-engine')).toBeInTheDocument();
@@ -268,7 +345,8 @@ describe('SkillsPage', () => {
     );
 
     renderPage();
-    await userEvent.click(await screen.findByText('mcp-declared'));
+    // 只有名称可点开详情：行内其他单元格不再触发打开
+    await userEvent.click(await screen.findByRole('button', { name: 'runbook-writer' }));
 
     expect(await screen.findByText('mcp · ai-engine · get_host_load')).toBeInTheDocument();
     // 目录里已不存在的声明原样展示，且 tone=warning
@@ -277,7 +355,7 @@ describe('SkillsPage', () => {
     expect(gone.closest('[data-tone]')?.getAttribute('data-tone')).toBe('warning');
   });
 
-  it('导入 ZIP：先解析预览，再带风险等级与分类落库', async () => {
+  it('导入 ZIP：先解析预览，再带风险等级与分组落库', async () => {
     // MSW 在 jsdom 下无法解析 multipart（jsdom 的 File 流读不出来，formData() 会挂住），
     // 这里用 fetch 探针抓取请求体，MSW 只负责返回成功响应。
     const realFetch = globalThis.fetch;
@@ -290,11 +368,9 @@ describe('SkillsPage', () => {
           key: 'imported-skill',
           description: '来自 zip 的技能',
           instructions: '# 导入正文',
-          license: 'MIT',
-          compatibility: '',
           preapproved_tools: '',
           risk: null,
-          category: null,
+          group: null,
           tools: ['query_knowledge'],
           inject_state: false,
           references: [{ path: 'guide.md', size: 10, binary: false }],
@@ -323,8 +399,9 @@ describe('SkillsPage', () => {
     expect(await screen.findByText('imported-skill')).toBeInTheDocument();
     expect(screen.getByText(/references 1 · assets 0 · scripts 0/)).toBeInTheDocument();
 
-    // 包内没有 risk/category：导入时显式选择
-    await userEvent.type(screen.getByPlaceholderText('知识 / 主机 / 网络…'), '知识');
+    // 包内没有 risk/group：导入时显式选择分组
+    await userEvent.click(screen.getByRole('combobox', { name: '分组' }));
+    await userEvent.click(await screen.findByRole('option', { name: '知识' }));
     // 解析请求回来后才解除 busy，按钮可用再点，避免竞态。
     const importBtn = screen.getByRole('button', { name: '导入' });
     await waitFor(() => expect(importBtn).toBeEnabled());
@@ -340,7 +417,7 @@ describe('SkillsPage', () => {
     expect(fd).toBeInstanceOf(FormData);
     expect(fd.get('file')).toBeInstanceOf(File);
     expect(fd.get('risk')).toBe('safe');
-    expect(fd.get('category')).toBe('知识');
+    expect(fd.get('group')).toBe('knowledge');
   });
 
   it('详情弹窗按分组列出资源文件', async () => {

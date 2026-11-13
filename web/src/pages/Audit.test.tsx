@@ -52,10 +52,10 @@ describe('AuditPage', () => {
     perms.isAdmin = true;
     requests.length = 0;
     server.use(
-      http.get('/api/v1/users', () =>
+      http.get('/api/v1/users/options', () =>
         HttpResponse.json([
-          { id: 1, email: 'admin@local', display_name: 'Admin', role: 'admin', status: 'active' },
-          { id: 2, email: 'dev@local', display_name: 'Dev', role: 'developer', status: 'active' },
+          { id: 1, email: 'admin@local' },
+          { id: 2, email: 'dev@local' },
         ]),
       ),
       http.get('/api/v1/audit', ({ request }) => {

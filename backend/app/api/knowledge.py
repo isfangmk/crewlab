@@ -31,19 +31,41 @@ async def list_docs(
     path: str | None = None,
     path_prefix: str | None = None,
     tag: str | None = None,
+    # 来源组：与前端侧边栏分组一致，builtin=true 只取 vault，false 只取组织文档
+    builtin: bool | None = Query(None),
+    # 标题关键字
+    q: str | None = Query(None, max_length=200),
+    sort_dir: str = Query("desc"),
+    limit: int | None = Query(None, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
-    items = await knowledge_service.list_docs(
+    """文档列表：服务端筛选 + 分页，返回 items 与命中总数。
+
+    limit 缺省时返回全部，供左侧目录树聚合使用；前端列表必须显式传 limit。
+    """
+
+    if source_type is not None and source_type not in DOC_SOURCE_TYPES:
+        raise HTTPException(status_code=400, detail=f"不支持的 source_type: {source_type}")
+    if sort_dir not in ("asc", "desc"):
+        raise HTTPException(status_code=400, detail="sort_dir 必须是 asc 或 desc")
+
+    items, total = await knowledge_service.list_docs(
         db,
         source_type=source_type,
         path=path,
         path_prefix=path_prefix,
         tag=tag,
+        builtin=builtin,
+        q=q if q not in (None, "") else None,
+        sort_dir=sort_dir,
+        limit=limit,
+        offset=offset,
     )
     return {
         "items": [knowledge_service.doc_to_wire(d, include_content=False) for d in items],
-        "total": len(items),
+        "total": total,
     }
 
 
@@ -318,11 +340,15 @@ async def search_knowledge(
 
 @router.get("/knowledge/paths")
 async def list_paths(
+    builtin: bool | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
-    items = await knowledge_service.list_paths(db)
-    return {"items": items, "total": len(items)}
+    """目录树数据：各目录的文档数 + 该来源组的文档总数。"""
+
+    items = await knowledge_service.list_paths(db, builtin=builtin)
+    doc_count = await knowledge_service.count_docs(db, builtin=builtin)
+    return {"items": items, "total": doc_count}
 
 
 @router.post("/knowledge/scope-preview")

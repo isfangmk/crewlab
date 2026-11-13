@@ -25,11 +25,9 @@ def _payload(key: str) -> dict:
         "key": key,
         "description": "集成测试用技能：解释慢查询并给出索引建议。",
         "instructions": "# 慢查询\n\n1. 先读 references/checks.md\n2. 再按 scripts/plan.sh 采集执行计划",
-        "license": "MIT",
-        "compatibility": "adk>=1.0",
         "preapproved_tools": "",
         "risk": "safe",
-        "category": "测试",
+        "group": "other",
         "tools": ["query_knowledge"],
         "inject_state": True,
         "references": [{"path": "checks.md", "text": "# 检查清单\n\n- 执行计划\n"}],
@@ -59,6 +57,8 @@ async def test_skill_crud_and_zip_roundtrip(env: dict[str, str], api_base: str) 
         created = await client.post("/api/v1/skills", headers=headers, json=_payload(key))
         assert created.status_code == 200, created.text
         assert created.json()["source"] == "user"
+        # 平台内新建的技能来源标记为 created
+        assert created.json()["origin"] == "created"
 
         # 详情带资源正文，编辑回填不丢文件
         detail = await client.get(f"/api/v1/skills/{key}", headers=headers)
@@ -90,7 +90,7 @@ async def test_skill_crud_and_zip_roundtrip(env: dict[str, str], api_base: str) 
             skill_md = zf.read("SKILL.md").decode("utf-8")
         assert f"name: {key}" in skill_md
         assert "risk: safe" in skill_md
-        assert "category: 测试" in skill_md
+        assert "group: other" in skill_md
         assert "adk_additional_tools" in skill_md
 
         # 导出的包能再解析（预览不写库）
@@ -103,7 +103,7 @@ async def test_skill_crud_and_zip_roundtrip(env: dict[str, str], api_base: str) 
         preview = parsed.json()
         assert preview["key"] == key
         assert preview["risk"] == "safe"
-        assert preview["category"] == "测试"
+        assert preview["group"] == "other"
         assert [f["path"] for f in preview["scripts"]] == ["plan.sh"]
 
         deleted = await client.delete(f"/api/v1/skills/{key}", headers=headers)
@@ -132,7 +132,7 @@ description: 从 zip 导入的技能
         token = await login_access_token(client, env)
         headers = {"Authorization": f"Bearer {token}"}
 
-        # 包内没有 risk/category 时必须显式给出
+        # 包内没有 risk/group 时必须显式给出
         missing = await client.post(
             "/api/v1/skills/import",
             headers=headers,
@@ -145,14 +145,16 @@ description: 从 zip 导入的技能
             "/api/v1/skills/import",
             headers=headers,
             files={"file": ("skill.zip", raw, "application/zip")},
-            data={"risk": "safe", "category": "测试"},
+            data={"risk": "safe", "group": "other"},
         )
         assert imported.status_code == 200, imported.text
         body = imported.json()
         assert body["key"] == key
         assert body["class"] == "safe"
-        assert body["category"] == "测试"
+        assert body["group"] == "other"
         assert body["references"][0]["path"] == "guide.md"
+        # zip 导入的技能来源标记为 imported，与平台内新建区分
+        assert body["origin"] == "imported"
 
         await client.delete(f"/api/v1/skills/{key}", headers=headers)
 

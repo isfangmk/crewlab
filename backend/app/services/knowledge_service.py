@@ -8,11 +8,11 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.services.embedding_client import embed_text, embed_texts
-from app.services.knowledge_scope import KnowledgeScope, scope_condition
+from app.services.knowledge_scope import KnowledgeScope, path_condition, scope_condition
 
 logger = logging.getLogger(__name__)
 
@@ -165,18 +165,60 @@ async def list_docs(
     path: str | None,
     path_prefix: str | None,
     tag: str | None,
-) -> list[KnowledgeDoc]:
-    stmt = select(KnowledgeDoc).order_by(KnowledgeDoc.updated_at.desc())
+    builtin: bool | None = None,
+    q: str | None = None,
+    sort_dir: str = "desc",
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[KnowledgeDoc], int]:
+    """按筛选条件分页返回文档列表与命中总数。
+
+    limit 为 None 时返回全部（供目录树聚合用）；前端列表必须传 limit，
+    否则文档量级增长后前端会一次拉回全量。
+    """
+
+    filters = []
     if source_type is not None:
-        stmt = stmt.where(KnowledgeDoc.source_type == source_type)
+        filters.append(KnowledgeDoc.source_type == source_type)
     if path is not None:
-        stmt = stmt.where(KnowledgeDoc.path == path)
+        filters.append(KnowledgeDoc.path == path)
     if path_prefix is not None:
-        stmt = stmt.where(KnowledgeDoc.path.startswith(path_prefix))
+        # 本级或子级：与 knowledge_scope.path_condition 同口径，
+        # 避免 `网络` 误命中 `网络安全`
+        filters.append(path_condition(path_prefix))
     if tag is not None:
-        stmt = stmt.where(KnowledgeDoc.tags.contains([tag]))
+        filters.append(KnowledgeDoc.tags.contains([tag]))
+    if builtin is not None:
+        filters.append(_source_condition(builtin))
+    if q is not None:
+        pattern = f"%{_escape_like(q)}%"
+        filters.append(
+            or_(
+                KnowledgeDoc.title.ilike(pattern, escape="\\"),
+                KnowledgeDoc.title_en.ilike(pattern, escape="\\"),
+            )
+        )
+
+    total = await db.scalar(select(func.count()).select_from(KnowledgeDoc).where(*filters))
+    # 更新时间排序；同一时刻按 id 兜底，保证顺序稳定可复现
+    order = (
+        KnowledgeDoc.updated_at.asc()
+        if sort_dir == "asc"
+        else KnowledgeDoc.updated_at.desc()
+    )
+    stmt = select(KnowledgeDoc).where(*filters).order_by(order, KnowledgeDoc.id)
+    if limit is not None:
+        stmt = stmt.limit(limit).offset(offset)
     result = await db.execute(stmt)
-    return list(result.scalars().all())
+    rows = list(result.scalars().all())
+    logger.info("已列出文档 total=%s 返回=%s offset=%s", total, len(rows), offset)
+    return rows, int(total or 0)
+
+
+def _escape_like(value: str) -> str:
+    """转义 LIKE 通配符；不转义会让用户输入的 % 变成全表匹配。"""
+
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 async def get_doc(db: AsyncSession, doc_id: str) -> KnowledgeDoc:
@@ -284,16 +326,29 @@ async def delete_doc(db: AsyncSession, doc_id: str) -> None:
     logger.info("删除文档 doc_id=%s", doc_id)
 
 
-async def list_paths(db: AsyncSession) -> list[dict]:
-    """按 path 聚合文档数，供目录树使用。"""
+async def list_paths(db: AsyncSession, builtin: bool | None = None) -> list[dict]:
+    """按 path 聚合文档数，供目录树使用。
 
-    stmt = (
-        select(KnowledgeDoc.path, func.count())
-        .group_by(KnowledgeDoc.path)
-        .order_by(KnowledgeDoc.path)
-    )
+    builtin 与列表接口同口径：true 只聚合 vault，false 只聚合组织文档，
+    否则侧边栏两棵树的计数会混在一起。
+    """
+
+    stmt = select(KnowledgeDoc.path, func.count())
+    if builtin is not None:
+        stmt = stmt.where(_source_condition(builtin))
+    stmt = stmt.group_by(KnowledgeDoc.path).order_by(KnowledgeDoc.path)
     rows = (await db.execute(stmt)).all()
     return [{"path": path, "count": count} for path, count in rows]
+
+
+async def count_docs(db: AsyncSession, builtin: bool | None = None) -> int:
+    """按来源组统计文档总数；builtin 与列表接口同口径。"""
+
+    stmt = select(func.count()).select_from(KnowledgeDoc)
+    if builtin is not None:
+        stmt = stmt.where(_source_condition(builtin))
+    total = await db.scalar(stmt)
+    return int(total or 0)
 
 
 def _apply_doc_filters(
@@ -308,7 +363,8 @@ def _apply_doc_filters(
     if path is not None:
         stmt = stmt.where(KnowledgeDoc.path == path)
     if path_prefix is not None:
-        stmt = stmt.where(KnowledgeDoc.path.startswith(path_prefix))
+        # 本级或子级：与 list_docs 同口径，避免 `网络` 误命中 `网络安全`
+        stmt = stmt.where(path_condition(path_prefix))
     if source_type is not None:
         stmt = stmt.where(KnowledgeDoc.source_type == source_type)
     if tags:

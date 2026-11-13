@@ -1,5 +1,5 @@
-// WorkflowRun 页面测试 — 运行详情是「顶部信息带 + 三栏诊断视图」：
-//   顶部四张卡（状态 / 耗时 / 节点进度 / 触发）→ 左栏节点导航 → 中栏节点详情（人工确认 / 输入 / 输出）→ 右栏画布与运行输入输出。
+// WorkflowRun 页面测试 — 运行详情是「顶部信息带 + 页级 Tabs（执行明细 / 画布）」：
+//   顶部四张卡（状态 / 耗时 / 节点进度 / 触发）→ 执行明细 tab：左栏节点导航 + 右侧节点详情（人工确认 / 输入 / 输出）。
 //   1. status=waiting 的人工输入门：填写后 POST resume（decision + values），成功后原地刷新
 //   2. 节点详情：失败错误、输入变量、输出直接铺开
 //   3. 运行中：事件到达后导航与详情立即可见
@@ -194,10 +194,66 @@ describe('WorkflowRunPage', () => {
     expect(within(overview).getByText('触发方式')).toBeInTheDocument();
     expect(within(overview).getByText('手动')).toBeInTheDocument();
 
-    // 右栏不再重复一份「运行概况」，只留画布与运行输入输出
+    // 运行级输入输出不再展示：节点级已经覆盖排查需求，不再重复一份
     expect(screen.queryByRole('heading', { name: '运行概况' })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '运行输入' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '运行输出' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '运行输入' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '运行输出' })).not.toBeInTheDocument();
+  });
+
+  it('输入与输出字段：字段名在外、复制按钮与字段同行', async () => {
+    server.use(
+      http.get(runURL, () =>
+        HttpResponse.json(
+          runDetail({
+            status: 'succeeded',
+            output: '"已确认"',
+            finished_at: '2026-08-02T03:05:00Z',
+          }),
+        ),
+      ),
+    );
+
+    renderPage();
+
+    // 输入按变量逐个列，每个变量一块，字段名在内容框外面
+    const copyInput = await screen.findByRole('button', { name: '复制 question' });
+    expect(copyInput).toBeInTheDocument();
+
+    // 输出是整个 JSON 文本，不按字段拆开：只有一块，字段名用工作流定义的输出变量名
+    const copyOutput = screen.getByRole('button', { name: '复制 start' });
+    expect(copyOutput).toBeInTheDocument();
+    // 输出里不再出现按字段拆出来的复制按钮
+    expect(screen.getAllByRole('button', { name: '复制 question' })).toHaveLength(1);
+  });
+
+  it('画布视图：提供去编排页的入口', async () => {
+    server.use(http.get(runURL, () => HttpResponse.json(runDetail())));
+
+    renderPage();
+
+    const tabs = await screen.findByRole('tablist', { name: '运行详情视图' });
+    await userEvent.click(within(tabs).getByRole('tab', { name: '画布' }));
+
+    // 画布是只读诊断，要改画布得回编辑器
+    const edit = await screen.findByRole('button', { name: /去编排/ });
+    expect(edit).toBeInTheDocument();
+  });
+
+  it('页级视图：执行明细 / 画布 两个 tab 互斥', async () => {
+    server.use(http.get(runURL, () => HttpResponse.json(runDetail())));
+
+    renderPage();
+
+    const tabs = await screen.findByRole('tablist', { name: '运行详情视图' });
+    expect(within(tabs).getAllByRole('tab')).toHaveLength(2);
+
+    // 默认停在「执行明细」：节点导航可见
+    const nav = await screen.findByRole('navigation', { name: '节点列表' });
+    expect(nav).toBeInTheDocument();
+
+    // 切到「画布」：节点导航收起，画布独占剩余空间
+    await userEvent.click(within(tabs).getByRole('tab', { name: '画布' }));
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: '节点列表' })).not.toBeInTheDocument());
   });
 
   it('左栏导航列出全部节点，未执行的节点只占位不可点', async () => {

@@ -4,15 +4,22 @@ import { KeyRound, Plus, RefreshCw, Shield, Trash2, UserCheck, UserCog, UserX } 
 import {
   Button,
   Chip,
+  COL,
   EmptyStateCard,
   ErrorBanner,
+  FilterBar,
+  FilterPill,
   Input,
   Label,
   PageHeader,
   RowAction,
   RowActionIcon,
+  SearchInput,
+  StatusPill,
   TableCard,
   TableHead,
+  TablePager,
+  tableLayout,
 } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
@@ -28,6 +35,7 @@ import {
   updateUserRole,
   type ManagedUser,
   type SystemRole,
+  type UserStatus,
 } from '@/api/users';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions, useMe } from '@/store/me';
@@ -35,6 +43,10 @@ import { errorText } from '@/lib/errors';
 
 // 用户与权限：本地账号的建号、角色与启停用；仅管理员可进入。
 // 角色与后端 auth_service._ROLES 对齐：admin / developer / viewer。
+
+// 分页规格与全站一致：默认 20 条/页，可选 20/50/100。
+const DEFAULT_PAGE_SIZE = 20;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 const ROLE_OPTIONS: { value: SystemRole; zh: string; en: string; hintZh: string; hintEn: string }[] = [
   {
@@ -93,16 +105,32 @@ export default function UsersPage() {
   const [resetPassword, setResetPassword] = useState('');
   const [resetBusy, setResetBusy] = useState(false);
   const [resetErr, setResetErr] = useState<string | null>(null);
+  // 筛选条件：搜索框按邮箱 / 显示名过滤，角色与状态为固定枚举
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<SystemRole | ''>('');
+  const [statusFilter, setStatusFilter] = useState<UserStatus | ''>('');
+  // 服务端分页：默认 20 条/页
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
 
   const load = useCallback(async (silent = false) => {
     const current = reqSeq.next();
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
-      const rows = await listUsers();
+      const res = await listUsers({
+        q: query.trim() === '' ? undefined : query.trim(),
+        role: roleFilter === '' ? undefined : roleFilter,
+        status: statusFilter === '' ? undefined : statusFilter,
+        limit: pageSize,
+        offset: page * pageSize,
+      });
       if (reqSeq.isStale(current)) return;
-      if (!Array.isArray(rows)) throw new Error('用户列表响应必须是数组');
-      setItems(rows);
+      if (!Array.isArray(res.items)) throw new Error('用户列表响应缺少 items');
+      if (typeof res.total !== 'number') throw new Error('用户列表响应缺少 total');
+      setItems(res.items);
+      setTotal(res.total);
       setErr(null);
     } catch (e) {
       if (reqSeq.isStale(current)) return;
@@ -113,15 +141,35 @@ export default function UsersPage() {
               setRefreshing(false);
       }
     }
-  }, [reqSeq]);
+  }, [query, roleFilter, statusFilter, page, pageSize, reqSeq]);
 
   useEffect(() => {
-    if (isAdmin) void load();
+    if (!isAdmin) return;
+    // 搜索输入做防抖，避免每敲一个字就打一次接口
+    const timer = window.setTimeout(() => {
+      void load();
+    }, 250);
+    return () => window.clearTimeout(timer);
   }, [isAdmin, load]);
 
+  // 筛选条件变化时回到第 1 页
+  useEffect(() => {
+    setPage(0);
+  }, [query, roleFilter, statusFilter, pageSize]);
+
+  // 删除后当前页可能变空，把页码夹回最后一页
+  useEffect(() => {
+    const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
+    if (page > lastPage) setPage(lastPage);
+  }, [total, pageSize, page]);
+
   useAssistantPage('用户与权限', 'Users & roles', {
-    total: items.length,
+    total,
     role,
+    query,
+    role_filter: roleFilter,
+    status_filter: statusFilter,
+    page,
     loading,
   });
 
@@ -140,15 +188,16 @@ export default function UsersPage() {
     setFormBusy(true);
     setFormErr(null);
     try {
-      const created = await createUser({
+      await createUser({
         email: email.trim(),
         display_name: displayName.trim(),
         password,
         role,
       });
-      setItems((prev) => [...prev, created].sort((a, b) => a.id - b.id));
       setFormOpen(false);
       resetForm();
+      // 服务端分页与筛选：新建后重新拉取列表，总数与页内容都由后端给出
+      await load(true);
     } catch (e) {
       setFormErr(errorText(e));
     } finally {
@@ -160,9 +209,10 @@ export default function UsersPage() {
     const next = user.status === 'active' ? 'disabled' : 'active';
     setBusyId(user.id);
     try {
-      const updated = await setUserStatus(user.id, next);
-      setItems((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      await setUserStatus(user.id, next);
       setErr(null);
+      // 状态是筛选维度，改完重新拉取以免该行留在不该出现的列表里
+      await load(true);
     } catch (e) {
       setErr(errorText(e));
     } finally {
@@ -181,9 +231,10 @@ export default function UsersPage() {
     setRoleBusy(true);
     setRoleErr(null);
     try {
-      const updated = await updateUserRole(roleTarget.id, roleDraft);
-      setItems((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      await updateUserRole(roleTarget.id, roleDraft);
       setRoleTarget(null);
+      // 角色是筛选维度，改完重新拉取
+      await load(true);
     } catch (e) {
       setRoleErr(errorText(e));
     } finally {
@@ -221,9 +272,10 @@ export default function UsersPage() {
     setBusyId(deleteTarget.id);
     try {
       await deleteUser(deleteTarget.id);
-      setItems((prev) => prev.filter((u) => u.id !== deleteTarget.id));
       setErr(null);
       setDeleteTarget(null);
+      // 删除后总数与页内容都变了，重新拉取
+      await load(true);
     } finally {
       setBusyId(null);
     }
@@ -261,9 +313,8 @@ export default function UsersPage() {
                 resetForm();
                 setFormOpen(true);
               }}
-              className="inline-flex items-center gap-1.5"
             >
-              <Plus size={13} />
+              <Plus size={12} />
               {tr('新建用户', 'New user')}
             </Button>
             <RowAction
@@ -277,6 +328,56 @@ export default function UsersPage() {
           </div>
         }
       />
+
+      <FilterBar className="mx-6 mt-3">
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          placeholder={tr('搜索邮箱或显示名…', 'Search email or display name…')}
+          ariaLabel={tr('搜索', 'Search')}
+          className="min-w-[16rem] flex-1"
+        />
+        <FilterPill
+          label={tr('角色', 'Role')}
+          active={roleFilter !== ''}
+          onClear={() => setRoleFilter('')}
+          width="w-[10.5rem]"
+        >
+          <Select
+            aria-label={tr('角色筛选', 'Filter by role')}
+            value={roleFilter}
+            onValueChange={(v) => setRoleFilter(v as SystemRole | '')}
+            options={[
+              { value: '', label: tr('全部角色', 'All roles') },
+              ...ROLE_OPTIONS.map((r) => ({ value: r.value, label: tr(r.zh, r.en) })),
+            ]}
+            variant="ghost"
+            className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+          />
+        </FilterPill>
+        <FilterPill
+          label={tr('状态', 'Status')}
+          active={statusFilter !== ''}
+          onClear={() => setStatusFilter('')}
+          width="w-[9.5rem]"
+        >
+          <Select
+            aria-label={tr('状态筛选', 'Filter by status')}
+            value={statusFilter}
+            onValueChange={(v) => setStatusFilter(v as UserStatus | '')}
+            options={[
+              { value: '', label: tr('全部状态', 'All statuses') },
+              { value: 'active', label: tr('启用', 'Active') },
+              { value: 'disabled', label: tr('已禁用', 'Disabled') },
+            ]}
+            variant="ghost"
+            className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+          />
+        </FilterPill>
+        <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
+          {tr(`共 ${total} 条`, `${total} total`)}
+        </span>
+      </FilterBar>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-4">
         {err && (
@@ -292,26 +393,66 @@ export default function UsersPage() {
           ) : items.length === 0 ? (
             <EmptyStateCard
               icon={UserCheck}
-              title={tr('还没有用户', 'No users yet')}
-              hint={tr('本地账号由管理员创建。', 'Local accounts are created by admins.')}
+              title={
+                query.trim() !== '' || roleFilter !== '' || statusFilter !== ''
+                  ? tr('没有匹配的用户', 'No matching users')
+                  : tr('还没有用户', 'No users yet')
+              }
+              hint={
+                query.trim() !== '' || roleFilter !== '' || statusFilter !== ''
+                  ? tr('换个关键字或清除筛选条件。', 'Try a different keyword or clear filters.')
+                  : tr('本地账号由管理员创建。', 'Local accounts are created by admins.')
+              }
+              action={
+                query.trim() !== '' || roleFilter !== '' || statusFilter !== '' ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setQuery('');
+                      setRoleFilter('');
+                      setStatusFilter('');
+                    }}
+                  >
+                    {tr('清除筛选', 'Clear filters')}
+                  </Button>
+                ) : null
+              }
             />
           ) : (
-            <TableCard>
-              <table className="og-action-table w-full min-w-[56rem] table-fixed text-sm">
+            <TableCard
+              className="min-h-0 flex-1"
+              footer={
+                <TablePager
+                  page={page}
+                  pageSize={pageSize}
+                  total={total}
+                  shown={items.length}
+                  loading={loading || refreshing}
+                  onPageChange={setPage}
+                  pageSizeOptions={PAGE_SIZE_OPTIONS}
+                  onPageSizeChange={(size) => {
+                    setPage(0);
+                    setPageSize(size);
+                  }}
+                />
+              }
+            >
+              <table className={tableLayout(59)}>
                 <colgroup>
-                  <col className="w-[18rem]" />
-                  <col className="w-[12rem]" />
-                  <col className="w-[9rem]" />
-                  <col className="w-[7rem]" />
-                  <col className="w-[13rem]" />
+                  <col className={COL.main} />
+                  <col className={COL.person} />
+                  <col className={COL.tag} />
+                  <col className={COL.tag} />
+                  <col className={COL.actions} />
                 </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">
-                    <th className="px-3 py-2 text-left font-medium">{tr('邮箱', 'Email')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('显示名', 'Display name')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('角色', 'Role')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
-                    <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('邮箱', 'Email')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('显示名', 'Display name')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('角色', 'Role')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
+                    <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
                 </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
@@ -320,9 +461,9 @@ export default function UsersPage() {
                     const busy = busyId === user.id;
                     const isSelf = me?.email === user.email;
                     return (
-                      <tr key={user.id} className="transition-colors">
+                      <tr key={user.id} className="transition-colors hover:bg-zinc-900/40">
                         <td className="min-w-0 px-3 py-2">
-                          <span className="block truncate text-[13px] text-zinc-100" title={user.email}>
+                          <span className="block truncate text-[12.5px] text-zinc-100" title={user.email}>
                             {user.email}
                           </span>
                         </td>
@@ -337,24 +478,29 @@ export default function UsersPage() {
                           </Chip>
                         </td>
                         <td className="px-3 py-2">
-                          <span
-                            className={
-                              user.status === 'active'
-                                ? 'text-[12px] text-emerald-400'
-                                : 'text-[12px] text-zinc-500'
-                            }
-                          >
-                            {user.status === 'active' ? tr('启用', 'Active') : tr('已禁用', 'Disabled')}
-                          </span>
+                          {/* 状态统一走 StatusPill：圆点 + 语义色，与审批/会话/技能同款。 */}
+                          <StatusPill
+                            tone={user.status === 'active' ? 'ok' : 'neutral'}
+                            label={user.status === 'active' ? tr('启用', 'Active') : tr('已禁用', 'Disabled')}
+                          />
                         </td>
                         <td className="px-3 py-2">
-                          <div className="flex items-center justify-end gap-1">
+                          {/* 行内动作：与工作流页同一口径，文字动作之间 gap-1.5。 */}
+                          <div className="flex items-center justify-end gap-1.5">
                             <RowAction
                               icon={UserCog}
                               disabled={busy || isSelf}
                               onClick={() => openRole(user)}
                             >
                               {tr('改角色', 'Change role')}
+                            </RowAction>
+                            <RowAction
+                              icon={user.status === 'active' ? UserX : UserCheck}
+                              tone={user.status === 'active' ? 'danger' : 'positive'}
+                              disabled={busy}
+                              onClick={() => void toggleStatus(user)}
+                            >
+                              {user.status === 'active' ? tr('禁用', 'Disable') : tr('启用', 'Enable')}
                             </RowAction>
                             <Hint content={tr('重置密码', 'Reset password')}>
                               <RowActionIcon
@@ -364,14 +510,6 @@ export default function UsersPage() {
                                 onClick={() => openReset(user)}
                               />
                             </Hint>
-                            <RowAction
-                              icon={user.status === 'active' ? UserX : UserCheck}
-                              tone={user.status === 'active' ? 'danger' : 'positive'}
-                              disabled={busy}
-                              onClick={() => void toggleStatus(user)}
-                            >
-                              {user.status === 'active' ? tr('禁用', 'Disable') : tr('启用', 'Enable')}
-                            </RowAction>
                             <Hint
                               content={
                                 isSelf

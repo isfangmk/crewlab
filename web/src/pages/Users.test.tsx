@@ -25,10 +25,13 @@ vi.mock('@/store/me', () => ({
   }),
 }));
 
-const USERS = [
+const USER_SEED = [
   { id: 1, email: 'admin@local', display_name: 'Admin', role: 'admin', status: 'active' },
   { id: 2, email: 'dev@local', display_name: 'Dev', role: 'developer', status: 'active' },
 ];
+
+// 测试内的用户表：每个用例从种子重建，避免上一个用例的写入影响下一个
+let USERS: typeof USER_SEED = [];
 
 const roleBodies: { id: number; role: string }[] = [];
 const passwordBodies: { id: number; password: string }[] = [];
@@ -38,31 +41,59 @@ describe('UsersPage', () => {
   beforeEach(() => {
     localStorage.setItem('ongrid-locale', 'zh-CN');
     perms.isAdmin = true;
+    USERS = USER_SEED.map((u) => ({ ...u }));
     roleBodies.length = 0;
     passwordBodies.length = 0;
     deletedIds.length = 0;
     server.use(
-      http.get('/api/v1/users', () => HttpResponse.json(USERS)),
+      http.get('/api/v1/users', ({ request }) => {
+        // 模拟后端的服务端筛选与分页：按 q / role / status 过滤，再按 limit / offset 切片
+        const url = new URL(request.url);
+        const q = url.searchParams.get('q');
+        const role = url.searchParams.get('role');
+        const status = url.searchParams.get('status');
+        const limit = Number(url.searchParams.get('limit') ?? '20');
+        const offset = Number(url.searchParams.get('offset') ?? '0');
+        let matched = USERS.filter((u) => {
+          if (role !== null && u.role !== role) return false;
+          if (status !== null && u.status !== status) return false;
+          if (q !== null && q !== '') {
+            const needle = q.toLowerCase();
+            if (!u.email.toLowerCase().includes(needle) && !u.display_name.toLowerCase().includes(needle)) {
+              return false;
+            }
+          }
+          return true;
+        });
+        matched = [...matched].sort((a, b) => a.id - b.id);
+        return HttpResponse.json({
+          items: matched.slice(offset, offset + limit),
+          total: matched.length,
+        });
+      }),
       http.post('/api/v1/users', async ({ request }) => {
         const body = (await request.json()) as {
           email: string;
           display_name: string;
           role: string;
         };
-        return HttpResponse.json({
+        const created = {
           id: 3,
           email: body.email,
           display_name: body.display_name,
           role: body.role,
           status: 'active',
-        });
+        };
+        USERS.push(created);
+        return HttpResponse.json(created);
       }),
       http.post('/api/v1/users/:id/status', async ({ request, params }) => {
         const body = (await request.json()) as { status: string };
         const id = Number(params.id);
         const found = USERS.find((u) => u.id === id);
         if (!found) return new HttpResponse(null, { status: 404 });
-        return HttpResponse.json({ ...found, status: body.status });
+        found.status = body.status;
+        return HttpResponse.json({ ...found });
       }),
       http.patch('/api/v1/users/:id/role', async ({ request, params }) => {
         const body = (await request.json()) as { role: string };
@@ -70,7 +101,8 @@ describe('UsersPage', () => {
         const found = USERS.find((u) => u.id === id);
         if (!found) return new HttpResponse(null, { status: 404 });
         roleBodies.push({ id, role: body.role });
-        return HttpResponse.json({ ...found, role: body.role });
+        found.role = body.role;
+        return HttpResponse.json({ ...found });
       }),
       http.post('/api/v1/users/:id/password', async ({ request, params }) => {
         const body = (await request.json()) as { password: string };
@@ -78,7 +110,9 @@ describe('UsersPage', () => {
         return new HttpResponse(null, { status: 204 });
       }),
       http.delete('/api/v1/users/:id', ({ params }) => {
-        deletedIds.push(Number(params.id));
+        const id = Number(params.id);
+        deletedIds.push(id);
+        USERS = USERS.filter((u) => u.id !== id);
         return new HttpResponse(null, { status: 204 });
       }),
     );
@@ -95,7 +129,90 @@ describe('UsersPage', () => {
     expect(screen.getByText('dev@local')).toBeInTheDocument();
     expect(screen.getByText('管理员')).toBeInTheDocument();
     expect(screen.getByText('开发者')).toBeInTheDocument();
+    // 状态走 StatusPill（圆点 + 语义色），两个账号都是「启用」
     expect(screen.getAllByText('启用')).toHaveLength(2);
+    expect(screen.getAllByText('启用').every((el) => el.closest('span.rounded-full'))).toBe(true);
+  });
+
+  it('filters accounts by keyword and by role', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <UsersPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('admin@local');
+
+    // 关键字搜索：只留邮箱命中的那一行
+    await user.type(screen.getByLabelText('搜索'), 'dev@');
+    await waitFor(() => expect(screen.queryByText('admin@local')).not.toBeInTheDocument());
+    expect(screen.getByText('dev@local')).toBeInTheDocument();
+
+    // 清空搜索后按角色筛选
+    await user.click(screen.getByRole('button', { name: '清空搜索' }));
+    await user.click(screen.getByRole('combobox', { name: '角色筛选' }));
+    await user.click(await screen.findByRole('option', { name: '管理员' }));
+
+    await waitFor(() => expect(screen.queryByText('dev@local')).not.toBeInTheDocument());
+    expect(screen.getByText('admin@local')).toBeInTheDocument();
+  });
+
+  it('filters accounts by status and shows an empty state when nothing matches', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <UsersPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('admin@local');
+
+    await user.click(screen.getByRole('combobox', { name: '状态筛选' }));
+    await user.click(await screen.findByRole('option', { name: '已禁用' }));
+
+    expect(await screen.findByText('没有匹配的用户')).toBeInTheDocument();
+    expect(screen.queryByText('admin@local')).not.toBeInTheDocument();
+  });
+
+  it('paginates accounts on the server and jumps between pages', async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      id: i + 1,
+      email: `user${i + 1}@local`,
+      display_name: `User ${i + 1}`,
+      role: 'viewer' as const,
+      status: 'active' as const,
+    }));
+    server.use(
+      http.get('/api/v1/users', ({ request }) => {
+        const url = new URL(request.url);
+        const limit = Number(url.searchParams.get('limit') ?? '20');
+        const offset = Number(url.searchParams.get('offset') ?? '0');
+        return HttpResponse.json({
+          items: many.slice(offset, offset + limit),
+          total: many.length,
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <UsersPage />
+      </MemoryRouter>,
+    );
+
+    // 默认 20 条/页：只渲染第一页的 20 行
+    await screen.findByText('user1@local');
+    expect(screen.getByText('user20@local')).toBeInTheDocument();
+    expect(screen.queryByText('user21@local')).not.toBeInTheDocument();
+    expect(screen.getByText('1-20 / 共 25 条')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '下一页' }));
+
+    await waitFor(() => expect(screen.getByText('user21@local')).toBeInTheDocument());
+    expect(screen.queryByText('user1@local')).not.toBeInTheDocument();
+    expect(screen.getByText('21-25 / 共 25 条')).toBeInTheDocument();
   });
 
   it('creates a user and appends it to the list', async () => {

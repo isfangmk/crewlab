@@ -49,6 +49,18 @@ const manualDoc = {
 
 const listURL = '/api/v1/knowledge/docs';
 const searchURL = '/api/v1/knowledge/search';
+const pathsURL = '/api/v1/knowledge/paths';
+
+// 目录树数据：按来源组分别聚合（builtin=true 只算 vault，false 只算组织文档）
+function usePathHandlers() {
+  server.use(
+    http.get(pathsURL, ({ request }) => {
+      const builtin = new URL(request.url).searchParams.get('builtin');
+      const rows = builtin === 'true' ? [{ path: 'alerts', count: 1 }] : [{ path: '', count: 1 }];
+      return HttpResponse.json({ items: rows, total: builtin === 'true' ? 1 : 1 });
+    }),
+  );
+}
 
 // 检索定位测试用文档：命中块在正文中间，便于断言选中区间
 const searchContent =
@@ -65,9 +77,13 @@ const searchDoc = {
 
 function useBaseHandlers() {
   server.use(
-    http.get(listURL, () =>
-      HttpResponse.json({ items: [vaultDoc, manualDoc], total: 2 }),
-    ),
+    // 列表按来源组筛选（builtin=true 只返回 vault，false 只返回组织文档）
+    http.get(listURL, ({ request }) => {
+      const builtin = new URL(request.url).searchParams.get('builtin');
+      const items =
+        builtin === 'true' ? [vaultDoc] : builtin === 'false' ? [manualDoc] : [vaultDoc, manualDoc];
+      return HttpResponse.json({ items, total: items.length });
+    }),
     http.get(`${listURL}/101`, () =>
       HttpResponse.json({ ...vaultDoc, content: vaultContent }),
     ),
@@ -82,12 +98,18 @@ describe('KnowledgePage', () => {
     // 固定语言，断言中文文案不受运行机器时区/浏览器语言影响。
     localStorage.setItem('ongrid-locale', 'zh-CN');
     useBaseHandlers();
+    usePathHandlers();
   });
 
   // 右侧文档列表默认在「组织」作用域；先点侧边栏「内置知识库」切过去。
   async function openBuiltinScope() {
     // ^锚定避免命中「从云端同步内置知识库…」的同步按钮
     await userEvent.click(await screen.findByRole('button', { name: /^内置知识库/ }));
+  }
+
+  // 语义检索是页级视图：切到「语义检索」标签后才出现检索框。
+  async function openSearchView() {
+    await userEvent.click(await screen.findByRole('tab', { name: '语义检索' }));
   }
 
   // 行内动作才是入口：整行点击不再打开查看/编辑。
@@ -213,8 +235,10 @@ describe('KnowledgePage', () => {
     );
 
     render(<KnowledgePage />);
+    // 语义检索是独立的页级视图：先切到「语义检索」标签，再输入关键词
+    await openSearchView();
     await userEvent.type(
-      await screen.findByPlaceholderText(/语义检索组织知识库/),
+      await screen.findByPlaceholderText(/语义检索：组织知识库/),
       'DNS{Enter}',
     );
 
@@ -234,7 +258,7 @@ describe('KnowledgePage', () => {
     expect(body).toHaveProperty('selectionEnd', start + '第三步：检查 DNS 解析结果'.length);
   });
 
-  it('来源筛选：只列出来源匹配的文档，并把 source_type 带进检索', async () => {
+  it('来源筛选：把 source_type 交给服务端，并带进语义检索', async () => {
     const uploadDoc = {
       id: '505',
       source_type: 'upload',
@@ -245,10 +269,15 @@ describe('KnowledgePage', () => {
       updated_at: '2026-06-02T00:00:00Z',
     };
     let searchURLSeen = '';
+    let listURLSeen = '';
     server.use(
-      http.get(listURL, () =>
-        HttpResponse.json({ items: [vaultDoc, manualDoc, uploadDoc], total: 3 }),
-      ),
+      http.get(listURL, ({ request }) => {
+        listURLSeen = request.url;
+        const sourceType = new URL(request.url).searchParams.get('source_type');
+        // 服务端按来源过滤：只有 upload 才返回上传文档
+        const items = sourceType === 'upload' ? [uploadDoc] : [manualDoc, uploadDoc];
+        return HttpResponse.json({ items, total: items.length });
+      }),
       http.get(searchURL, ({ request }) => {
         searchURLSeen = request.url;
         return HttpResponse.json({ items: [], total: 0 });
@@ -260,15 +289,36 @@ describe('KnowledgePage', () => {
     expect(await screen.findByText('组织 SOP')).toBeInTheDocument();
     expect(screen.getByText('上传的巡检记录')).toBeInTheDocument();
 
-    // 切到「上传」：列表只剩上传来源的文档
+    // 切到「上传」：筛选条件交给服务端（列表请求带 source_type=upload）
     await userEvent.click(screen.getByRole('combobox', { name: '来源' }));
     await userEvent.click(await screen.findByRole('option', { name: '上传' }));
-    await waitFor(() => expect(screen.queryByText('组织 SOP')).not.toBeInTheDocument());
-    expect(screen.getByText('上传的巡检记录')).toBeInTheDocument();
+    await waitFor(() => expect(listURLSeen).toContain('source_type=upload'));
 
     // 检索沿用同一来源条件
-    await userEvent.type(screen.getByPlaceholderText(/语义检索组织知识库/), '巡检{Enter}');
+    await openSearchView();
+    await userEvent.type(screen.getByPlaceholderText(/语义检索：组织知识库/), '巡检{Enter}');
     await waitFor(() => expect(searchURLSeen).toContain('source_type=upload'));
+  });
+
+  it('文档标题筛选：走服务端 q 参数，与语义检索输入框分开', async () => {
+    let listURLSeen = '';
+    server.use(
+      http.get(listURL, ({ request }) => {
+        listURLSeen = request.url;
+        const q = new URL(request.url).searchParams.get('q');
+        const items = q === 'DNS' ? [searchDoc] : [manualDoc];
+        return HttpResponse.json({ items, total: items.length });
+      }),
+    );
+
+    render(<KnowledgePage />);
+    // 标题筛选框：按标题筛文档
+    const titleFilter = await screen.findByPlaceholderText(/按文档标题筛选/);
+    // 语义检索是另一个页级视图：切过去才有检索框，两者互不干扰
+    expect(screen.queryByPlaceholderText(/语义检索：组织知识库/)).not.toBeInTheDocument();
+
+    await userEvent.type(titleFilter, 'DNS');
+    await waitFor(() => expect(listURLSeen).toContain('q=DNS'));
   });
 
   it('更新时间列：显示完整日期时间并按列排序', async () => {
@@ -290,8 +340,14 @@ describe('KnowledgePage', () => {
       created_at: '2026-05-01T00:00:00Z',
       updated_at: '2026-01-02T03:04:00Z',
     };
+    let sortDirSeen = '';
     server.use(
-      http.get(listURL, () => HttpResponse.json({ items: [older, newer], total: 2 })),
+      http.get(listURL, ({ request }) => {
+        // 排序交给服务端：按 sort_dir 返回对应顺序
+        sortDirSeen = new URL(request.url).searchParams.get('sort_dir') ?? '';
+        const items = sortDirSeen === 'asc' ? [older, newer] : [newer, older];
+        return HttpResponse.json({ items, total: 2 });
+      }),
     );
 
     render(<KnowledgePage />);
@@ -302,15 +358,18 @@ describe('KnowledgePage', () => {
 
     // 默认按最近更新在前（倒序），与后端默认排序一致
     expect(firstTitle()).toContain('较新的文档');
+    expect(sortDirSeen).toBe('desc');
     // 时间列是完整日期时间，不出现「N 天前」这类相对时间
     expect(document.body.textContent).not.toMatch(/天前|小时前|分钟前/);
 
     // 点列头切到正序
     await userEvent.click(screen.getByRole('button', { name: /更新时间/ }));
+    await waitFor(() => expect(sortDirSeen).toBe('asc'));
     await waitFor(() => expect(firstTitle()).toContain('较旧的文档'));
 
     // 再点回倒序
     await userEvent.click(screen.getByRole('button', { name: /更新时间/ }));
+    await waitFor(() => expect(sortDirSeen).toBe('desc'));
     await waitFor(() => expect(firstTitle()).toContain('较新的文档'));
   });
 

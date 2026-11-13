@@ -13,8 +13,11 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Union
+from typing import Any, Literal, Union, cast
 
+from google.adk.code_executors.unsafe_local_code_executor import (
+    UnsafeLocalCodeExecutor,
+)
 from google.adk.skills import Script, Skill, load_skills_from_dir
 from google.adk.tools.skill_toolset import SkillDiscoveryMode, SkillToolset
 from sqlalchemy import select
@@ -23,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.adk_runtime.toolset import build_knowledge_tools
 from app.tools.catalog import tool_param_specs
 from app.models_orm.skill import UserSkill
-from app.services import mcp_service, skill_bundle
+from app.services import mcp_service, skill_bundle, skill_groups
 from app.services.knowledge_scope import KnowledgeScope
 from app.services.mcp_service import McpToolRef
 from app.services.skill_bundle import RISK_LEVELS, SkillPayload
@@ -33,6 +36,8 @@ logger = logging.getLogger(__name__)
 _SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 
 SkillSource = Literal["disk", "user"]
+# 技能来源类型：builtin = 随包发布的内置技能；created = 平台内新建；imported = zip 导入。
+SkillOrigin = Literal["builtin", "created", "imported"]
 
 
 @dataclass(frozen=True)
@@ -41,6 +46,7 @@ class SkillEntry:
 
     skill: Skill
     source: SkillSource
+    origin: SkillOrigin
 
 
 def skills_dir() -> Path:
@@ -77,6 +83,8 @@ def build_skill_toolset(
         skills=resolved,
         discovery_mode=SkillDiscoveryMode.EAGER,
         additional_tools=knowledge_tools,
+        # 技能脚本要有地方才能跑；当前用本机执行器，后续换成沙盒执行器
+        code_executor=UnsafeLocalCodeExecutor(),
     )
 
 
@@ -161,7 +169,7 @@ def skill_to_wire(
     meta = fm.metadata
     if not isinstance(meta, dict):
         raise TypeError(f"skill metadata 必须是对象: {fm.name}")
-    category = _require_meta_str(meta, "category", fm.name)
+    group = skill_groups.resolve_skill_group(meta, fm.name)
     risk = _require_meta_str(meta, "risk", fm.name)
     if risk not in RISK_LEVELS:
         raise ValueError(f"skill metadata.risk 非法: {fm.name} risk={risk}")
@@ -212,14 +220,13 @@ def skill_to_wire(
         "name": fm.name,
         "description": fm.description,
         "class": risk,
-        "category": category,
-        "license": fm.license or "",
-        "compatibility": fm.compatibility or "",
+        "group": group,
         "preapproved_tools": fm.allowed_tools or "",
         "inject_state": meta.get("adk_inject_state") is True,
         "instructions": skill.instructions,
         "params": params,
         "source": entry.source,
+        "origin": entry.origin,
         "inventory_only": not executable,
         "tools": tools,
         "tool_refs": tool_refs,
@@ -241,14 +248,15 @@ def builtin_tool_registry() -> dict[str, Any]:
 
 
 def _row_to_payload(row: UserSkill) -> SkillPayload:
+    metadata = json.loads(row.metadata_json)
+    # 分组以列为准，metadata 是给 SKILL.md frontmatter 用的同一份值
+    metadata["group"] = row.skill_group
     return SkillPayload(
         key=row.key,
         description=row.description,
         instructions=row.instructions,
-        license=row.license,
-        compatibility=row.compatibility,
         preapproved_tools=row.preapproved_tools,
-        metadata=json.loads(row.metadata_json),
+        metadata=metadata,
         references=skill_bundle.decode_files(row.references_json),
         assets=skill_bundle.decode_files(row.assets_json),
         scripts={
@@ -267,17 +275,33 @@ async def _user_skill_rows(db: AsyncSession) -> list[UserSkill]:
     return list(result.scalars().all())
 
 
+def _row_origin(row: UserSkill) -> SkillOrigin:
+    """库里记录的来源类型；取值由数据库 CHECK 约束保证合法。"""
+
+    origin = row.origin
+    if origin not in ("created", "imported"):
+        raise ValueError(f"技能来源类型非法: {row.key}={origin!r}")
+    return cast(SkillOrigin, origin)
+
+
 async def list_skill_entries(db: AsyncSession) -> list[SkillEntry]:
     """磁盘技能 + 用户技能，按 key 排序；重复 key 直接报错（不静默覆盖）。"""
 
     entries: list[SkillEntry] = [
-        SkillEntry(skill=skill, source="disk") for skill in load_local_skills()
+        SkillEntry(skill=skill, source="disk", origin="builtin")
+        for skill in load_local_skills()
     ]
     seen = {entry.skill.name for entry in entries}
     for row in await _user_skill_rows(db):
         if row.key in seen:
             raise ValueError(f"技能名与内置技能冲突: {row.key}")
-        entries.append(SkillEntry(skill=_row_to_skill(row), source="user"))
+        entries.append(
+            SkillEntry(
+                skill=_row_to_skill(row),
+                source="user",
+                origin=_row_origin(row),
+            )
+        )
     entries.sort(key=lambda entry: entry.skill.name)
     return entries
 
@@ -315,14 +339,13 @@ async def load_tool_catalog(
 def _validate_save_payload(
     payload: SkillPayload,
     risk: str,
-    category: str,
+    group: str,
     forbid_unknown_tools: bool,
     known_tools: set[str],
 ) -> None:
     if risk not in RISK_LEVELS:
         raise ValueError(f"风险等级必须是 {'/'.join(RISK_LEVELS)}: {risk}")
-    if category.strip() == "":
-        raise ValueError("分类不能为空")
+    skill_groups.validate_skill_group(group)
     if forbid_unknown_tools:
         declared = payload.declared_tools()
         unknown = [name for name in declared if name not in known_tools]
@@ -339,21 +362,22 @@ def _validate_save_payload(
     skill_bundle.validate_payload(payload)
     # 平台侧属性写进 metadata，导出的 SKILL.md 才能原样往返
     payload.metadata["risk"] = risk
-    payload.metadata["category"] = category
+    payload.metadata["group"] = group
 
 
 async def create_user_skill(
     db: AsyncSession,
     payload: SkillPayload,
     risk: str,
-    category: str,
+    group: str,
     forbid_unknown_tools: bool = True,
+    origin: SkillOrigin = "created",
 ) -> UserSkill:
     registry, mcp_catalog = await load_tool_catalog(db)
     _validate_save_payload(
         payload,
         risk,
-        category,
+        group,
         forbid_unknown_tools,
         known_tools=set(registry) | set(mcp_catalog),
     )
@@ -365,11 +389,10 @@ async def create_user_skill(
     row = UserSkill(
         key=payload.key,
         description=payload.description,
-        license=payload.license,
-        compatibility=payload.compatibility,
         preapproved_tools=payload.preapproved_tools,
         risk=risk,
-        category=category,
+        skill_group=group,
+        origin=origin,
         instructions=payload.instructions,
         metadata_json=json.dumps(payload.metadata, ensure_ascii=False),
         references_json=skill_bundle.encode_files(payload.references),
@@ -380,8 +403,9 @@ async def create_user_skill(
     await db.commit()
     await db.refresh(row)
     logger.info(
-        "创建技能 key=%s risk=%s tools=%s references=%s assets=%s scripts=%s",
+        "创建技能 key=%s origin=%s risk=%s tools=%s references=%s assets=%s scripts=%s",
         row.key,
+        origin,
         risk,
         payload.declared_tools(),
         len(payload.references),
@@ -396,7 +420,7 @@ async def update_user_skill(
     key: str,
     payload: SkillPayload,
     risk: str,
-    category: str,
+    group: str,
     forbid_unknown_tools: bool = True,
 ) -> UserSkill:
     if payload.key != key:
@@ -405,7 +429,7 @@ async def update_user_skill(
     _validate_save_payload(
         payload,
         risk,
-        category,
+        group,
         forbid_unknown_tools,
         known_tools=set(registry) | set(mcp_catalog),
     )
@@ -413,11 +437,9 @@ async def update_user_skill(
     if row is None:
         raise LookupError(f"技能不存在或为内置技能: {key}")
     row.description = payload.description
-    row.license = payload.license
-    row.compatibility = payload.compatibility
     row.preapproved_tools = payload.preapproved_tools
     row.risk = risk
-    row.category = category
+    row.skill_group = group
     row.instructions = payload.instructions
     row.metadata_json = json.dumps(payload.metadata, ensure_ascii=False)
     row.references_json = skill_bundle.encode_files(payload.references)
@@ -451,8 +473,6 @@ def _payload_from_entry(entry: SkillEntry) -> SkillPayload:
         key=skill.frontmatter.name,
         description=skill.frontmatter.description,
         instructions=skill.instructions,
-        license=skill.frontmatter.license or "",
-        compatibility=skill.frontmatter.compatibility or "",
         preapproved_tools=skill.frontmatter.allowed_tools or "",
         metadata=meta,
         references=dict(skill.resources.references),
@@ -479,6 +499,10 @@ async def disk_skill_summaries(db: AsyncSession) -> list[dict]:
 
     mcp_tools = await mcp_service.mcp_tool_catalog(db)
     return [
-        skill_to_wire(SkillEntry(skill=skill, source="disk"), mcp_tools=mcp_tools)
+        skill_to_wire(
+            SkillEntry(skill=skill, source="disk", origin="builtin"),
+            mcp_tools=mcp_tools,
+        )
+
         for skill in load_local_skills()
     ]

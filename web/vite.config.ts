@@ -60,7 +60,10 @@ export default defineConfig({
     modulePreload: {
       resolveDependencies(_filename, deps) {
         return deps.filter(
-          (dep) => !dep.includes('vendor-charts') && !dep.includes('vendor-xterm'),
+          (dep) =>
+            !dep.includes('vendor-charts') &&
+            !dep.includes('vendor-echarts') &&
+            !dep.includes('vendor-xterm'),
         );
       },
     },
@@ -76,6 +79,9 @@ export default defineConfig({
         // the default bundle so vite figures the order out.
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
+          if (id.includes('echarts') || id.includes('zrender')) {
+            return 'vendor-echarts';
+          }
           if (id.includes('recharts') || id.includes('d3-') || id.includes('victory-')) {
             return 'vendor-charts';
           }

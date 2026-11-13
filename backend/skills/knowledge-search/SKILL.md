@@ -4,7 +4,7 @@ description: >-
   检索组织知识库。用户问手册、故障排查、内部约定或已上传文档内容时使用 query_knowledge。
 metadata:
   author: ai-workbench
-  category: 知识
+  group: knowledge
   version: "1.0"
   risk: safe
   adk_additional_tools:

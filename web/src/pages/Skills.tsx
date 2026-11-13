@@ -1,7 +1,7 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { usePermissions } from '@/store/me';
-import { EmptyStateCard,
-  ErrorBanner, TableHead } from '@/components/ui';
+import { COL, EmptyStateCard,
+  ErrorBanner, TableHead, tableLayout } from '@/components/ui';
 import { Button } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { useTimeout } from '@/lib/useTimeout';
@@ -21,17 +21,21 @@ import { cn } from '@/lib/cn';
 import {
   deleteSkill,
   exportSkillZip,
+  listSkillGroups,
   listSkills,
   localizedSkill,
   reloadSkills,
   type SkillClass,
+  type SkillGroup,
+  type SkillGroupMeta,
+  type SkillOrigin,
   type SkillSummary,
 } from '@/api/skills';
 import { mcpToolDisplayName } from '@/lib/mcpWire';
 import { Modal } from '@/components/Modal';
 import { useI18n } from '@/i18n/locale';
-import { toolGroupKey, groupTag, groupTitle, orderedGroupKeys } from '@/lib/toolSkill';
-import { ChoiceChip, Chip, CodeBlock, DetailSection, FilterBar, PageHeader, RowAction, SearchInput, StatusPill, TableCard } from '@/components/ui';
+import { orderedGroupKeys } from '@/lib/toolSkill';
+import { ChoiceChip, Chip, CodeBlock, DetailSection, FilterBar, PageHeader, RowAction, SearchInput, StatusPill, TableCard, Toast, type ToastTone } from '@/components/ui';
 import type { StatusTone } from '@/components/ui/StatusPill';
 import { SkillEditor, SkillImportDialog } from '@/components/SkillEditor';
 import { errorText } from '@/lib/errors';
@@ -43,16 +47,38 @@ export default function SkillsPage() {
 
 type EditorState = { mode: 'create' | 'edit'; key?: string } | null;
 
+/**
+ * 技能来源类型：内置磁盘技能没有 origin 字段，按 builtin 处理；
+ * 平台内新建与 zip 导入由后端记录区分。
+ */
+export function skillOrigin(s: SkillSummary): SkillOrigin {
+  return s.origin ?? (s.source === 'disk' ? 'builtin' : 'created');
+}
+
+/** 来源类型的中文/英文名与胶囊色。 */
+const ORIGIN_META: Record<SkillOrigin, { zh: string; en: string; tone: StatusTone }> = {
+  builtin: { zh: '内置', en: 'Built-in', tone: 'info' },
+  created: { zh: '新建', en: 'Created', tone: 'ok' },
+  imported: { zh: 'ZIP 导入', en: 'Imported', tone: 'neutral' },
+};
+
+/** 来源筛选胶囊的展示顺序。 */
+const ORIGIN_ORDER: SkillOrigin[] = ['builtin', 'created', 'imported'];
+
 function CatalogTab() {
-  const { tr, locale } = useI18n();
+  const { tr } = useI18n();
   const { canMutate } = usePermissions();
   const [items, setItems] = useState<SkillSummary[]>([]);
+  const [groups, setGroups] = useState<SkillGroupMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<string>('');
+  // 分组筛选：空值表示全部
+  const [group, setGroup] = useState<SkillGroup | ''>('');
+  // 来源筛选：内置 / 平台内新建 / zip 导入，空值表示全部
+  const [origin, setOrigin] = useState<SkillOrigin | ''>('');
   // 详情弹窗：只读查看技能包内容（MCP 工具在 /tools 与 /mcp，不混入本页）
   const [viewing, setViewing] = useState<SkillSummary | null>(null);
   const [editor, setEditor] = useState<EditorState>(null);
@@ -65,6 +91,8 @@ function CatalogTab() {
     try {
       const sk = await listSkills();
       setItems((sk.items ?? []).map(localizedSkill));
+      const gr = await listSkillGroups();
+      setGroups(gr.groups ?? []);
       setErr(null);
     } catch (e) {
       setErr(errorText(e));
@@ -80,9 +108,9 @@ function CatalogTab() {
 
   // flash 用自动清理的定时器：卸载后不再对已卸载组件 setState
   const flashTimer = useTimeout();
-  const flash = useCallback((message: string) => {
-    setNotice(message);
-    flashTimer(() => setNotice(null), 4000);
+  const flash = useCallback((tone: ToastTone, message: string) => {
+    setToast({ tone, text: message });
+    flashTimer(() => setToast(null), 4000);
   }, [flashTimer]);
 
   // 重载：让后端重新扫描本地 SKILL.md，成功后再刷新表格。
@@ -104,9 +132,9 @@ function CatalogTab() {
     async (skill: SkillSummary) => {
       try {
         const filename = await exportSkillZip(skill.key);
-        flash(tr(`已导出 ${filename}`, `Exported ${filename}`));
+        flash('ok', tr(`已导出 ${filename}`, `Exported ${filename}`));
       } catch (e) {
-        setErr(errorText(e));
+        flash('err', errorText(e));
       }
     },
     [flash, tr],
@@ -116,7 +144,7 @@ function CatalogTab() {
     if (deleting === null) return;
     try {
       await deleteSkill(deleting.key);
-      flash(tr(`已删除技能 ${deleting.key}`, `Deleted skill ${deleting.key}`));
+      flash('ok', tr(`已删除技能 ${deleting.key}`, `Deleted skill ${deleting.key}`));
       setDeleting(null);
       await fetchSkills(true);
     } catch (e) {
@@ -133,34 +161,19 @@ function CatalogTab() {
       return next;
     });
 
-  // 与流程面板共用分组：内置工具 → 技能类目，MCP → 按 server，SKILL.md → 按包。
-  // Keyed by the WIRE name (s.key), not the localized display name.
-  const skillKey = useCallback((s: SkillSummary) => toolGroupKey(s.key, s.source, s.category), []);
-  const skills = useMemo(() => orderedGroupKeys(items.map(skillKey)), [items, skillKey]);
-  // Filter chips stay bounded: the 6 built-in skills + a single "MCP" and a
-  // single "扩展" meta-chip, instead of one chip per server / pack (which would
-  // grow without limit). The TABLE still sections per server / pack.
+  // 分组直接用后端给的 group 字段（固定枚举），不再按名称正则猜。
+  const skillKey = useCallback((s: SkillSummary) => s.group ?? 'other', []);
+  // 筛选胶囊只列出目录里真实存在的分组，避免出现空分组的死胶囊。
   const chips = useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const k of skills) {
-      const c = k.startsWith('mcp:') ? 'mcp' : k.startsWith('skill:') ? 'ext' : k;
-      if (!seen.has(c)) {
-        seen.add(c);
-        out.push(c);
-      }
-    }
-    return out;
-  }, [skills]);
+    const present = new Set(items.map(skillKey));
+    return groups.filter((g) => present.has(g.key));
+  }, [groups, items, skillKey]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter((s) => {
-      if (category) {
-        const gk = skillKey(s);
-        const ok = category === 'mcp' ? gk.startsWith('mcp:') : category === 'ext' ? gk.startsWith('skill:') : gk === category;
-        if (!ok) return false;
-      }
+      if (origin && skillOrigin(s) !== origin) return false;
+      if (group && skillKey(s) !== group) return false;
       if (!q) return true;
       return (
         s.name.toLowerCase().includes(q) ||
@@ -168,21 +181,19 @@ function CatalogTab() {
         (s.description ?? '').toLowerCase().includes(q)
       );
     });
-  }, [items, query, category, skillKey]);
+  }, [items, query, group, origin, skillKey]);
 
   useAssistantPage('技能目录', 'Skill catalog', {
-    category, visible_skills: filtered.length, selected_skill: viewing?.name, loading,
+    group, visible_skills: filtered.length, selected_skill: viewing?.name, loading,
   });
-
-  const userSkillCount = items.filter((s) => s.source === 'user').length;
 
   return (
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">
       <PageHeader
         title={tr('技能', 'Skills')}
         subtitle={tr(
-          `可装配到助理的能力包（内置 ${items.length - userSkillCount} · 自定义 ${userSkillCount}）`,
-          `Capability packs for assistants (built-in ${items.length - userSkillCount} · custom ${userSkillCount})`,
+          '可装配到助理与工作流的能力包，按分组管理',
+          'Capability packs for assistants and workflows, managed by group',
         )}
         actions={
           <>
@@ -226,22 +237,36 @@ function CatalogTab() {
           />
           {chips.length > 0 && (
             <>
-              <span className="pl-1 text-[11px] text-zinc-500">{tr('技能', 'Skill')}</span>
+              <span className="pl-1 text-[11px] text-zinc-500">{tr('分组', 'Group')}</span>
               <ChoiceChip
-                active={category === ''}
+                active={group === ''}
                 label={tr('全部', 'All')}
-                onClick={() => setCategory('')}
+                onClick={() => setGroup('')}
               />
-              {chips.map((c) => (
+              {chips.map((g) => (
                 <ChoiceChip
-                  key={c}
-                  active={category === c}
-                  label={c === 'mcp' ? 'MCP' : c === 'ext' ? tr('自定义', 'Custom') : groupTitle(c, locale === 'zh-CN')}
-                  onClick={() => setCategory(c)}
+                  key={g.key}
+                  active={group === g.key}
+                  label={tr(g.title, g.title_en)}
+                  onClick={() => setGroup(g.key)}
                 />
               ))}
             </>
           )}
+          <span className="pl-1 text-[11px] text-zinc-500">{tr('来源', 'Origin')}</span>
+          <ChoiceChip
+            active={origin === ''}
+            label={tr('全部', 'All')}
+            onClick={() => setOrigin('')}
+          />
+          {ORIGIN_ORDER.map((o) => (
+            <ChoiceChip
+              key={o}
+              active={origin === o}
+              label={tr(ORIGIN_META[o].zh, ORIGIN_META[o].en)}
+              onClick={() => setOrigin(o)}
+            />
+          ))}
           <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
             {tr(`${items.length} 个 · 匹配 ${filtered.length}`, `${items.length} total · ${filtered.length} matched`)}
           </span>
@@ -253,29 +278,39 @@ function CatalogTab() {
               {tr('操作失败：', 'Operation failed: ')}{err}
             </ErrorBanner>
           )}
-          {notice && (
-            <div className="mb-3 rounded-xl border border-emerald-500/40 bg-emerald-500/5 px-4 py-3 text-[12px] text-emerald-300">
-              {notice}
-            </div>
-          )}
           {loading ? (
             <div className="flex h-40 items-center justify-center text-sm text-zinc-500">{tr('加载中…', 'Loading…')}</div>
           ) : err && items.length === 0 ? null : filtered.length === 0 ? (
-            <EmptyState hasItems={!!(query.trim() || category)} onClear={() => { setQuery(''); setCategory(''); }} />
+            <EmptyState
+              hasItems={!!(query.trim() || group || origin)}
+              onClear={() => {
+                setQuery('');
+                setGroup('');
+                setOrigin('');
+              }}
+            />
           ) : (
             <TableCard className="min-h-0 flex-1">
-              <table className="og-action-table w-full text-sm">
+              <table className={tableLayout(64)}>
+                <colgroup>
+                  <col className={COL.id} />
+                  <col className={COL.tag} />
+                  <col className={COL.tag} />
+                  <col className={COL.main} />
+                  <col className={COL.actions} />
+                </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">
                     <th className="px-3 py-2 text-left font-medium">{tr('名称', 'Name')}</th>
                     <th className="px-3 py-2 text-left font-medium">{tr('类别', 'Class')}</th>
-                    <th className="w-full max-w-0 px-3 py-2 text-left font-medium">{tr('描述', 'Description')}</th>
+                    <th className="px-3 py-2 text-left font-medium">{tr('来源', 'Origin')}</th>
+                    <th className="px-3 py-2 text-left font-medium">{tr('描述', 'Description')}</th>
                     <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
                 </TableHead>
                 {orderedGroupKeys(filtered.map(skillKey)).map((gk) => {
                   const rows = filtered.filter((s) => skillKey(s) === gk);
-                  const tag = groupTag(gk);
+                  const meta = groups.find((g) => g.key === gk);
                   const isCollapsed = collapsed.has(gk);
                   return (
                     <tbody key={gk} className="divide-y divide-zinc-800/40">
@@ -283,7 +318,7 @@ function CatalogTab() {
                         className="cursor-pointer select-none border-t border-zinc-800/60 bg-zinc-950/50 hover:bg-zinc-900/50"
                         onClick={() => toggleGroup(gk)}
                       >
-                        <td colSpan={4} className="px-3 py-2">
+                        <td colSpan={5} className="px-3 py-2">
                           <div className="flex items-center gap-1.5">
                             <button
                               type="button"
@@ -297,10 +332,8 @@ function CatalogTab() {
                               {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
                             </button>
                             <span className="text-[12.5px] font-medium text-zinc-200">
-                              {groupTitle(gk, locale === 'zh-CN', rows[0]?.name)}
+                              {meta ? tr(meta.title, meta.title_en) : gk}
                             </span>
-                            {tag === 'mcp' && <Chip tone="info" dense>mcp</Chip>}
-                            {tag === 'ext' && <Chip tone="accent" dense>{tr('自定义', 'custom')}</Chip>}
                             <span className="ml-1 text-[11px] text-zinc-500">{rows.length} {tr('个', 'skills')}</span>
                           </div>
                         </td>
@@ -345,6 +378,7 @@ function CatalogTab() {
             onSaved={(skill, mode) => {
               setEditor(null);
               flash(
+                'ok',
                 mode === 'create'
                   ? tr(`已创建技能 ${skill.key}`, `Created skill ${skill.key}`)
                   : tr(`已更新技能 ${skill.key}`, `Updated skill ${skill.key}`),
@@ -361,7 +395,7 @@ function CatalogTab() {
             onClose={() => setImporting(false)}
             onImported={() => {
               setImporting(false);
-              flash(tr('技能包已导入', 'Skill pack imported'));
+              flash('ok', tr('技能包已导入', 'Skill pack imported'));
               void fetchSkills(true);
             }}
           />
@@ -391,6 +425,7 @@ function CatalogTab() {
           </Modal>
         )}
       </div>
+      {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
     </main>
   );
 }
@@ -413,19 +448,29 @@ function SkillRow({
   onDelete(): void;
 }) {
   const { tr } = useI18n();
-  const editable = canMutate && skill.source === 'user';
+  // 内置技能随包发布，没有编辑入口
+  const editable = canMutate && skillOrigin(skill) !== 'builtin';
   const resourceCount =
     (skill.references?.length ?? 0) + (skill.assets?.length ?? 0) + (skill.scripts?.length ?? 0);
   return (
-    <tr className="cursor-pointer transition-colors hover:bg-zinc-900/40" onClick={onView}>
+    <tr className="transition-colors hover:bg-zinc-900/40">
       <td className="whitespace-nowrap px-3 py-2 pl-8">
-        <span className="text-[12.5px] text-zinc-200">{displayName ?? skill.name}</span>
+        <button
+          type="button"
+          onClick={onView}
+          className="text-[12.5px] text-zinc-200 transition-colors hover:text-indigo-300"
+        >
+          {displayName ?? skill.name}
+        </button>
         <Hint content={skill.key}><div className="font-mono text-[10px] text-zinc-600" >
           {skill.key}
         </div></Hint>
       </td>
       <td className="whitespace-nowrap px-3 py-2">
         <ClassBadge value={skill.class} />
+      </td>
+      <td className="whitespace-nowrap px-3 py-2">
+        <OriginBadge value={skillOrigin(skill)} />
       </td>
       {/* Description column is the truncate-absorber — w-full + max-w-0
           forces it to take all remaining horizontal space and clamp
@@ -434,7 +479,7 @@ function SkillRow({
       <td className="w-full max-w-0 px-3 py-2 text-[11px] text-zinc-500">
         <div className="line-clamp-1">{skill.description || '—'}</div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 font-mono text-[10px] text-zinc-600">
-          {skill.category && <span>{skill.category}</span>}
+          {skill.group && <span>{skill.group}</span>}
           {Array.isArray(skill.tools) && skill.tools.length > 0 && (
             <span>tools: {skill.tools.join(', ')}</span>
           )}
@@ -448,55 +493,18 @@ function SkillRow({
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-right">
         <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-          <Hint content={tr('导出为 ZIP 技能包', 'Export as a ZIP skill pack')}>
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              className="px-1.5 py-0 text-[11px]"
-              aria-label={tr(`导出技能 ${skill.key}`, `Export skill ${skill.key}`)}
-              onClick={onExport}
-            >
-              <Download size={11} />
-            </Button>
-          </Hint>
-          {editable ? (
+          <RowAction icon={Download} onClick={onExport}>
+            {tr('导出', 'Export')}
+          </RowAction>
+          {editable && (
             <>
-              <Hint content={tr('编辑技能包', 'Edit skill pack')}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  type="button"
-                  className="px-1.5 py-0 text-[11px]"
-                  aria-label={tr(`编辑技能 ${skill.key}`, `Edit skill ${skill.key}`)}
-                  onClick={onEdit}
-                >
-                  <Pencil size={11} />
-                </Button>
-              </Hint>
-              <Hint content={tr('删除技能', 'Delete skill')}>
-                <Button
-                  variant="dangerGhost"
-                  size="sm"
-                  type="button"
-                  className="px-1.5 py-0 text-[11px]"
-                  aria-label={tr(`删除技能 ${skill.key}`, `Delete skill ${skill.key}`)}
-                  onClick={onDelete}
-                >
-                  <Trash2 size={11} />
-                </Button>
-              </Hint>
+              <RowAction icon={Pencil} onClick={onEdit}>
+                {tr('编辑', 'Edit')}
+              </RowAction>
+              <RowAction icon={Trash2} tone="danger" onClick={onDelete}>
+                {tr('删除', 'Delete')}
+              </RowAction>
             </>
-          ) : (
-            <Hint
-              content={
-                skill.source === 'disk'
-                  ? tr('内置技能随代码发布，不能在线编辑', 'Built-in skills ship with the code and cannot be edited here')
-                  : tr('需要开发或管理员权限', 'Requires developer or admin role')
-              }
-            >
-              <Chip tone="info">{tr('只读', 'read-only')}</Chip>
-            </Hint>
           )}
         </div>
       </td>
@@ -516,6 +524,13 @@ export function ClassBadge({ value }: { value: SkillClass }) {
   return <StatusPill tone={meta.tone} label={tr(meta.zh, meta.en)} />;
 }
 
+/** 来源胶囊：内置 / 新建 / ZIP 导入。 */
+export function OriginBadge({ value }: { value: SkillOrigin }) {
+  const { tr } = useI18n();
+  const meta = ORIGIN_META[value];
+  return <StatusPill tone={meta.tone} label={tr(meta.zh, meta.en)} />;
+}
+
 // SkillDetailModal — 技能包详情：frontmatter 字段 + 完整体检 + 三类资源清单。
 function SkillDetailModal({
   skill,
@@ -531,7 +546,8 @@ function SkillDetailModal({
   onExport(): void;
 }) {
   const { tr } = useI18n();
-  const editable = canMutate && skill.source === 'user';
+  const origin = skillOrigin(skill);
+  const editable = canMutate && origin !== 'builtin';
   const fileGroups = [
     { kind: 'references', label: tr('参考资料 references/', 'References references/'), files: skill.references ?? [] },
     { kind: 'assets', label: tr('素材 assets/', 'Assets assets/'), files: skill.assets ?? [] },
@@ -547,9 +563,11 @@ function SkillDetailModal({
       footer={
         <>
           <span className="mr-auto text-[11px] text-zinc-500">
-            {skill.source === 'disk'
-              ? tr('内置技能：随 backend/skills 发布', 'Built-in skill: shipped under backend/skills')
-              : tr('自定义技能：存于数据库，可编辑', 'Custom skill: stored in the database, editable')}
+            {origin === 'builtin'
+              ? tr('内置技能：随 backend/skills 发布，不可编辑', 'Built-in skill: shipped under backend/skills, not editable')
+              : origin === 'imported'
+                ? tr('ZIP 导入技能：存于数据库，可编辑', 'Imported skill: stored in the database, editable')
+                : tr('新建技能：存于数据库，可编辑', 'Created skill: stored in the database, editable')}
           </span>
           <Button variant="ghost" onClick={onExport}>
             {tr('导出 ZIP', 'Export ZIP')}
@@ -561,7 +579,8 @@ function SkillDetailModal({
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <ClassBadge value={skill.class} />
-          {skill.category && <Chip>{skill.category}</Chip>}
+          <OriginBadge value={origin} />
+          {skill.group && <Chip>{skill.group}</Chip>}
           {skill.inject_state && <Chip tone="accent">adk_inject_state</Chip>}
           <span className="ml-auto font-mono text-[11px] text-zinc-500">{skill.key}</span>
         </div>
@@ -572,17 +591,9 @@ function SkillDetailModal({
           </div>
         </DetailSection>
 
-        {(skill.license || skill.compatibility || skill.preapproved_tools) && (
+        {skill.preapproved_tools && (
           <DetailSection title={tr('frontmatter', 'Frontmatter')}>
             <dl className="grid grid-cols-1 gap-2 text-[12px] md:grid-cols-3">
-              <div>
-                <dt className="text-[11px] text-zinc-500">license</dt>
-                <dd className="font-mono text-zinc-300">{skill.license || '—'}</dd>
-              </div>
-              <div>
-                <dt className="text-[11px] text-zinc-500">compatibility</dt>
-                <dd className="text-zinc-300">{skill.compatibility || '—'}</dd>
-              </div>
               <div>
                 <dt className="text-[11px] text-zinc-500">allowed-tools</dt>
                 <dd className="font-mono text-zinc-300">{skill.preapproved_tools || '—'}</dd>

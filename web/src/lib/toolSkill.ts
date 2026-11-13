@@ -2,18 +2,30 @@
 //
 // A "skill" here is the organising layer above atomic tools (the node /
 // execution model is unchanged). Both the workflow tool palette and the
-// Skills page group by these helpers — there is no separate "category" /
-// CATEGORY_ORDER concept anymore.
+// Skills page group by these helpers.
 //
 // A group is one of:
-//   - a curated built-in skill (7 of them), keyed by the tool's WIRE name;
+//   - a curated built-in skill group (observe / device / fleet / …),
+//     keyed by the tool's WIRE name;
 //   - an MCP server: each server is its own group (tag "mcp");
-//   - a SKILL.md extension pack (category === "skill"): its own group (tag
-//     "ext").
+//   - a SKILL.md extension pack: its own group (tag "ext").
 // Everything maps to a real group. "other" is reserved for cross-cutting write
 // or specialty tools that do not belong to a read-oriented built-in group.
+//
+// 技能（SKILL.md）不再靠正则猜分组：后端给固定枚举的 group 字段，
+// 技能目录页直接用它；只有内置工具仍按 wire 名归类。
 
-export const SKILL_ORDER = ['observe', 'device', 'fleet', 'incident', 'knowledge', 'messaging', 'cloud', 'other'] as const;
+export const SKILL_ORDER = [
+  'observe',
+  'device',
+  'fleet',
+  'incident',
+  'knowledge',
+  'messaging',
+  'cloud',
+  'chart',
+  'other',
+] as const;
 
 const SKILL_LABEL: Record<string, { zh: string; en: string }> = {
   observe: { zh: '观测', en: 'Observability' },
@@ -23,19 +35,19 @@ const SKILL_LABEL: Record<string, { zh: string; en: string }> = {
   knowledge: { zh: '知识', en: 'Knowledge' },
   messaging: { zh: '消息', en: 'Messaging' },
   cloud: { zh: '云端管理', en: 'Cloud' },
+  chart: { zh: '可视化', en: 'Visualization' },
   other: { zh: '其他', en: 'Other' },
 };
 
 // toolGroupKey returns the group key for a tool. `wire` is the wire name (the
 // tool's `key` on the Skills page, or FlowToolMeta.name on the palette — both
-// are the unsanitized identifier). source/category are optional (the Skills
-// page has them; the flow palette doesn't).
-export function toolGroupKey(wire: string, source?: string, category?: string): string {
+// are the unsanitized identifier). source is optional (the Skills page has it;
+// the flow palette doesn't).
+export function toolGroupKey(wire: string, source?: string): string {
   if (wire.startsWith('mcp__') || source === 'mcp') {
     const server = wire.startsWith('mcp__') ? wire.split('__')[1] || 'mcp' : 'mcp';
     return 'mcp:' + server;
   }
-  if (category === 'skill') return 'skill:' + wire; // a SKILL.md pack = its own group
   if (/^(get_)?host_/.test(wire) || wire.includes('restart_service')) return 'device';
   if (
     /^query_(promql|logql|traceql)$/.test(wire) ||
@@ -55,7 +67,7 @@ export function toolGroupKey(wire: string, source?: string, category?: string): 
 }
 
 // groupTag returns the type badge for a group key: 'mcp' for MCP servers,
-// 'ext' for extension packs, '' for built-in skills.
+// 'ext' for extension packs, '' for built-in skill groups.
 export function groupTag(key: string): '' | 'mcp' | 'ext' {
   if (key.startsWith('mcp:')) return 'mcp';
   if (key.startsWith('skill:')) return 'ext';

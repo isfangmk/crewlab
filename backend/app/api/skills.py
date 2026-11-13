@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
 from app.schemas.skill import SkillPayloadIn
-from app.services import skill_bundle, skills_service
+from app.services import skill_bundle, skill_groups, skills_service
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
 from app.services.skill_bundle import RISK_LEVELS, SkillPayload
@@ -31,8 +31,6 @@ def _payload_from_in(body: SkillPayloadIn) -> SkillPayload:
         key=body.key,
         description=body.description,
         instructions=body.instructions,
-        license=body.license,
-        compatibility=body.compatibility,
         preapproved_tools=body.preapproved_tools,
         metadata=metadata,
         references=skill_bundle.files_from_wire([f.model_dump() for f in body.references]),
@@ -46,16 +44,14 @@ def _preview_payload(payload: SkillPayload) -> dict:
 
     meta = payload.metadata
     risk = meta.get("risk")
-    category = meta.get("category")
+    group = meta.get("group")
     return {
         "key": payload.key,
         "description": payload.description,
         "instructions": payload.instructions,
-        "license": payload.license,
-        "compatibility": payload.compatibility,
         "preapproved_tools": payload.preapproved_tools,
         "risk": risk if isinstance(risk, str) and risk in RISK_LEVELS else None,
-        "category": category if isinstance(category, str) and category != "" else None,
+        "group": group if isinstance(group, str) and group != "" else None,
         "tools": payload.declared_tools(),
         "inject_state": payload.inject_state(),
         "references": skills_service._resource_wire(payload.references, False),
@@ -76,6 +72,15 @@ async def list_skills(
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"items": items, "total": len(items)}
+
+
+@router.get("/skills/groups")
+async def list_skill_groups(
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    """技能分组目录：固定枚举，前端按 key 渲染筛选条与分组标题。"""
+
+    return {"groups": skill_groups.skill_group_wire()}
 
 
 @router.get("/skills/{key}")
@@ -101,7 +106,7 @@ async def create_skill(
     payload = _payload_from_in(body)
     try:
         row = await skills_service.create_user_skill(
-            db, payload, risk=body.risk, category=body.category
+            db, payload, risk=body.risk, group=body.group
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -114,7 +119,7 @@ async def create_skill(
         resource_id=row.key,
         detail={
             "risk": row.risk,
-            "category": row.category,
+            "group": row.skill_group,
             "tools": payload.declared_tools(),
             "references": len(payload.references),
             "assets": len(payload.assets),
@@ -134,7 +139,7 @@ async def update_skill(
     payload = _payload_from_in(body)
     try:
         row = await skills_service.update_user_skill(
-            db, key, payload, risk=body.risk, category=body.category
+            db, key, payload, risk=body.risk, group=body.group
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -147,7 +152,7 @@ async def update_skill(
         resource_id=row.key,
         detail={
             "risk": row.risk,
-            "category": row.category,
+            "group": row.skill_group,
             "tools": payload.declared_tools(),
             "references": len(payload.references),
             "assets": len(payload.assets),
@@ -205,11 +210,11 @@ async def parse_skill_zip(
 async def import_skill_zip(
     file: UploadFile = File(...),
     risk: str | None = Form(None),
-    category: str | None = Form(None),
+    group: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
-    """导入 zip 技能包；risk/category 以包内 metadata 为准，缺失时必须显式给出。"""
+    """导入 zip 技能包；risk/group 以包内 metadata 为准，缺失时必须显式给出。"""
 
     if file.filename is None or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="仅支持 .zip 技能包")
@@ -221,22 +226,21 @@ async def import_skill_zip(
 
     meta = payload.metadata
     resolved_risk = meta.get("risk") if isinstance(meta.get("risk"), str) else risk
-    resolved_category = (
-        meta.get("category") if isinstance(meta.get("category"), str) else category
-    )
+    resolved_group = meta.get("group") if isinstance(meta.get("group"), str) else group
     if resolved_risk is None or resolved_risk == "":
         raise HTTPException(status_code=400, detail="技能包未声明风险等级，请在导入时选择")
-    if resolved_category is None or resolved_category == "":
-        raise HTTPException(status_code=400, detail="技能包未声明分类，请在导入时填写")
+    if resolved_group is None or resolved_group == "":
+        raise HTTPException(status_code=400, detail="技能包未声明分组，请在导入时选择")
 
     try:
         row = await skills_service.create_user_skill(
             db,
             payload,
             risk=str(resolved_risk),
-            category=str(resolved_category),
+            group=str(resolved_group),
             # 第三方技能包允许声明平台暂未实现的工具，与磁盘技能同口径
             forbid_unknown_tools=False,
+            origin="imported",
         )
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -256,7 +260,7 @@ async def import_skill_zip(
         detail={
             "filename": file.filename,
             "risk": row.risk,
-            "category": row.category,
+            "group": row.skill_group,
             "tools": payload.declared_tools(),
             "references": len(payload.references),
             "assets": len(payload.assets),
@@ -314,7 +318,7 @@ async def reload_skills(
         detail={
             "total": len(items),
             "disk": len(disk_items),
-            "categories": sorted({str(i.get("category")) for i in items}),
+            "groups": sorted({str(i.get("group")) for i in items}),
         },
     )
     return {"items": items, "total": len(items)}

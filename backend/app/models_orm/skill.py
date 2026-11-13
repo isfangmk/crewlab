@@ -14,8 +14,8 @@ class UserSkill(Base):
     """用户创建的技能；内置磁盘技能（backend/skills）不落库。
 
     字段与 ADK 的 Skill 模型一一对应：
-      - frontmatter 的 name/description/license/compatibility/allowed-tools 拆列存，
-        便于列表筛选；metadata 与其它扩展字段落 metadata_json。
+      - frontmatter 的 name/description/allowed-tools 拆列存，便于列表筛选；
+        metadata 与其它扩展字段落 metadata_json。
       - SKILL.md 正文（L2 指令）落 instructions。
       - references/ assets/ scripts/（L3 资源）按「相对路径 → 内容」存 JSON；
         assets 允许二进制，统一 base64。
@@ -25,18 +25,22 @@ class UserSkill(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
-    license: Mapped[str] = mapped_column(String(128), nullable=False, default="", server_default="")
-    compatibility: Mapped[str] = mapped_column(
-        String(512), nullable=False, default="", server_default=""
-    )
     # frontmatter 的 allowed-tools（ADK 实验字段，空格分隔；本平台不据此放行审批）
     preapproved_tools: Mapped[str] = mapped_column(
         String(1024), nullable=False, default="", server_default=""
     )
     # 平台侧风险等级（safe / mutating / dangerous），ADK 规范外、本平台新增
     risk: Mapped[str] = mapped_column(String(16), nullable=False)
-    # 平台侧分类（主机 / 网络 / 知识 …），同上
-    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    # 平台侧分组（内置工具同一套分组语义），驱动技能目录页的筛选条与分组表。
+    # 列名用 skill_group：group 是 PostgreSQL 保留字。
+    skill_group: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="other", server_default="other"
+    )
+    # 来源类型：created = 平台内新建；imported = zip 导入。
+    # 内置磁盘技能不落库，来源由目录推断为 builtin。
+    origin: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="created", server_default="created"
+    )
     # SKILL.md 正文（frontmatter 之后的 Markdown）
     instructions: Mapped[str] = mapped_column(Text, nullable=False)
     # frontmatter.metadata：adk_additional_tools / adk_inject_state 等

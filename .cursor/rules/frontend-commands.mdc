@@ -1,0 +1,65 @@
+---
+description: 前端改动口径：先读 UI 规范、复用全局原语（Toast / ConfirmDialog / RowAction）、详情只点名称、只跑改动的测试
+alwaysApply: true
+---
+
+# 前端改动口径
+
+## 改前端前必须先读 UI 规范
+
+```powershell
+Get-Content docs\UI设计规范.md
+```
+
+- `docs/UI设计规范.md` 是前端唯一权威口径（v1.1）。**动手改任何前端文件之前必须先读它**，
+  尤其是「组件清单」「行内操作按钮」「列表页行内动作间距」几节。
+- 不许凭印象改样式：字阶、行高、间距、颜色一律查规范里已有的档位，
+  规范没写的才允许新增，且新增要能说清为什么。
+- 规范与代码冲突时，以规范为准并顺手把代码改齐。
+
+## 复用全局原语，禁止自己重写
+
+规范第 4 节列的原语是全站唯一实现，**禁止在页面里自己写同款**：
+
+| 场景 | 必须用 | 禁止自己写 |
+| --- | --- | --- |
+| 操作成功 / 失败轻提示 | `Toast`（`@/components/ui`） | 自写绿色横幅、`window.alert`、`notice` 状态条 |
+| 破坏性操作二次确认 | `ConfirmDialog`（`components/ConfirmDialog.tsx`） | `window.confirm` |
+| 行内文字动作 / 纯图标动作 | `RowAction` / `RowActionIcon` | 手写 `h-7 px-2` 按钮 |
+| 列表容器 / 空状态 / 详情分组 | `TableCard` / `EmptyStateCard` / `DetailSection` | 自写圆角边框卡 |
+| 详情弹窗 | `Modal` | 自写遮罩层 |
+| JSON / payload 展示 | `CodeBlock` | `<pre>` |
+| 状态 / 分类语义 | `StatusPill` / `Chip` | 硬编码 `emerald-400` 等颜色 |
+
+- `Toast` 的语气用 `tone`：`ok` / `err`；统一在页面根部渲染 `{toast !== null && <Toast ... />}`，
+  配合 `useTimeout` 自动清理（卸载后不对已卸载组件 setState）。
+- Toast 的文案要短、要带对象名（例：`已导出 chart-builder.zip`），不要塞长错误堆栈。
+
+## 详情弹窗入口统一：只点名称
+
+- 列表行的**名称是唯一打开详情的入口**，渲染成 `<button>`，行本身不响应点击。
+  - 名称按钮：`text-[12.5px] text-zinc-200 transition-colors hover:text-indigo-300`。
+  - 行去掉 `cursor-pointer` 与行级 `onClick`。
+- 卡片（助理页）同理：卡片本身可点，但行内操作按钮必须 `e.stopPropagation()`。
+- 同页不要同时存在「整行可点」和「详情按钮」两种入口——二选一，全站取「点名称」。
+- 行内动作区的按钮要么只有动作、要么只放 `RowAction`，不要一边放「详情」按钮
+  一边又让整行可点。
+
+## 列表页信息层级
+
+- 一行最多两层信息：主信息一行（名称 + 标识胶囊），元信息一行（路径 / 参数数 / 工具数）。
+- 列宽用 `COL` 档位，不自己定像素；描述列当截断吸收体（`w-full max-w-0` + `truncate`）。
+- 筛选收进一张 `FilterBar`；计数用 11px 次要文字。
+
+## 测试口径
+
+- **只跑改动到的测试**，不要每次全量跑：`npx vitest run src/pages/<改动的页面>.test.tsx`。
+- 类型检查：`npx tsc -b --noEmit`（仓库的 `web` 目录执行）。
+- 改了交互就补断言：例如「只有名称可点开详情」，测试要断言
+  `getByRole('button', { name: '<名称>' })` 能打开，而不是靠点文本冒泡到行。
+
+## 中文注释
+
+- 前端注释一律中文，只说明**做什么**、**为什么**。
+- 禁止写用户提示词原文、修改场景描述、聊天上下文、临时排障过程。
+- 注释里的英文只允许出现在标识符、协议名、第三方 API 名上。

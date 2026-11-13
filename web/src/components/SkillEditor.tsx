@@ -26,9 +26,12 @@ import {
   createSkill,
   getSkill,
   importSkillZip,
+  listSkillGroups,
   parseSkillZip,
   updateSkill,
   type SkillClass,
+  type SkillGroup,
+  type SkillGroupMeta,
   type SkillPayloadInput,
   type SkillSummary,
   type SkillZipPreview,
@@ -125,9 +128,8 @@ export function SkillEditor({
   const [key, setKey] = useState('');
   const [description, setDescription] = useState('');
   const [risk, setRisk] = useState<SkillClass>('safe');
-  const [category, setCategory] = useState('');
-  const [license, setLicense] = useState('');
-  const [compatibility, setCompatibility] = useState('');
+  const [group, setGroup] = useState<SkillGroup>('other');
+  const [groupOptions, setGroupOptions] = useState<SkillGroupMeta[]>([]);
   const [instructions, setInstructions] = useState('');
   const [tools, setTools] = useState<string[]>([]);
   const [injectState, setInjectState] = useState(false);
@@ -174,6 +176,13 @@ export function SkillEditor({
       .catch((e: Error) => setErr(e.message));
   }, []);
 
+  // 分组选项来自后端枚举，编辑器的下拉与目录页筛选用同一份数据
+  useEffect(() => {
+    void listSkillGroups()
+      .then((res) => setGroupOptions(res.groups ?? []))
+      .catch((e: Error) => setErr(e.message));
+  }, []);
+
   useEffect(() => {
     if (mode !== 'edit') return;
     if (existingKey === undefined || existingKey === '') {
@@ -188,9 +197,7 @@ export function SkillEditor({
         setKey(skill.key);
         setDescription(skill.description);
         setRisk(skill.class);
-        setCategory(skill.category ?? '');
-        setLicense(skill.license ?? '');
-        setCompatibility(skill.compatibility ?? '');
+        setGroup(skill.group ?? 'other');
         setInstructions(skill.instructions ?? '');
         setTools(skill.tools ?? []);
         setInjectState(skill.inject_state === true);
@@ -251,18 +258,16 @@ export function SkillEditor({
       key: key.trim(),
       description: description.trim(),
       instructions,
-      license: license.trim(),
-      compatibility: compatibility.trim(),
       preapproved_tools: '',
       risk,
-      category: category.trim(),
+      group,
       tools,
       inject_state: injectState,
       references: toWire('references'),
       assets: toWire('assets'),
       scripts: toWire('scripts'),
     };
-  }, [key, description, instructions, license, compatibility, risk, category, tools, injectState, files]);
+  }, [key, description, instructions, risk, group, tools, injectState, files]);
 
   const submit = async () => {
     setErr(null);
@@ -390,35 +395,19 @@ export function SkillEditor({
                   ))}
                 </Select>
               </Field>
-              <Field label={tr('分类', 'Category')} required>
-                <Input
-                  type="text"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  placeholder={tr('知识 / 主机 / 网络…', 'Knowledge / Host / Network…')}
+              <Field label={tr('分组', 'Group')} required>
+                <Select
+                  label={tr('分组', 'Group')}
+                  value={group}
+                  onValueChange={(v) => setGroup(v as SkillGroup)}
                   className="w-full"
-                  maxLength={64}
-                />
-              </Field>
-              <Field label={tr('许可 license', 'License')}>
-                <Input
-                  type="text"
-                  value={license}
-                  onChange={(e) => setLicense(e.target.value)}
-                  placeholder="MIT"
-                  className="w-full"
-                  maxLength={128}
-                />
-              </Field>
-              <Field label={tr('兼容性 compatibility', 'Compatibility')}>
-                <Input
-                  type="text"
-                  value={compatibility}
-                  onChange={(e) => setCompatibility(e.target.value)}
-                  placeholder={tr('需要 python3', 'Requires python3')}
-                  className="w-full"
-                  maxLength={512}
-                />
+                >
+                  {groupOptions.map((g) => (
+                    <option key={g.key} value={g.key}>
+                      {tr(g.title, g.title_en)}
+                    </option>
+                  ))}
+                </Select>
               </Field>
             </div>
 
@@ -636,16 +625,24 @@ function Field({
   );
 }
 
-/** 导入弹窗：先解析预览，再补 risk/category 落库。 */
+/** 导入弹窗：先解析预览，再补 risk/group 落库。 */
 export function SkillImportDialog({ onClose, onImported }: { onClose(): void; onImported(): void }) {
   const { tr } = useI18n();
   const [file, setFile] = useState<File | null>(null);
   const [risk, setRisk] = useState<SkillClass>('safe');
-  const [category, setCategory] = useState('');
+  const [group, setGroup] = useState<SkillGroup>('other');
+  const [groupOptions, setGroupOptions] = useState<SkillGroupMeta[]>([]);
   const [preview, setPreview] = useState<SkillZipPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // 分组选项来自后端枚举，与编辑器共用同一份数据
+  useEffect(() => {
+    void listSkillGroups()
+      .then((res) => setGroupOptions(res.groups ?? []))
+      .catch((e: Error) => setErr(e.message));
+  }, []);
 
   const onPick = async (picked: File | null) => {
     if (picked === null) return;
@@ -656,7 +653,7 @@ export function SkillImportDialog({ onClose, onImported }: { onClose(): void; on
       const p = await parseSkillZip(picked);
       setPreview(p);
       if (p.risk !== null) setRisk(p.risk);
-      if (p.category !== null) setCategory(p.category);
+      if (p.group !== null) setGroup(p.group);
     } catch (e) {
       setPreview(null);
       setErr(errorText(e));
@@ -670,10 +667,7 @@ export function SkillImportDialog({ onClose, onImported }: { onClose(): void; on
     setBusy(true);
     setErr(null);
     try {
-      await importSkillZip(file, {
-        risk,
-        ...(category.trim() !== '' ? { category: category.trim() } : {}),
-      });
+      await importSkillZip(file, { risk, group });
       onImported();
     } catch (e) {
       setErr(errorText(e));
@@ -762,15 +756,19 @@ export function SkillImportDialog({ onClose, onImported }: { onClose(): void; on
                   ))}
                 </Select>
               </Field>
-              <Field label={tr('分类', 'Category')} required>
-                <Input
-                  type="text"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  placeholder={tr('知识 / 主机 / 网络…', 'Knowledge / Host / Network…')}
+              <Field label={tr('分组', 'Group')} required>
+                <Select
+                  label={tr('分组', 'Group')}
+                  value={group}
+                  onValueChange={(v) => setGroup(v as SkillGroup)}
                   className="w-full"
-                  maxLength={64}
-                />
+                >
+                  {groupOptions.map((g) => (
+                    <option key={g.key} value={g.key}>
+                      {tr(g.title, g.title_en)}
+                    </option>
+                  ))}
+                </Select>
               </Field>
             </div>
           </div>

@@ -39,11 +39,19 @@ export type SearchHit = {
 export type PathRow = { path: string; count: number };
 
 export function listDocs(params?: {
-  source_type?: 'manual' | 'repo';
+  source_type?: DocSource;
   repo_id?: number;
   path?: string;
   path_prefix?: string;
   tag?: string;
+  /** 来源组：true = 只取内置（vault），false = 只取组织文档 */
+  builtin?: boolean;
+  /** 文档标题关键字 */
+  q?: string;
+  /** 更新时间排序方向 */
+  sort_dir?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
 }) {
   const q = new URLSearchParams();
   if (params?.source_type) q.set('source_type', params.source_type);
@@ -51,6 +59,11 @@ export function listDocs(params?: {
   if (params?.path) q.set('path', params.path);
   if (params?.path_prefix) q.set('path_prefix', params.path_prefix);
   if (params?.tag) q.set('tag', params.tag);
+  if (params?.builtin !== undefined) q.set('builtin', String(params.builtin));
+  if (params?.q) q.set('q', params.q);
+  if (params?.sort_dir) q.set('sort_dir', params.sort_dir);
+  if (params?.limit !== undefined) q.set('limit', String(params.limit));
+  if (params?.offset !== undefined) q.set('offset', String(params.offset));
   const qs = q.toString();
   return request<{ items: KnowledgeDoc[]; total: number }>(
     'GET',
@@ -136,8 +149,12 @@ export function scopePreview(input: { paths: string[]; doc_ids: string[] }) {
   return request<ScopePreview>('POST', '/knowledge/scope-preview', input);
 }
 
-export function listPaths() {
-  return request<{ items: PathRow[]; total: number }>('GET', '/knowledge/paths');
+// 目录树聚合：builtin 与文档列表同口径，true 只聚合内置（vault），false 只聚合组织文档
+export function listPaths(builtin?: boolean) {
+  const q = new URLSearchParams();
+  if (builtin !== undefined) q.set('builtin', String(builtin));
+  const qs = q.toString();
+  return request<{ items: PathRow[]; total: number }>('GET', `/knowledge/paths${qs ? `?${qs}` : ''}`);
 }
 
 export function reindexKnowledge() {

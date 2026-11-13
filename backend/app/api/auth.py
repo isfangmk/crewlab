@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin, require_auth
 from app.db import get_db
+from app.models_orm.user import User
 from app.services import auth_service
 from app.services.auth_service import AuthUser
 from app.services.audit_service import write_audit
@@ -46,6 +48,18 @@ class UserOut(BaseModel):
     status: str
 
 
+class UserListOut(BaseModel):
+    items: list[UserOut]
+    total: int
+
+
+class UserOptionOut(BaseModel):
+    """用户下拉选项：只有 id 与邮箱。"""
+
+    id: int
+    email: str
+
+
 @router.post("/auth/login", response_model=LoginResponse)
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> LoginResponse:
     try:
@@ -82,22 +96,55 @@ async def me(user: AuthUser = Depends(require_auth)) -> dict:
     }
 
 
-@router.get("/users", response_model=list[UserOut])
+@router.get("/users", response_model=UserListOut)
 async def list_users(
+    q: str | None = Query(None, max_length=200),
+    role: str | None = Query(None),
+    status: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _admin: AuthUser = Depends(require_admin),
-) -> list[UserOut]:
-    rows = await auth_service.list_users(db)
-    return [
-        UserOut(
-            id=u.id,
-            email=u.email,
-            display_name=u.display_name,
-            role=u.role,
-            status=u.status,
-        )
-        for u in rows
-    ]
+) -> UserListOut:
+    """用户列表：服务端筛选 + 分页，返回 items 与命中总数。"""
+
+    if role is not None and role not in auth_service.known_roles():
+        raise HTTPException(status_code=400, detail=f"role 非法: {role}")
+    if status is not None and status not in ("active", "disabled"):
+        raise HTTPException(status_code=400, detail=f"status 非法: {status}")
+
+    rows, total = await auth_service.list_users(
+        db,
+        q=q if q not in (None, "") else None,
+        role=role,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+    return UserListOut(
+        items=[
+            UserOut(
+                id=u.id,
+                email=u.email,
+                display_name=u.display_name,
+                role=u.role,
+                status=u.status,
+            )
+            for u in rows
+        ],
+        total=total,
+    )
+
+
+@router.get("/users/options", response_model=list[UserOptionOut])
+async def list_user_options(
+    db: AsyncSession = Depends(get_db),
+    _admin: AuthUser = Depends(require_admin),
+) -> list[UserOptionOut]:
+    """用户下拉选项（审计页的操作者筛选）；只给 id 与邮箱，不含角色与状态。"""
+
+    rows = (await db.execute(select(User.id, User.email).order_by(User.email))).all()
+    return [UserOptionOut(id=row.id, email=row.email) for row in rows]
 
 
 @router.post("/users", response_model=UserOut)

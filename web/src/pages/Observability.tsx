@@ -26,6 +26,7 @@ import {
 } from '@/api/observability';
 import {
   Button,
+  COL,
   DetailSection,
   DetailStat,
   DetailStatGrid,
@@ -45,6 +46,7 @@ import {
   StatusPill,
   TableCard,
   TablePager,
+  tableLayout,
 } from '@/components/ui';
 import type { StatusTone } from '@/components/ui/StatusPill';
 import { Modal } from '@/components/Modal';
@@ -678,14 +680,14 @@ export default function ObservabilityPage() {
               />
             }
           >
-              <table className="og-action-table w-full table-fixed text-sm">
+              <table className={tableLayout(50)}>
                 <colgroup>
-                  <col className="w-[7.5rem]" />
-                  <col className="w-[5.5rem]" />
-                  <col />
-                  <col className="w-[7.5rem]" />
-                  <col className="w-[6rem]" />
-                  <col className="w-[10.5rem]" />
+                  <col className={COL.time} />
+                  <col className={COL.tag} />
+                  <col className={COL.main} />
+                  <col className={COL.detail} />
+                  <col className={COL.tag} />
+                  <col className={COL.tag} />
                 </colgroup>
                 <thead>
                   <tr className="whitespace-nowrap border-b border-zinc-800/60 text-[11px] text-zinc-500">

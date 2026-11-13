@@ -76,7 +76,7 @@ def scope_to_wire(scope: KnowledgeScope) -> dict:
     return {"paths": list(scope.paths), "doc_ids": list(scope.doc_ids)}
 
 
-def _path_condition(path: str) -> ColumnElement[bool]:
+def path_condition(path: str) -> ColumnElement[bool]:
     """本级或子级：`p` 与 `p/...`；避免 `网络` 误命中 `网络安全`。"""
 
     return or_(
@@ -90,7 +90,7 @@ def scope_condition(scope: KnowledgeScope | None) -> ColumnElement[bool] | None:
 
     if scope is None or scope.is_empty:
         return None
-    conds: list[ColumnElement[bool]] = [_path_condition(p) for p in scope.paths]
+    conds: list[ColumnElement[bool]] = [path_condition(p) for p in scope.paths]
     if len(scope.doc_ids) > 0:
         conds.append(KnowledgeDoc.id.in_(list(scope.doc_ids)))
     return or_(*conds)
@@ -110,7 +110,7 @@ async def scope_preview(db: AsyncSession, scope: KnowledgeScope) -> dict:
     matched_paths: list[dict] = []
     unknown_paths: list[str] = []
     for path in scope.paths:
-        count = await _count_docs(db, _path_condition(path))
+        count = await _count_docs(db, path_condition(path))
         if count == 0:
             unknown_paths.append(path)
             continue

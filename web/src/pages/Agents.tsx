@@ -174,7 +174,10 @@ export default function AgentsPage() {
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">
       <PageHeader
         title={tr('助理', 'Assistants')}
-        subtitle={tr(`AI 助理库 · 共 ${items.length} 个，已匹配 ${filtered.length}`, `AI assistant library · ${items.length} total, ${filtered.length} matched`)}
+        subtitle={tr(
+          '预设的对话角色：绑定工具、技能与知识范围，可在对话中按需切换',
+          'Preset personas: bound tools, skills and knowledge scope; switchable per conversation',
+        )}
         actions={
           <>
             <RowAction

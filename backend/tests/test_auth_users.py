@@ -138,7 +138,9 @@ async def test_update_role_reset_password_and_delete_user(
         })).status_code == 401
         listed = await client.get("/api/v1/users", headers=headers)
         assert listed.status_code == 200
-        assert all(item["id"] != user_id for item in listed.json())
+        listed_body = listed.json()
+        assert "items" in listed_body and "total" in listed_body, listed.text
+        assert all(item["id"] != user_id for item in listed_body["items"])
 
         # 三个动作都写入审计，且 detail 带可供排查的标识。
         for action in ("user.role", "user.password_reset", "user.delete"):
@@ -204,3 +206,89 @@ async def test_user_management_guardrails(env: dict[str, str], api_base: str) ->
             assert empty_password.status_code == 422
         finally:
             await client.delete(f"/api/v1/users/{user_id}", headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_user_list_filters_and_paginates(env: dict[str, str], api_base: str) -> None:
+    """用户列表按服务端筛选与分页返回 items 与命中总数。"""
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=60.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 建 3 个可辨识的账号，筛选结果必须只含目标账号
+        created_ids: list[int] = []
+        try:
+            for idx in range(3):
+                email = f"page_{idx}_{uuid.uuid4().hex[:8]}@local"
+                created = await client.post(
+                    "/api/v1/users",
+                    headers=headers,
+                    json={
+                        "email": email,
+                        "display_name": f"Page Target {idx}",
+                        "password": "page-pass-123",
+                        "role": "viewer",
+                    },
+                )
+                assert created.status_code == 200, created.text
+                created_ids.append(created.json()["id"])
+
+            # 关键字筛选：命中邮箱或显示名
+            by_keyword = await client.get(
+                "/api/v1/users", headers=headers, params={"q": "Page Target 1"}
+            )
+            assert by_keyword.status_code == 200, by_keyword.text
+            body = by_keyword.json()
+            assert body["total"] == 1, body
+            assert body["items"][0]["display_name"] == "Page Target 1"
+
+            # 角色筛选：只返回 viewer
+            by_role = await client.get(
+                "/api/v1/users", headers=headers, params={"role": "viewer", "limit": 100}
+            )
+            assert by_role.status_code == 200, by_role.text
+            role_body = by_role.json()
+            assert role_body["total"] >= 3, role_body
+            assert all(item["role"] == "viewer" for item in role_body["items"])
+
+            # 状态筛选与分页：limit 截断、offset 翻页，total 是命中总数而非本页条数
+            first_page = await client.get(
+                "/api/v1/users", headers=headers, params={"limit": 2, "offset": 0}
+            )
+            assert first_page.status_code == 200, first_page.text
+            first_body = first_page.json()
+            assert len(first_body["items"]) == 2, first_body
+            assert first_body["total"] >= 2, first_body
+
+            second_page = await client.get(
+                "/api/v1/users", headers=headers, params={"limit": 2, "offset": 2}
+            )
+            assert second_page.status_code == 200, second_page.text
+            second_body = second_page.json()
+            assert len(second_body["items"]) == 2, second_body
+            first_ids = {item["id"] for item in first_body["items"]}
+            second_ids = {item["id"] for item in second_body["items"]}
+            assert first_ids.isdisjoint(second_ids), (first_body, second_body)
+
+            # 非法筛选值显式拒绝
+            bad_role = await client.get(
+                "/api/v1/users", headers=headers, params={"role": "owner"}
+            )
+            assert bad_role.status_code == 400, bad_role.text
+            bad_status = await client.get(
+                "/api/v1/users", headers=headers, params={"status": "paused"}
+            )
+            assert bad_status.status_code == 400, bad_status.text
+
+            # 下拉选项：只返回 id 与邮箱
+            options = await client.get("/api/v1/users/options", headers=headers)
+            assert options.status_code == 200, options.text
+            option_rows = options.json()
+            assert option_rows, options.text
+            assert set(option_rows[0].keys()) == {"id", "email"}, option_rows
+        finally:
+            for user_id in created_ids:
+                await client.delete(f"/api/v1/users/{user_id}", headers=headers)

@@ -56,8 +56,6 @@ class SkillPayload:
     key: str
     description: str
     instructions: str
-    license: str = ""
-    compatibility: str = ""
     # frontmatter 的 allowed-tools 原样保存（空格分隔）
     preapproved_tools: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -218,8 +216,6 @@ def payload_from_skill_md(
         key=frontmatter.name,
         description=frontmatter.description,
         instructions=body,
-        license=frontmatter.license or "",
-        compatibility=frontmatter.compatibility or "",
         preapproved_tools=frontmatter.allowed_tools or "",
         metadata=dict(frontmatter.metadata),
         references=dict(references or {}),
@@ -267,8 +263,6 @@ def payload_from_zip(raw: bytes) -> SkillPayload:
         key=skill.frontmatter.name,
         description=skill.frontmatter.description,
         instructions=skill.instructions,
-        license=skill.frontmatter.license or "",
-        compatibility=skill.frontmatter.compatibility or "",
         preapproved_tools=skill.frontmatter.allowed_tools or "",
         metadata=dict(skill.frontmatter.metadata),
         references=dict(skill.resources.references),
@@ -284,10 +278,6 @@ def build_skill_md(payload: SkillPayload) -> str:
         "name": payload.key,
         "description": payload.description,
     }
-    if payload.license != "":
-        front["license"] = payload.license
-    if payload.compatibility != "":
-        front["compatibility"] = payload.compatibility
     if payload.preapproved_tools != "":
         front["allowed-tools"] = payload.preapproved_tools
     if payload.metadata:
@@ -321,10 +311,6 @@ def payload_to_skill(payload: SkillPayload) -> Skill:
         "description": payload.description,
         "metadata": payload.metadata,
     }
-    if payload.license != "":
-        front["license"] = payload.license
-    if payload.compatibility != "":
-        front["compatibility"] = payload.compatibility
     if payload.preapproved_tools != "":
         front["allowed-tools"] = payload.preapproved_tools
     frontmatter = Frontmatter.model_validate(front)

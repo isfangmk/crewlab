@@ -34,7 +34,7 @@ def _skill(tools: list[str]) -> Skill:
             description="用 MCP 工具查主机负载",
             metadata={
                 "risk": "safe",
-                "category": "运维",
+                "group": "device",
                 "adk_additional_tools": tools,
             },
         ),
@@ -62,7 +62,7 @@ def _ref(*, available: bool = True) -> McpToolRef:
 
 
 def test_wire_exposes_mcp_tool_with_schema_params() -> None:
-    entry = SkillEntry(skill=_skill([_WIRE]), source="user")
+    entry = SkillEntry(skill=_skill([_WIRE]), source="user", origin="created")
     out = skill_to_wire(entry, mcp_tools={_WIRE: _ref()})
 
     assert out["tools"] == [_WIRE]
@@ -86,7 +86,7 @@ def test_wire_exposes_mcp_tool_with_schema_params() -> None:
 
 
 def test_disabled_server_marks_skill_inventory_only() -> None:
-    entry = SkillEntry(skill=_skill([_WIRE]), source="user")
+    entry = SkillEntry(skill=_skill([_WIRE]), source="user", origin="created")
     out = skill_to_wire(entry, mcp_tools={_WIRE: _ref(available=False)})
 
     assert out["inventory_only"] is True
@@ -95,7 +95,7 @@ def test_disabled_server_marks_skill_inventory_only() -> None:
 
 
 def test_unknown_mcp_tool_is_flagged() -> None:
-    entry = SkillEntry(skill=_skill([_WIRE]), source="user")
+    entry = SkillEntry(skill=_skill([_WIRE]), source="user", origin="created")
     out = skill_to_wire(entry, mcp_tools={})
 
     assert out["inventory_only"] is True

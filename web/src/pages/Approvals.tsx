@@ -3,6 +3,7 @@ import {
   Button,
   Checkbox,
   ChoiceChip,
+  COL,
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
@@ -17,6 +18,7 @@ import {
   TableCard,
   TableHead,
   TablePager,
+  tableLayout,
 } from '@/components/ui';
 import { Clock } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
@@ -573,13 +575,21 @@ export default function ApprovalsPage() {
                 ) : undefined
               }
             >
-              <table className="og-action-table w-full text-sm">
+              <table className={tableLayout(60)}>
+                <colgroup>
+                  <col className={COL.handle} />
+                  <col className={COL.main} />
+                  <col className={COL.tag} />
+                  <col className={COL.tag} />
+                  <col className={COL.time} />
+                  <col className={COL.actions} />
+                </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">
-                    <th scope="col" className="w-[4.25rem] px-2 py-2 text-left font-medium">
+                    <th scope="col" className="px-2 py-2 text-left font-medium">
                       <span className="sr-only">{tr('展开', 'Expand')}</span>
                     </th>
-                    <th scope="col" className="w-full px-3 py-2 text-left font-medium">
+                    <th scope="col" className="px-3 py-2 text-left font-medium">
                       {tr('审批内容', 'Approval')}
                     </th>
                     <th scope="col" className="whitespace-nowrap px-3 py-2 text-left font-medium">

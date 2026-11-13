@@ -1,9 +1,9 @@
-// 中栏：选中节点的详情。
+// 选中节点的详情。
 //
 // 从上到下：人工确认（有就最优先，用户一眼看到要做什么）→ 输入 → 输出 → 错误。
 // 后续节点不在这里列：左栏已经把整条流程按顺序摆好了。
 
-import { useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { Check, ShieldCheck, X } from 'lucide-react';
 import type {
   NodeKind,
@@ -11,9 +11,10 @@ import type {
   WorkflowNode,
   WorkflowNodeRun,
 } from '@/api/workflows';
-import { Button, CodeBlock, Input, StatusPill } from '@/components/ui';
+import { Button, Input, StatusPill } from '@/components/ui';
 import { formatDuration } from '@/components/workflow/RunStatusPill';
 import { RunInputRows } from '@/components/workflow/RunInputRows';
+import { RunValueBlock, jsonText, useEmptyText } from '@/components/workflow/RunValueBlock';
 import { iconOf, kindTitle, toneOf } from '@/lib/workflowMeta';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
@@ -117,9 +118,13 @@ export function RunNodeDetail({
             <DetailBlock
               title={tr('输出', 'Output')}
               extra={outputExtra(record?.output ?? '', tr)}
-              copyText={outputText(record?.output ?? '')}
             >
-              <OutputBox value={record?.output ?? ''} running={record?.status === 'running'} />
+              <OutputBox
+                value={record?.output ?? ''}
+                running={record?.status === 'running'}
+                // 字段名用工作流给这个节点定的输出变量名，没有就用节点名
+                label={outputLabel(definition, record, nodeId)}
+              />
             </DetailBlock>
 
             {record !== null && record.error !== '' && (
@@ -211,32 +216,16 @@ function GateInline({
   );
 }
 
-/** 中栏分节标题：左边小标题，右边是数量/长度胶囊，可选复制按钮。 */
+/** 分节标题：左边小标题，右边是数量/长度胶囊。 */
 function DetailBlock({
   title,
   extra,
-  copyText,
   children,
 }: {
   title: string;
   extra?: string;
-  copyText?: string;
   children: ReactNode;
 }) {
-  const { tr } = useI18n();
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    if (copyText === undefined || copyText === '') return;
-    try {
-      await navigator.clipboard.writeText(copyText);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // 剪贴板不可用时保持原样，用户可以直接选中文本
-    }
-  };
-
   return (
     <section>
       <div className="mb-1.5 flex items-center gap-1.5">
@@ -246,55 +235,57 @@ function DetailBlock({
             {extra}
           </span>
         )}
-        {copyText !== undefined && copyText !== '' && (
-          <button
-            type="button"
-            onClick={() => void copy()}
-            className="ml-auto rounded px-1.5 text-[9.5px] leading-4 text-text-faint transition-colors hover:bg-zinc-500/10 hover:text-text-muted"
-          >
-            {copied ? tr('已复制', 'Copied') : tr('复制', 'Copy')}
-          </button>
-        )}
       </div>
       {children}
     </section>
   );
 }
 
-function OutputBox({ value, running }: { value: string; running: boolean }) {
+function OutputBox({
+  value,
+  running,
+  label,
+}: {
+  value: string;
+  running: boolean;
+  /** 输出字段名：工作流里给这个节点定的输出变量名。 */
+  label: string;
+}) {
   const { tr } = useI18n();
-  const text = outputText(value);
-  if (text === '') {
+  const empty = useEmptyText();
+  if (value === '') {
     return (
       <div className="rounded-lg border border-dashed border-border/70 px-3 py-3 text-[11px] text-text-faint">
         {running
           ? tr('这一步还在执行，输出跑完即到…', 'Still running; output arrives when done…')
-          : tr('（无输出）', '(no output)')}
+          : empty.noOutput}
       </div>
     );
   }
+  // 输出是整个 JSON 文本，不按字段拆开：拆开后读者要在多个框之间拼上下文。
+  // 字段名在内容框外面，复制按钮与它同行。
   return (
     <div className="overflow-hidden rounded-lg border border-border/60 bg-zinc-950">
-      <div className="flex items-center gap-1.5 border-b border-border/50 bg-zinc-500/[0.06] px-2.5 py-1 font-mono text-[9.5px] text-text-faint">
-        <span className="h-1.5 w-1.5 rounded-full bg-ok/70" aria-hidden />
-        result
-      </div>
-      <CodeBlock maxHeightClassName="max-h-96" className="rounded-none border-0">
-        {text}
-      </CodeBlock>
+      <RunValueBlock label={label} value={jsonText(value)} tone="ok" />
     </div>
   );
 }
 
-/** 节点输出文本：JSON 缩进展示，纯文本原样。 */
-function outputText(raw: string): string {
-  if (raw === '') return '';
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return typeof parsed === 'string' ? parsed : JSON.stringify(parsed, null, 2);
-  } catch {
-    return raw;
-  }
+/**
+ * 输出字段名：优先用工作流定义的输出变量名。
+ *
+ * output_key 是这个节点把结果写进状态用的变量名，读者据此就能在下游节点找到它；
+ * 没有定义（end 节点直接输出整份状态）就退回节点 id。
+ */
+function outputLabel(
+  definition: WorkflowNode | null,
+  record: WorkflowNodeRun | null,
+  nodeId: string,
+): string {
+  const key = definition?.output_key?.trim() ?? '';
+  if (key !== '') return key;
+  const recordKey = record?.node_id?.trim() ?? '';
+  return recordKey !== '' ? recordKey : nodeId;
 }
 
 function inputCountLabel(
@@ -311,7 +302,7 @@ function outputExtra(
   raw: string,
   tr: (zh: string, en: string) => string,
 ): string | undefined {
-  const text = outputText(raw);
+  const text = jsonText(raw);
   if (text === '') return undefined;
   return tr(`${text.length} 字符`, `${text.length} chars`);
 }
@@ -325,7 +316,7 @@ function parseInput(raw: string): unknown {
   }
 }
 
-/** 中栏节点状态口径：待人工优先，其次运行中 / 失败 / 成功 / 未执行。 */
+/** 节点状态口径：待人工优先，其次运行中 / 失败 / 成功 / 未执行。 */
 function detailStatus(
   record: WorkflowNodeRun | null,
   running: boolean,

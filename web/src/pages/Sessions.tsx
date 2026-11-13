@@ -40,6 +40,7 @@ import { AgentBadge } from '@/components/AgentBadge';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Button,
+  COL,
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
@@ -55,6 +56,7 @@ import {
   TableHead,
   TablePager,
   Toast,
+  tableLayout,
 } from '@/components/ui';
 import type { StatusTone } from '@/components/ui/StatusPill';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -983,18 +985,18 @@ export default function SessionsPage() {
                 />
               }
             >
-                <table className="og-action-table w-full min-w-[80rem] table-fixed text-sm">
+                <table className={tableLayout(86)}>
                   <colgroup>
-                    <col className="w-[2.5rem]" />
-                    <col className="w-[12rem]" />
-                    <col className="w-[11rem]" />
-                    <col className="w-[10rem]" />
-                    <col className="w-[7rem]" />
-                    <col className="w-[8rem]" />
-                    <col className="w-[7rem]" />
-                    <col className="w-[10rem]" />
-                    <col className="w-[6rem]" />
-                    <col className="w-[8rem]" />
+                    <col className={COL.handle} />
+                    <col className={COL.main} />
+                    <col className={COL.id} />
+                    <col className={COL.tag} />
+                    <col className={COL.tag} />
+                    <col className={COL.detail} />
+                    <col className={COL.tag} />
+                    <col className={COL.time} />
+                    <col className={COL.tag} />
+                    <col className={COL.actionsIcon} />
                   </colgroup>
                   <TableHead>
                     {table.getHeaderGroups().map((hg) => (
