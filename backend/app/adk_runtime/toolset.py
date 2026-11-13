@@ -10,7 +10,13 @@ import logging
 from google.adk.tools import FunctionTool
 
 from app.services.knowledge_scope import KnowledgeScope
-from app.tools.catalog import builtin_tool_registry, tool_impl, tool_param_specs, workflow_tool_names
+from app.tools.catalog import (
+    builtin_group_names,
+    builtin_tool_registry,
+    tool_impl,
+    tool_param_specs,
+    workflow_tool_names,
+)
 from app.tools.knowledge import query_knowledge, scoped_query_knowledge
 
 logger = logging.getLogger(__name__)
@@ -26,19 +32,22 @@ __all__ = [
 def build_knowledge_tools(scope: KnowledgeScope | None = None) -> list[FunctionTool]:
     """供 SkillToolset.additional_tools 挂载；scope 为空时使用全库检索。
 
-    顺带挂上工作流工具组：它们同样不依赖外部凭证，回答「上次那个工作流
-    跑到哪了、哪一步失败」这类问题时必须能查画布与运行记录。
+    顺带挂上工作流与代码解释器工具组：它们同样不依赖外部凭证——
+    工作流回答「上次跑到哪了」，解释器让模型能真正执行 Python 产出图表与文件。
     """
 
-    workflow_tools = [FunctionTool(tool_impl(name)) for name in workflow_tool_names()]
+    extra_tools = [
+        FunctionTool(tool_impl(name))
+        for name in builtin_group_names("workflow", "code")
+    ]
     if scope is None or scope.is_empty:
-        return [FunctionTool(query_knowledge), *workflow_tools]
+        return [FunctionTool(query_knowledge), *extra_tools]
     logger.info(
         "装配带知识范围的 query_knowledge paths=%s doc_ids=%s",
         list(scope.paths),
         len(scope.doc_ids),
     )
-    return [FunctionTool(scoped_query_knowledge(scope)), *workflow_tools]
+    return [FunctionTool(scoped_query_knowledge(scope)), *extra_tools]
 
 
 def build_builtin_tools() -> list[FunctionTool]:

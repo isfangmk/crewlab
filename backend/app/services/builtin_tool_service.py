@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 # 目录分组由后端提供，前端只按 key 渲染；标题同时给中英文，跟随 UI 语言
 _BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
+    "code": {"title": "代码解释器", "title_en": "Code interpreter"},
     "knowledge": {"title": "知识检索", "title_en": "Knowledge"},
     "search": {"title": "联网搜索", "title_en": "Web search"},
     "workflow": {"title": "工作流", "title_en": "Workflow"},

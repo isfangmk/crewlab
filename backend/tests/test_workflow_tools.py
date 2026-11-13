@@ -101,7 +101,7 @@ def test_groups_use_subject_keys_not_catch_all() -> None:
 
     groups = {spec["group"] for spec in BUILTIN_TOOL_SPECS}
     assert "builtin" not in groups
-    assert groups == {"knowledge", "search", "workflow"}
+    assert groups == {"code", "knowledge", "search", "workflow"}
 
 
 def test_workflow_tools_cover_listing_detail_running_and_results() -> None:

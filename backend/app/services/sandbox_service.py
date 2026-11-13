@@ -74,6 +74,7 @@ HARD_TIMEOUT_GRACE_SECONDS = 30
 SOURCE_SKILL = "skill"
 SOURCE_WORKFLOW = "workflow"
 SOURCE_MANUAL = "manual"
+SOURCE_CHAT = "chat"
 
 # 执行结果状态
 STATUS_SUCCEEDED = "succeeded"

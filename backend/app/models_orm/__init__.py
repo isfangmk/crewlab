@@ -2,6 +2,7 @@
 
 from app.models_orm.agent import UserAgent
 from app.models_orm.approval import Approval
+from app.models_orm.artifact import Artifact
 from app.models_orm.attachment import ChatAttachment
 from app.models_orm.audit import AuditLog
 from app.models_orm.base import Base
@@ -21,6 +22,7 @@ __all__ = [
     "Base",
     "AppSetting",
     "LlmProvider",
+    "Artifact",
     "ChatSession",
     "ChatMessage",
     "ChatAttachment",

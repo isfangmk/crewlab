@@ -30,6 +30,7 @@ import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { SourcesSection, collectToolSources, extractSources } from '@/components/SourcesBlock';
 import { ChartMarkdown } from '@/components/ChartMarkdown';
+import { InterpreterArtifacts, type InterpreterArtifact } from '@/components/InterpreterArtifacts';
 
 export type ConfigDraftResult = {
   kind: 'config_draft';
@@ -397,6 +398,11 @@ function ToolCallSummaryBlock({
   const isError = status === 'error' || status === 'timeout' || !!call.error;
   const hint = argSummary(call.arguments);
   const sources = showSources ? extractSources(call.name, call.result) : [];
+  // 代码解释器的产出物列表：result.artifacts（含 pending 摘要与完整 payload 两种形态）
+  const interpreterArtifacts: InterpreterArtifact[] =
+    call.name === 'run_python' && typeof call.result === 'object' && call.result !== null
+      ? ((call.result as { artifacts?: InterpreterArtifact[] }).artifacts ?? [])
+      : [];
   // 工具结果 status=pending_approval 时，在会话内渲染批准/拒绝卡。
   const approval = pendingApproval(call.result);
   if (approval) {
@@ -446,6 +452,10 @@ function ToolCallSummaryBlock({
           <SourcesSection sources={sources} />
         </div>
       )}
+      {/* 代码解释器的产出物常驻渲染：图表/表格是主要输出，不该藏在展开区里 */}
+      {call.name === 'run_python' &&
+        interpreterArtifacts.length > 0 &&
+        !approval && <InterpreterArtifacts artifacts={interpreterArtifacts} />}
       {configDraft && (
         <ConfigDraftCard draft={configDraft} onConfirm={onConfirmConfigDraft} />
       )}

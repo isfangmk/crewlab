@@ -30,7 +30,7 @@ async function loadECharts(): Promise<EChartsModule> {
   return echartsPromise;
 }
 
-function ChartCanvas({
+export function ChartCanvas({
   option,
   className,
 }: {

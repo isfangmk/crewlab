@@ -27,6 +27,7 @@ from app.services import (
     agent_service,
     approval_service,
     app_settings_service,
+    artifact_service,
     llm_config,
     mcp_service,
     observation_service,
@@ -1170,6 +1171,30 @@ class AdkFramePersister:
                     "error": frame.data["error"],
                 },
             )
+            # 代码解释器等工具的产出物在 tool_end 时落库：
+            # 完整 payload 走进程内暂存（工具侧 remember_pending），
+            # 落库后把瘦身载荷（含 artifact id/payload）写回 tool_card 供前端渲染。
+            if frame.data["name"] == "run_python" and isinstance(
+                frame.data["result"], dict
+            ):
+                saved = await artifact_service.save_from_tool_result(
+                    self._db,
+                    session_id=self._session_id,
+                    tool_call_id=frame.data["tool_call_id"],
+                    tool_name=frame.data["name"],
+                )
+                if saved:
+                    await _update_tool_card(
+                        self._db,
+                        session_id=self._session_id,
+                        tool_call_id=frame.data["tool_call_id"],
+                        patch={
+                            "result": {
+                                **frame.data["result"],
+                                **artifact_service.tool_result_update(saved),
+                            },
+                        },
+                    )
             return
         if frame.event == "approval_pending":
             arguments = frame.data["arguments"]

@@ -9,6 +9,7 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
+from app.tools.code_interpreter import run_python
 from app.tools.knowledge import query_knowledge
 from app.tools.workflow import (
     get_workflow,
@@ -20,6 +21,13 @@ from app.tools.workflow import (
 
 # mount 说明装配时机：always = 随 SkillToolset 始终装配；per_turn = 由对话开关决定
 BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
+    {
+        "name": "run_python",
+        "group": "code",
+        "description": "在沙盒中执行 Python 代码；用 emit_chart/emit_table/emit_file 产出图表、表格与文件",
+        "risk": "safe",
+        "mount": "always",
+    },
     {
         "name": "query_knowledge",
         "group": "knowledge",
@@ -85,6 +93,7 @@ async def _web_search_signature(
 
 # 目录、ADK 装配、技能声明、手动运行都从这一张表取实现，避免多处硬编码工具名
 _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
+    "run_python": run_python,
     "query_knowledge": query_knowledge,
     "web_search": _web_search_signature,
     "list_workflows": list_workflows,
@@ -116,13 +125,22 @@ def workflow_tool_names() -> list[str]:
     return [spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["group"] == "workflow"]
 
 
+def builtin_group_names(*groups: str) -> list[str]:
+    """按分组取工具名（保持声明顺序）；ADK 装配与目录都用它。"""
+
+    return [spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["group"] in groups]
+
+
 def tool_param_specs(func: Any) -> list[dict]:
-    """按函数签名导出参数定义，供目录 / 运行表单渲染。"""
+    """按函数签名导出参数定义，供目录 / 运行表单渲染。
+
+    tool_context 形参由 ADK 按注解注入，不进模型可见 schema，也不进运行表单。
+    """
 
     signature = inspect.signature(func)
     specs: list[dict] = []
     for name, param in signature.parameters.items():
-        if name in ("self", "cls"):
+        if name in ("self", "cls", "tool_context"):
             continue
         if param.kind in (
             inspect.Parameter.VAR_POSITIONAL,

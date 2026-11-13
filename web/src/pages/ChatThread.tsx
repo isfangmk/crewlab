@@ -16,8 +16,9 @@ import {
 } from '@/components/MessageBubble';
 
 import { AgentBadge } from '@/components/AgentBadge';
+import { ArtifactsPanel } from '@/components/ArtifactsPanel';
 
-import { Download, Share2 } from 'lucide-react';
+import { Download, PanelRight, Share2 } from 'lucide-react';
 
 import {
   ErrorBanner, PageHeader, RowAction } from '@/components/ui';
@@ -138,6 +139,10 @@ export default function ChatThreadPage() {
 
   // 是否展开被折叠的较早历史。纯展示状态，切换会话时在下面的 effect 里重置。
   const [showAllHistory, setShowAllHistory] = useState(false);
+
+  // Artifacts 侧栏：开关 + 刷新信号（代码解释器 tool_end 后递增触发重新拉取）
+  const [showArtifacts, setShowArtifacts] = useState(false);
+  const [artifactTick, setArtifactTick] = useState(0);
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -825,6 +830,11 @@ export default function ChatThreadPage() {
               : m,
           ),
         );
+        // 代码解释器执行完成：刷新 Artifacts 侧栏并自动展开
+        if (t.name === 'run_python') {
+          setArtifactTick((v) => v + 1);
+          setShowArtifacts(true);
+        }
       }
     };
     window.addEventListener(CHAT_LIVE_EVENT, onLive);
@@ -1799,7 +1809,9 @@ export default function ChatThreadPage() {
 
     <>
 
-    <main className="flex flex-1 flex-col overflow-hidden">
+    <main className="flex flex-1 flex-row overflow-hidden">
+
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
 
         <PageHeader
 
@@ -1857,6 +1869,20 @@ export default function ChatThreadPage() {
                 >
 
                   {tr('导出', 'Export')}
+
+                </RowAction>
+
+                <RowAction
+
+                  icon={PanelRight}
+
+                  onClick={() => setShowArtifacts((v) => !v)}
+
+                  aria-pressed={showArtifacts}
+
+                >
+
+                  {tr('产出物', 'Artifacts')}
 
                 </RowAction>
 
@@ -2045,6 +2071,22 @@ export default function ChatThreadPage() {
           </div>
 
         </div>
+
+      </div>
+
+      {showArtifacts && sessionId && (
+
+        <ArtifactsPanel
+
+          sessionId={sessionId}
+
+          refreshTick={artifactTick}
+
+          onClose={() => setShowArtifacts(false)}
+
+        />
+
+      )}
 
       </main>
 

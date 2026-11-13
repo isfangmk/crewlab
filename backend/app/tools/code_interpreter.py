@@ -1,0 +1,187 @@
+"""对话内代码解释器：模型生成 Python，沙盒执行，结构化产出物带出。
+
+产出物通过脚本内注入的 emit_* 助手收集，随结果信封（JSON，走 stdout 标记行）
+带回宿主机；payload 会落 artifacts 表，供消息卡与 Artifacts 侧栏渲染。
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+from typing import Any
+
+from app.adk_runtime.workflow_node_impl import SANDBOX_RESULT_MARKER
+from app.services import sandbox_service
+
+# 模型可见的工具描述写在 docstring；这里只放脚本模板。
+# 占位符用 __CODE__/__MARKER__ 替换而不是 str.format：
+# 模板里的 dict 字面量含大括号，format 转义极易写错。
+CHAT_INTERPRETER_TEMPLATE = '''
+import json as _json
+import traceback as _traceback
+
+_ARTIFACTS = []
+
+
+def emit_chart(option, title="图表"):
+    """收集一个 ECharts option（dict），宿主机以图表渲染。"""
+    _ARTIFACTS.append({"kind": "chart", "title": str(title), "mime": "application/json", "payload": option})
+
+
+def emit_table(rows, title="表格"):
+    """收集表格：rows 为 {"columns": [...], "rows": [[...], ...]} 或 list[dict]。"""
+    _ARTIFACTS.append({"kind": "table", "title": str(title), "mime": "application/json", "payload": rows})
+
+
+def emit_file(name, content_b64, mime="application/octet-stream"):
+    """收集文件：内容为 base64 字符串（如 csv/png），宿主机还原字节供下载。"""
+    _ARTIFACTS.append({"kind": "file", "title": str(name), "mime": mime,
+                       "payload": {"name": str(name), "data": str(content_b64)}})
+
+
+_ERROR = ""
+try:
+    _namespace = {"__name__": "__main__", "emit_chart": emit_chart, "emit_table": emit_table,
+                  "emit_file": emit_file}
+    exec(compile(__CODE__, "<chat-interpreter>", "exec"), _namespace, _namespace)
+except BaseException as _exc:  # noqa: BLE001 — 用户代码任意异常都要带回宿主机
+    _ERROR = _traceback.format_exc()
+
+print(__MARKER__ + _json.dumps({"artifacts": _ARTIFACTS, "error": _ERROR},
+                               ensure_ascii=False, default=str))
+'''
+
+_SCRIPT_HEAD = CHAT_INTERPRETER_TEMPLATE.split("__CODE__")[0]
+_SCRIPT_TAIL = CHAT_INTERPRETER_TEMPLATE.split("__MARKER__")[1]
+_SCRIPT_MID = CHAT_INTERPRETER_TEMPLATE.split("__CODE__")[1].split("__MARKER__")[0]
+
+# 工具执行到落库器消费之间的产物资助站（同事件循环内传递，锁只防极端并发）。
+# 有上限：落库器异常时残留条目按先进先出淘汰，内存不无界增长。
+_PENDING_MAX = 64
+_PENDING: dict[str, list[dict[str, Any]]] = {}
+_PENDING_LOCK = threading.Lock()
+
+
+def remember_pending(tool_call_id: str, artifacts: list[dict[str, Any]]) -> None:
+    """把本次执行的产出物按 tool_call_id 暂存，等落库器在 tool_end 帧取走。"""
+
+    with _PENDING_LOCK:
+        if len(_PENDING) >= _PENDING_MAX:
+            oldest = next(iter(_PENDING))
+            del _PENDING[oldest]
+        _PENDING[tool_call_id] = artifacts
+
+
+def take_pending(tool_call_id: str) -> list[dict[str, Any]]:
+    """取走并清除暂存的产出物；没有则返回空列表。"""
+
+    with _PENDING_LOCK:
+        return _PENDING.pop(tool_call_id, [])
+
+
+def _build_chat_script(code: str) -> str:
+    """把模型代码包进解释器脚本：产出经 emit_* 收集，随标记行带回。"""
+
+    return _SCRIPT_HEAD + repr(code) + _SCRIPT_MID + repr(SANDBOX_RESULT_MARKER) + _SCRIPT_TAIL
+
+
+def _parse_chat_payload(stdout: str) -> dict[str, Any]:
+    """从 stdout 取信封；缺失视为脚本未跑完，显式失败。"""
+
+    for line in reversed(stdout.splitlines()):
+        stripped = line.strip()
+        if not stripped.startswith(SANDBOX_RESULT_MARKER):
+            continue
+        raw = stripped[len(SANDBOX_RESULT_MARKER) :]
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"解释器结果解析失败: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError("解释器结果格式非法：不是对象")
+        return payload
+    raise RuntimeError("解释器没有返回结果信封（脚本可能被强制终止）")
+
+
+async def run_python(
+    code: str,
+    purpose: str = "通用计算与数据处理",
+    tool_context: Any = None,
+) -> dict:
+    """在沙盒中执行一段 Python 代码，返回 stdout 摘要与结构化产出物。
+
+    代码里可用 emit_chart(option, title)、emit_table(rows, title)、
+    emit_file(name, content_b64, mime) 三个助手收集图表/表格/文件产出物，
+    它们会保存到会话的 Artifacts 并在消息卡中渲染。
+    code 是普通 Python 顶层代码（不需要定义 run 函数），print 输出会回传。
+    purpose: 这段代码要做什么的一句话说明（会记录在执行与产出物元数据里）。
+    """
+
+    if not isinstance(code, str) or code.strip() == "":
+        raise ValueError("code 不能为空")
+
+    session_id = ""
+    function_call_id = ""
+    if tool_context is not None:
+        session = getattr(tool_context, "session", None)
+        session_id = getattr(session, "id", "") or ""
+        function_call_id = getattr(tool_context, "function_call_id", "") or ""
+
+    script = _build_chat_script(code)
+    result = await sandbox_service.run_code(
+        code=script,
+        ctx=sandbox_service.SandboxContext(
+            source=sandbox_service.SOURCE_CHAT,
+            source_ref=(purpose or "chat")[:120],
+            session_id=session_id,
+        ),
+    )
+
+    payload = _parse_chat_payload(result.stdout)
+    error = payload.get("error", "")
+    artifacts = payload.get("artifacts", [])
+    if not isinstance(artifacts, list):
+        raise RuntimeError("解释器产出的 artifacts 格式非法：不是数组")
+    for index, item in enumerate(artifacts):
+        if not isinstance(item, dict):
+            raise RuntimeError(f"artifacts[{index}] 格式非法：不是对象")
+
+    stdout_lines = result.stdout.splitlines()
+    user_stdout = "\n".join(
+        line for line in stdout_lines if not line.startswith(SANDBOX_RESULT_MARKER)
+    )
+    stdout_tail = user_stdout[-4000:]
+
+    status = result.status
+    if status == "succeeded" and error:
+        status = "failed"
+
+    # 完整 payload 走进程内暂存（按 tool_call_id 由落库器取走），
+    # 不进模型上下文：base64 文件与整份图表 JSON 会白白占用 token。
+    # 手动运行（无 function_call_id）没有落库器，payload 直接进返回值供页面渲染。
+    summary = [
+        {
+            "kind": item.get("kind", "text"),
+            "title": item.get("title", ""),
+            "mime": item.get("mime", "application/json"),
+        }
+        for item in artifacts
+    ]
+    if function_call_id:
+        remember_pending(function_call_id, artifacts)
+        for item in summary:
+            item["pending"] = True
+    else:
+        for item, raw in zip(summary, artifacts, strict=True):
+            item["payload"] = raw.get("payload")
+
+    return {
+        "status": status,
+        "exit_code": result.exit_code,
+        "duration_ms": result.duration_ms,
+        "purpose": purpose,
+        "stdout_tail": stdout_tail,
+        "error": error or result.error,
+        "artifacts": summary,
+        "sandbox_execution_id": result.execution_id,
+    }
