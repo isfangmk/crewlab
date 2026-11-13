@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models_orm.base import Base
+from app.models_orm.base import AwareDateTime, Base
 
 
 class Workflow(Base):
@@ -16,6 +16,7 @@ class Workflow(Base):
     __tablename__ = "workflows"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    __table_args__ = {"sqlite_autoincrement": True}
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # 画布定义（ADK 图结构）：nodes / edges / start
@@ -31,15 +32,15 @@ class Workflow(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     # 最近一次发布的时间；NULL 表示从未发布过（首次发布沿用初始版本号）
     published_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        AwareDateTime(), nullable=True
     )
     # 最近一次保存时的校验结果："" 表示未校验；否则是校验错误信息
     validation_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        AwareDateTime(),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
@@ -52,6 +53,7 @@ class WorkflowRun(Base):
     __tablename__ = "workflow_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    __table_args__ = {"sqlite_autoincrement": True}
     workflow_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("workflows.id", ondelete="CASCADE"),
@@ -76,9 +78,9 @@ class WorkflowRun(Base):
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True)
 
 
 class WorkflowNodeRun(Base):
@@ -87,6 +89,7 @@ class WorkflowNodeRun(Base):
     __tablename__ = "workflow_node_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    __table_args__ = {"sqlite_autoincrement": True}
     run_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("workflow_runs.id", ondelete="CASCADE"),
@@ -108,5 +111,5 @@ class WorkflowNodeRun(Base):
     # 条件分支 / 循环节点选中的 route；其他节点为空
     route: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )

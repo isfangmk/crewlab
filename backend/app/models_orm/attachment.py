@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models_orm.base import Base
+from app.models_orm.base import AwareDateTime, Base
 
 
 class ChatAttachment(Base):
@@ -27,5 +27,5 @@ class ChatAttachment(Base):
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     data_url: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )

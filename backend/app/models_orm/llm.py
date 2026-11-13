@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models_orm.base import Base
+from app.models_orm.base import AwareDateTime, Base
 
 
 class LlmProvider(Base):
@@ -16,6 +16,7 @@ class LlmProvider(Base):
     __tablename__ = "llm_providers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    __table_args__ = {"sqlite_autoincrement": True}
     provider_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     label: Mapped[str] = mapped_column(String(128), nullable=False)
     base_url: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -33,10 +34,10 @@ class LlmProvider(Base):
     # 跳过 TLS 证书校验（自签证书场景）：要真正作用到探测与运行的 HTTP 客户端。
     tls_insecure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        AwareDateTime(),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,

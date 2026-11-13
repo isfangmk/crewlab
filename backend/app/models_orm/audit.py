@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models_orm.base import Base
+from app.models_orm.base import AwareDateTime, Base
 
 
 class AuditLog(Base):
@@ -16,6 +16,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    __table_args__ = {"sqlite_autoincrement": True}
     actor_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -23,5 +24,5 @@ class AuditLog(Base):
     detail_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )

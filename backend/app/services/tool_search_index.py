@@ -1,9 +1,10 @@
-"""MCP / 工具目录语义检索：用 br-embedding 向量 + 余弦相似度，替代 BM25 关键词。
+"""MCP / 工具目录语义检索：用嵌入向量 + 余弦相似度，替代 BM25 关键词。
 
 adk_tool_search 的 SearchableToolset 默认 BM25，且英文分词，对中文工具说明几乎无效。
 本索引实现与 BM25ToolIndex 相同的 rebuild/search 契约，供 index_factory 注入。
 
-MCP 增删改 / 探测成功后，工具向量同步写入 pgvector（mcp_tool_embeddings）。
+MCP 增删改 / 探测成功后，向量写入 app.vector_store（ref_id = 工具 wire 名）；
+mcp_tool_embeddings 表只留元数据（检索文本 / 内容哈希），用于向量复用与一致性校验。
 """
 
 from __future__ import annotations
@@ -21,6 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models_orm.mcp import McpServer, McpToolEmbedding
 from app.services.embedding_client import embed_texts
+from app.vector_store import (
+    MCP_TOOL_NAMESPACE,
+    get_vector_store,
+    raise_vector_store_unavailable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,15 +91,25 @@ def remember_vector(tool_name: str, vector: list[float]) -> None:
 async def forget_server_vectors(db: AsyncSession, server_id: int) -> int:
     """删除某 server 的工具向量，并同步清掉进程缓存里的对应条目。
 
-    删除 server 后缓存不失效会让已删工具继续参与检索。
+    删除 server 后缓存不失效会让已删工具继续参与检索；
+    向量存储未启用时本就无向量可删，只清缓存。
     """
 
-    rows = await db.scalars(
-        select(McpToolEmbedding).where(McpToolEmbedding.server_id == server_id)
+    names: list[str] = list(
+        (
+            await db.scalars(
+                select(McpToolEmbedding.tool_name).where(
+                    McpToolEmbedding.server_id == server_id
+                )
+            )
+        ).all()
     )
+    vs = get_vector_store()
+    if vs is not None and names:
+        await vs.delete_refs(MCP_TOOL_NAMESPACE, names)
     count = 0
-    for row in rows.all():
-        if _VECTOR_CACHE.pop(row.tool_name, None) is not None:
+    for name in names:
+        if _VECTOR_CACHE.pop(name, None) is not None:
             count += 1
     logger.info("已清理 MCP 工具向量缓存 server_id=%s entries=%s", server_id, count)
     return count
@@ -108,6 +124,9 @@ async def sync_server_tool_embeddings(
 
     if server_id < 1:
         raise ValueError("server_id 无效")
+    vs = get_vector_store()
+    if vs is None:
+        raise_vector_store_unavailable()
 
     rows_to_write: list[tuple[str, str, str]] = []
     for i, tool in enumerate(tools):
@@ -125,7 +144,21 @@ async def sync_server_tool_embeddings(
         text = build_tool_search_text(name, description, schema)
         rows_to_write.append((name, text, content_hash(text)))
 
+    # 替换前记录旧工具名：清掉本次不再存在的旧向量，防止向量残留
+    old_names: list[str] = list(
+        (
+            await db.scalars(
+                select(McpToolEmbedding.tool_name).where(
+                    McpToolEmbedding.server_id == server_id
+                )
+            )
+        ).all()
+    )
+
     if not rows_to_write:
+        await vs.delete_refs(MCP_TOOL_NAMESPACE, old_names)
+        for name in old_names:
+            _VECTOR_CACHE.pop(name, None)
         await db.execute(
             delete(McpToolEmbedding).where(McpToolEmbedding.server_id == server_id)
         )
@@ -133,14 +166,21 @@ async def sync_server_tool_embeddings(
         logger.info("MCP 工具向量已清空 server_id=%s tools=0", server_id)
         return 0
 
-    # 删除前先按 content_hash 复用已有向量，避免同文重复嵌入
+    # 删除前先按 content_hash 复用已有向量，避免同文重复嵌入；
+    # 向量按 wire 名 ref 从向量存储取
     hashes = [h for _, _, h in rows_to_write]
     existing = await db.scalars(
         select(McpToolEmbedding).where(McpToolEmbedding.content_hash.in_(hashes))
     )
+    existing_rows = list(existing.all())
+    vec_map = await vs.fetch_vectors(
+        MCP_TOOL_NAMESPACE, [row.tool_name for row in existing_rows]
+    )
     hash_to_vec: dict[str, list[float]] = {}
-    for row in existing.all():
-        vec = list(row.embedding)
+    for row in existing_rows:
+        vec = vec_map.get(row.tool_name)
+        if vec is None:
+            continue
         hash_to_vec[row.content_hash] = vec
         remember_vector(row.tool_name, vec)
 
@@ -170,9 +210,14 @@ async def sync_server_tool_embeddings(
             hash_to_vec[h] = vec
             remember_vector(name, vec)
 
+    new_names = {name for name, _, _ in rows_to_write}
+    gone = [name for name in old_names if name not in new_names]
+    if gone:
+        await vs.delete_refs(MCP_TOOL_NAMESPACE, gone)
     await db.execute(
         delete(McpToolEmbedding).where(McpToolEmbedding.server_id == server_id)
     )
+    vectors_to_write: list[tuple[str, list[float]]] = []
     for name, text, h in rows_to_write:
         vec = hash_to_vec.get(h)
         if vec is None:
@@ -183,11 +228,13 @@ async def sync_server_tool_embeddings(
                 tool_name=name,
                 search_text=text,
                 content_hash=h,
-                embedding=vec,
             )
         )
+        vectors_to_write.append((name, vec))
         remember_vector(name, vec)
 
+    # 向量先行：元数据提交后即可用；向量写失败则整次同步显式报错重试
+    await vs.upsert_many(MCP_TOOL_NAMESPACE, vectors_to_write)
     await db.commit()
     logger.info(
         "MCP 工具向量已同步 server_id=%s tools=%s embedded_new=%s",
@@ -202,17 +249,21 @@ async def warm_vector_cache_from_db(db: AsyncSession) -> int:
     """对话装配前把已同步的工具向量灌进进程缓存。
 
     缓存键是工具 wire 名（与运行时索引一致），
-    不是 search_text 的哈希。
+    不是 search_text 的哈希。向量存储未启用时没有向量可灌，返回 0。
     """
 
-    rows = await db.scalars(select(McpToolEmbedding))
-    count = 0
-    for row in rows.all():
-        remember_vector(row.tool_name, list(row.embedding))
-        count += 1
-    if count:
-        logger.info("已从向量库预热工具缓存 count=%s", count)
-    return count
+    vs = get_vector_store()
+    if vs is None:
+        return 0
+    names: list[str] = list(
+        (await db.scalars(select(McpToolEmbedding.tool_name))).all()
+    )
+    vec_map = await vs.fetch_vectors(MCP_TOOL_NAMESPACE, names)
+    for name, vec in vec_map.items():
+        remember_vector(name, vec)
+    if vec_map:
+        logger.info("已从向量库预热工具缓存 count=%s", len(vec_map))
+    return len(vec_map)
 
 
 async def assert_embedding_names_consistent(db: AsyncSession) -> None:
@@ -299,7 +350,7 @@ async def prefetch_query_vector(query: str) -> list[float]:
 class EmbeddingToolIndex:
     """语义工具索引：rebuild 写工具向量，search 用查询向量按余弦相似度排序。
 
-    工具向量在探测成功时就已算好并写入 pgvector 与进程缓存
+    工具向量在探测成功时就已算好并写入向量存储与进程缓存
     （sync_server_tool_embeddings / warm_vector_cache_from_db），
     因此 rebuild 只读缓存，不在这里发起阻塞式嵌入请求。
     查询向量由 prefetch_query_vector 异步预取后写入缓存，search 同样只读缓存。

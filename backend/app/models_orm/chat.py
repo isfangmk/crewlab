@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models_orm.base import Base
+from app.models_orm.base import AwareDateTime, Base
 
 
 class ChatSession(Base):
@@ -27,10 +27,10 @@ class ChatSession(Base):
     archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     owner_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        AwareDateTime(),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
@@ -56,5 +56,5 @@ class ChatMessage(Base):
     attachments_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )

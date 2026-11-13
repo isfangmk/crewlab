@@ -34,3 +34,6 @@ web/.tmp-esbuild/
 *.swp
 Thumbs.db
 .DS_Store
+
+# 后端运行时数据（业务库 / 向量库 / 上传原件）
+backend/data/

@@ -9,6 +9,8 @@ dependencies = [
   "uvicorn[standard]",
   "sqlalchemy",
   "asyncpg",
+  # SQLite 业务库驱动：开发/无中间件环境用（生产仍是 asyncpg + pgvector）
+  "aiosqlite",
   "greenlet",
   "pydantic-settings",
   "httpx",

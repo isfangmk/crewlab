@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models_orm.base import Base
+from app.models_orm.base import AwareDateTime, Base
 
 
 class UserSkill(Base):
@@ -50,10 +50,10 @@ class UserSkill(Base):
     assets_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
     scripts_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        AwareDateTime(),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,

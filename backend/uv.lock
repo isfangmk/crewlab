@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -25,6 +25,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "adk-tool-search" },
+    { name = "aiosqlite" },
     { name = "asyncpg" },
     { name = "docker" },
     { name = "fastapi" },
@@ -54,6 +55,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "adk-tool-search", specifier = ">=0.3.0" },
+    { name = "aiosqlite" },
     { name = "asyncpg" },
     { name = "docker", specifier = ">=7.2.0" },
     { name = "fastapi" },

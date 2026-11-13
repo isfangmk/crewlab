@@ -1,18 +1,21 @@
-"""知识库文档与向量切块表。"""
+"""知识库文档与切块表。
+
+向量不在这里：KnowledgeChunk 只存切块正文等业务数据，
+向量统一进 app.vector_store（与业务库分离、可切换实现）。
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func, text
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models_orm.base import Base
+from app.models_orm.base import AwareDateTime, Base
 
-# 与 EMBEDDING_DIM=2560 对齐；启动时由嵌入客户端再校验实际向量长度
-EMBEDDING_VECTOR_DIM = 2560
+# PG 用 JSONB 支持 containment 过滤；SQLite 用 JSON 文本（过滤走 json_each）
+TagsJSON = JSON().with_variant(JSONB(), "postgresql")
 
 
 class KnowledgeDoc(Base):
@@ -27,7 +30,7 @@ class KnowledgeDoc(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     path: Mapped[str] = mapped_column(String(1024), nullable=False)
     url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    tags: Mapped[list] = mapped_column(JSONB, nullable=False)
+    tags: Mapped[list] = mapped_column(TagsJSON, nullable=False)
     # 停用后不参与检索，切块保留，可随时恢复
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # 上传原件信息：抽取后的正文与原件体积可能差很多（尤其 PDF）
@@ -38,12 +41,12 @@ class KnowledgeDoc(Base):
     hit_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
-    last_hit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_hit_at: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        AwareDateTime(),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
@@ -57,11 +60,12 @@ class KnowledgeDoc(Base):
 
 
 class KnowledgeChunk(Base):
-    """文档切块及 pgvector 嵌入。"""
+    """文档切块；向量按切块 id 存在向量库里。"""
 
     __tablename__ = "knowledge_chunks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    __table_args__ = {"sqlite_autoincrement": True}
     doc_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("knowledge_docs.id", ondelete="CASCADE"),
@@ -70,9 +74,8 @@ class KnowledgeChunk(Base):
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding = mapped_column(Vector(EMBEDDING_VECTOR_DIM), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )
 
     doc: Mapped[KnowledgeDoc] = relationship(back_populates="chunks")

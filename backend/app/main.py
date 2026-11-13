@@ -54,8 +54,21 @@ async def lifespan(_app: FastAPI):
     logger.info("启动 AI 工作台后端 app=%s log_file=logs/backend.log", settings.app_name)
 
     async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        if engine.dialect.name == "postgresql":
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
+
+    # 向量存储与业务库分离：未启用时显式记录，向量依赖操作在调用点显式失败
+    from app.vector_store import get_vector_store
+
+    vector_store = get_vector_store()
+    if vector_store is None:
+        logger.warning(
+            "向量存储未启用 VECTOR_BACKEND=%s：知识库切块/语义检索与 MCP 工具语义索引不可用",
+            settings.vector_backend,
+        )
+    else:
+        await vector_store.ensure_ready(settings.embedding_dim)
 
     from app.adk_runtime.session_store import prepare_adk_session_tables
 
@@ -87,6 +100,9 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Content-Disposition 带下载文件名：不暴露的话前端 fetch 读不到，
+        # 下载落盘只能回退到 'download'
+        expose_headers=["Content-Disposition"],
     )
     app.include_router(health.router)
     app.include_router(health.router, prefix="/api/v1")

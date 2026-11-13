@@ -1,15 +1,17 @@
-"""MCP Server 配置表与工具向量表。"""
+"""MCP Server 配置表与工具向量元数据表。
+
+工具向量本体存 app.vector_store（ref_id = 工具 wire 名）；
+本表只留检索元数据（名称 / 检索文本 / 内容哈希），用于向量复用与一致性校验。
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models_orm.base import Base
-from app.models_orm.knowledge import EMBEDDING_VECTOR_DIM
+from app.models_orm.base import AwareDateTime, Base
 
 
 class McpServer(Base):
@@ -18,6 +20,7 @@ class McpServer(Base):
     __tablename__ = "mcp_servers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    __table_args__ = {"sqlite_autoincrement": True}
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     transport: Mapped[str] = mapped_column(String(32), nullable=False)
     endpoint: Mapped[str] = mapped_column(String(1024), nullable=False)
@@ -34,12 +37,12 @@ class McpServer(Base):
     embedding_sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
     embedding_sync_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     embedding_sync_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    embedding_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    embedding_synced_at: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        AwareDateTime(),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
@@ -53,14 +56,16 @@ class McpServer(Base):
 
 
 class McpToolEmbedding(Base):
-    """MCP 工具检索向量（与知识库同维度，供语义 search_tools 使用）。"""
+    """MCP 工具检索向量元数据（向量本体在 app.vector_store）。"""
 
     __tablename__ = "mcp_tool_embeddings"
     __table_args__ = (
         UniqueConstraint("server_id", "tool_name", name="uq_mcp_tool_embeddings_server_tool"),
+        {"sqlite_autoincrement": True},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    __table_args__ = {"sqlite_autoincrement": True}
     server_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("mcp_servers.id", ondelete="CASCADE"),
@@ -70,9 +75,8 @@ class McpToolEmbedding(Base):
     tool_name: Mapped[str] = mapped_column(String(256), nullable=False)
     search_text: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    embedding = mapped_column(Vector(EMBEDDING_VECTOR_DIM), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        AwareDateTime(),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,

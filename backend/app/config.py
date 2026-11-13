@@ -17,6 +17,17 @@ class Settings(BaseSettings):
 
     app_name: str = Field(alias="APP_NAME")
     database_url: str = Field(alias="DATABASE_URL")
+    # 向量存储与业务数据库分离，可独立切换实现：
+    #   auto    = 按 DATABASE_URL 推导（PG → pgvector，SQLite → sqlite 向量文件）
+    #   pgvector= 复用业务 PG 库建 pgvector 向量表（要求 DATABASE_URL 是 postgresql）
+    #   sqlite  = 独立 SQLite 向量文件（路径见 VECTOR_SQLITE_PATH），应用侧余弦
+    #   none    = 显式停用：依赖向量的操作全部显式失败
+    # 后续接专用向量库（Milvus / Qdrant 等）时在 app.vector_store 新增实现
+    vector_backend: str = Field(alias="VECTOR_BACKEND", default="auto")
+    # sqlite 向量库文件路径；与业务库分开，便于单独备份/迁移
+    vector_sqlite_path: str = Field(
+        alias="VECTOR_SQLITE_PATH", default="./data/vectors.db"
+    )
     # bootstrap 首个管理员的登录邮箱；密码用 AUTH_TOKEN
     auth_admin_email: str = Field(alias="AUTH_ADMIN_EMAIL")
     auth_token: str = Field(alias="AUTH_TOKEN")
@@ -35,6 +46,12 @@ class Settings(BaseSettings):
     embedding_base_url: str = Field(alias="EMBEDDING_BASE_URL")
     embedding_model: str = Field(alias="EMBEDDING_MODEL")
     embedding_dim: int = Field(alias="EMBEDDING_DIM")
+    # 嵌入服务鉴权密钥；内网无鉴权服务留空（不带 Authorization 头）
+    embedding_api_key: str = Field(alias="EMBEDDING_API_KEY", default="")
+    # 上传原件的落盘目录（按文档 id 存原始字节，供「下载源文件」）
+    knowledge_upload_dir: str = Field(
+        alias="KNOWLEDGE_UPLOAD_DIR", default="./data/uploads"
+    )
     host: str = Field(alias="HOST")
     port: int = Field(alias="PORT")
     log_level: str = Field(alias="LOG_LEVEL")
@@ -43,6 +60,11 @@ class Settings(BaseSettings):
     otlp_service_name: str = Field(alias="OTLP_SERVICE_NAME", default="ai-workbench")
     # 沙盒：Docker 守护进程地址；留空则用本机默认（docker.from_env）
     sandbox_docker_host: str = Field(alias="SANDBOX_DOCKER_HOST", default="")
+    # 代码执行器实现，与向量存储一样按配置切换：
+    #   docker = llm-sandbox 容器隔离（生产口径，需 Docker 守护进程）
+    #   local  = 本地不安全执行：直接用当前解释器跑用户代码，无隔离，
+    #            仅供可信开发环境（无 Docker、单人本机）使用；显式选择才生效
+    sandbox_executor: str = Field(alias="SANDBOX_EXECUTOR", default="docker")
     # 沙盒镜像：只做 Python，够用且体积小
     sandbox_image: str = Field(
         alias="SANDBOX_IMAGE", default="python:3.12-slim"
