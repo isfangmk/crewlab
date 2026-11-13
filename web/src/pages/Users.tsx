@@ -594,7 +594,7 @@ export default function UsersPage() {
             <p>
               {tr('确定删除账号 ', 'Delete ')}
               <span className="font-mono text-zinc-100">{deleteTarget?.email ?? ''}</span>
-              {tr(' ？', '?')}
+              {tr('？', '?')}
             </p>
             <p className="mt-2 text-zinc-500">
               {tr('该操作不可撤销。', 'This cannot be undone.')}

@@ -988,7 +988,7 @@ export default function SessionsPage() {
                     <col className="w-[2.5rem]" />
                     <col className="w-[16rem]" />
                     <col className="w-[11rem]" />
-                    <col className="w-[8rem]" />
+                    <col className="w-[10rem]" />
                     <col className="w-[7rem]" />
                     <col className="w-[8rem]" />
                     <col className="w-[7rem]" />
@@ -1058,7 +1058,7 @@ export default function SessionsPage() {
               <p>
                 {tr('确定删除会话 ', 'Delete ')}
                 <span className="font-mono text-zinc-100">{deleteTarget.title || deleteTarget.id}</span>
-                {tr(' ？', '?')}
+                {tr('？', '?')}
               </p>
               <p className="mt-2 text-zinc-500">
                 {tr(
