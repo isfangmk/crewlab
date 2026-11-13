@@ -986,14 +986,14 @@ export default function SessionsPage() {
                 <table className="og-action-table w-full min-w-[80rem] table-fixed text-sm">
                   <colgroup>
                     <col className="w-[2.5rem]" />
-                    <col className="w-[16rem]" />
+                    <col className="w-[12rem]" />
                     <col className="w-[11rem]" />
                     <col className="w-[10rem]" />
                     <col className="w-[7rem]" />
                     <col className="w-[8rem]" />
                     <col className="w-[7rem]" />
-                    <col className="w-[7.5rem]" />
-                    <col className="w-[5rem]" />
+                    <col className="w-[10rem]" />
+                    <col className="w-[6rem]" />
                     <col className="w-[8rem]" />
                   </colgroup>
                   <TableHead>
