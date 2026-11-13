@@ -18,6 +18,7 @@ const AgentsPage = lazy(() => import('@/pages/Agents'));
 const McpPage = lazy(() => import('@/pages/Mcp'));
 const WorkflowsPage = lazy(() => import('@/pages/Workflows'));
 const TriggersPage = lazy(() => import('@/pages/Triggers'));
+const MemoryPage = lazy(() => import('@/pages/Memory'));
 const WorkflowEditorPage = lazy(() => import('@/pages/WorkflowEditor'));
 const WorkflowRunPage = lazy(() => import('@/pages/WorkflowRun'));
 const SandboxPage = lazy(() => import('@/pages/Sandbox'));

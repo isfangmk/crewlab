@@ -38,7 +38,7 @@ def build_knowledge_tools(scope: KnowledgeScope | None = None) -> list[FunctionT
 
     extra_tools = [
         FunctionTool(tool_impl(name))
-        for name in builtin_group_names("workflow", "code")
+        for name in builtin_group_names("workflow", "code", "memory")
     ]
     if scope is None or scope.is_empty:
         return [FunctionTool(query_knowledge), *extra_tools]

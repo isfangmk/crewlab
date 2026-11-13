@@ -18,6 +18,7 @@ _BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
     "code": {"title": "代码解释器", "title_en": "Code interpreter"},
     "knowledge": {"title": "知识检索", "title_en": "Knowledge"},
     "search": {"title": "联网搜索", "title_en": "Web search"},
+    "memory": {"title": "记忆", "title_en": "Memory"},
     "workflow": {"title": "工作流", "title_en": "Workflow"},
 }
 

@@ -11,6 +11,7 @@ from typing import Any
 
 from app.tools.code_interpreter import run_python
 from app.tools.knowledge import query_knowledge
+from app.tools.memory import recall_memory, remember_memory
 from app.tools.workflow import (
     get_workflow,
     get_workflow_run,
@@ -25,6 +26,20 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
         "name": "run_python",
         "group": "code",
         "description": "在沙盒中执行 Python 代码；用 emit_chart/emit_table/emit_file 产出图表、表格与文件",
+        "risk": "safe",
+        "mount": "always",
+    },
+    {
+        "name": "remember_memory",
+        "group": "memory",
+        "description": "把值得长期记住的事实或偏好保存到跨会话记忆",
+        "risk": "safe",
+        "mount": "always",
+    },
+    {
+        "name": "recall_memory",
+        "group": "memory",
+        "description": "按语义回忆相关记忆（本助理记忆 ∪ 全局记忆）",
         "risk": "safe",
         "mount": "always",
     },
@@ -94,6 +109,8 @@ async def _web_search_signature(
 # 目录、ADK 装配、技能声明、手动运行都从这一张表取实现，避免多处硬编码工具名
 _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
     "run_python": run_python,
+    "remember_memory": remember_memory,
+    "recall_memory": recall_memory,
     "query_knowledge": query_knowledge,
     "web_search": _web_search_signature,
     "list_workflows": list_workflows,

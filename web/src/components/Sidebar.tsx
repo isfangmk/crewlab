@@ -363,7 +363,7 @@ export function Sidebar() {
           items={[
             { key: 'assistants', to: '/agents', icon: Bot, label: tr('助理', 'Assistants') },
             { key: 'playground', icon: FlaskConical, label: tr('试玩台', 'Playground'), planned: true },
-            { key: 'memory', icon: Brain, label: tr('记忆', 'Memory'), planned: true },
+            { key: 'memory', to: '/memory', icon: Brain, label: tr('记忆', 'Memory') },
           ]}
         />
 

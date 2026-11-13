@@ -14,6 +14,7 @@ from app.models_orm.observation import ObservationToolCall, ObservationTurn
 from app.models_orm.sandbox import SandboxExecution
 from app.models_orm.secret import SecretCredential
 from app.models_orm.share import ShareToken
+from app.models_orm.memory import MemoryItem
 from app.models_orm.skill import UserSkill
 from app.models_orm.trigger import TriggerRun, TriggerRule
 from app.models_orm.user import ApiToken, User
@@ -42,6 +43,7 @@ __all__ = [
     "ObservationToolCall",
     "SandboxExecution",
     "TriggerRule",
+    "MemoryItem",
     "TriggerRun",
     "UserSkill",
     "Workflow",

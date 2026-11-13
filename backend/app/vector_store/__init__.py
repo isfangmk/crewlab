@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 KNOWLEDGE_NAMESPACE = "knowledge_chunks"
 # MCP 工具向量；ref_id = 工具 wire 名（mcp__{server}__{tool}，全局唯一）
 MCP_TOOL_NAMESPACE = "mcp_tools"
+# 跨会话长期记忆；ref_id = str(MemoryItem.id)
+MEMORY_NAMESPACE = "memory_items"
 
 
 class VectorStoreUnavailable(RuntimeError):
