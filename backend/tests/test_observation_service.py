@@ -67,6 +67,7 @@ async def test_end_error_sets_message() -> None:
         id="t1",
         status="running",
         duration_ms=None,
+        first_token_ms=None,
         ended_at=None,
         error_message=None,
         prompt_tokens=None,
@@ -97,6 +98,47 @@ async def test_end_error_sets_message() -> None:
     assert row.error_message == "RuntimeError: boom"
 
 
+@pytest.mark.asyncio
+async def test_mark_first_token_keeps_first_and_persists() -> None:
+    row = SimpleNamespace(
+        id="t1",
+        status="running",
+        duration_ms=None,
+        first_token_ms=None,
+        ended_at=None,
+        error_message=None,
+        prompt_tokens=None,
+        completion_tokens=None,
+        total_tokens=None,
+    )
+
+    class FakeSession:
+        def add(self, _row: object) -> None:
+            return None
+
+        async def commit(self) -> None:
+            return None
+
+        async def get(self, _model: object, _trace_id: str) -> object:
+            return row
+
+        async def __aenter__(self) -> FakeSession:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    obs = observation_service.ChatTurnObservation(trace_id="t1", _started_at=0.0)
+    with patch.object(observation_service.time, "perf_counter", return_value=0.25):
+        obs.mark_first_token()
+    # 后续正文增量不能覆盖首个增量记录的耗时
+    with patch.object(observation_service.time, "perf_counter", return_value=0.9):
+        obs.mark_first_token()
+    with patch.object(observation_service, "SessionLocal", return_value=FakeSession()):
+        await obs.end_ok(usage=None)
+    assert row.first_token_ms == 250
+
+
 def test_split_usage_skips_null() -> None:
     assert observation_service._split_usage(None) == (None, None, None)
     assert observation_service._split_usage(
@@ -125,6 +167,7 @@ def test_turn_to_wire() -> None:
         completion_tokens=2,
         total_tokens=3,
         duration_ms=12,
+        first_token_ms=9,
         tool_call_count=2,
         skill_call_count=1,
         started_at=datetime(2026, 11, 9, tzinfo=timezone.utc),
@@ -134,6 +177,8 @@ def test_turn_to_wire() -> None:
     assert wire["trace_id"] == "tid"
     assert wire["channel"] == "pub-test"
     assert wire["total_tokens"] == 3
+    assert wire["duration_ms"] == 12
+    assert wire["first_token_ms"] == 9
     assert wire["tool_call_count"] == 2
     assert wire["skill_call_count"] == 1
 

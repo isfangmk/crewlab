@@ -379,18 +379,24 @@ describe('MessageBubble 引用来源', () => {
 });
 
 describe('MessageBubble message actions', () => {
-  it('copies the assistant reply and reports success', async () => {
+  it('copies a user message and reports success', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText },
       configurable: true,
     });
 
-    render(<MessageBubble message={{ id: 'assistant-1', role: 'assistant', content: '回答正文' }} />);
+    render(<MessageBubble message={{ id: 'user-1', role: 'user', content: '用户正文' }} />);
 
     fireEvent.click(screen.getByRole('button', { name: '复制' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('回答正文'));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('用户正文'));
     expect(await screen.findByRole('status')).toHaveTextContent('已复制');
+  });
+
+  it('does not render a copy button under assistant replies', () => {
+    render(<MessageBubble message={{ id: 'assistant-1', role: 'assistant', content: '回答正文' }} />);
+
+    expect(screen.queryByRole('button', { name: '复制' })).not.toBeInTheDocument();
   });
 
   it('edits a user message and hands the new text to the caller', () => {

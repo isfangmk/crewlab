@@ -33,6 +33,7 @@ class ObservationTurnOut(BaseModel):
     completion_tokens: int | None
     total_tokens: int | None
     duration_ms: int | None
+    first_token_ms: int | None
     tool_call_count: int
     skill_call_count: int
     started_at: str | None
@@ -71,6 +72,8 @@ class ObservationStatsOut(BaseModel):
     running_count: int
     avg_duration_ms: int | None
     p95_duration_ms: int | None
+    avg_first_token_ms: int | None
+    p95_first_token_ms: int | None
     total_tokens: int
     tool_call_total: int
     skill_call_total: int

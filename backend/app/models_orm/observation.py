@@ -33,6 +33,8 @@ class ObservationTurn(Base):
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 从请求开始到首个正文增量的耗时（TTFT），未产出正文时为空
+    first_token_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # 本回合调用过的工具 / 技能数量，列表页直接展示，避免逐行聚合
     tool_call_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     skill_call_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

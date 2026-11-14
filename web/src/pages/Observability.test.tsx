@@ -16,6 +16,7 @@ const TURN = {
   agent_id: 'sre_agent',
   provider: 'openai',
   model: 'gpt-4o',
+  channel: '',
   status: 'ok',
   request_id: 'req-1',
   input_summary: '查询 CPU 趋势',
@@ -24,6 +25,7 @@ const TURN = {
   completion_tokens: 340,
   total_tokens: 460,
   duration_ms: 1500,
+  first_token_ms: 400,
   tool_call_count: 1,
   skill_call_count: 0,
   started_at: '2026-11-09T04:00:00.000Z',
@@ -37,12 +39,15 @@ const OVERVIEW = {
     running_count: 0,
     avg_duration_ms: 1500,
     p95_duration_ms: 1500,
+    avg_first_token_ms: 400,
+    p95_first_token_ms: 400,
     total_tokens: 460,
     tool_call_total: 1,
     skill_call_total: 0,
   },
   agents: ['sre_agent'],
   models: ['gpt-4o'],
+  channels: [],
 };
 
 describe('ObservabilityPage', () => {
@@ -75,10 +80,14 @@ describe('ObservabilityPage', () => {
     // 摘要之前是整行可点（<tr> 上挂 onClick），现在行不再响应点击
     expect(summary.closest('tr')).not.toHaveAttribute('onclick');
     expect(detailRequests).toHaveLength(0);
+    // 列表与概览都要展示首字延迟
+    expect(screen.getByText('首字 P95')).toBeInTheDocument();
+    expect(screen.getByText('首字 400 ms')).toBeInTheDocument();
 
     await user.click(summary);
 
     await waitFor(() => expect(detailRequests).toEqual(['trace-1']));
     expect(await screen.findByText('Trace 详情')).toBeInTheDocument();
+    expect(screen.getByText('首字延迟')).toBeInTheDocument();
   });
 });

@@ -25,6 +25,13 @@ async def test_observation_filters_and_overview(env: dict[str, str], api_base: s
         total = body["total"]
         assert isinstance(total, int)
         assert len(items) == min(total, 200)
+        for row in items:
+            # 首字延迟是新增契约：未产出正文的回合显式为空，不能缺字段
+            assert "first_token_ms" in row
+            first_token_ms = row["first_token_ms"]
+            assert first_token_ms is None or first_token_ms >= 0
+            if first_token_ms is not None and row["duration_ms"] is not None:
+                assert first_token_ms <= row["duration_ms"]
 
         overview = await client.get("/api/v1/observability/overview", headers=headers)
         assert overview.status_code == 200, overview.text
@@ -32,6 +39,10 @@ async def test_observation_filters_and_overview(env: dict[str, str], api_base: s
         stats = payload["stats"]
         assert stats["total"] == total
         assert stats["error_count"] <= total
+        assert "avg_first_token_ms" in stats
+        assert "p95_first_token_ms" in stats
+        assert stats["avg_first_token_ms"] is None or stats["avg_first_token_ms"] >= 0
+        assert stats["p95_first_token_ms"] is None or stats["p95_first_token_ms"] >= 0
         assert isinstance(payload["agents"], list)
         assert isinstance(payload["models"], list)
 

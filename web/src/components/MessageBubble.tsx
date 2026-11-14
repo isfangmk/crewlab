@@ -332,7 +332,7 @@ function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
   // 本回答用到的来源统一收口到气泡底部一块，工具卡内不再重复列
   const sources = collectToolSources(message.tool_calls);
   return (
-    <div className="group flex flex-col items-stretch gap-2">
+    <div className="flex flex-col items-stretch gap-2">
       {body !== '' && (
         <div className="md-body text-zinc-100">
           <ChartMarkdown content={body} />
@@ -347,11 +347,6 @@ function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
         />
       ))}
       {sources.length > 0 && <SourcesSection sources={sources} className="mt-1 border-l border-zinc-800/60 pl-3" />}
-      {body !== '' && !message.pending && (
-        <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-          <CopyButton text={body} />
-        </div>
-      )}
     </div>
   );
 }

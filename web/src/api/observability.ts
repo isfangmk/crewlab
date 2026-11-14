@@ -16,6 +16,8 @@ export type ObservationTurn = {
   completion_tokens: number | null;
   total_tokens: number | null;
   duration_ms: number | null;
+  /** 请求开始到首个正文增量的耗时；未产出正文时为空。 */
+  first_token_ms: number | null;
   tool_call_count: number;
   skill_call_count: number;
   started_at: string | null;
@@ -44,6 +46,8 @@ export type ObservationStats = {
   running_count: number;
   avg_duration_ms: number | null;
   p95_duration_ms: number | null;
+  avg_first_token_ms: number | null;
+  p95_first_token_ms: number | null;
   total_tokens: number;
   tool_call_total: number;
   skill_call_total: number;

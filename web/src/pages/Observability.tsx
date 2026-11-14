@@ -12,6 +12,7 @@ import {
   Sparkles,
   SquareTerminal,
   Timer,
+  Zap,
 } from 'lucide-react';
 import {
   getObservationOverview,
@@ -635,7 +636,7 @@ export default function ObservabilityPage() {
           </FilterPill>
       </FilterBar>
 
-      <div className="mx-6 mt-3 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="mx-6 mt-3 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-7">
         <MetricCard
           icon={Activity}
           label={tr('回合数', 'Turns')}
@@ -662,6 +663,13 @@ export default function ObservabilityPage() {
           label="P95"
           value={stats ? formatDurationMs(stats.p95_duration_ms) : '—'}
           hint={stats ? tr(`平均 ${formatDurationMs(stats.avg_duration_ms)}`, `avg ${formatDurationMs(stats.avg_duration_ms)}`) : undefined}
+        />
+        <MetricCard
+          icon={Zap}
+          tone="info"
+          label={tr('首字 P95', 'TTFT P95')}
+          value={stats ? formatDurationMs(stats.p95_first_token_ms) : '—'}
+          hint={stats ? tr(`平均 ${formatDurationMs(stats.avg_first_token_ms)}`, `avg ${formatDurationMs(stats.avg_first_token_ms)}`) : undefined}
         />
         <MetricCard
           icon={Coins}
@@ -831,13 +839,23 @@ export default function ObservabilityPage() {
                                 style={{ width: `${Math.max(ratio * 100, ratio > 0 ? 6 : 0)}%` }}
                               />
                             </span>
-                            <span
-                              className={cn(
-                                'w-14 shrink-0 text-right text-[11px] tabular-nums',
-                                isError ? 'text-danger' : 'text-zinc-200',
+                            <span className="w-[4.25rem] shrink-0 text-right leading-tight">
+                              <span
+                                className={cn(
+                                  'block text-[11px] tabular-nums',
+                                  isError ? 'text-danger' : 'text-zinc-200',
+                                )}
+                              >
+                                {formatDurationMs(row.duration_ms)}
+                              </span>
+                              {row.first_token_ms == null ? null : (
+                                <span
+                                  className="block text-[10px] tabular-nums text-zinc-600"
+                                  title={tr('首字延迟', 'Time to first token')}
+                                >
+                                  {tr('首字', 'TTFT')} {formatDurationMs(row.first_token_ms)}
+                                </span>
                               )}
-                            >
-                              {formatDurationMs(row.duration_ms)}
                             </span>
                           </div>
                         </td>
@@ -956,6 +974,15 @@ function TraceDetail({ turn }: { turn: ObservationTurnDetail }) {
               {formatDurationMs(turn.duration_ms)}
             </span>
             <span className="text-[11px] text-zinc-500">{tr('总耗时', 'total')}</span>
+            {turn.first_token_ms == null ? null : (
+              <>
+                <span aria-hidden className="text-zinc-700">·</span>
+                <span className="text-[13px] font-medium tabular-nums text-zinc-300">
+                  {formatDurationMs(turn.first_token_ms)}
+                </span>
+                <span className="text-[11px] text-zinc-500">{tr('首字延迟', 'TTFT')}</span>
+              </>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-500">
             <span className="text-zinc-300">{turn.agent_id}</span>

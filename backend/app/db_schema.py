@@ -18,6 +18,7 @@ _REQUIRED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("user_agents", "display_name", "VARCHAR(128) NOT NULL DEFAULT ''"),
     ("user_agents", "sub_agents_json", "TEXT"),
     ("observation_turns", "channel", "VARCHAR(128) NOT NULL DEFAULT ''"),
+    ("observation_turns", "first_token_ms", "INTEGER"),
     ("artifacts", "message_id", "VARCHAR(128) NOT NULL DEFAULT ''"),
     ("artifacts", "seq", "INTEGER NOT NULL DEFAULT 0"),
     ("knowledge_docs", "external_source_id", "VARCHAR(36)"),

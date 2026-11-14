@@ -1636,6 +1636,9 @@ async def stream_session_message(
                     },
                 )
                 break
+            if frame.event == "assistant_delta":
+                # 首个正文增量到达即记录 TTFT；思考增量不计入
+                obs.mark_first_token()
             out = frame
             if frame.event == "done" and isinstance(frame.data, dict):
                 usage_raw = frame.data.get("usage")

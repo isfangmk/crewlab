@@ -51,12 +51,19 @@ class ChatTurnObservation:
 
     trace_id: str
     _started_at: float
+    _first_token_ms: int | None = None
+
+    def mark_first_token(self) -> None:
+        """记录首个正文增量的耗时；重复调用只保留第一次。"""
+        if self._first_token_ms is None:
+            self._first_token_ms = int((time.perf_counter() - self._started_at) * 1000)
 
     async def end_ok(self, *, usage: dict[str, int | None] | None) -> None:
         await _finish_turn(
             self.trace_id,
             status=STATUS_OK,
             started_at=self._started_at,
+            first_token_ms=self._first_token_ms,
             usage=usage,
             error_message=None,
         )
@@ -66,6 +73,7 @@ class ChatTurnObservation:
             self.trace_id,
             status=STATUS_ERROR,
             started_at=self._started_at,
+            first_token_ms=self._first_token_ms,
             usage=None,
             error_message=f"{type(exc).__name__}: {exc}",
         )
@@ -75,6 +83,7 @@ class ChatTurnObservation:
             self.trace_id,
             status=_STATUS_STOPPED,
             started_at=self._started_at,
+            first_token_ms=self._first_token_ms,
             usage=None,
             error_message=None,
         )
@@ -271,6 +280,7 @@ async def summarize_turns(
         func.count().filter(ObservationTurn.status == STATUS_ERROR).label("error_count"),
         func.count().filter(ObservationTurn.status == _STATUS_RUNNING).label("running_count"),
         func.avg(ObservationTurn.duration_ms).label("avg_duration_ms"),
+        func.avg(ObservationTurn.first_token_ms).label("avg_first_token_ms"),
         func.coalesce(func.sum(ObservationTurn.total_tokens), 0).label("total_tokens"),
         func.coalesce(func.sum(ObservationTurn.tool_call_count), 0).label("tool_call_total"),
         func.coalesce(func.sum(ObservationTurn.skill_call_count), 0).label("skill_call_total"),
@@ -280,7 +290,10 @@ async def summarize_turns(
         stmt = stmt.add_columns(
             func.percentile_cont(0.95)
             .within_group(ObservationTurn.duration_ms.asc())
-            .label("p95_duration_ms")
+            .label("p95_duration_ms"),
+            func.percentile_cont(0.95)
+            .within_group(ObservationTurn.first_token_ms.asc())
+            .label("p95_first_token_ms"),
         )
     if filters:
         stmt = stmt.where(*filters)
@@ -288,6 +301,7 @@ async def summarize_turns(
     avg_duration_ms = row.avg_duration_ms
     if use_percentile_cont:
         p95_duration_ms = row.p95_duration_ms
+        p95_first_token_ms = row.p95_first_token_ms
     else:
         # SQLite 没有 percentile_cont：按最近秩取 P95（0 起，第 ceil(0.95*N)-1 位）
         total = int(row.total or 0)
@@ -304,12 +318,43 @@ async def summarize_turns(
             if filters:
                 p95_stmt = p95_stmt.where(*filters)
             p95_duration_ms = await db.scalar(p95_stmt)
+        # 未产出正文的回合 first_token_ms 为空，不参与首字延迟统计
+        first_token_total = int(
+            await db.scalar(
+                select(func.count())
+                .select_from(ObservationTurn)
+                .where(ObservationTurn.first_token_ms.is_not(None), *filters)
+            )
+            or 0
+        )
+        if first_token_total == 0:
+            p95_first_token_ms = None
+        else:
+            offset = max(0, math.ceil(0.95 * first_token_total) - 1)
+            ttft_stmt = (
+                select(ObservationTurn.first_token_ms)
+                .where(ObservationTurn.first_token_ms.is_not(None))
+                .order_by(ObservationTurn.first_token_ms.asc())
+                .limit(1)
+                .offset(offset)
+            )
+            if filters:
+                ttft_stmt = ttft_stmt.where(*filters)
+            p95_first_token_ms = await db.scalar(ttft_stmt)
     return {
         "total": int(row.total),
         "error_count": int(row.error_count),
         "running_count": int(row.running_count),
         "avg_duration_ms": int(round(float(avg_duration_ms))) if avg_duration_ms is not None else None,
         "p95_duration_ms": int(round(float(p95_duration_ms))) if p95_duration_ms is not None else None,
+        "avg_first_token_ms": (
+            int(round(float(row.avg_first_token_ms)))
+            if row.avg_first_token_ms is not None
+            else None
+        ),
+        "p95_first_token_ms": (
+            int(round(float(p95_first_token_ms))) if p95_first_token_ms is not None else None
+        ),
         "total_tokens": int(row.total_tokens),
         "tool_call_total": int(row.tool_call_total),
         "skill_call_total": int(row.skill_call_total),
@@ -492,6 +537,7 @@ def turn_to_wire(row: ObservationTurn) -> dict:
         "completion_tokens": row.completion_tokens,
         "total_tokens": row.total_tokens,
         "duration_ms": row.duration_ms,
+        "first_token_ms": row.first_token_ms,
         "tool_call_count": row.tool_call_count,
         "skill_call_count": row.skill_call_count,
         "started_at": row.started_at.isoformat() if row.started_at else None,
@@ -504,6 +550,7 @@ async def _finish_turn(
     *,
     status: str,
     started_at: float,
+    first_token_ms: int | None,
     usage: dict[str, int | None] | None,
     error_message: str | None,
 ) -> None:
@@ -515,6 +562,7 @@ async def _finish_turn(
             raise LookupError(f"观测记录不存在: {trace_id}")
         row.status = status
         row.duration_ms = duration_ms
+        row.first_token_ms = first_token_ms
         row.ended_at = datetime.now(timezone.utc)
         row.error_message = error_message
         row.prompt_tokens = prompt_tokens
