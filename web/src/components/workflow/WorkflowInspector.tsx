@@ -271,7 +271,7 @@ function ResultVarRow({
           value={node.output_key}
           onValueChange={(next) => onNodeChange({ output_key: next })}
           aria-label={tr('运行输出', 'Run output')}
-          className="h-8 text-[11.5px]"
+          className="h-8 w-full text-[11.5px]"
           options={[
             { value: '', label: tr('整份状态', 'Whole state') },
             ...candidates.map((name) => ({ value: name, label: `{{${name}}}` })),
@@ -399,7 +399,7 @@ function AgentFields({ node, catalog, onNodeChange }: { node: WorkflowNode; cata
           }}
           options={models.map((model) => ({ value: `${model.provider}::${model.model}`, label: model.title }))}
           aria-label={tr('模型', 'Model')}
-          className="h-8 text-[11.5px]"
+          className="h-8 w-full text-[11.5px]"
         />
       </Field>
       <Field label={tr('指令', 'Instruction')} required hint={tr('节点级系统指令，支持 {{变量}}', 'Node-level instruction; supports {{vars}}')}>
@@ -488,7 +488,7 @@ function McpFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catalo
           }}
           options={servers.map((server) => ({ value: server, label: server }))}
           aria-label={tr('MCP Server', 'MCP server')}
-          className="h-8 text-[11.5px]"
+          className="h-8 w-full text-[11.5px]"
         />
       </Field>
       <Field label={tr('工具', 'Tool')} required>
@@ -497,7 +497,7 @@ function McpFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catalo
           onValueChange={(value) => onNodeChange({ mcp_tool: value })}
           options={serverTools.map((tool) => ({ value: tool.tool, label: tool.tool }))}
           aria-label={tr('工具', 'Tool')}
-          className="h-8 font-mono text-[11.5px]"
+          className="h-8 w-full font-mono text-[11.5px]"
           disabled={node.mcp_server === ''}
         />
       </Field>
@@ -524,7 +524,7 @@ function HttpFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange(p
             onValueChange={(method) => onNodeChange({ method })}
             options={['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].map((method) => ({ value: method, label: method }))}
             aria-label={tr('方法', 'Method')}
-            className="h-8 text-[11.5px]"
+            className="h-8 w-full text-[11.5px]"
           />
         </Field>
         <Field label={tr('URL', 'URL')} required hint={tr('支持 {{变量}}', 'Supports {{vars}}')}>
@@ -580,7 +580,7 @@ function SwitchFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange
             { value: 'model', label: tr('交给模型判断', 'Model decides') },
           ]}
           aria-label={tr('判断方式', 'Decision')}
-          className="h-8 text-[11.5px]"
+          className="h-8 w-full text-[11.5px]"
         />
       </Field>
       {node.branch_mode === 'expr' ? (
