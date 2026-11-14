@@ -116,6 +116,7 @@ def test_turn_to_wire() -> None:
         agent_id="default",
         provider="deepseek",
         model="m",
+        channel="pub-test",
         status="ok",
         request_id="r",
         input_summary="hi",
@@ -131,6 +132,7 @@ def test_turn_to_wire() -> None:
     )
     wire = observation_service.turn_to_wire(row)  # type: ignore[arg-type]
     assert wire["trace_id"] == "tid"
+    assert wire["channel"] == "pub-test"
     assert wire["total_tokens"] == 3
     assert wire["tool_call_count"] == 2
     assert wire["skill_call_count"] == 1

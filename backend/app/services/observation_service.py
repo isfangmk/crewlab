@@ -132,6 +132,7 @@ def _turn_filters(
     status: str | None,
     agent_id: str | None,
     model: str | None,
+    channel: str | None,
     started_from: datetime | None,
     started_to: datetime | None,
     min_duration_ms: int | None,
@@ -151,6 +152,8 @@ def _turn_filters(
         raise ValueError("agent_id 不能为空字符串")
     if model is not None and model == "":
         raise ValueError("model 不能为空字符串")
+    if channel is not None and channel == "":
+        raise ValueError("channel 不能为空字符串")
     if q is not None and q == "":
         raise ValueError("q 不能为空字符串")
     if min_duration_ms is not None and min_duration_ms < 0:
@@ -177,6 +180,8 @@ def _turn_filters(
         filters.append(ObservationTurn.agent_id == agent_id)
     if model is not None:
         filters.append(ObservationTurn.model == model)
+    if channel is not None:
+        filters.append(ObservationTurn.channel == channel)
     if started_from is not None:
         filters.append(ObservationTurn.started_at >= started_from)
     if started_to is not None:
@@ -194,6 +199,7 @@ async def list_turns(
     status: str | None = None,
     agent_id: str | None = None,
     model: str | None = None,
+    channel: str | None = None,
     started_from: datetime | None = None,
     started_to: datetime | None = None,
     min_duration_ms: int | None = None,
@@ -211,6 +217,7 @@ async def list_turns(
         status=status,
         agent_id=agent_id,
         model=model,
+        channel=channel,
         started_from=started_from,
         started_to=started_to,
         min_duration_ms=min_duration_ms,
@@ -238,6 +245,7 @@ async def summarize_turns(
     status: str | None = None,
     agent_id: str | None = None,
     model: str | None = None,
+    channel: str | None = None,
     started_from: datetime | None = None,
     started_to: datetime | None = None,
     min_duration_ms: int | None = None,
@@ -250,6 +258,7 @@ async def summarize_turns(
         status=status,
         agent_id=agent_id,
         model=model,
+        channel=channel,
         started_from=started_from,
         started_to=started_to,
         min_duration_ms=min_duration_ms,
@@ -308,7 +317,7 @@ async def summarize_turns(
 
 
 async def list_facets(db: AsyncSession) -> dict:
-    """筛选项候选值：出现过的助理与模型。"""
+    """筛选项候选值：出现过的助理、模型与发布渠道。"""
 
     agents = (await db.scalars(
         select(ObservationTurn.agent_id).distinct().order_by(ObservationTurn.agent_id)
@@ -316,9 +325,13 @@ async def list_facets(db: AsyncSession) -> dict:
     models = (await db.scalars(
         select(ObservationTurn.model).distinct().order_by(ObservationTurn.model)
     )).all()
+    channels = (await db.scalars(
+        select(ObservationTurn.channel).distinct().order_by(ObservationTurn.channel)
+    )).all()
     return {
         "agents": [a for a in agents if a != ""],
         "models": [m for m in models if m != ""],
+        "channels": [c for c in channels if c != ""],
     }
 
 
@@ -469,6 +482,8 @@ def turn_to_wire(row: ObservationTurn) -> dict:
         "agent_id": row.agent_id,
         "provider": row.provider,
         "model": row.model,
+        # 空串 = 站内对话；非空 = 对外发布渠道名
+        "channel": row.channel,
         "status": row.status,
         "request_id": row.request_id,
         "input_summary": row.input_summary,

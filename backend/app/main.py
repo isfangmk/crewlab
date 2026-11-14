@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import (
     agents,
@@ -48,6 +56,72 @@ from app.services.app_settings_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _openai_error_type(status_code: int) -> tuple[str, str | None]:
+    """OpenAI 客户端的错误类型口径；站内接口不受影响。"""
+
+    if status_code == 401:
+        return "authentication_error", "invalid_api_key"
+    if status_code == 404:
+        return "invalid_request_error", "not_found"
+    if status_code == 429:
+        return "rate_limit_error", "rate_limit_exceeded"
+    if status_code >= 500:
+        return "server_error", None
+    return "invalid_request_error", None
+
+
+async def _openai_http_exception_handler(request, exc: Exception):
+    """/v1/* 用 OpenAI 的 {"error": {...}} 结构，其余路由保持 FastAPI 默认。"""
+
+    if not isinstance(exc, StarletteHTTPException):
+        raise exc
+    if not request.url.path.startswith("/v1/"):
+        return await http_exception_handler(request, exc)
+    detail = exc.detail
+    message = detail if isinstance(detail, str) else json.dumps(detail, ensure_ascii=False)
+    error_type, code = _openai_error_type(exc.status_code)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "message": message,
+                "type": error_type,
+                "param": None,
+                "code": code,
+            }
+        },
+        headers=exc.headers,
+    )
+
+
+async def _openai_validation_exception_handler(request, exc: Exception):
+    """/v1/* 的参数校验失败按 OpenAI 口径返回 400，而不是 FastAPI 的 422。"""
+
+    if not isinstance(exc, RequestValidationError):
+        raise exc
+    if not request.url.path.startswith("/v1/"):
+        return await request_validation_exception_handler(request, exc)
+    errors = exc.errors()
+    first = errors[0] if errors else {}
+    location = ".".join(
+        str(part) for part in first.get("loc", ()) if part != "body"
+    )
+    message = str(first.get("msg", "请求参数无效"))
+    if location != "":
+        message = f"{location}: {message}"
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": {
+                "message": message,
+                "type": "invalid_request_error",
+                "param": location or None,
+                "code": "invalid_request",
+            }
+        },
+    )
 
 
 @asynccontextmanager
@@ -107,6 +181,11 @@ async def lifespan(_app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    # OpenAI 兼容端点使用标准错误体；其他路由维持 FastAPI 默认格式
+    app.add_exception_handler(StarletteHTTPException, _openai_http_exception_handler)
+    app.add_exception_handler(
+        RequestValidationError, _openai_validation_exception_handler
+    )
     app.add_middleware(RequestIdMiddleware)
     app.add_middleware(
         CORSMiddleware,

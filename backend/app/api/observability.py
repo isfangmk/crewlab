@@ -24,6 +24,7 @@ class ObservationTurnOut(BaseModel):
     agent_id: str
     provider: str
     model: str
+    channel: str
     status: str
     request_id: str
     input_summary: str
@@ -81,6 +82,7 @@ class ObservationOverviewOut(BaseModel):
     stats: ObservationStatsOut
     agents: list[str]
     models: list[str]
+    channels: list[str]
 
 
 @router.get("/observability/turns", response_model=ObservationTurnListOut)
@@ -90,6 +92,7 @@ async def list_observation_turns(
     status: str | None = Query(None),
     agent_id: str | None = Query(None),
     model: str | None = Query(None),
+    channel: str | None = Query(None),
     started_from: datetime | None = Query(None),
     started_to: datetime | None = Query(None),
     min_duration_ms: int | None = Query(None, ge=0),
@@ -106,6 +109,7 @@ async def list_observation_turns(
             status=status,
             agent_id=agent_id,
             model=model,
+            channel=channel,
             started_from=started_from,
             started_to=started_to,
             min_duration_ms=min_duration_ms,
@@ -127,6 +131,7 @@ async def observation_overview(
     status: str | None = Query(None),
     agent_id: str | None = Query(None),
     model: str | None = Query(None),
+    channel: str | None = Query(None),
     started_from: datetime | None = Query(None),
     started_to: datetime | None = Query(None),
     min_duration_ms: int | None = Query(None, ge=0),
@@ -141,6 +146,7 @@ async def observation_overview(
             status=status,
             agent_id=agent_id,
             model=model,
+            channel=channel,
             started_from=started_from,
             started_to=started_to,
             min_duration_ms=min_duration_ms,
@@ -152,6 +158,7 @@ async def observation_overview(
         stats=ObservationStatsOut(**stats),
         agents=facets["agents"],
         models=facets["models"],
+        channels=facets["channels"],
     )
 
 

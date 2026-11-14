@@ -152,6 +152,7 @@ export default function ObservabilityPage() {
   const [status, setStatus] = useState('');
   const [agentId, setAgentId] = useState('');
   const [model, setModel] = useState('');
+  const [channel, setChannel] = useState('');
   // 会话筛选的唯一来源是 URL：会话列表点「失败」胶囊跳到这里时直接带 session_id，
   // 用 state 复制一份会出现「清掉筛选但 URL 还留着」的不一致。
   const [searchParams, setSearchParams] = useSearchParams();
@@ -187,6 +188,7 @@ export default function ObservabilityPage() {
     if (status !== '') out.status = status;
     if (agentId !== '') out.agent_id = agentId;
     if (model !== '') out.model = model;
+    if (channel !== '') out.channel = channel;
     if (range === 'custom') {
       if (customFrom === '' || customTo === '') {
         throw new Error(tr('自定义时间范围必须同时填写起止时间', 'Custom range needs both start and end'));
@@ -205,7 +207,7 @@ export default function ObservabilityPage() {
       out.min_duration_ms = Number.parseInt(minDuration, 10);
     }
     return out;
-  }, [q, sessionId, status, agentId, model, range, customFrom, customTo, minDuration, tr]);
+  }, [q, sessionId, status, agentId, model, channel, range, customFrom, customTo, minDuration, tr]);
 
   const load = useCallback(async () => {
     const current = reqSeq.next();
@@ -260,6 +262,7 @@ export default function ObservabilityPage() {
     setStatus('');
     setAgentId('');
     setModel('');
+    setChannel('');
     setRange('all');
     setCustomFrom('');
     setCustomTo('');
@@ -283,6 +286,14 @@ export default function ObservabilityPage() {
     [overview, tr],
   );
 
+  const channelOptions = useMemo(
+    () => [
+      { value: '', label: tr('全部渠道', 'All channels') },
+      ...(overview?.channels ?? []).map((c) => ({ value: c, label: c })),
+    ],
+    [overview, tr],
+  );
+
   useAssistantPage('可观测', 'Observability', {
     total,
     page,
@@ -291,6 +302,7 @@ export default function ObservabilityPage() {
     status: status || 'all',
     agent_id: agentId || 'all',
     model: model || 'all',
+    channel: channel || 'all',
     range,
     min_duration_ms: minDuration || 'all',
     loading,
@@ -354,6 +366,16 @@ export default function ObservabilityPage() {
         },
       });
     }
+    if (channel !== '') {
+      chips.push({
+        key: 'channel',
+        label: tr(`渠道：${channel}`, `Channel: ${channel}`),
+        clear: () => {
+          resetToFirstPage();
+          setChannel('');
+        },
+      });
+    }
     if (range !== 'all') {
       const presets: Record<Exclude<RangePreset, 'all'>, { zh: string; en: string }> = {
         today: { zh: '今天', en: 'Today' },
@@ -385,7 +407,7 @@ export default function ObservabilityPage() {
       });
     }
     return chips;
-  }, [sessionId, status, agentId, model, range, minDuration, tr, clearSessionFilter]);
+  }, [sessionId, status, agentId, model, channel, range, minDuration, tr, clearSessionFilter]);
 
   return (
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">
@@ -530,6 +552,27 @@ export default function ObservabilityPage() {
                 setModel(v);
               }}
               options={modelOptions}
+              variant="ghost"
+              className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+            />
+          </FilterPill>
+          <FilterPill
+            label={tr('渠道', 'Channel')}
+            active={channel !== ''}
+            onClear={() => {
+              resetToFirstPage();
+              setChannel('');
+            }}
+            width="w-[10.5rem]"
+          >
+            <Select
+              aria-label={tr('发布渠道', 'Publishing channel')}
+              value={channel}
+              onValueChange={(v) => {
+                resetToFirstPage();
+                setChannel(v);
+              }}
+              options={channelOptions}
               variant="ghost"
               className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
             />
@@ -758,6 +801,17 @@ export default function ObservabilityPage() {
                             <span className="min-w-0 truncate font-mono" title={`${row.provider}/${row.model}`}>
                               {row.model}
                             </span>
+                            {row.channel !== '' ? (
+                              <>
+                                <span aria-hidden>·</span>
+                                <span
+                                  className="shrink-0 text-indigo-300"
+                                  title={tr(`发布渠道 ${row.channel}`, `Channel ${row.channel}`)}
+                                >
+                                  {row.channel}
+                                </span>
+                              </>
+                            ) : null}
                           </div>
                         </td>
                         <td className="px-3 py-2 align-middle">
@@ -909,6 +963,14 @@ function TraceDetail({ turn }: { turn: ObservationTurnDetail }) {
             <span className="truncate font-mono">{turn.model}</span>
             <span aria-hidden>·</span>
             <span>{turn.provider}</span>
+            {turn.channel !== '' ? (
+              <>
+                <span aria-hidden>·</span>
+                <span className="text-indigo-300">
+                  {tr(`渠道 ${turn.channel}`, `Channel ${turn.channel}`)}
+                </span>
+              </>
+            ) : null}
             <span aria-hidden>·</span>
             <span className="tabular-nums">{turn.started_at ? fullDateTime(turn.started_at) : '—'}</span>
           </div>

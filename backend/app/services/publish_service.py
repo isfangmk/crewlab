@@ -12,10 +12,11 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models_orm.channel import PublishedChannel
+from app.models_orm.chat import ChatSession
 from app.models_orm.observation import ObservationTurn
 from app.services import agent_service, chat_service
 from app.services.auth_service import hash_token
@@ -127,14 +128,86 @@ async def rotate_key(db: AsyncSession, channel_id: str) -> tuple[str, PublishedC
     return raw, row
 
 
-async def set_enabled(
-    db: AsyncSession, channel_id: str, enabled: bool
+async def update_channel(
+    db: AsyncSession,
+    channel_id: str,
+    *,
+    name: str | None = None,
+    agent_id: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    expires_in_hours: int | None = None,
+    enabled: bool | None = None,
 ) -> PublishedChannel:
+    """编辑渠道；None = 该字段不变，空串 = provider/model 回到全局默认。"""
+
     row = await get_channel(db, channel_id)
-    row.enabled = enabled
+    old_name = row.name
+    if name is not None:
+        name = name.strip()
+        if name == "":
+            raise ValueError("渠道名不能为空")
+        if len(name) > 128:
+            raise ValueError("渠道名最长 128 个字符")
+        if name != row.name:
+            await _ensure_name_free(db, name, exclude_id=row.id)
+            row.name = name
+    if agent_id is not None:
+        agent_id = agent_id.strip()
+        if agent_id == "":
+            raise ValueError("发布助理不能为空")
+        await agent_service.get_agent(db, agent_id)
+        row.agent_id = agent_id
+    if provider is not None or model is not None:
+        next_provider = (provider or "").strip()
+        next_model = (model or "").strip()
+        if (next_provider == "") != (next_model == ""):
+            raise ValueError("provider 与 model 必须同时提供或同时留空")
+        if next_provider == "":
+            next_provider, next_model = await get_default_selection(db)
+        else:
+            await resolve_model(db, next_provider, next_model)
+        if next_provider != row.provider or next_model != row.model:
+            row.provider = next_provider
+            row.model = next_model
+            # 会话创建时固化了 provider/model，换模型必须换会话
+            row.session_id = None
+    if expires_in_hours is not None:
+        if expires_in_hours < 0 or expires_in_hours > _MAX_EXPIRES_HOURS:
+            raise ValueError(
+                f"有效期小时数范围是 0..{_MAX_EXPIRES_HOURS}（0 = 永不过期）"
+            )
+        row.expires_at = (
+            None
+            if expires_in_hours == 0
+            else datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)
+        )
+    if enabled is not None:
+        row.enabled = enabled
+    if row.name != old_name:
+        # 观测用量按渠道名聚合：改名要同步历史回合和会话标题，否则统计断档
+        await db.execute(
+            update(ObservationTurn)
+            .where(ObservationTurn.channel == old_name)
+            .values(channel=row.name)
+        )
+        if row.session_id:
+            await db.execute(
+                update(ChatSession)
+                .where(ChatSession.id == row.session_id)
+                .values(title=f"[发布] {row.name}")
+            )
     await db.commit()
     await db.refresh(row)
-    logger.info("发布渠道启停 id=%s name=%s enabled=%s", row.id, row.name, enabled)
+    logger.info(
+        "更新发布渠道 id=%s name=%s agent=%s model=%s enabled=%s expires_at=%s",
+        row.id,
+        row.name,
+        row.agent_id,
+        row.model,
+        row.enabled,
+        row.expires_at.isoformat() if row.expires_at else "never",
+    )
     return row
 
 
@@ -172,10 +245,10 @@ async def _usage_by_channel(db: AsyncSession) -> dict[str, dict[str, object]]:
     ).all()
     return {
         str(name): {
-            "turns": int(turns),
-            "prompt_tokens": int(prompt),
-            "completion_tokens": int(completion),
-            "total_tokens": int(total),
+            "turns": int(turns or 0),
+            "prompt_tokens": int(prompt or 0),
+            "completion_tokens": int(completion or 0),
+            "total_tokens": int(total or 0),
             "last_used_at": last.isoformat() if last is not None else None,
         }
         for name, turns, prompt, completion, total, last in rows
@@ -215,6 +288,14 @@ async def list_channels(db: AsyncSession) -> list[dict[str, object]]:
     return [channel_to_wire(row, usage.get(row.name)) for row in rows]
 
 
+async def get_channel_detail(db: AsyncSession, channel_id: str) -> dict[str, object]:
+    """单渠道详情：带按渠道聚合的用量，编辑弹窗与列表共用同一份出参。"""
+
+    row = await get_channel(db, channel_id)
+    usage = await _usage_by_channel(db)
+    return channel_to_wire(row, usage.get(row.name))
+
+
 async def resolve_channel(db: AsyncSession, raw_key: str) -> PublishedChannel:
     if not raw_key.startswith(KEY_PREFIX) or len(raw_key) <= len(KEY_PREFIX):
         raise ChannelAuthError("API Key 无效")
@@ -231,8 +312,13 @@ async def resolve_channel(db: AsyncSession, raw_key: str) -> PublishedChannel:
 
 
 async def ensure_session(db: AsyncSession, channel: PublishedChannel) -> str:
-    """取渠道复用的会话；会话被删除时重建并回写渠道。"""
+    """取渠道复用的会话；会话被删除时重建并回写渠道。
 
+    并发请求在等渠道锁之前拿到的 channel 可能已经是旧快照（另一个请求刚
+    建好会话），锁内必须先重读，否则会重复建会话并覆盖 session_id。
+    """
+
+    await db.refresh(channel)
     if channel.session_id:
         try:
             session = await chat_service.get_session(db, channel.session_id)

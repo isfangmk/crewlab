@@ -1,5 +1,5 @@
 // 发布渠道页：列表展示掩码 Key / 用量 / 状态，创建后一次性展示 Key。
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
@@ -115,5 +115,45 @@ describe('PublishPage', () => {
     expect(within(reveal).getByText('pk-abcdefghijklmnopqrstuvwxyz')).toBeInTheDocument();
     expect(within(reveal).getByText(/只显示这一次/)).toBeInTheDocument();
     expect(posted).toMatchObject({ name: '对外测试', agent_id: 'default' });
+  });
+
+  it('点名称打开编辑弹窗，回填详情并提交 PATCH', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.get('/api/v1/publish/channels/ch-1', () => HttpResponse.json(channel)),
+      http.patch('/api/v1/publish/channels/ch-1', async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json({ ...channel, name: '运维对外问答-改' });
+      }),
+    );
+    render(
+      <MemoryRouter>
+        <PublishPage />
+      </MemoryRouter>,
+    );
+    await screen.findByText('运维对外问答');
+    await userEvent.click(screen.getByTitle('查看并编辑 运维对外问答'));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('渠道详情')).toBeInTheDocument();
+    expect(within(dialog).getByText('3 回合')).toBeInTheDocument();
+    expect(within(dialog).getByText('200 tokens')).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue('运维对外问答')).toBeInTheDocument();
+
+    const nameInput = within(dialog).getByLabelText('渠道名称');
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, '运维对外问答-改');
+    await userEvent.click(within(dialog).getByRole('button', { name: '保存修改' }));
+
+    await waitFor(() =>
+      expect(patched).toMatchObject({
+        name: '运维对外问答-改',
+        agent_id: 'default',
+        provider: 'deepseek',
+        model: 'deepseek-flash',
+      }),
+    );
+    // 没动有效期就不提交，避免每次保存都重置过期时间
+    expect(patched).not.toHaveProperty('expires_in_hours');
+    expect(await screen.findByText('渠道已更新')).toBeInTheDocument();
   });
 });

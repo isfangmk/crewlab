@@ -6,6 +6,8 @@ export type ObservationTurn = {
   agent_id: string;
   provider: string;
   model: string;
+  /** 空串 = 站内对话；非空 = 对外发布渠道名。 */
+  channel: string;
   status: string;
   request_id: string;
   input_summary: string;
@@ -51,6 +53,7 @@ export type ObservationOverview = {
   stats: ObservationStats;
   agents: string[];
   models: string[];
+  channels: string[];
 };
 
 /** 列表与汇总共用的筛选条件。 */
@@ -60,6 +63,7 @@ export type ObservationFilters = {
   status?: string;
   agent_id?: string;
   model?: string;
+  channel?: string;
   started_from?: string;
   started_to?: string;
   min_duration_ms?: number;
@@ -72,6 +76,7 @@ function filtersToQuery(params: ObservationFilters): URLSearchParams {
   if (params.status) sp.set('status', params.status);
   if (params.agent_id) sp.set('agent_id', params.agent_id);
   if (params.model) sp.set('model', params.model);
+  if (params.channel) sp.set('channel', params.channel);
   if (params.started_from) sp.set('started_from', params.started_from);
   if (params.started_to) sp.set('started_to', params.started_to);
   if (params.min_duration_ms != null) sp.set('min_duration_ms', String(params.min_duration_ms));

@@ -49,6 +49,8 @@ import {
   listChannels,
   rotateChannelKey,
   setChannelEnabled,
+  updateChannel,
+  type ChannelUpdateInput,
   type PublishedChannel,
 } from '@/api/publish';
 
@@ -70,7 +72,7 @@ export default function PublishPage() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [creating, setCreating] = useState(false);
+  const [editor, setEditor] = useState<null | { channel: PublishedChannel | null }>(null);
   const [revealed, setRevealed] = useState<{ name: string; key: string } | null>(null);
   const [rotating, setRotating] = useState<PublishedChannel | null>(null);
   const [deleting, setDeleting] = useState<PublishedChannel | null>(null);
@@ -169,7 +171,7 @@ export default function PublishPage() {
             <RowAction icon={RefreshCw} onClick={() => void load()}>
               {tr('刷新', 'Refresh')}
             </RowAction>
-            <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+            <Button variant="primary" size="sm" onClick={() => setEditor({ channel: null })}>
               <Plus size={12} />
               {tr('新建渠道', 'New channel')}
             </Button>
@@ -213,7 +215,7 @@ export default function PublishPage() {
               <Button
                 variant="primary"
                 size="sm"
-                onClick={() => setCreating(true)}
+                onClick={() => setEditor({ channel: null })}
               >
                 <Plus size={12} />
                 {tr('新建渠道', 'New channel')}
@@ -248,7 +250,7 @@ export default function PublishPage() {
               />
             }
           >
-            <table {...tableLayout(64)}>
+            <table {...tableLayout(62)}>
               <colgroup>
                 <col className={COL.main} />
                 <col className={COL.detail} />
@@ -275,9 +277,14 @@ export default function PublishPage() {
                   return (
                     <tr key={channel.id} className="group transition-colors hover:bg-zinc-900/40">
                       <td className="px-3 py-2">
-                        <span className="block truncate text-[12.5px] font-medium text-zinc-100" title={channel.name}>
+                        <button
+                          type="button"
+                          onClick={() => setEditor({ channel })}
+                          className="block max-w-full truncate text-left text-[12.5px] font-medium text-zinc-100 transition-colors hover:text-indigo-300"
+                          title={tr(`查看并编辑 ${channel.name}`, `View and edit ${channel.name}`)}
+                        >
                           {channel.name}
-                        </span>
+                        </button>
                         <span className="block truncate text-[10px] leading-4 text-zinc-500" title={channel.expires_at ? fullDateTime(channel.expires_at) : tr('永不过期', 'Never expires')}>
                           {channel.expires_at
                             ? tr(
@@ -361,14 +368,19 @@ export default function PublishPage() {
         )}
       </div>
 
-      {creating && (
+      {editor !== null && (
         <ChannelEditor
-          onClose={() => setCreating(false)}
-          onSaved={(createdName, key) => {
-            setCreating(false);
-            setRevealed({ name: createdName, key });
+          channel={editor.channel}
+          onClose={() => setEditor(null)}
+          onSaved={(channel, key) => {
+            setEditor(null);
             void load(true);
-            flash('ok', tr('渠道已创建', 'Channel created'));
+            if (key !== null) {
+              setRevealed({ name: channel.name, key });
+              flash('ok', tr('渠道已创建', 'Channel created'));
+            } else {
+              flash('ok', tr('渠道已更新', 'Channel updated'));
+            }
           }}
         />
       )}
@@ -426,17 +438,23 @@ export default function PublishPage() {
 }
 
 function ChannelEditor({
+  channel,
   onClose,
   onSaved,
 }: {
+  channel: PublishedChannel | null;
   onClose(): void;
-  onSaved(name: string, key: string): void;
+  onSaved(channel: PublishedChannel, key: string | null): void;
 }) {
   const { tr } = useI18n();
-  const [name, setName] = useState('');
-  const [agentId, setAgentId] = useState('default');
-  const [modelValue, setModelValue] = useState('');
-  const [expiresHours, setExpiresHours] = useState('0');
+  const editing = channel !== null;
+  const [name, setName] = useState(channel?.name ?? '');
+  const [agentId, setAgentId] = useState(channel?.agent_id ?? 'default');
+  const [modelValue, setModelValue] = useState(
+    channel === null ? '' : `${channel.provider}::${channel.model}`,
+  );
+  // 编辑时默认不动有效期；选中预设才从当前时间重新计算
+  const [expiresHours, setExpiresHours] = useState(editing ? '' : '0');
   const [agents, setAgents] = useState<AgentSummary[] | null>(null);
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
   const [saving, setSaving] = useState(false);
@@ -478,8 +496,19 @@ function ChannelEditor({
         });
       }
     }
+    // 渠道当前模型可能已从目录里下架：保留一个「当前」选项，避免显示裸值
+    if (
+      channel !== null &&
+      modelValue !== '' &&
+      !options.some((option) => option.value === modelValue)
+    ) {
+      options.splice(1, 0, {
+        value: modelValue,
+        label: `${channel.provider} · ${channel.model}`,
+      });
+    }
     return options;
-  }, [catalog, tr]);
+  }, [catalog, tr, channel, modelValue]);
 
   const save = async () => {
     setSaving(true);
@@ -487,25 +516,41 @@ function ChannelEditor({
     try {
       const [provider, model] =
         modelValue === '' ? ['', ''] : modelValue.split('::', 2);
-      const created = await createChannel({
-        name: name.trim(),
-        agent_id: agentId,
-        provider,
-        model,
-        expires_in_hours: Number(expiresHours),
-      });
-      onSaved(created.name, created.key);
+      if (channel !== null) {
+        const patch: ChannelUpdateInput = {
+          name: name.trim(),
+          agent_id: agentId,
+          provider,
+          model,
+        };
+        if (expiresHours !== '') {
+          patch.expires_in_hours = Number(expiresHours);
+        }
+        const updated = await updateChannel(channel.id, patch);
+        onSaved(updated, null);
+      } else {
+        const created = await createChannel({
+          name: name.trim(),
+          agent_id: agentId,
+          provider,
+          model,
+          expires_in_hours: Number(expiresHours),
+        });
+        onSaved(created, created.key);
+      }
     } catch (e) {
       setErr(errorText(e));
       setSaving(false);
     }
   };
 
+  const expired = channel !== null && isExpired(channel);
+
   return (
     <Modal
       open
       onClose={onClose}
-      title={tr('新建发布渠道', 'New published channel')}
+      title={editing ? tr('渠道详情', 'Channel details') : tr('新建发布渠道', 'New published channel')}
       size="md"
       footer={
         <>
@@ -518,13 +563,44 @@ function ChannelEditor({
             onClick={() => void save()}
             disabled={saving || name.trim() === '' || agentId === ''}
           >
-            {saving ? tr('创建中…', 'Creating…') : tr('创建并签发 Key', 'Create & issue key')}
+            {saving
+              ? tr('保存中…', 'Saving…')
+              : editing
+                ? tr('保存修改', 'Save changes')
+                : tr('创建并签发 Key', 'Create & issue key')}
           </Button>
         </>
       }
     >
       <div className="space-y-3">
         {err && <ErrorBanner>{err}</ErrorBanner>}
+        {channel !== null && (
+          <div className="space-y-1 rounded-lg border border-zinc-800/60 bg-zinc-950/60 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-400">
+              <span className="font-mono text-zinc-300">{channel.key_masked}</span>
+              <span className="tabular-nums">
+                {tr(`${channel.usage.turns} 回合`, `${channel.usage.turns} turns`)}
+              </span>
+              <span className="tabular-nums">
+                {channel.usage.total_tokens.toLocaleString()} tokens
+              </span>
+              {expired ? (
+                <StatusPill tone="neutral" label={tr('已过期', 'Expired')} />
+              ) : channel.enabled ? (
+                <StatusPill tone="ok" label={tr('启用中', 'Enabled')} />
+              ) : (
+                <StatusPill tone="neutral" label={tr('已停用', 'Disabled')} />
+              )}
+            </div>
+            <div className="text-[10px] text-zinc-500">
+              {tr('最近调用', 'Last call')}：
+              {channel.usage.last_used_at ? fullDateTime(channel.usage.last_used_at) : '—'}
+              {' · '}
+              {tr('创建于', 'Created')}{' '}
+              {channel.created_at ? fullDateTime(channel.created_at) : '—'}
+            </div>
+          </div>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="channel-name">{tr('渠道名称', 'Channel name')}</Label>
           <Input
@@ -534,10 +610,13 @@ function ChannelEditor({
             placeholder={tr('例如 运维问答对外版', 'e.g. public ops assistant')}
             maxLength={128}
             className="w-full"
-            autoFocus
+            autoFocus={!editing}
           />
           <p className="text-[11px] text-zinc-500">
-            {tr('同时用于用量记账，需唯一。', 'Also used for usage accounting; must be unique.')}
+            {tr(
+              '同时用于用量记账，需唯一；改名会同步历史用量的渠道归属。',
+              'Also used for usage accounting and must be unique; renaming moves past usage too.',
+            )}
           </p>
         </div>
         <div className="space-y-1.5">
@@ -563,6 +642,14 @@ function ChannelEditor({
             aria-label={tr('模型', 'Model')}
             className="w-full"
           />
+          {editing && (
+            <p className="text-[11px] text-zinc-500">
+              {tr(
+                '修改模型会为渠道重建会话，历史会话保留在会话列表。',
+                'Changing the model rebuilds the channel session; the old session stays listed.',
+              )}
+            </p>
+          )}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="channel-expiry">{tr('有效期', 'Expiry')}</Label>
@@ -571,6 +658,9 @@ function ChannelEditor({
             value={expiresHours}
             onValueChange={setExpiresHours}
             options={[
+              ...(editing
+                ? [{ value: '', label: tr('保持不变', 'Keep current') }]
+                : []),
               { value: '0', label: tr('永不过期', 'Never expires') },
               { value: '24', label: tr('24 小时', '24 hours') },
               { value: '168', label: tr('7 天', '7 days') },
@@ -579,6 +669,18 @@ function ChannelEditor({
             aria-label={tr('有效期', 'Expiry')}
             className="w-full"
           />
+          {editing && (
+            <p className="text-[11px] text-zinc-500">
+              {tr(
+                `当前：${
+                  channel.expires_at ? fullDateTime(channel.expires_at) : tr('永不过期', 'never')
+                }；修改后从当前时间重新计算。`,
+                `Current: ${
+                  channel.expires_at ? fullDateTime(channel.expires_at) : 'never'
+                }; changes count from now.`,
+              )}
+            </p>
+          )}
         </div>
       </div>
     </Modal>

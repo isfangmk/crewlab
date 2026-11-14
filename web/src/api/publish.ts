@@ -36,8 +36,34 @@ export type ChannelCreateInput = {
 
 export type ChannelCreateResult = PublishedChannel & { key: string };
 
+export type ChannelUpdateInput = {
+  name?: string;
+  agent_id?: string;
+  /** 与 model 必须成对出现；都为空 = 回到全局默认 */
+  provider?: string;
+  model?: string;
+  /** 0 = 永不过期；修改后从当前时间重新计算 */
+  expires_in_hours?: number;
+  enabled?: boolean;
+};
+
 export function listChannels() {
   return request<{ items: PublishedChannel[]; total: number }>('GET', '/publish/channels');
+}
+
+export function getChannel(id: string) {
+  return request<PublishedChannel>(
+    'GET',
+    `/publish/channels/${encodeURIComponent(id)}`,
+  );
+}
+
+export function updateChannel(id: string, input: ChannelUpdateInput) {
+  return request<PublishedChannel>(
+    'PATCH',
+    `/publish/channels/${encodeURIComponent(id)}`,
+    input,
+  );
 }
 
 export function createChannel(input: ChannelCreateInput) {

@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
@@ -42,14 +42,116 @@ class ChannelCreateRequest(BaseModel):
 
 
 class ChannelUpdateRequest(BaseModel):
-    enabled: bool
+    """渠道编辑：字段缺省表示不改；provider/model 留空表示回到全局默认。"""
+
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    agent_id: str | None = Field(default=None, min_length=1, max_length=128)
+    provider: str | None = None
+    model: str | None = None
+    # 0 = 永不过期；修改后从当前时间重新计算
+    expires_in_hours: int | None = Field(default=None, ge=0)
+    enabled: bool | None = None
 
 
 class ChatCompletionRequest(BaseModel):
+    """OpenAI Chat Completions 入参。
+
+    extra="allow" 是为了把没声明又不支持的参数显式拒绝，而不是静默丢弃；
+    工具调用、自定义采样等当前渠道链路无法生效的参数一律 400。
+    """
+
+    model_config = ConfigDict(extra="allow")
+
     model: str = ""
     messages: list[dict[str, Any]] = Field(default_factory=list)
     stream: bool = False
     stream_options: dict[str, Any] | None = None
+    n: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
+    max_completion_tokens: int | None = None
+    stop: str | list[str] | None = None
+    presence_penalty: float | None = None
+    frequency_penalty: float | None = None
+    seed: int | None = None
+    user: str | None = None
+    logprobs: bool | None = None
+    top_logprobs: int | None = None
+    response_format: dict[str, Any] | None = None
+    tools: list[dict[str, Any]] | None = None
+    functions: list[dict[str, Any]] | None = None
+    tool_choice: Any = None
+
+
+def _validate_completion_request(
+    body: ChatCompletionRequest, channel: PublishedChannel
+) -> None:
+    """拒绝无法生效的参数：宁可在请求边界显式失败，也不静默改变语义。"""
+
+    unsupported: list[str] = []
+    if body.n is not None and body.n != 1:
+        unsupported.append("n 仅支持 1")
+    if body.temperature not in (None, 1):
+        unsupported.append("temperature 仅支持默认值 1")
+    if body.top_p not in (None, 1):
+        unsupported.append("top_p 仅支持默认值 1")
+    if body.presence_penalty not in (None, 0):
+        unsupported.append("presence_penalty 仅支持默认值 0")
+    if body.frequency_penalty not in (None, 0):
+        unsupported.append("frequency_penalty 仅支持默认值 0")
+    if body.max_tokens is not None:
+        unsupported.append("max_tokens")
+    if body.max_completion_tokens is not None:
+        unsupported.append("max_completion_tokens")
+    if body.stop not in (None, "", []):
+        unsupported.append("stop")
+    if body.seed is not None:
+        unsupported.append("seed")
+    if body.logprobs:
+        unsupported.append("logprobs")
+    if body.top_logprobs is not None:
+        unsupported.append("top_logprobs")
+    if body.response_format is not None:
+        unsupported.append("response_format")
+    if body.tools:
+        unsupported.append("tools")
+    if body.functions:
+        unsupported.append("functions")
+    if body.tool_choice is not None:
+        unsupported.append("tool_choice")
+    extras = sorted((body.model_extra or {}).keys())
+    if extras:
+        unsupported.append("未知参数 " + ", ".join(extras))
+    if unsupported:
+        raise HTTPException(
+            status_code=400,
+            detail="当前渠道不支持的请求参数：" + "；".join(unsupported),
+        )
+
+    if body.model != "" and body.model != channel.model:
+        raise HTTPException(
+            status_code=404, detail=f"模型不存在: {body.model}"
+        )
+
+    if body.stream_options is not None:
+        if not body.stream:
+            raise HTTPException(
+                status_code=400, detail="stream_options 只能用于流式请求"
+            )
+        unknown = sorted(
+            key for key in body.stream_options if key != "include_usage"
+        )
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail="stream_options 不支持的字段：" + ", ".join(unknown),
+            )
+        include_usage = body.stream_options.get("include_usage")
+        if include_usage is not None and not isinstance(include_usage, bool):
+            raise HTTPException(
+                status_code=400, detail="stream_options.include_usage 必须是布尔值"
+            )
 
 
 async def _get_channel_or_404(db: AsyncSession, channel_id: str) -> PublishedChannel:
@@ -102,6 +204,18 @@ async def create_channel(
     return {**publish_service.channel_to_wire(row), "key": raw_key}
 
 
+@router.get("/publish/channels/{channel_id}")
+async def get_channel(
+    channel_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_admin),
+) -> dict:
+    try:
+        return await publish_service.get_channel_detail(db, channel_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/publish/channels/{channel_id}/rotate")
 async def rotate_channel_key(
     channel_id: str,
@@ -129,18 +243,32 @@ async def update_channel(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    patch = body.model_dump(exclude_unset=True)
+    # provider/model 是一个整体配置：只改一半会让渠道落到不一致的模型
+    if ("provider" in patch) != ("model" in patch):
+        raise HTTPException(
+            status_code=400, detail="provider 与 model 必须同时提供或同时留空"
+        )
     try:
-        row = await publish_service.set_enabled(db, channel_id, body.enabled)
+        row = await publish_service.update_channel(db, channel_id, **patch)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     await write_audit(
         actor_user_id=user.id,
         action="publish.update",
         resource_type="published_channel",
         resource_id=row.id,
-        detail={"name": row.name, "enabled": row.enabled},
+        detail={
+            "name": row.name,
+            "enabled": row.enabled,
+            "agent_id": row.agent_id,
+            "model": row.model,
+        },
     )
-    return publish_service.channel_to_wire(row)
+    usage = await publish_service.get_channel_detail(db, row.id)
+    return usage
 
 
 @router.delete("/publish/channels/{channel_id}")
@@ -220,7 +348,11 @@ def _usage_wire(raw: object) -> dict[str, int] | None:
     prompt = raw.get("prompt_tokens")
     completion = raw.get("completion_tokens")
     total = raw.get("total_tokens")
-    if not all(isinstance(value, int) for value in (prompt, completion, total)):
+    if (
+        not isinstance(prompt, int)
+        or not isinstance(completion, int)
+        or not isinstance(total, int)
+    ):
         return None
     return {
         "prompt_tokens": prompt,
@@ -237,6 +369,7 @@ def _chunk(
     delta: dict[str, Any],
     finish_reason: str | None = None,
     usage: dict[str, int] | None = None,
+    include_usage: bool = False,
 ) -> str:
     payload: dict[str, Any] = {
         "id": completion_id,
@@ -249,6 +382,9 @@ def _chunk(
         payload["choices"] = [
             {"index": 0, "delta": delta, "finish_reason": finish_reason}
         ]
+        # OpenAI 约定：include_usage 时每个 chunk 都带 usage 字段，普通块为 null
+        if include_usage:
+            payload["usage"] = None
     else:
         payload["usage"] = usage
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -285,6 +421,7 @@ async def create_chat_completion(
     channel: PublishedChannel = Depends(require_channel),
     db: AsyncSession = Depends(get_db),
 ):
+    _validate_completion_request(body, channel)
     prompt = _last_user_text(body.messages)
     if prompt == "":
         raise HTTPException(status_code=400, detail="messages 缺少非空 user 内容")
@@ -304,6 +441,7 @@ async def create_chat_completion(
                 created=created,
                 model=channel.model,
                 delta={"role": "assistant", "content": ""},
+                include_usage=include_usage,
             )
             # 同一渠道复用同一会话：串行化，避免并发写入撞 ADK stale session
             async with publish_service.channel_lock(channel.id):
@@ -317,6 +455,7 @@ async def create_chat_completion(
                                     created=created,
                                     model=channel.model,
                                     delta={"content": text},
+                                    include_usage=include_usage,
                                 )
                         elif frame.event == "approval_pending":
                             error = "该渠道的助理需要人工审批，暂不支持对外发布"
@@ -343,6 +482,7 @@ async def create_chat_completion(
                     model=channel.model,
                     delta={},
                     finish_reason="stop",
+                    include_usage=include_usage,
                 )
                 if include_usage and usage is not None:
                     yield _chunk(
