@@ -1098,8 +1098,8 @@ class AdkFramePersister:
             tool_call=None,
         )
 
-    async def persist(self, frame: SseFrame) -> None:
-        """落库单帧；未知事件忽略（与原聊天流一致，只处理已知类型）。"""
+    async def persist(self, frame: SseFrame) -> SseFrame:
+        """落库单帧，并返回要下发给前端的帧（解释器产出物落库后补全结果）。"""
 
         if frame.event == "tool_intent":
             await _add_message(
@@ -1111,7 +1111,7 @@ class AdkFramePersister:
                 content=frame.data["content"],
                 tool_call=None,
             )
-            return
+            return frame
         if frame.event == "tool_start":
             # 工具卡落库前先刷出已到正文，避免轮询后正文跑到卡片下面
             if self._current_assistant_id is not None:
@@ -1139,7 +1139,7 @@ class AdkFramePersister:
                     "arguments": frame.data["arguments"],
                 },
             )
-            return
+            return frame
         if frame.event == "tool_end":
             duration_ms = frame.data["duration_ms"]
             if not isinstance(duration_ms, int):
@@ -1167,23 +1167,13 @@ class AdkFramePersister:
                 duration_ms=duration_ms,
                 error=frame.data["error"],
             )
-            await _update_tool_card(
-                self._db,
-                session_id=self._session_id,
-                tool_call_id=frame.data["tool_call_id"],
-                patch={
-                    "status": frame.data["status"],
-                    "result": frame.data["result"],
-                    "duration_ms": duration_ms,
-                    "error": frame.data["error"],
-                },
-            )
             # 代码解释器等工具的产出物在 tool_end 时落库：
-            # 完整 payload 走进程内暂存（工具侧 remember_pending），
-            # 落库后把瘦身载荷（含 artifact id/payload）写回 tool_card 供前端渲染。
-            if frame.data["name"] == "run_python" and isinstance(
-                frame.data["result"], dict
-            ):
+            # 完整 payload 走进程内暂存（工具侧 remember_pending），落库后把
+            # 含 artifact id/payload 的瘦身载荷写回 tool_card，并随本帧下发前端，
+            # 使实时会话与历史回放看到同一份可渲染数据。
+            result = frame.data["result"]
+            artifacts_update: dict | None = None
+            if frame.data["name"] == "run_python" and isinstance(result, dict):
                 saved = await artifact_service.save_from_tool_result(
                     self._db,
                     session_id=self._session_id,
@@ -1191,18 +1181,22 @@ class AdkFramePersister:
                     tool_name=frame.data["name"],
                 )
                 if saved:
-                    await _update_tool_card(
-                        self._db,
-                        session_id=self._session_id,
-                        tool_call_id=frame.data["tool_call_id"],
-                        patch={
-                            "result": {
-                                **frame.data["result"],
-                                **artifact_service.tool_result_update(saved),
-                            },
-                        },
-                    )
-            return
+                    artifacts_update = artifact_service.tool_result_update(saved)
+                    result = {**result, **artifacts_update}
+            await _update_tool_card(
+                self._db,
+                session_id=self._session_id,
+                tool_call_id=frame.data["tool_call_id"],
+                patch={
+                    "status": frame.data["status"],
+                    "result": result,
+                    "duration_ms": duration_ms,
+                    "error": frame.data["error"],
+                },
+            )
+            if artifacts_update is not None:
+                return SseFrame(event=frame.event, data={**frame.data, "result": result})
+            return frame
         if frame.event == "approval_pending":
             arguments = frame.data["arguments"]
             if not isinstance(arguments, dict):
@@ -1251,7 +1245,7 @@ class AdkFramePersister:
                         "result": pending_result,
                     },
                 )
-            return
+            return frame
         if frame.event == "assistant_delta":
             message_id = frame.data["message_id"]
             if not isinstance(message_id, str) or message_id == "":
@@ -1270,7 +1264,7 @@ class AdkFramePersister:
                 bucket = []
                 self._assistant_segments[message_id] = bucket
             bucket.append(delta)
-            return
+            return frame
         if frame.event == "done":
             if self._current_assistant_id is not None:
                 await self._flush_assistant_segment(self._current_assistant_id)
@@ -1281,6 +1275,7 @@ class AdkFramePersister:
                 raise RuntimeError(
                     f"done 时仍有未落库助理正文 message_id={leftover_id} parts={len(leftover_parts)}"
                 )
+        return frame
 
 
 async def _hydrate_mentions(db: AsyncSession, mentions: list[dict]) -> str:
@@ -1587,7 +1582,7 @@ async def stream_session_message(
                     event=frame.event,
                     data={**frame.data, "trace_id": obs.trace_id},
                 )
-            await persister.persist(out)
+            out = await persister.persist(out)
             yield out
         if stopped:
             await obs.end_stopped()

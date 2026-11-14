@@ -73,7 +73,7 @@ export function MessageBubble({
   onEditResend,
 }: Props) {
   if ((message.kind === 'tool_card' || message.role === 'tool') && message.tool_call) {
-    return <ToolCallSummaryBlock call={fromSummary(message.tool_call)} onConfirmConfigDraft={onConfirmConfigDraft} />;
+    return <ToolCallBlock call={fromSummary(message.tool_call)} onConfirmConfigDraft={onConfirmConfigDraft} />;
   }
   if (message.role === 'tool') return <ToolBubble message={message} onConfirmConfigDraft={onConfirmConfigDraft} />;
   if (message.role === 'user') {
@@ -321,7 +321,7 @@ function AssistantBubble({ message, actionsDisabled, onRegenerate, onFork, onCon
         </div>
       )}
       {message.tool_calls?.map((tc, i) => (
-        <ToolCallSummaryBlock
+        <ToolCallBlock
           key={`${tc.name}-${i}`}
           call={tc}
           showSources={false}
@@ -362,7 +362,7 @@ function ToolBubble({ message, onConfirmConfigDraft }: Props) {
   // these (would need to join chat_tool_calls); show what we have.
   const result = message.content ? safeParse(message.content) : undefined;
   return (
-    <ToolCallSummaryBlock
+    <ToolCallBlock
       onConfirmConfigDraft={onConfirmConfigDraft}
       call={{
         name: message.tool_name ?? 'tool',
@@ -370,6 +370,50 @@ function ToolBubble({ message, onConfirmConfigDraft }: Props) {
         result,
       }}
     />
+  );
+}
+
+/** 从 run_python 的返回结果里取产出物；非该工具或缺字段时返回空数组。 */
+function interpreterArtifactsOf(call: { name: string; result?: unknown }): InterpreterArtifact[] {
+  if (call.name !== 'run_python' || typeof call.result !== 'object' || call.result === null) return [];
+  const artifacts = (call.result as { artifacts?: unknown }).artifacts;
+  if (!Array.isArray(artifacts)) return [];
+  return artifacts.filter(
+    (item): item is InterpreterArtifact => typeof item === 'object' && item !== null,
+  );
+}
+
+/**
+ * 工具调用行：通用卡片保持折叠/输入/输出的一致交互；
+ * 解释器产出物（图表、表格、下载）渲染在卡片外的对话流里。
+ */
+function ToolCallBlock({
+  call,
+  onConfirmConfigDraft,
+  showSources = true,
+}: {
+  call: {
+    name: string;
+    device_id?: number;
+    status?: string;
+    arguments?: Record<string, unknown> | unknown;
+    result?: unknown;
+    duration_ms?: number;
+    error?: string;
+  };
+  onConfirmConfigDraft?: ConfirmConfigDraft;
+  showSources?: boolean;
+}) {
+  const artifacts = interpreterArtifactsOf(call);
+  return (
+    <div className="flex w-full flex-col gap-2">
+      <ToolCallSummaryBlock
+        call={call}
+        onConfirmConfigDraft={onConfirmConfigDraft}
+        showSources={showSources}
+      />
+      {artifacts.length > 0 && <InterpreterArtifacts artifacts={artifacts} />}
+    </div>
   );
 }
 
@@ -398,11 +442,6 @@ function ToolCallSummaryBlock({
   const isError = status === 'error' || status === 'timeout' || !!call.error;
   const hint = argSummary(call.arguments);
   const sources = showSources ? extractSources(call.name, call.result) : [];
-  // 代码解释器的产出物列表：result.artifacts（含 pending 摘要与完整 payload 两种形态）
-  const interpreterArtifacts: InterpreterArtifact[] =
-    call.name === 'run_python' && typeof call.result === 'object' && call.result !== null
-      ? ((call.result as { artifacts?: InterpreterArtifact[] }).artifacts ?? [])
-      : [];
   // 工具结果 status=pending_approval 时，在会话内渲染批准/拒绝卡。
   const approval = pendingApproval(call.result);
   if (approval) {
@@ -452,10 +491,6 @@ function ToolCallSummaryBlock({
           <SourcesSection sources={sources} />
         </div>
       )}
-      {/* 代码解释器的产出物常驻渲染：图表/表格是主要输出，不该藏在展开区里 */}
-      {call.name === 'run_python' &&
-        interpreterArtifacts.length > 0 &&
-        !approval && <InterpreterArtifacts artifacts={interpreterArtifacts} />}
       {configDraft && (
         <ConfigDraftCard draft={configDraft} onConfirm={onConfirmConfigDraft} />
       )}

@@ -462,7 +462,7 @@ async def stream_decide(
                 thinking_enabled=thinking_enabled,
             ),
         ):
-            await persister.persist(frame)
+            frame = await persister.persist(frame)
             if frame.event == "tool_end" and frame.data.get("tool_call_id") == row.tool_call_id:
                 duration_ms = frame.data["duration_ms"]
                 if not isinstance(duration_ms, int):

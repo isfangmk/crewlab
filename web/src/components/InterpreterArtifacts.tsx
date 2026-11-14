@@ -142,7 +142,7 @@ export function InterpreterArtifacts({ artifacts }: { artifacts: InterpreterArti
   const { tr } = useI18n();
   if (!Array.isArray(artifacts) || artifacts.length === 0) return null;
   return (
-    <div className="space-y-2 px-3 py-2">
+    <div className="space-y-2">
       {artifacts.map((a, i) =>
         a.payload !== undefined || a.id ? (
           <ArtifactCard key={i} artifact={a} />
