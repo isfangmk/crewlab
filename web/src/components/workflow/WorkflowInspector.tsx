@@ -943,8 +943,10 @@ function ToolSourceTab({ active, onClick, children }: { active: boolean; onClick
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        'h-7 rounded-md text-[11px] transition-colors',
-        active ? 'bg-card font-medium text-text shadow-sm' : 'text-text-faint hover:text-text-muted',
+        'h-7 rounded-md text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40',
+        active
+          ? 'bg-indigo-500 font-medium text-white shadow-sm'
+          : 'text-text-faint hover:bg-zinc-500/10 hover:text-text',
       )}
     >
       {children}

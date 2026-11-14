@@ -118,6 +118,16 @@ describe('节点设置表单宽度', () => {
 });
 
 describe('工具节点来源页签', () => {
+  it('选中页签用主色实底，未选中页签保持弱化', () => {
+    renderNode('mcp', (node) => {
+      node.mcp_server = 'demo-tools';
+      node.mcp_tool = 'add';
+    });
+
+    expect(screen.getByRole('tab', { name: 'MCP 工具' })).toHaveClass('bg-indigo-500');
+    expect(screen.getByRole('tab', { name: '内置工具' })).not.toHaveClass('bg-indigo-500');
+  });
+
   it('内置工具页签按工具签名渲染参数表单', () => {
     renderNode('mcp', (node) => {
       node.tool_source = 'builtin';
