@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  chartTitleHint,
+  hasDrawableData,
   isChartFence,
   isChartOption,
   parseChartSpec,
@@ -136,5 +138,32 @@ describe('parseChartSpecStreaming', () => {
   it('returns null for garbage', () => {
     expect(parseChartSpecStreaming('not json at all')).toBeNull();
     expect(parseChartSpecStreaming('')).toBeNull();
+  });
+});
+
+describe('hasDrawableData', () => {
+  const spec = (option: Record<string, unknown>) => ({ chart: 'c', title: '', option, summary: '' });
+
+  it('要求至少一条 series 带非空 data', () => {
+    expect(hasDrawableData(spec({ series: [{ type: 'line', data: [1] }] }))).toBe(true);
+    expect(hasDrawableData(spec({ series: { type: 'pie', data: [1, 2] } }))).toBe(true);
+    expect(hasDrawableData(spec({ series: [{ type: 'line', data: [] }] }))).toBe(false);
+    expect(hasDrawableData(spec({ series: [{ type: 'line' }] }))).toBe(false);
+    expect(hasDrawableData(spec({ xAxis: {}, yAxis: {} }))).toBe(false);
+    expect(hasDrawableData(spec({}))).toBe(false);
+  });
+
+  it('dataset 驱动（series 不带 data）看 dataset.source', () => {
+    expect(hasDrawableData(spec({ dataset: { source: [['x', 1]] }, series: [{}] }))).toBe(true);
+    expect(hasDrawableData(spec({ dataset: { source: [] }, series: [{}] }))).toBe(false);
+    expect(hasDrawableData(spec({ dataset: [{ source: [[1, 2]] }], series: [{}] }))).toBe(true);
+  });
+});
+
+describe('chartTitleHint', () => {
+  it('优先取规格 title，裸 option 取 option.title.text', () => {
+    expect(chartTitleHint({ chart: 'c', title: 'T', option: {}, summary: '' })).toBe('T');
+    expect(chartTitleHint({ chart: 'c', title: '', option: { title: { text: 'E' } }, summary: '' })).toBe('E');
+    expect(chartTitleHint({ chart: 'c', title: '', option: {}, summary: '' })).toBe('');
   });
 });

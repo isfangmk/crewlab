@@ -8,7 +8,7 @@
 //
 // 流式（streaming）时渐进渲染：围栏内容还是半截 JSON 就先修复出
 // 「当前最大完整前缀」画图，数据随 token 逐步补全，不再刷原始 JSON；
-// 还没有任何可解析形状时显示图表骨架。
+// 还没有可画数据（只有标题/坐标系）时保持骨架，不挂空画布。
 // 非流式保持严格解析：围栏内容解析失败时退回普通代码块，不吞掉内容。
 //
 // 只接管 pre（围栏的容器）：code 保持默认渲染，
@@ -17,10 +17,15 @@
 import { useMemo, type ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ChartCard, CHART_HEIGHT_CLASS } from '@/components/ChartCard';
-import { isChartFence, parseChartSpec, parseChartSpecStreaming } from '@/lib/chartSpec';
+import { ChartCard, ChartCardSkeleton } from '@/components/ChartCard';
+import {
+  chartTitleHint,
+  hasDrawableData,
+  isChartFence,
+  parseChartSpec,
+  parseChartSpecStreaming,
+} from '@/lib/chartSpec';
 import { CodeBlock } from '@/components/ui';
-import { useI18n } from '@/i18n/locale';
 
 type FenceChild = {
   props?: { className?: string; children?: unknown };
@@ -38,24 +43,17 @@ function fenceInfo(children: ReactNode): { className?: string; text: string } | 
 }
 
 function ChartFence({ text, streaming }: { text: string; streaming: boolean }) {
-  const { tr } = useI18n();
   const spec = useMemo(
     () => (streaming ? parseChartSpecStreaming(text) : parseChartSpec(text)),
     [text, streaming],
   );
-  if (spec !== null) {
+  // 流式中要等「有可画数据」才上画布：只有标题/坐标系的空画布
+  // 一直挂着比骨架更像图表坏了；数据一到就挂载并随 token 生长
+  if (spec !== null && (!streaming || hasDrawableData(spec))) {
     return <ChartCard spec={spec} />;
   }
   if (streaming) {
-    // 流式中还解析不出图表形状：给骨架占位，不把半截 JSON 刷在正文里
-    return (
-      <div
-        className={`flex w-full items-center justify-center rounded-lg border border-zinc-800/60 bg-zinc-900/40 text-[11px] text-zinc-500 ${CHART_HEIGHT_CLASS}`}
-        aria-label={tr('图表生成中', 'Chart rendering')}
-      >
-        {tr('图表生成中…', 'Rendering chart…')}
-      </div>
-    );
+    return <ChartCardSkeleton title={spec !== null ? chartTitleHint(spec) : ''} />;
   }
   // 不是合法图表：按普通代码块展示，内容不丢
   return <CodeBlock>{text}</CodeBlock>;

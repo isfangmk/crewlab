@@ -116,3 +116,38 @@ export function ChartCard({ spec, className }: { spec: ChartSpec; className?: st
     </figure>
   );
 }
+
+/** 流式中图表还没到可画数据时的占位：与图卡同款外框 + 脉冲骨架。 */
+export function ChartCardSkeleton({
+  title,
+  className,
+}: {
+  title?: string;
+  className?: string;
+}) {
+  const { tr } = useI18n();
+  return (
+    <figure
+      className={cn(
+        'w-full overflow-hidden rounded-lg border border-zinc-800/60 bg-zinc-900/40',
+        className,
+      )}
+    >
+      {title !== undefined && title !== '' && (
+        <figcaption className="border-b border-zinc-800/60 px-3 py-2 text-[12px] font-medium text-zinc-200">
+          {title}
+        </figcaption>
+      )}
+      <div className="p-2">
+        <div
+          className={cn(
+            'flex w-full animate-pulse items-center justify-center rounded-lg border border-zinc-800/40 bg-zinc-950/20 text-[11px] text-zinc-500',
+            CHART_HEIGHT_CLASS,
+          )}
+        >
+          {tr('图表生成中…', 'Rendering chart…')}
+        </div>
+      </div>
+    </figure>
+  );
+}

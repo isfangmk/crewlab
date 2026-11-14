@@ -53,6 +53,16 @@ describe('ChartMarkdown', () => {
     expect(screen.queryByText(/"chart"/)).not.toBeInTheDocument();
   });
 
+  it('流式中只有标题与坐标系、还没有数据时保持骨架，不挂空画布', () => {
+    const partial =
+      '{"chart": "line", "title": "气温", "option": {"xAxis": {"type": "category", "data": ["10-17"]}, "series": [{"type": "line", "name": "最高"';
+    render(<ChartMarkdown content={`\`\`\`echarts\n${partial}`} streaming />);
+    // 骨架顶住 + 已知标题提示，等 series 数据到了才上画布
+    expect(screen.getByText('图表生成中…')).toBeInTheDocument();
+    expect(screen.getByText('气温')).toBeInTheDocument();
+    expect(screen.queryByText(/"series"/)).not.toBeInTheDocument();
+  });
+
   it('流式结束后解析失败仍退回代码块', () => {
     render(<ChartMarkdown content={'```echarts\n{ broken\n```'} streaming={false} />);
     expect(screen.getByText(/broken/)).toBeInTheDocument();

@@ -192,3 +192,38 @@ export function parseChartSpecStreaming(text: string): ChartSpec | null {
   const repaired = repairJsonPrefix(text);
   return parseChartSpec(repaired === '' ? text.trim() : repaired);
 }
+
+/**
+ * 是否有可画的数据：至少一条 series 带非空 data，或 dataset 有 source。
+ *
+ * 流式渲染用它当挂载门槛——只有标题/坐标系的空画布一直挂着
+ * 比骨架更像「图表坏了」，宁可等数据到了再上画布。
+ */
+export function hasDrawableData(spec: ChartSpec): boolean {
+  const series = spec.option.series;
+  const items = Array.isArray(series) ? series : isPlainObject(series) ? [series] : [];
+  if (
+    items.some((item) => isPlainObject(item) && Array.isArray(item.data) && item.data.length > 0)
+  ) {
+    return true;
+  }
+  // dataset 驱动的图（series 不带 data）看 dataset.source
+  const dataset = spec.option.dataset;
+  if (isPlainObject(dataset)) {
+    return Array.isArray(dataset.source) && dataset.source.length > 0;
+  }
+  if (Array.isArray(dataset)) {
+    return dataset.some(
+      (d) => isPlainObject(d) && Array.isArray(d.source) && d.source.length > 0,
+    );
+  }
+  return false;
+}
+
+/** 标题提示：完整规格看 title；裸 option 取 ECharts 的 option.title.text。 */
+export function chartTitleHint(spec: ChartSpec): string {
+  if (spec.title !== '') return spec.title;
+  const title = spec.option.title;
+  if (isPlainObject(title) && typeof title.text === 'string') return title.text;
+  return '';
+}
