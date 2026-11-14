@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import httpx
 import pytest
 
@@ -99,6 +101,47 @@ async def test_observation_filters_and_overview(env: dict[str, str], api_base: s
             )
             assert page0.status_code == 200 and page1.status_code == 200
             assert page0.json()["items"][0]["trace_id"] != page1.json()["items"][0]["trace_id"]
+
+        # 耗时倒序：非空耗时严格递减，进行中的空耗时始终垫底。
+        slow = await client.get(
+            "/api/v1/observability/turns",
+            params={"sort_by": "duration_ms", "sort_order": "desc", "limit": 200},
+            headers=headers,
+        )
+        assert slow.status_code == 200, slow.text
+        durations = [row["duration_ms"] for row in slow.json()["items"]]
+        non_null_durations = [value for value in durations if value is not None]
+        assert non_null_durations == sorted(non_null_durations, reverse=True)
+        assert durations[: len(non_null_durations)] == non_null_durations
+        assert all(value is None for value in durations[len(non_null_durations) :])
+
+        # 时间升序：解析后严格非递减。
+        by_time = await client.get(
+            "/api/v1/observability/turns",
+            params={"sort_by": "started_at", "sort_order": "asc", "limit": 200},
+            headers=headers,
+        )
+        assert by_time.status_code == 200, by_time.text
+        times = [
+            datetime.fromisoformat(row["started_at"])
+            for row in by_time.json()["items"]
+            if row["started_at"] is not None
+        ]
+        assert times == sorted(times)
+
+        # 非法排序字段 / 方向必须显式失败。
+        bad_sort = await client.get(
+            "/api/v1/observability/turns",
+            params={"sort_by": "agent_id"},
+            headers=headers,
+        )
+        assert bad_sort.status_code == 400
+        bad_order = await client.get(
+            "/api/v1/observability/turns",
+            params={"sort_order": "sideways"},
+            headers=headers,
+        )
+        assert bad_order.status_code == 400
 
         # 非法状态必须显式失败，不能静默返回空列表。
         bad = await client.get(

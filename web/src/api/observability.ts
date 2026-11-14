@@ -73,6 +73,17 @@ export type ObservationFilters = {
   min_duration_ms?: number;
 };
 
+/** 观测列表可排序的列。 */
+export type ObservationSortBy = 'started_at' | 'duration_ms';
+export type ObservationSortOrder = 'asc' | 'desc';
+
+export type ObservationListParams = ObservationFilters & {
+  limit: number;
+  offset: number;
+  sort_by?: ObservationSortBy;
+  sort_order?: ObservationSortOrder;
+};
+
 function filtersToQuery(params: ObservationFilters): URLSearchParams {
   const sp = new URLSearchParams();
   if (params.q) sp.set('q', params.q);
@@ -87,12 +98,12 @@ function filtersToQuery(params: ObservationFilters): URLSearchParams {
   return sp;
 }
 
-export function listObservationTurns(
-  params: ObservationFilters & { limit: number; offset: number },
-) {
+export function listObservationTurns(params: ObservationListParams) {
   const sp = filtersToQuery(params);
   sp.set('limit', String(params.limit));
   sp.set('offset', String(params.offset));
+  if (params.sort_by) sp.set('sort_by', params.sort_by);
+  if (params.sort_order) sp.set('sort_order', params.sort_order);
   return request<{ items: ObservationTurn[]; total: number }>(
     'GET',
     `/observability/turns?${sp.toString()}`,

@@ -1,6 +1,6 @@
-// 可观测页测试 —— 覆盖「详情入口统一为点输入摘要」：
+// 可观测页测试 —— 覆盖：
 //   1. 列表行不再整体可点，只有输入摘要是打开 Trace 详情的入口
-//   2. 点摘要才拉详情并弹窗
+//   2. 时间 / 耗时表头可切换排序，并把排序参数带给后端
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -52,14 +52,17 @@ const OVERVIEW = {
 
 describe('ObservabilityPage', () => {
   let detailRequests: string[] = [];
+  let listQueries: URLSearchParams[] = [];
 
   beforeEach(() => {
     localStorage.setItem('ongrid-locale', 'zh-CN');
     detailRequests = [];
+    listQueries = [];
     server.use(
-      http.get('/api/v1/observability/turns', () =>
-        HttpResponse.json({ items: [TURN], total: 1 }),
-      ),
+      http.get('/api/v1/observability/turns', ({ request }) => {
+        listQueries.push(new URL(request.url).searchParams);
+        return HttpResponse.json({ items: [TURN], total: 1 });
+      }),
       http.get('/api/v1/observability/overview', () => HttpResponse.json(OVERVIEW)),
       http.get('/api/v1/observability/turns/:traceId', ({ params }) => {
         detailRequests.push(String(params.traceId));
@@ -89,5 +92,59 @@ describe('ObservabilityPage', () => {
     await waitFor(() => expect(detailRequests).toEqual(['trace-1']));
     expect(await screen.findByText('Trace 详情')).toBeInTheDocument();
     expect(screen.getByText('首字延迟')).toBeInTheDocument();
+  });
+
+  it('时间与耗时表头支持切换排序', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ObservabilityPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole('button', { name: '查询 CPU 趋势' });
+    const timeHeader = screen.getByRole('button', { name: '时间' });
+    const latencyHeader = screen.getByRole('button', { name: '耗时' });
+    expect(timeHeader.closest('th')).toHaveAttribute('aria-sort', 'descending');
+    expect(listQueries.at(-1)?.get('sort_by')).toBe('started_at');
+    expect(listQueries.at(-1)?.get('sort_order')).toBe('desc');
+
+    // 切到耗时列默认倒序，原时间列回到未排序状态
+    await user.click(latencyHeader);
+    await waitFor(() =>
+      expect(
+        listQueries.some(
+          (query) => query.get('sort_by') === 'duration_ms' && query.get('sort_order') === 'desc',
+        ),
+      ).toBe(true),
+    );
+    expect(latencyHeader.closest('th')).toHaveAttribute('aria-sort', 'descending');
+    expect(timeHeader.closest('th')).toHaveAttribute('aria-sort', 'none');
+
+    // 再次点击同一列切换为升序
+    await user.click(latencyHeader);
+    await waitFor(() =>
+      expect(
+        listQueries.some(
+          (query) => query.get('sort_by') === 'duration_ms' && query.get('sort_order') === 'asc',
+        ),
+      ).toBe(true),
+    );
+    expect(latencyHeader.closest('th')).toHaveAttribute('aria-sort', 'ascending');
+
+    // 切回时间列时恢复默认倒序
+    const beforeTimeClick = listQueries.length;
+    await user.click(timeHeader);
+    await waitFor(() =>
+      expect(
+        listQueries
+          .slice(beforeTimeClick)
+          .some(
+            (query) =>
+              query.get('sort_by') === 'started_at' && query.get('sort_order') === 'desc',
+          ),
+      ).toBe(true),
+    );
+    expect(timeHeader.closest('th')).toHaveAttribute('aria-sort', 'descending');
   });
 });

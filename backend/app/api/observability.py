@@ -99,6 +99,8 @@ async def list_observation_turns(
     started_from: datetime | None = Query(None),
     started_to: datetime | None = Query(None),
     min_duration_ms: int | None = Query(None, ge=0),
+    sort_by: str = Query("started_at"),
+    sort_order: str = Query("desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -116,6 +118,8 @@ async def list_observation_turns(
             started_from=started_from,
             started_to=started_to,
             min_duration_ms=min_duration_ms,
+            sort_by=sort_by,
+            sort_order=sort_order,
             limit=limit,
             offset=offset,
         )

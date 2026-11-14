@@ -212,6 +212,8 @@ async def list_turns(
     started_from: datetime | None = None,
     started_to: datetime | None = None,
     min_duration_ms: int | None = None,
+    sort_by: str = "started_at",
+    sort_order: str = "desc",
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[ObservationTurn], int]:
@@ -219,6 +221,10 @@ async def list_turns(
         raise ValueError("limit 必须在 1..200")
     if offset < 0:
         raise ValueError("offset 不能为负")
+    if sort_by not in ("started_at", "duration_ms"):
+        raise ValueError(f"sort_by 取值非法: {sort_by}")
+    if sort_order not in ("asc", "desc"):
+        raise ValueError(f"sort_order 取值非法: {sort_order}")
 
     filters = _turn_filters(
         q=q,
@@ -232,9 +238,24 @@ async def list_turns(
         min_duration_ms=min_duration_ms,
     )
     count_stmt = select(func.count()).select_from(ObservationTurn)
+    sort_column = (
+        ObservationTurn.duration_ms if sort_by == "duration_ms" else ObservationTurn.started_at
+    )
+    ordered = sort_column.asc() if sort_order == "asc" else sort_column.desc()
+    if sort_by == "duration_ms":
+        # 进行中的回合没有耗时，无论升降序都排在最后
+        order_by = [
+            ObservationTurn.duration_ms.is_(None),
+            ordered,
+            ObservationTurn.started_at.desc(),
+            ObservationTurn.id.desc(),
+        ]
+    else:
+        # 同秒记录的次序固定下来，避免分页时来回漂移
+        order_by = [ordered, ObservationTurn.id.desc()]
     list_stmt = (
         select(ObservationTurn)
-        .order_by(ObservationTurn.started_at.desc())
+        .order_by(*order_by)
         .limit(limit)
         .offset(offset)
     )

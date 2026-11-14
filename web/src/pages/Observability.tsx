@@ -3,7 +3,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Activity,
+  ArrowDown,
+  ArrowUp,
   ArrowUpRight,
+  ChevronsUpDown,
   CircleAlert,
   Coins,
   LoaderCircle,
@@ -20,6 +23,8 @@ import {
   listObservationTurns,
   type ObservationFilters,
   type ObservationOverview,
+  type ObservationSortBy,
+  type ObservationSortOrder,
   type ObservationToolCall,
   type ObservationTurn,
   type ObservationTurnDetail,
@@ -164,6 +169,9 @@ export default function ObservabilityPage() {
   const [minDuration, setMinDuration] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(50);
+  // 默认按时间倒序；耗时排序把进行中的空耗时留在最后
+  const [sortBy, setSortBy] = useState<ObservationSortBy>('started_at');
+  const [sortOrder, setSortOrder] = useState<ObservationSortOrder>('desc');
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -173,6 +181,17 @@ export default function ObservabilityPage() {
 
   // 任一筛选变化都回到第一页，避免停在越界页看到空表。
   const resetToFirstPage = () => setPage(0);
+
+  // 同一列再次点击切换升降序；换列时默认倒序，先看最新 / 最慢。
+  const changeSort = (column: ObservationSortBy) => {
+    if (column === sortBy) {
+      setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortBy(column);
+      setSortOrder('desc');
+    }
+    setPage(0);
+  };
 
   const clearSessionFilter = useCallback(() => {
     const next = new URLSearchParams(searchParams);
@@ -216,7 +235,13 @@ export default function ObservabilityPage() {
     try {
       const filters = buildFilters();
       const [res, ov] = await Promise.all([
-        listObservationTurns({ ...filters, limit: pageSize, offset: page * pageSize }),
+        listObservationTurns({
+          ...filters,
+          limit: pageSize,
+          offset: page * pageSize,
+          sort_by: sortBy,
+          sort_order: sortOrder,
+        }),
         getObservationOverview(filters),
       ]);
       // 已有更新的请求在途：丢弃这次结果，避免旧响应覆盖新筛选
@@ -239,7 +264,7 @@ export default function ObservabilityPage() {
         setLoading(false);
       }
     }
-  }, [buildFilters, page, pageSize, reqSeq]);
+  }, [buildFilters, page, pageSize, reqSeq, sortBy, sortOrder]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -306,6 +331,8 @@ export default function ObservabilityPage() {
     channel: channel || 'all',
     range,
     min_duration_ms: minDuration || 'all',
+    sort_by: sortBy,
+    sort_order: sortOrder,
     loading,
   });
 
@@ -743,12 +770,23 @@ export default function ObservabilityPage() {
                 </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">
-                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('时间', 'Time')}</th>
+                    <SortableHeadCell
+                      label={tr('时间', 'Time')}
+                      active={sortBy === 'started_at'}
+                      order={sortOrder}
+                      onClick={() => changeSort('started_at')}
+                    />
                     <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
                     <th scope="col" className="px-3 py-2 text-left font-medium">{tr('输入 / 错误', 'Input / error')}</th>
                     <th scope="col" className="px-3 py-2 text-left font-medium">{tr('工具 / 技能', 'Tools / skills')}</th>
                     <th scope="col" className="px-3 py-2 text-right font-medium">{tr('总计 tokens', 'Total tokens')}</th>
-                    <th scope="col" className="px-3 py-2 text-right font-medium">{tr('耗时', 'Latency')}</th>
+                    <SortableHeadCell
+                      label={tr('耗时', 'Latency')}
+                      active={sortBy === 'duration_ms'}
+                      order={sortOrder}
+                      align="right"
+                      onClick={() => changeSort('duration_ms')}
+                    />
                   </tr>
                 </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
@@ -878,6 +916,44 @@ export default function ObservabilityPage() {
         {selected === null ? null : <TraceDetail turn={selected} />}
       </Modal>
     </main>
+  );
+}
+
+// 可排序表头：未选中显示双向箭头，选中显示当前方向；aria-sort 挂在 th 上。
+function SortableHeadCell({
+  label,
+  active,
+  order,
+  align = 'left',
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  order: ObservationSortOrder;
+  align?: 'left' | 'right';
+  onClick(): void;
+}) {
+  const { tr } = useI18n();
+  const Icon = active ? (order === 'asc' ? ArrowUp : ArrowDown) : ChevronsUpDown;
+  return (
+    <th
+      scope="col"
+      aria-sort={active ? (order === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className={cn('px-3 py-2 font-medium', align === 'right' ? 'text-right' : 'text-left')}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        title={tr(`按${label}排序`, `Sort by ${label}`)}
+        className={cn(
+          'inline-flex -my-0.5 items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500/40',
+          active && 'text-zinc-200',
+        )}
+      >
+        {label}
+        <Icon size={11} aria-hidden className={active ? 'text-indigo-300' : 'text-zinc-600'} />
+      </button>
+    </th>
   );
 }
 
