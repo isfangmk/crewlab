@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Archive,
+  Box,
   Download,
   MessageSquare,
   Paperclip,
@@ -458,6 +459,7 @@ export default function SessionsPage() {
           const title = session.title || session.id;
           const messageCount = session.message_count ?? 0;
           const attachmentCount = session.attachment_count ?? 0;
+          const artifactCount = session.artifact_count ?? 0;
           const preview = (session.last_message_preview ?? '').trim();
           const expanded = expandedPreviews[session.id] === true;
           // 长会话的摘要默认只占一行；短会话一行本来就够看，不给折叠按钮。
@@ -489,6 +491,15 @@ export default function SessionsPage() {
                   >
                     <Paperclip size={11} aria-hidden />
                     {attachmentCount}
+                  </span>
+                ) : null}
+                {artifactCount > 0 ? (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-0.5 text-[10.5px] tabular-nums text-zinc-500"
+                    title={tr(`${artifactCount} 个产出物`, `${artifactCount} artifacts`)}
+                  >
+                    <Box size={11} aria-hidden />
+                    {artifactCount}
                   </span>
                 ) : null}
               </div>

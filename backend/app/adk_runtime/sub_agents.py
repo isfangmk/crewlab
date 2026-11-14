@@ -85,7 +85,7 @@ async def build_sub_agents_for_agent(
                 agent_description=_delegation_description(
                     sub.description, sub.when_to_use
                 ),
-                persona_instruction=compose_persona(sub),
+                persona_instruction=await compose_persona(db, sub),
                 thinking_enabled=thinking_enabled,
                 model_prefix=model_prefix,
                 provider_extra_body=provider_extra_body,

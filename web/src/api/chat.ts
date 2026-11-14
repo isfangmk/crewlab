@@ -70,8 +70,9 @@ export type ChatSession = {
   total_tokens?: number | null;
   last_turn_status?: string | null;
   pending_approvals?: number;
-  // 图片附件数与「存在未过期的只读分享」
+  // 图片附件数、产出物个数与「存在未过期的只读分享」
   attachment_count?: number;
+  artifact_count?: number;
   shared?: boolean;
 };
 

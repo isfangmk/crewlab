@@ -63,6 +63,7 @@ def _session_out(s, stats: chat_service.SessionStats | None = None) -> ChatSessi
         last_turn_status=None if stats is None else stats.last_turn_status,
         pending_approvals=0 if stats is None else stats.pending_approvals,
         attachment_count=0 if stats is None else stats.attachment_count,
+        artifact_count=0 if stats is None else stats.artifact_count,
         shared=False if stats is None else stats.shared,
     )
 

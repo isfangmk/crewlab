@@ -60,7 +60,7 @@ async def stream_preview(
     else:
         raise ValueError("provider 与 model 必须同时提供或同时留空")
 
-    persona = agent_service.compose_persona(agent)
+    persona = await agent_service.compose_persona(db, agent)
     runtime = await app_settings_service.get_agent_runtime(db)
     if locale is None:
         effective_locale = runtime["output_locale"]

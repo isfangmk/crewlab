@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 import httpx
 import pytest
 
+from app.services import app_settings_service
 from app.services.agent_service import (
     ResolvedAgent,
     compose_persona,
@@ -35,37 +37,80 @@ def _agent(**overrides: object) -> ResolvedAgent:
     return ResolvedAgent(**base)
 
 
-def test_compose_persona_sections_ordered() -> None:
-    """正文 → 必须遵守 → 输出格式 → 示例 → 知识范围，顺序是运行时契约。"""
+def _new_sessionmaker():
+    """每个用例独立建 engine：模块级 engine 会跨事件循环复用连接而报错。"""
 
-    persona = compose_persona(
-        _agent(
-            critical_reminder="没有证据不得下结论。",
-            output_format="checklist",
-            examples=({"input": "怎么查？", "output": "- 先看指标"},),
-            knowledge_scope=KnowledgeScope(paths=("网络",), doc_ids=()),
-        )
-    )
-    idx_prompt = persona.index("你是排障助理。")
-    idx_reminder = persona.index("## 必须遵守")
-    idx_format = persona.index("## 输出格式")
-    idx_examples = persona.index("## 示例")
-    idx_scope = persona.index("## 知识范围")
-    assert idx_prompt < idx_reminder < idx_format < idx_examples < idx_scope
-    assert "没有证据不得下结论。" in persona
-    assert "用户：怎么查？" in persona
-    assert "助理：- 先看指标" in persona
-    assert "网络" in persona
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.config import get_settings
+    from app.db import create_db_engine
+
+    engine = create_db_engine(get_settings().database_url)
+    return engine, async_sessionmaker(engine, expire_on_commit=False)
 
 
-def test_compose_persona_free_format_has_no_section() -> None:
-    persona = compose_persona(_agent(output_format="free"))
-    assert persona == "你是排障助理。"
+@pytest.mark.asyncio
+async def test_compose_persona_sections_ordered() -> None:
+    """当前时间 → 正文 → 必须遵守 → 输出格式 → 示例 → 知识范围，顺序是运行时契约。"""
+
+    engine, sessionmaker = _new_sessionmaker()
+    try:
+        async with sessionmaker() as db:
+            persona = await compose_persona(
+                db,
+                _agent(
+                    critical_reminder="没有证据不得下结论。",
+                    output_format="checklist",
+                    examples=({"input": "怎么查？", "output": "- 先看指标"},),
+                    knowledge_scope=KnowledgeScope(paths=("网络",), doc_ids=()),
+                ),
+            )
+            idx_time = persona.index("## 当前时间")
+            idx_prompt = persona.index("你是排障助理。")
+            idx_reminder = persona.index("## 必须遵守")
+            idx_format = persona.index("## 输出格式")
+            idx_examples = persona.index("## 示例")
+            idx_scope = persona.index("## 知识范围")
+            assert idx_time < idx_prompt < idx_reminder < idx_format < idx_examples < idx_scope
+            assert "没有证据不得下结论。" in persona
+            assert "用户：怎么查？" in persona
+            assert "助理：- 先看指标" in persona
+            assert "网络" in persona
+
+            # 时间锚定：今天 + 时区标签（不用 mock 时钟，按系统时区断言「今天」）
+            try:
+                label, tz = await app_settings_service.get_system_timezone(db)
+            except ValueError:
+                label = app_settings_service.DEFAULT_SYSTEM_TIMEZONE
+                tz = app_settings_service.SYSTEM_TIMEZONES[label]
+            today = datetime.now(tz).strftime("%Y-%m-%d")
+            assert today in persona
+            assert f"（{label}，星期" in persona
+    finally:
+        await engine.dispose()
 
 
-def test_compose_persona_rejects_unknown_format() -> None:
-    with pytest.raises(ValueError):
-        compose_persona(_agent(output_format="yaml"))
+@pytest.mark.asyncio
+async def test_compose_persona_free_format_has_no_section() -> None:
+    engine, sessionmaker = _new_sessionmaker()
+    try:
+        async with sessionmaker() as db:
+            persona = await compose_persona(db, _agent(output_format="free"))
+            assert persona.endswith("你是排障助理。")
+            assert "## 输出格式" not in persona
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_compose_persona_rejects_unknown_format() -> None:
+    engine, sessionmaker = _new_sessionmaker()
+    try:
+        async with sessionmaker() as db:
+            with pytest.raises(ValueError):
+                await compose_persona(db, _agent(output_format="yaml"))
+    finally:
+        await engine.dispose()
 
 
 def test_parse_examples_limits() -> None:

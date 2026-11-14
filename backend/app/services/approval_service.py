@@ -465,7 +465,7 @@ async def stream_decide(
             session_service=get_adk_session_service(),
             agent_name=resolved_agent.name,
             agent_description=resolved_agent.description,
-            persona_instruction=agent_service.compose_persona(resolved_agent),
+            persona_instruction=await agent_service.compose_persona(db, resolved_agent),
             thinking_enabled=thinking_enabled,
             extra_tools=extra_tools,
             llm_timeout_seconds=llm_timeout_seconds,

@@ -19,6 +19,7 @@ from app.adk_runtime.naming import root_adk_name
 from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.stream_bridge import APP_NAME, SseFrame, stream_adk_turn
 from app.models_orm.approval import Approval
+from app.models_orm.artifact import Artifact
 from app.models_orm.attachment import ChatAttachment
 from app.models_orm.chat import ChatMessage, ChatSession
 from app.models_orm.observation import ObservationTurn
@@ -361,13 +362,14 @@ class SessionStats:
     last_turn_status: str | None
     pending_approvals: int
     attachment_count: int
+    artifact_count: int
     shared: bool
 
 
 async def list_session_stats(
     db: AsyncSession, session_ids: list[str]
 ) -> dict[str, SessionStats]:
-    """批量取会话统计，六条聚合查询覆盖整页，避免逐行 N+1。
+    """批量取会话统计，七条聚合查询覆盖整页，避免逐行 N+1。
 
     预览取「最近一条有正文的消息」：tool_card / tool_intent 的 content 为空，
     用它们当摘要只会显示空行。运行信号（工具/技能调用、tokens、最近回合状态）
@@ -500,6 +502,15 @@ async def list_session_stats(
     ).all()
     attachments = {sid: int(n) for sid, n in attachment_rows}
 
+    artifact_rows = (
+        await db.execute(
+            select(Artifact.session_id, func.count())
+            .where(Artifact.session_id.in_(session_ids))
+            .group_by(Artifact.session_id)
+        )
+    ).all()
+    artifacts = {sid: int(n) for sid, n in artifact_rows}
+
     # 只算「还没过期」的分享：过期令牌在页面上点不开，标「已分享」会误导
     shared_rows = (
         await db.execute(
@@ -532,6 +543,7 @@ async def list_session_stats(
             last_turn_status=last_turn_status,
             pending_approvals=pending.get(sid, 0),
             attachment_count=attachments.get(sid, 0),
+            artifact_count=artifacts.get(sid, 0),
             shared=sid in shared,
         )
     return stats
@@ -1515,7 +1527,7 @@ async def stream_session_message(
         runtime["llm_timeout_seconds"],
         runtime["output_locale"],
     )
-    persona = agent_service.compose_persona(resolved_agent)
+    persona = await agent_service.compose_persona(db, resolved_agent)
     # 本回合 locale 覆盖设置页 output_locale；前端传 en-US / zh-CN
     if locale is None:
         effective_locale = runtime["output_locale"]

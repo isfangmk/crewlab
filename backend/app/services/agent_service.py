@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.adk_runtime.naming import adk_identifier, root_adk_name
 from app.models_orm.agent import UserAgent
 from app.models_orm.mcp import McpServer
-from app.services import agent_version_service
+from app.services import agent_version_service, app_settings_service
 from app.services.knowledge_scope import (
     KnowledgeScope,
     empty_scope,
@@ -136,14 +137,33 @@ def _dump_examples(examples: tuple[dict[str, str], ...]) -> str:
     return json.dumps(list(examples), ensure_ascii=False)
 
 
-def compose_persona(agent: ResolvedAgent) -> str:
-    """运行时人设：正文 → 必须遵守 → 输出格式 → 示例 → 知识范围。
+async def _current_time_section(db: AsyncSession) -> str:
+    """当前时间上下文：每回合现算，智能体的时间判断锚定在当前时刻与时区上。"""
 
-    流式回合与审批恢复回合都走这里，避免两条路径注入不同的人设片段。
+    try:
+        label, tz = await app_settings_service.get_system_timezone(db)
+    except ValueError:
+        # 时区设置缺失或非法：退到默认 UTC+08:00，不让整段人设装配失败
+        label = app_settings_service.DEFAULT_SYSTEM_TIMEZONE
+        tz = app_settings_service.SYSTEM_TIMEZONES[label]
+    now = datetime.now(tz)
+    weekday = "星期" + "一二三四五六日"[now.weekday()]
+    return (
+        "## 当前时间\n"
+        f"{now.strftime('%Y-%m-%d %H:%M:%S')}（{label}，{weekday}）\n"
+        "所有相对时间（今天/明天/几点等）都以该时间与用户所在时区解释。"
+    )
+
+
+async def compose_persona(db: AsyncSession, agent: ResolvedAgent) -> str:
+    """运行时人设：当前时间 → 正文 → 必须遵守 → 输出格式 → 示例 → 知识范围。
+
+    对话 / 审批恢复 / Playground / 子 Agent 四条路径都走这里，
+    避免不同路径注入不同的人设片段。
     """
 
     validate_output_format(agent.output_format)
-    parts: list[str] = []
+    parts: list[str] = [await _current_time_section(db)]
     if agent.system_prompt != "":
         parts.append(agent.system_prompt)
     if agent.critical_reminder != "":

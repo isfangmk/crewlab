@@ -60,6 +60,8 @@ class ChatSessionOut(BaseModel):
     pending_approvals: int = 0
     # 会话里的图片附件数
     attachment_count: int = 0
+    # 会话产出物个数：run_python 产出的图表/表格/文件
+    artifact_count: int = 0
     # 是否存在未过期的只读分享
     shared: bool = False
 

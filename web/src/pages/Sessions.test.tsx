@@ -211,7 +211,7 @@ describe('SessionsPage', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('已复制'));
   });
 
-  it('展示运行信号：轮数、工具/技能调用、tokens、待审批与分享/附件', async () => {
+  it('展示运行信号：轮数、工具/技能调用、tokens、待审批与分享/附件/产出物', async () => {
     server.use(
       agentsHandler,
       modelsHandler,
@@ -233,6 +233,7 @@ describe('SessionsPage', () => {
               last_turn_status: 'error',
               pending_approvals: 2,
               attachment_count: 2,
+              artifact_count: 5,
               shared: true,
             },
           ],
@@ -261,9 +262,10 @@ describe('SessionsPage', () => {
     expect(titleCell).not.toHaveTextContent('20');
     expect(screen.getByText('1.2k tokens')).toBeInTheDocument();
     expect(screen.getByText('待审 2')).toBeInTheDocument();
-    // 已分享 + 附件数徽标挂在标题行
+    // 已分享 + 附件数/产出物数徽标挂在标题行
     expect(screen.getByLabelText('已分享')).toBeInTheDocument();
     expect(screen.getByTitle('2 个附件')).toBeInTheDocument();
+    expect(screen.getByTitle('5 个产出物')).toBeInTheDocument();
     // 最近活动优先取最后一条消息，而不是会话行更新时间
     expect(screen.getByTitle(/最后一条消息/)).toBeInTheDocument();
     // 失败胶囊可点进观测页，并带上该会话筛选
