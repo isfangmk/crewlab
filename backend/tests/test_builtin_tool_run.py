@@ -77,6 +77,11 @@ async def test_workflow_catalog_lists_builtin_tools(
         assert params["query"]["required"] is True
         assert params["limit"]["type"] == "int"
 
+        # MCP 页签同样要拿到参数定义；缓存缺失时明确标记，前端退回手动参数表
+        for tool in body["mcp_tools"]:
+            assert isinstance(tool["params"], list)
+            assert isinstance(tool["params_known"], bool)
+
 
 @pytest.mark.asyncio
 async def test_query_knowledge_returns_citation_locator(

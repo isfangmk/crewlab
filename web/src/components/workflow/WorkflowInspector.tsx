@@ -26,11 +26,11 @@ import {
   getRun,
   listRuns,
   parseJsonText,
-  type BuiltinToolParam,
   type CatalogKind,
   type LiveNodeRun,
   type NodeProbeResult,
   type NodeRunStatus,
+  type ToolParam,
   type ToolSource,
   type VariableType,
   type WorkflowCatalog,
@@ -536,7 +536,7 @@ function ToolFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catal
           {selected !== null && <InfoBox tone="muted">{selected.description}</InfoBox>}
           {selected !== null &&
             selected.params.map((param) => (
-              <BuiltinParamField
+              <ToolParamField
                 key={param.name}
                 param={param}
                 value={node.arguments[param.name] ?? ''}
@@ -554,14 +554,24 @@ function ToolFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catal
   );
 }
 
-/** 内置工具参数：按后端导出的函数签名渲染，值支持 {{变量}} 插值。 */
-function BuiltinParamField({ param, value, onChange }: { param: BuiltinToolParam; value: string; onChange(next: string): void }) {
+/** 工具参数：内置工具与 MCP 工具共用，按后端导出的签名/schema 渲染。 */
+function ToolParamField({ param, value, onChange }: { param: ToolParam; value: string; onChange(next: string): void }) {
   const { tr } = useI18n();
-  const hint = param.desc !== undefined ? `${param.type} · ${param.desc}` : tr(`${param.type} 类型`, `${param.type} type`);
+  const typeLabel = param.schema_type ?? param.type;
+  const hint = param.desc !== undefined ? `${typeLabel} · ${param.desc}` : tr(`${typeLabel} 类型`, `${typeLabel} type`);
   const placeholder = paramPlaceholder(param, tr);
+  const multiline = param.name === 'code' || param.schema_type === 'object' || param.schema_type === 'array';
   return (
     <Field label={<span className="font-mono">{param.name}</span>} required={param.required} hint={hint}>
-      {param.name === 'code' ? (
+      {param.enum !== undefined && param.enum.length > 0 ? (
+        <Select
+          value={value}
+          onValueChange={onChange}
+          options={param.enum.map((item) => ({ value: item, label: item }))}
+          aria-label={param.name}
+          className="h-8 w-full font-mono text-[11.5px]"
+        />
+      ) : multiline ? (
         <Textarea
           value={value}
           onChange={(event) => onChange(event.target.value)}
@@ -585,11 +595,14 @@ function BuiltinParamField({ param, value, onChange }: { param: BuiltinToolParam
   );
 }
 
-function paramPlaceholder(param: BuiltinToolParam, tr: (zh: string, en: string) => string): string {
+function paramPlaceholder(param: ToolParam, tr: (zh: string, en: string) => string): string {
   if (param.name === 'code') return "print('hello')";
+  if (param.schema_type === 'object') return '{"key": "value"}';
+  if (param.schema_type === 'array') return '["a", "b"]';
   if (param.default !== undefined && param.default !== null) {
     return typeof param.default === 'string' ? param.default : JSON.stringify(param.default);
   }
+  if (param.enum !== undefined && param.enum.length > 0) return param.enum.join(' / ');
   if (param.type === 'bool') return 'true / false';
   return tr('固定值或 {{变量}}', 'Literal or {{var}}');
 }
@@ -599,6 +612,25 @@ function McpToolFields({ node, catalog, onNodeChange }: { node: WorkflowNode; ca
   const tools = useMemo(() => catalog?.mcp_tools ?? [], [catalog]);
   const servers = useMemo(() => Array.from(new Set(tools.map((tool) => tool.server))), [tools]);
   const serverTools = tools.filter((tool) => tool.server === node.mcp_server);
+  const selected = tools.find((tool) => tool.server === node.mcp_server && tool.tool === node.mcp_tool) ?? null;
+  const schemaParams = selected?.params ?? [];
+  const schemaNames = new Set(schemaParams.map((param) => param.name));
+  const extras = Object.fromEntries(Object.entries(node.arguments).filter(([key]) => !schemaNames.has(key)));
+
+  const setArgument = (name: string, value: string) => {
+    onNodeChange({ arguments: { ...node.arguments, [name]: value } });
+  };
+
+  // 只保留 schema 参数与本次编辑的附加项，删掉被移除的额外参数
+  const setExtras = (nextExtras: Record<string, string>) => {
+    const next: Record<string, string> = {};
+    for (const param of schemaParams) {
+      if (node.arguments[param.name] !== undefined) next[param.name] = node.arguments[param.name];
+    }
+    Object.assign(next, nextExtras);
+    onNodeChange({ arguments: next });
+  };
+
   return (
     <>
       <Field label={tr('MCP Server', 'MCP server')} required>
@@ -606,7 +638,7 @@ function McpToolFields({ node, catalog, onNodeChange }: { node: WorkflowNode; ca
           value={node.mcp_server}
           onValueChange={(value) => {
             const nextTool = tools.find((tool) => tool.server === value)?.tool ?? '';
-            onNodeChange({ mcp_server: value, mcp_tool: nextTool });
+            onNodeChange({ mcp_server: value, mcp_tool: nextTool, arguments: {} });
           }}
           options={servers.map((server) => ({ value: server, label: server }))}
           aria-label={tr('MCP Server', 'MCP server')}
@@ -616,21 +648,58 @@ function McpToolFields({ node, catalog, onNodeChange }: { node: WorkflowNode; ca
       <Field label={tr('工具', 'Tool')} required>
         <Select
           value={node.mcp_tool}
-          onValueChange={(value) => onNodeChange({ mcp_tool: value })}
+          onValueChange={(value) => {
+            if (value === node.mcp_tool) return;
+            onNodeChange({ mcp_tool: value, arguments: {} });
+          }}
           options={serverTools.map((tool) => ({ value: tool.tool, label: tool.tool }))}
           aria-label={tr('工具', 'Tool')}
           className="h-8 w-full font-mono text-[11.5px]"
           disabled={node.mcp_server === ''}
         />
       </Field>
-      <Field label={tr('参数', 'Arguments')} hint={tr('值支持 {{变量}} 与 {{变量.字段}}；参数名按工具 schema 填写', 'Values support {{vars}} and {{var.field}}; key names follow the tool schema')}>
-        <KeyValueEditor
-          value={node.arguments}
-          onChange={(args) => onNodeChange({ arguments: args })}
-          keyPlaceholder="arg"
-          valuePlaceholder="{{input}}"
-        />
-      </Field>
+
+      {selected !== null && selected.description !== '' && <InfoBox tone="muted">{selected.description}</InfoBox>}
+      {selected !== null && selected.params_known && schemaParams.length > 0 && (
+        <div className="space-y-3">
+          {schemaParams.map((param) => (
+            <ToolParamField
+              key={param.name}
+              param={param}
+              value={node.arguments[param.name] ?? ''}
+              onChange={(value) => setArgument(param.name, value)}
+            />
+          ))}
+        </div>
+      )}
+      {selected !== null && selected.params_known && schemaParams.length === 0 && (
+        <InfoBox tone="muted">{tr('这个工具不需要参数', 'This tool takes no parameters')}</InfoBox>
+      )}
+      {selected !== null && !selected.params_known && (
+        <Field label={tr('参数', 'Arguments')} hint={tr('未能读取参数定义，可手动填写；值支持 {{变量}} 与 {{变量.字段}}', 'No parameter schema cached; fill arguments manually. Values support {{vars}} and {{var.field}}')}>
+          <KeyValueEditor
+            value={node.arguments}
+            onChange={(args) => onNodeChange({ arguments: args })}
+            keyPlaceholder="arg"
+            valuePlaceholder="{{input}}"
+          />
+        </Field>
+      )}
+      {selected !== null && selected.params_known && Object.keys(extras).length > 0 && (
+        <Field label={tr('其他参数', 'Other arguments')} hint={tr('参数定义之外的附加项；通常只有旧画布才会出现', 'Extra arguments outside the schema; usually left over from older canvases')}>
+          <KeyValueEditor value={extras} onChange={setExtras} keyPlaceholder="arg" valuePlaceholder="{{input}}" />
+        </Field>
+      )}
+      {selected === null && (
+        <Field label={tr('参数', 'Arguments')} hint={tr('值支持 {{变量}} 与 {{变量.字段}}；参数名按工具 schema 填写', 'Values support {{vars}} and {{var.field}}; key names follow the tool schema')}>
+          <KeyValueEditor
+            value={node.arguments}
+            onChange={(args) => onNodeChange({ arguments: args })}
+            keyPlaceholder="arg"
+            valuePlaceholder="{{input}}"
+          />
+        </Field>
+      )}
     </>
   );
 }

@@ -29,12 +29,15 @@ export type VariableType = 'string' | 'number' | 'boolean' | 'json';
 /** 工具节点来源：builtin = 平台内置工具，mcp = 外部 MCP Server。 */
 export type ToolSource = 'builtin' | 'mcp';
 
-export type BuiltinToolParam = {
+export type ToolParam = {
   name: string;
   type: 'string' | 'int' | 'float' | 'bool';
   required: boolean;
   default?: unknown;
   desc?: string;
+  enum?: string[];
+  /** MCP schema 的原始类型（object / array 需要按 JSON 文本编辑）。 */
+  schema_type?: string;
 };
 
 /** 画布工具节点可选的内置工具（目录由后端按工具签名导出）。 */
@@ -45,7 +48,18 @@ export type BuiltinTool = {
   group_title_en: string;
   description: string;
   risk: string;
-  params: BuiltinToolParam[];
+  params: ToolParam[];
+};
+
+/** 画布 MCP 页签可选的工具：参数来自探测缓存的 input_schema。 */
+export type McpTool = {
+  server: string;
+  tool: string;
+  title: string;
+  description: string;
+  params: ToolParam[];
+  /** false 表示缓存里没有 schema，前端退回手动参数表。 */
+  params_known: boolean;
 };
 
 export type WorkflowVariable = {
@@ -173,7 +187,7 @@ export type WorkflowCatalog = {
   node_groups: CatalogGroup[];
   node_kinds: CatalogKind[];
   models: { provider: string; model: string; title: string }[];
-  mcp_tools: { server: string; tool: string; title: string }[];
+  mcp_tools: McpTool[];
   builtin_tools: BuiltinTool[];
 };
 

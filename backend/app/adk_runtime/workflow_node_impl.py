@@ -426,6 +426,10 @@ class ToolNode(CanvasNode):
             raise LookupError(f"MCP Server 不存在或未启用: {node.mcp_server}")
         from app.services import mcp_service
 
+        # 画布参数以文本录入：按探测缓存里的 schema 转成工具需要的类型
+        schema = mcp_service.tool_input_schema(server, node.mcp_tool)
+        if schema is not None:
+            args = mcp_service.coerce_arguments_from_schema(schema, args)
         toolset = await mcp_service.build_mcp_toolset(self.run_ctx.db, server)
         try:
             tools = await toolset.get_tools()

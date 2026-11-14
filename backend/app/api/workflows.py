@@ -177,14 +177,18 @@ async def workflow_catalog(
     from app.tools.catalog import workflow_builtin_tools
 
     servers = await mcp_service.list_enabled_servers(db)
-    mcp_tools: list[dict[str, str]] = []
+    mcp_tools: list[dict[str, Any]] = []
     for server in servers:
         for tool in _server_tools(server):
             mcp_tools.append(
                 {
                     "server": server.name,
-                    "tool": tool,
-                    "title": f"{server.name} · {tool}",
+                    "tool": tool["name"],
+                    "title": f"{server.name} · {tool['name']}",
+                    "description": tool["description"],
+                    # 参数来自探测缓存的 input_schema，画布据此渲染表单
+                    "params": tool["params"],
+                    "params_known": tool["params_known"],
                 }
             )
     # LLM 节点直接选模型：把每个 provider 的模型摊平给前端
@@ -208,14 +212,37 @@ async def workflow_catalog(
     }
 
 
-def _server_tools(server: Any) -> list[str]:
-    """画布 MCP 节点可选的工具名；缓存为空说明还没探测过，不给选项。"""
+def _server_tools(server: Any) -> list[dict[str, Any]]:
+    """画布 MCP 节点可选的工具、描述与参数定义。
+
+    缓存为空说明还没探测过，不给选项；缓存里的 schema 缺失时仍给工具名，
+    但 params_known=False，前端退回手动参数表。
+    """
 
     from app.services.mcp_catalog_toolset import parse_cached_tools
+    from app.services.mcp_service import skill_params_from_schema
 
     if server.tools_cache_json.strip() == "":
         return []
-    return [item["name"] for item in parse_cached_tools(server.tools_cache_json, server_name=server.name, require_schema=False)]
+    tools: list[dict[str, Any]] = []
+    for item in parse_cached_tools(
+        server.tools_cache_json, server_name=server.name, require_schema=False
+    ):
+        schema = item.get("input_schema")
+        known = isinstance(schema, dict)
+        tools.append(
+            {
+                "name": item["name"],
+                "description": item["description"],
+                "params": (
+                    skill_params_from_schema(schema, include_schema_type=True)
+                    if known
+                    else []
+                ),
+                "params_known": known,
+            }
+        )
+    return tools
 
 
 @router.get("/workflows")

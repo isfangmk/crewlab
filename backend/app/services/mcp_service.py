@@ -461,8 +461,14 @@ _SCHEMA_TYPE_TO_PARAM: dict[str, str] = {
 }
 
 
-def skill_params_from_schema(schema: dict[str, Any]) -> list[dict]:
-    """把 MCP input_schema 压成技能目录的参数表（name/type/required/default/desc）。"""
+def skill_params_from_schema(
+    schema: dict[str, Any], *, include_schema_type: bool = False
+) -> list[dict]:
+    """把 MCP input_schema 压成技能目录的参数表（name/type/required/default/desc）。
+
+    include_schema_type=True 时额外保留原始 JSON Schema 类型（画布用：
+    object/array 需要按 JSON 文本编辑）；技能目录保持原契约不变。
+    """
 
     properties = schema.get("properties")
     if properties is None:
@@ -488,6 +494,9 @@ def skill_params_from_schema(schema: dict[str, Any]) -> list[dict]:
             "type": param_type,
             "required": name in required_names,
         }
+        if include_schema_type and raw_type is not None:
+            # 保留原始 JSON Schema 类型：object/array 在画布上要按 JSON 文本编辑
+            spec["schema_type"] = str(raw_type)
         if "default" in prop:
             spec["default"] = prop["default"]
         if param_type == "string" and isinstance(prop.get("enum"), list):
@@ -497,6 +506,114 @@ def skill_params_from_schema(schema: dict[str, Any]) -> list[dict]:
             spec["desc"] = description
         specs.append(spec)
     return specs
+
+
+_INT_TEXT = re.compile(r"^[+-]?\d+$")
+_FLOAT_TEXT = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
+_TRUE_TEXT = {"true", "1", "yes"}
+_FALSE_TEXT = {"false", "0", "no"}
+
+
+def _coerce_schema_value(name: str, raw_type: Any, value: Any) -> Any:
+    """按 JSON Schema 的标量类型转换画布参数；无法转换时显式报错。"""
+
+    if raw_type == "integer":
+        if isinstance(value, bool):
+            raise ValueError(f"MCP 参数 {name} 需要整数，收到布尔值")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            if not value.is_integer():
+                raise ValueError(f"MCP 参数 {name} 需要整数，收到 {value}")
+            return int(value)
+        if isinstance(value, str) and _INT_TEXT.fullmatch(value.strip()):
+            return int(value.strip())
+        raise ValueError(f"MCP 参数 {name} 需要整数，收到 {value!r}")
+
+    if raw_type == "number":
+        if isinstance(value, bool):
+            raise ValueError(f"MCP 参数 {name} 需要数字，收到布尔值")
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str) and _FLOAT_TEXT.fullmatch(value.strip()):
+            return float(value.strip())
+        raise ValueError(f"MCP 参数 {name} 需要数字，收到 {value!r}")
+
+    if raw_type == "boolean":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in _TRUE_TEXT:
+                return True
+            if text in _FALSE_TEXT:
+                return False
+        raise ValueError(f"MCP 参数 {name} 需要 true/false，收到 {value!r}")
+
+    # 对象 / 数组在画布上以 JSON 文本录入；整串是 {{变量}} 时已经是结构化值
+    if raw_type in ("object", "array"):
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"MCP 参数 {name} 需要合法 JSON: {exc}") from exc
+        return value
+
+    if raw_type == "string":
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+
+    # null / 未知类型 / 联合类型：不猜，原样交给 MCP Server 校验
+    return value
+
+
+def coerce_arguments_from_schema(
+    schema: dict[str, Any], args: dict[str, Any]
+) -> dict[str, Any]:
+    """按 MCP input_schema 把画布参数转成工具需要的类型，并检查必填项。"""
+
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return dict(args)
+
+    required = schema.get("required")
+    if isinstance(required, list):
+        missing = [str(name) for name in required if str(name) not in args]
+        if missing:
+            raise ValueError(f"MCP 工具缺少必填参数: {','.join(missing)}")
+
+    coerced: dict[str, Any] = {}
+    for key, value in args.items():
+        prop = properties.get(key)
+        if not isinstance(prop, dict):
+            # schema 之外的附加参数不猜类型，交给 Server 自己校验
+            coerced[key] = value
+            continue
+        raw_type = prop.get("type")
+        if isinstance(raw_type, list):
+            raw_type = next((item for item in raw_type if item != "null"), None)
+        coerced[key] = _coerce_schema_value(key, raw_type, value)
+    return coerced
+
+
+def tool_input_schema(server: McpServer, tool_name: str) -> dict[str, Any] | None:
+    """从探测缓存取单个工具的 input_schema；缓存缺失时返回 None。"""
+
+    if server.tools_cache_json.strip() == "":
+        return None
+    for item in parse_cached_tools(
+        server.tools_cache_json, server_name=server.name, require_schema=False
+    ):
+        if item["name"] != tool_name:
+            continue
+        schema = item.get("input_schema")
+        return schema if isinstance(schema, dict) else None
+    return None
 
 
 async def create_server(

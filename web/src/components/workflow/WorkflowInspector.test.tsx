@@ -18,7 +18,38 @@ const catalog: WorkflowCatalog = {
     { key: 'end', title: '结束', title_en: 'End', group: 'flow' },
   ],
   models: [],
-  mcp_tools: [{ server: 'iomp', tool: 'read_ssh_start', title: 'read_ssh_start' }],
+  mcp_tools: [
+    {
+      server: 'iomp',
+      tool: 'read_ssh_start',
+      title: 'read_ssh_start',
+      description: '读取远端状态',
+      params: [
+        { name: 'host', type: 'string', required: true },
+        { name: 'lines', type: 'int', required: false, default: 20 },
+      ],
+      params_known: true,
+    },
+    {
+      server: 'demo-tools',
+      tool: 'add',
+      title: 'add',
+      description: '两数相加。',
+      params: [
+        { name: 'a', type: 'int', required: true },
+        { name: 'b', type: 'int', required: true },
+      ],
+      params_known: true,
+    },
+    {
+      server: 'demo-tools',
+      tool: 'legacy',
+      title: 'legacy',
+      description: '旧缓存没有 schema',
+      params: [],
+      params_known: false,
+    },
+  ],
   builtin_tools: [
     {
       name: 'query_knowledge',
@@ -134,5 +165,29 @@ describe('工具节点来源页签', () => {
       mcp_tool: '',
       arguments: {},
     });
+  });
+});
+
+describe('MCP 工具参数', () => {
+  it('按工具 input_schema 渲染参数表单', () => {
+    renderNode('mcp', (node) => {
+      node.mcp_server = 'demo-tools';
+      node.mcp_tool = 'add';
+      node.arguments = { a: '{{x}}', b: '3' };
+    });
+
+    expect(screen.getByText('两数相加。')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'a' })).toHaveValue('{{x}}');
+    expect(screen.getByRole('textbox', { name: 'b' })).toHaveValue('3');
+    expect(screen.getByRole('textbox', { name: 'a' })).toHaveAttribute('placeholder', '固定值或 {{变量}}');
+  });
+
+  it('缓存没有 schema 时退回手动参数表', () => {
+    renderNode('mcp', (node) => {
+      node.mcp_server = 'demo-tools';
+      node.mcp_tool = 'legacy';
+    });
+
+    expect(screen.getByText('还没有参数')).toBeInTheDocument();
   });
 });
