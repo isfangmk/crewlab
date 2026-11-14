@@ -204,16 +204,29 @@ BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
 }
 
 
+# 画布「工具」节点只暴露没有专用节点、且能在无人值守运行中安全执行的内置工具：
+# 知识检索 / 联网搜索 / 代码已有专用节点；记忆类依赖会话上下文；
+# run_workflow 需要人工确认，都不能放进画布。
+WORKFLOW_NODE_TOOL_NAMES = frozenset(
+    {
+        "list_workflows",
+        "get_workflow",
+        "list_workflow_runs",
+        "get_workflow_run",
+    }
+)
+
+
 def workflow_builtin_tools() -> list[dict[str, Any]]:
     """画布「工具」节点可选的内置工具（含参数定义）。
 
-    需要人工审批的工具（如 run_workflow）不在此列：画布节点在后台无人值守执行，
-    没有审批入口，放进去等于绕过风险闸门。
+    只给没有专用节点、且无人值守执行安全的工作流查询工具；其余能力
+    在画布上有独立节点，重复暴露只会让编排时不知道该选哪个。
     """
 
     tools: list[dict[str, Any]] = []
     for spec in BUILTIN_TOOL_SPECS:
-        if spec["risk"] == "approval_required":
+        if spec["name"] not in WORKFLOW_NODE_TOOL_NAMES:
             continue
         group = BUILTIN_TOOL_GROUPS.get(spec["group"])
         if group is None:

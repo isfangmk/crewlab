@@ -519,7 +519,11 @@ function ToolFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catal
           <Field
             label={tr('工具', 'Tool')}
             required
-            hint={builtinTools.length === 0 ? tr('没有可用的内置工具', 'No built-in tool is available') : undefined}
+            hint={
+              builtinTools.length === 0
+                ? tr('没有可用的内置工具', 'No built-in tool is available')
+                : undefined
+            }
           >
             <Select
               value={node.tool_name}

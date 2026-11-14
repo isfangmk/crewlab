@@ -69,12 +69,17 @@ async def test_workflow_catalog_lists_builtin_tools(
         assert kinds["mcp"]["title"] == "工具"
 
         tools = {item["name"]: item for item in body["builtin_tools"]}
-        # 无人值守节点没有审批入口，需要人工确认的工具不能出现在目录里
-        assert "run_workflow" not in tools
-        knowledge = tools["query_knowledge"]
-        assert knowledge["group_title"] == "知识检索"
-        params = {param["name"]: param for param in knowledge["params"]}
-        assert params["query"]["required"] is True
+        # 画布只给没有专用节点的工作流查询工具；需要人工确认的工具也不出现
+        assert set(tools) == {
+            "list_workflows",
+            "get_workflow",
+            "list_workflow_runs",
+            "get_workflow_run",
+        }
+        workflow = tools["list_workflows"]
+        assert workflow["group_title"] == "工作流"
+        params = {param["name"]: param for param in workflow["params"]}
+        assert params["status"]["required"] is False
         assert params["limit"]["type"] == "int"
 
         # MCP 页签同样要拿到参数定义；缓存缺失时明确标记，前端退回手动参数表

@@ -52,25 +52,25 @@ const catalog: WorkflowCatalog = {
   ],
   builtin_tools: [
     {
-      name: 'query_knowledge',
-      group: 'knowledge',
-      group_title: '知识检索',
-      group_title_en: 'Knowledge',
-      description: '语义检索组织知识库',
+      name: 'get_workflow_run',
+      group: 'workflow',
+      group_title: '工作流',
+      group_title_en: 'Workflow',
+      description: '查单次运行的逐节点结果',
       risk: 'safe',
       params: [
-        { name: 'query', type: 'string', required: true, desc: '检索语句' },
-        { name: 'limit', type: 'int', required: false, default: 5 },
+        { name: 'run_uid', type: 'string', required: true, desc: '运行流水号' },
+        { name: 'max_chars', type: 'int', required: false, default: 2000 },
       ],
     },
     {
-      name: 'run_python',
-      group: 'code',
-      group_title: '代码解释器',
-      group_title_en: 'Code interpreter',
-      description: '在沙盒中执行 Python 代码',
+      name: 'list_workflows',
+      group: 'workflow',
+      group_title: '工作流',
+      group_title_en: 'Workflow',
+      description: '列出工作流',
       risk: 'safe',
-      params: [{ name: 'code', type: 'string', required: true }],
+      params: [{ name: 'limit', type: 'int', required: false, default: 20 }],
     },
   ],
 };
@@ -131,14 +131,14 @@ describe('工具节点来源页签', () => {
   it('内置工具页签按工具签名渲染参数表单', () => {
     renderNode('mcp', (node) => {
       node.tool_source = 'builtin';
-      node.tool_name = 'query_knowledge';
-      node.arguments = { query: '{{topic}}' };
+      node.tool_name = 'get_workflow_run';
+      node.arguments = { run_uid: '{{run}}' };
     });
 
     expect(screen.getByRole('tab', { name: '内置工具' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('combobox', { name: '内置工具' })).toHaveClass('w-full');
-    expect(screen.getByRole('textbox', { name: 'query' })).toHaveValue('{{topic}}');
-    expect(screen.getByRole('textbox', { name: 'limit' })).toHaveAttribute('placeholder', '5');
+    expect(screen.getByRole('textbox', { name: 'run_uid' })).toHaveValue('{{run}}');
+    expect(screen.getByRole('textbox', { name: 'max_chars' })).toHaveAttribute('placeholder', '2000');
   });
 
   it('切到 MCP 页签会清空内置工具字段', () => {

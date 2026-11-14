@@ -9,6 +9,8 @@ from __future__ import annotations
 import pytest
 
 from app.tools.catalog import (
+    BUILTIN_TOOL_SPECS,
+    WORKFLOW_NODE_TOOL_NAMES,
     _coerce_value,
     coerce_tool_params,
     workflow_builtin_tools,
@@ -20,24 +22,42 @@ def test_workflow_builtin_tools_exposes_params() -> None:
 
     tools = {tool["name"]: tool for tool in workflow_builtin_tools()}
 
-    knowledge = tools["query_knowledge"]
-    assert knowledge["group"] == "knowledge"
-    assert knowledge["group_title"] == "知识检索"
-    assert knowledge["group_title_en"] == "Knowledge"
-    params = {param["name"]: param for param in knowledge["params"]}
-    assert params["query"]["required"] is True
-    assert params["query"]["type"] == "string"
+    assert set(tools) == WORKFLOW_NODE_TOOL_NAMES
+    workflow = tools["list_workflows"]
+    assert workflow["group"] == "workflow"
+    assert workflow["group_title"] == "工作流"
+    assert workflow["group_title_en"] == "Workflow"
+    params = {param["name"]: param for param in workflow["params"]}
+    assert params["status"]["required"] is False
+    assert params["status"]["type"] == "string"
     assert params["limit"]["type"] == "int"
-    assert params["limit"]["default"] == 5
+    assert params["limit"]["default"] == 20
 
 
-def test_workflow_builtin_tools_skips_approval_tools() -> None:
-    """无人值守的画布节点不能绕过人工确认闸门。"""
+def test_workflow_builtin_tools_only_exposes_necessary_tools() -> None:
+    """画布只给没有专用节点的工作流查询工具。"""
 
     names = {tool["name"] for tool in workflow_builtin_tools()}
 
+    # 需要人工确认、已有专用节点、依赖会话上下文的工具都不进画布
     assert "run_workflow" not in names
+    assert "query_knowledge" not in names
+    assert "web_search" not in names
+    assert "run_python" not in names
+    assert "remember_memory" not in names
+    assert "recall_memory" not in names
     assert "list_workflows" in names
+    assert "get_workflow" in names
+    assert "list_workflow_runs" in names
+    assert "get_workflow_run" in names
+
+
+def test_workflow_tool_allowlist_is_safe() -> None:
+    """白名单里的名字必须存在，且不能是需要人工审批的工具。"""
+
+    risks = {spec["name"]: spec["risk"] for spec in BUILTIN_TOOL_SPECS}
+    assert WORKFLOW_NODE_TOOL_NAMES <= set(risks)
+    assert all(risks[name] != "approval_required" for name in WORKFLOW_NODE_TOOL_NAMES)
 
 
 def test_coerce_tool_params_converts_text() -> None:
