@@ -1624,21 +1624,13 @@ export default function ChatThreadPage() {
     });
   }
 
-  // 重新生成：以最近一条用户消息为锚点重跑（等价于对该消息原样编辑重发）。
-  function regenerate(assistantMessage: ChatMessage) {
-    const idx = messages.findIndex((m) => m.id === assistantMessage.id);
-    if (idx < 0) throw new Error('找不到目标消息，无法重新生成');
-    for (let i = idx - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role === 'user' && m.kind !== 'tool_card') {
-        editResend(m, m.content ?? '');
-        return;
-      }
-    }
-    throw new Error('找不到对应用户消息，无法重新生成');
+  // 重新生成：以这条用户消息为锚点原样重发，截断它之后的回答。
+  function regenerate(userMessage: ChatMessage) {
+    if (userMessage.role !== 'user') throw new Error('只能对用户消息重新生成');
+    editResend(userMessage, userMessage.content ?? '');
   }
 
-  // 分叉：复制到该消息为止的前缀到新会话，并切过去继续。
+  // 分叉：复制到这条用户消息为止的前缀到新会话，并切过去继续。
   function forkFrom(message: ChatMessage) {
     if (!sessionId) throw new Error('会话尚未就绪');
     void forkSession(sessionId, message.id)

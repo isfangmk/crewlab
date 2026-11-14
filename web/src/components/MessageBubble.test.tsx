@@ -412,10 +412,10 @@ describe('MessageBubble message actions', () => {
     expect(onEditResend).toHaveBeenCalledWith(message, '新问题');
   });
 
-  it('regenerates and forks from an assistant message', () => {
+  it('regenerates and forks from a user message', () => {
     const onRegenerate = vi.fn();
     const onFork = vi.fn();
-    const message: ChatMessage = { id: 'assistant-1', role: 'assistant', content: '回答正文' };
+    const message: ChatMessage = { id: 'user-1', role: 'user', content: '用户提问' };
     render(<MessageBubble message={message} onRegenerate={onRegenerate} onFork={onFork} />);
 
     fireEvent.click(screen.getByRole('button', { name: '重新生成' }));
@@ -428,7 +428,7 @@ describe('MessageBubble message actions', () => {
   it('hides regenerate/fork while a turn is in flight', () => {
     render(
       <MessageBubble
-        message={{ id: 'assistant-1', role: 'assistant', content: '回答正文' }}
+        message={{ id: 'user-1', role: 'user', content: '用户提问' }}
         actionsDisabled
         onRegenerate={vi.fn()}
         onFork={vi.fn()}

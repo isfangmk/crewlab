@@ -691,7 +691,47 @@ async def fork_session(
         owner_user_id=owner_user_id,
         page_context=None if pc is None else pc.model_dump(),
     )
+    # 附件按会话归属：复制前缀消息时必须把附件行一并复制到新会话，
+    # 否则新会话的消息会引用旧会话的附件而被拒绝渲染。
+    prefix_attachment_ids = {
+        attachment_id
+        for m in prefix
+        for attachment_id in _parse_attachments_json(m.attachments_json, message_id=m.id)
+    }
+    attachment_id_map: dict[str, str] = {}
+    if prefix_attachment_ids:
+        rows = await db.scalars(
+            select(ChatAttachment).where(ChatAttachment.id.in_(prefix_attachment_ids))
+        )
+        rows_by_id = {row.id: row for row in rows.all()}
+        for old_id in sorted(prefix_attachment_ids):
+            row = rows_by_id.get(old_id)
+            if row is None:
+                raise LookupError(f"消息引用的附件不存在: attachment_id={old_id}")
+            if row.session_id != session_id:
+                raise ValueError(f"附件不属于源会话: attachment_id={old_id}")
+            new_id = str(uuid4())
+            attachment_id_map[old_id] = new_id
+            db.add(
+                ChatAttachment(
+                    id=new_id,
+                    session_id=new_session.id,
+                    name=row.name,
+                    mime_type=row.mime_type,
+                    size=row.size,
+                    data_url=row.data_url,
+                )
+            )
     for i, m in enumerate(prefix, start=1):
+        old_attachment_ids = _parse_attachments_json(m.attachments_json, message_id=m.id)
+        attachments_json = (
+            json.dumps(
+                [attachment_id_map[old_id] for old_id in old_attachment_ids],
+                ensure_ascii=False,
+            )
+            if old_attachment_ids
+            else m.attachments_json
+        )
         db.add(
             ChatMessage(
                 id=str(uuid4()),
@@ -700,7 +740,7 @@ async def fork_session(
                 kind=m.kind,
                 content=m.content,
                 tool_call_json=m.tool_call_json,
-                attachments_json=m.attachments_json,
+                attachments_json=attachments_json,
                 seq=i,
             )
         )

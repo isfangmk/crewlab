@@ -116,5 +116,36 @@ async def test_upload_image_persists_on_user_message() -> None:
             assert isinstance(attachments, list) and len(attachments) == 1, last_user
             assert attachments[0]["id"] == attachment_id
             assert attachments[0]["mime_type"] == "image/png"
+
+            # fork 到用户消息：附件必须复制到新会话，否则消息引用旧会话附件会渲染失败
+            forked = await client.post(
+                f"/api/v1/chat/sessions/{session_id}/fork",
+                headers=headers,
+                json={"up_to_message_id": last_user["id"]},
+            )
+            forked.raise_for_status()
+            fork_id = forked.json()["id"]
+            try:
+                fork_hist = await client.get(
+                    f"/api/v1/chat/sessions/{fork_id}/messages",
+                    headers=headers,
+                )
+                fork_hist.raise_for_status()
+                fork_users = [m for m in fork_hist.json()["items"] if m.get("role") == "user"]
+                assert len(fork_users) == 1, fork_hist.json()
+                fork_attachments = fork_users[0].get("attachments") or []
+                assert len(fork_attachments) == 1, fork_users[0]
+                assert fork_attachments[0]["id"] != attachment_id
+                dl = await client.get(
+                    f"/api/v1/chat/sessions/{fork_id}/attachments/{fork_attachments[0]['id']}",
+                    headers=headers,
+                )
+                dl.raise_for_status()
+                assert dl.content == png
+            finally:
+                await client.delete(
+                    f"/api/v1/chat/sessions/{fork_id}",
+                    headers=headers,
+                )
     except httpx.ConnectError as exc:
         pytest.skip(f"无法连接后端 {base}: {exc}")

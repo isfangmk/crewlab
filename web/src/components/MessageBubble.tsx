@@ -83,6 +83,8 @@ export function MessageBubble({
         sessionId={sessionId}
         actionsDisabled={actionsDisabled}
         onEditResend={onEditResend}
+        onRegenerate={onRegenerate}
+        onFork={onFork}
       />
     );
   }
@@ -103,9 +105,6 @@ export function MessageBubble({
     <AssistantBubble
       message={message}
       onConfirmConfigDraft={onConfirmConfigDraft}
-      actionsDisabled={actionsDisabled}
-      onRegenerate={onRegenerate}
-      onFork={onFork}
     />
   );
 }
@@ -177,7 +176,9 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function UserBubble({ message, sessionId, actionsDisabled, onEditResend }: Props) {
+// 重新生成与分叉都以用户消息为锚点：前者原样重发这条提问，
+// 后者把到此为止的历史复制到新会话，不带上助理的回答。
+function UserBubble({ message, sessionId, actionsDisabled, onEditResend, onRegenerate, onFork }: Props) {
   const { tr } = useI18n();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content ?? '');
@@ -236,6 +237,24 @@ function UserBubble({ message, sessionId, actionsDisabled, onEditResend }: Props
       ) : (
         <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <CopyButton text={message.content ?? ''} />
+          {onRegenerate !== undefined && (
+            <RowActionIcon
+              className="h-6 w-6"
+              icon={RefreshCw}
+              label={tr('重新生成', 'Regenerate')}
+              disabled={actionsDisabled}
+              onClick={() => onRegenerate(message)}
+            />
+          )}
+          {onFork !== undefined && (
+            <RowActionIcon
+              className="h-6 w-6"
+              icon={GitBranch}
+              label={tr('从这条消息分叉', 'Fork from here')}
+              disabled={actionsDisabled}
+              onClick={() => onFork(message)}
+            />
+          )}
           {canEdit && (
             <RowActionIcon
               className="h-6 w-6"
@@ -303,7 +322,7 @@ function compactUserContent(
   return tr('确认创建这条告警规则', 'Confirm creating this alert rule');
 }
 
-function AssistantBubble({ message, actionsDisabled, onRegenerate, onFork, onConfirmConfigDraft }: Props) {
+function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
   const { tr } = useI18n();
   // Codex-style: no rounded card around assistant prose. Render markdown
   // flush against the column so headings/lists/code blocks read like a
@@ -332,24 +351,6 @@ function AssistantBubble({ message, actionsDisabled, onRegenerate, onFork, onCon
       {body !== '' && !message.pending && (
         <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <CopyButton text={body} />
-          {onRegenerate !== undefined && (
-            <RowActionIcon
-              className="h-6 w-6"
-              icon={RefreshCw}
-              label={tr('重新生成', 'Regenerate')}
-              disabled={actionsDisabled}
-              onClick={() => onRegenerate(message)}
-            />
-          )}
-          {onFork !== undefined && (
-            <RowActionIcon
-              className="h-6 w-6"
-              icon={GitBranch}
-              label={tr('从这条消息分叉', 'Fork from here')}
-              disabled={actionsDisabled}
-              onClick={() => onFork(message)}
-            />
-          )}
         </div>
       )}
     </div>
