@@ -304,3 +304,124 @@ async def test_audit_export_csv(env: dict[str, str], api_base: str) -> None:
             assert denied.status_code == 403, denied.text
         finally:
             await client.delete(f"/api/v1/users/{vcreate.json()['id']}", headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_session_lifecycle_is_audited(env: dict[str, str], api_base: str) -> None:
+    """会话的建/重命名/标记/删除写操作都要留痕。"""
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=60.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        catalog = await client.get("/api/v1/aiops/models", headers=headers)
+        if catalog.status_code != 200:
+            pytest.skip("无可用模型")
+        try:
+            provider, model = _pick_model(catalog.json())
+        except LookupError as exc:
+            pytest.skip(str(exc))
+
+        title = f"审计会话-{uuid.uuid4().hex[:6]}"
+        created = await client.post(
+            "/api/v1/chat/sessions",
+            headers=headers,
+            json={
+                "title": title,
+                "provider": provider,
+                "model": model,
+                "agent_id": "default",
+            },
+        )
+        assert created.status_code == 200, created.text
+        session_id = created.json()["id"]
+        try:
+            rows = await _audit_rows(
+                client, headers, action="session.create", resource_id=session_id
+            )
+            assert len(rows) == 1, rows
+            assert rows[0]["resource_type"] == "chat_session"
+
+            renamed = await client.patch(
+                f"/api/v1/chat/sessions/{session_id}",
+                headers=headers,
+                json={"title": f"{title}-改"},
+            )
+            assert renamed.status_code == 200, renamed.text
+            rows = await _audit_rows(
+                client, headers, action="session.rename", resource_id=session_id
+            )
+            assert len(rows) == 1, rows
+
+            flagged = await client.patch(
+                f"/api/v1/chat/sessions/{session_id}/flags",
+                headers=headers,
+                json={"pinned": True, "archived": False},
+            )
+            assert flagged.status_code == 200, flagged.text
+            rows = await _audit_rows(
+                client, headers, action="session.update", resource_id=session_id
+            )
+            assert len(rows) == 1, rows
+            assert rows[0]["detail"] == {"pinned": True, "archived": False}
+        finally:
+            deleted = await client.delete(
+                f"/api/v1/chat/sessions/{session_id}", headers=headers
+            )
+            assert deleted.status_code == 200, deleted.text
+        rows = await _audit_rows(
+            client, headers, action="session.delete", resource_id=session_id
+        )
+        assert len(rows) >= 1, rows
+
+
+@pytest.mark.asyncio
+async def test_memory_crud_is_audited(env: dict[str, str], api_base: str) -> None:
+    """记忆的增/改/删写操作都要留痕；审计只记外形不记正文。"""
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=60.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        content = f"审计记忆-{uuid.uuid4().hex[:6]}"
+        created = await client.post(
+            "/api/v1/memory", headers=headers, json={"content": content}
+        )
+        if created.status_code == 503:
+            pytest.skip("向量库不可用")
+        assert created.status_code == 200, created.text
+        memory_id = created.json()["id"]
+        try:
+            rows = await _audit_rows(
+                client, headers, action="memory.create", resource_id=memory_id
+            )
+            assert len(rows) == 1, rows
+            assert rows[0]["resource_type"] == "memory"
+            # 正文可能含个人事实，不复制进审计详情
+            assert "content" not in rows[0]["detail"], rows[0]
+            assert rows[0]["detail"]["content_len"] == len(content)
+
+            updated = await client.patch(
+                f"/api/v1/memory/{memory_id}",
+                headers=headers,
+                json={"enabled": False},
+            )
+            assert updated.status_code == 200, updated.text
+            rows = await _audit_rows(
+                client, headers, action="memory.update", resource_id=memory_id
+            )
+            assert len(rows) == 1, rows
+            assert rows[0]["detail"] == {"enabled": False}
+        finally:
+            deleted = await client.delete(
+                f"/api/v1/memory/{memory_id}", headers=headers
+            )
+            assert deleted.status_code == 200, deleted.text
+        rows = await _audit_rows(
+            client, headers, action="memory.delete", resource_id=memory_id
+        )
+        assert len(rows) == 1, rows

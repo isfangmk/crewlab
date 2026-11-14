@@ -188,4 +188,125 @@ describe('AuditPage', () => {
     expect(await screen.findByText('需要管理员权限')).toBeInTheDocument();
     expect(requests).toHaveLength(0);
   });
+
+  it('新增审计动作全部中文化，动态工作流决策按词典兜底', async () => {
+    server.use(
+      http.get('/api/v1/audit', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 11,
+              actor_user_id: 1,
+              actor_email: 'admin@local',
+              action: 'session.create',
+              resource_type: 'chat_session',
+              resource_id: 's-1',
+              detail: {},
+              request_id: 'r-11',
+              created_at: '2026-11-09T05:00:00.000Z',
+            },
+            {
+              id: 12,
+              actor_user_id: 1,
+              actor_email: 'admin@local',
+              action: 'memory.delete',
+              resource_type: 'memory',
+              resource_id: 'm-1',
+              detail: {},
+              request_id: 'r-12',
+              created_at: '2026-11-09T05:01:00.000Z',
+            },
+            {
+              id: 13,
+              actor_user_id: 1,
+              actor_email: 'admin@local',
+              action: 'eval.gate',
+              resource_type: 'eval_run',
+              resource_id: 'run-1',
+              detail: {},
+              request_id: 'r-13',
+              created_at: '2026-11-09T05:02:00.000Z',
+            },
+            {
+              id: 14,
+              actor_user_id: 1,
+              actor_email: 'admin@local',
+              action: 'workflow.run_approve',
+              resource_type: 'workflow_run',
+              resource_id: 'run-2',
+              detail: {},
+              request_id: 'r-14',
+              created_at: '2026-11-09T05:03:00.000Z',
+            },
+            {
+              id: 15,
+              actor_user_id: 1,
+              actor_email: 'admin@local',
+              action: 'llm.test',
+              resource_type: 'llm_provider',
+              resource_id: 'deepseek',
+              detail: {},
+              request_id: 'r-15',
+              created_at: '2026-11-09T05:04:00.000Z',
+            },
+          ],
+          total: 5,
+          actions: ['session.create', 'memory.delete', 'eval.gate', 'workflow.run_approve', 'llm.test'],
+          resource_types: ['chat_session', 'memory', 'eval_run', 'workflow_run', 'llm_provider'],
+        }),
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <AuditPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('创建会话')).toBeInTheDocument();
+    expect(screen.getByText('删除记忆')).toBeInTheDocument();
+    expect(screen.getByText('评测门禁判定')).toBeInTheDocument();
+    expect(screen.getByText('工作流运行·通过')).toBeInTheDocument();
+    expect(screen.getByText('测试模型连接')).toBeInTheDocument();
+    // 资源列同样中文化
+    expect(screen.getByText('评测运行')).toBeInTheDocument();
+  });
+
+  it('详情弹窗的动作/资源走中文标签并保留原文', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get('/api/v1/audit', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 21,
+              actor_user_id: 1,
+              actor_email: 'admin@local',
+              action: 'workflow.run_reject',
+              resource_type: 'workflow_run',
+              resource_id: 'run-9',
+              detail: {},
+              request_id: 'r-21',
+              created_at: '2026-11-09T06:00:00.000Z',
+            },
+          ],
+          total: 1,
+          actions: ['workflow.run_reject'],
+          resource_types: ['workflow_run'],
+        }),
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <AuditPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('工作流运行·驳回');
+    await user.click(screen.getByRole('button', { name: '工作流运行·驳回' }));
+    expect(await screen.findByText('审计详情')).toBeInTheDocument();
+    // 标签 + 原文并存：既可读，又可核对原始 action
+    expect(screen.getByText('workflow.run_reject')).toBeInTheDocument();
+    // 资源标签在表格与弹窗各出现一次
+    expect(screen.getAllByText('工作流运行')).toHaveLength(2);
+  });
 });

@@ -41,20 +41,46 @@ const ACTION_LABELS: Record<string, { zh: string; en: string }> = {
   'user.role': { zh: '修改角色', en: 'Change user role' },
   'user.password_reset': { zh: '重置密码', en: 'Reset password' },
   'user.delete': { zh: '删除用户', en: 'Delete user' },
+  'auth.login': { zh: '登录', en: 'Sign in' },
   'approval.approve': { zh: '批准审批', en: 'Approve' },
   'approval.reject': { zh: '拒绝审批', en: 'Reject' },
   'approval.batch_approve': { zh: '批量批准', en: 'Batch approve' },
   'approval.batch_reject': { zh: '批量拒绝', en: 'Batch reject' },
+  'session.create': { zh: '创建会话', en: 'Create session' },
+  'session.rename': { zh: '重命名会话', en: 'Rename session' },
+  'session.update': { zh: '更新会话标记', en: 'Update session flags' },
+  'session.fork': { zh: '分叉会话', en: 'Fork session' },
+  'session.attachment': { zh: '上传会话附件', en: 'Upload session attachment' },
+  'session.stop': { zh: '停止会话回合', en: 'Stop session turn' },
+  'session.edit_resend': { zh: '编辑重发消息', en: 'Edit & resend message' },
+  'session.share': { zh: '创建会话分享', en: 'Share session' },
+  'session.delete': { zh: '删除会话', en: 'Delete session' },
+  'session.batch_delete': { zh: '批量删除会话', en: 'Batch delete sessions' },
+  'session.model': { zh: '切换会话模型', en: 'Switch session model' },
+  'session.agent': { zh: '切换会话助理', en: 'Switch session assistant' },
+  'memory.create': { zh: '新增记忆', en: 'Create memory' },
+  'memory.update': { zh: '启停记忆', en: 'Toggle memory' },
+  'memory.delete': { zh: '删除记忆', en: 'Delete memory' },
   'tool.run': { zh: '运行内置工具', en: 'Run builtin tool' },
+  'sandbox.run': { zh: '运行沙盒代码', en: 'Run sandbox code' },
   'mcp.tool_run': { zh: '运行 MCP 工具', en: 'Run MCP tool' },
   'mcp.server_create': { zh: '新增 MCP Server', en: 'Create MCP server' },
   'mcp.server_update': { zh: '修改 MCP Server', en: 'Update MCP server' },
   'mcp.server_delete': { zh: '删除 MCP Server', en: 'Delete MCP server' },
+  'mcp.server_test': { zh: '测试 MCP 连接', en: 'Test MCP server' },
+  'mcp.oauth_start': { zh: '发起 MCP 授权', en: 'Start MCP OAuth' },
+  'mcp.oauth_token_save': { zh: '保存 MCP Token', en: 'Save MCP token' },
+  'mcp.oauth_revoke': { zh: '解绑 MCP 授权', en: 'Revoke MCP OAuth' },
   'secret.create': { zh: '创建凭证', en: 'Create credential' },
   'secret.delete': { zh: '删除凭证', en: 'Delete credential' },
+  'secret.rotate': { zh: '轮换凭证', en: 'Rotate credential' },
+  'secret.export': { zh: '导出凭证清单', en: 'Export credentials' },
+  'secret.verify': { zh: '验证凭证引用', en: 'Verify credential usage' },
   'agent.create': { zh: '新建助理', en: 'Create assistant' },
   'agent.update': { zh: '修改助理', en: 'Update assistant' },
   'agent.delete': { zh: '删除助理', en: 'Delete assistant' },
+  'agent.rollback': { zh: '回滚助理版本', en: 'Roll back assistant' },
+  'agent.playground': { zh: '助理试跑', en: 'Assistant playground run' },
   'knowledge.doc_create': { zh: '新增文档', en: 'Create document' },
   'knowledge.doc_update': { zh: '修改文档', en: 'Update document' },
   'knowledge.doc_move': { zh: '移动文档', en: 'Move document' },
@@ -62,27 +88,71 @@ const ACTION_LABELS: Record<string, { zh: string; en: string }> = {
   'knowledge.doc_upload': { zh: '上传文档', en: 'Upload document' },
   'knowledge.doc_toggle': { zh: '启停文档检索', en: 'Toggle doc retrieval' },
   'knowledge.reindex': { zh: '重建知识索引', en: 'Reindex knowledge' },
-  'setting.update': { zh: '修改系统设置', en: 'Update setting' },
-  'setting.reveal': { zh: '查看密钥明文', en: 'Reveal secret' },
-  'llm.save': { zh: '保存模型配置', en: 'Save LLM config' },
-  'session.share': { zh: '创建会话分享', en: 'Share session' },
-  'session.delete': { zh: '删除会话', en: 'Delete session' },
-  'session.batch_delete': { zh: '批量删除会话', en: 'Batch delete sessions' },
-  'session.model': { zh: '切换会话模型', en: 'Switch session model' },
-  'session.agent': { zh: '切换会话助理', en: 'Switch session assistant' },
-  'auth.login': { zh: '登录', en: 'Sign in' },
+  'knowledge.source_create': { zh: '新增知识源', en: 'Create knowledge source' },
+  'knowledge.source_update': { zh: '修改知识源', en: 'Update knowledge source' },
+  'knowledge.source_delete': { zh: '删除知识源', en: 'Delete knowledge source' },
+  'knowledge.source_sync': { zh: '同步知识源', en: 'Sync knowledge source' },
+  'knowledge.source_sync_finish': { zh: '知识源同步完成', en: 'Knowledge source sync finished' },
   'skill.create': { zh: '新建技能', en: 'Create skill' },
   'skill.update': { zh: '修改技能', en: 'Update skill' },
   'skill.delete': { zh: '删除技能', en: 'Delete skill' },
   'skill.import': { zh: '导入技能包', en: 'Import skill package' },
   'skill.export': { zh: '导出技能包', en: 'Export skill package' },
   'skills.reload': { zh: '重载技能目录', en: 'Reload skills' },
-  'secret.rotate': { zh: '轮换凭证', en: 'Rotate credential' },
-  'secret.export': { zh: '导出凭证清单', en: 'Export credentials' },
-  'secret.verify': { zh: '验证凭证引用', en: 'Verify credential usage' },
+  'workflow.create': { zh: '新建工作流', en: 'Create workflow' },
+  'workflow.update': { zh: '修改工作流', en: 'Update workflow' },
+  'workflow.publish': { zh: '发布工作流', en: 'Publish workflow' },
+  'workflow.delete': { zh: '删除工作流', en: 'Delete workflow' },
+  'workflow.run': { zh: '运行工作流', en: 'Run workflow' },
+  'workflow.run_stop': { zh: '停止工作流运行', en: 'Stop workflow run' },
+  'workflow.node_run': { zh: '试跑工作流节点', en: 'Run workflow node' },
+  'trigger.create': { zh: '新建触发器', en: 'Create trigger' },
+  'trigger.update': { zh: '修改触发器', en: 'Update trigger' },
+  'trigger.delete': { zh: '删除触发器', en: 'Delete trigger' },
+  'trigger.fire': { zh: '触发器执行', en: 'Fire trigger' },
+  'eval.dataset_create': { zh: '新建评测集', en: 'Create eval dataset' },
+  'eval.dataset_update': { zh: '修改评测集', en: 'Update eval dataset' },
+  'eval.dataset_delete': { zh: '删除评测集', en: 'Delete eval dataset' },
+  'eval.case_create': { zh: '新增评测用例', en: 'Create eval case' },
+  'eval.case_update': { zh: '修改评测用例', en: 'Update eval case' },
+  'eval.case_delete': { zh: '删除评测用例', en: 'Delete eval case' },
+  'eval.run': { zh: '发起评测运行', en: 'Start eval run' },
+  'eval.run_finish': { zh: '评测运行完成', en: 'Eval run finished' },
+  'eval.gate': { zh: '评测门禁判定', en: 'Evaluate gate' },
+  'eval.judge_config_update': { zh: '修改评分配置', en: 'Update judge config' },
+  'eval.annotation': { zh: '评测标注', en: 'Eval annotation' },
+  'eval.redteam_seed': { zh: '播种红队用例', en: 'Seed red-team cases' },
+  'eval.share': { zh: '创建评测分享', en: 'Share eval run' },
+  'eval.export': { zh: '导出评测结果', en: 'Export eval run' },
+  'publish.create': { zh: '新建发布渠道', en: 'Create publish channel' },
+  'publish.update': { zh: '修改发布渠道', en: 'Update publish channel' },
+  'publish.rotate': { zh: '轮换发布密钥', en: 'Rotate publish key' },
+  'publish.delete': { zh: '删除发布渠道', en: 'Delete publish channel' },
+  'llm.save': { zh: '保存模型配置', en: 'Save LLM config' },
+  'llm.test': { zh: '测试模型连接', en: 'Test LLM connection' },
+  'setting.update': { zh: '修改系统设置', en: 'Update setting' },
+  'setting.reveal': { zh: '查看密钥明文', en: 'Reveal secret' },
   'setting.export': { zh: '导出配置快照', en: 'Export settings snapshot' },
   'audit.export': { zh: '导出审计日志', en: 'Export audit log' },
 };
+
+// 工作流人工决策是动态动作 workflow.run_{decision}：按 decision 词典兜底成中文
+const WORKFLOW_RUN_DECISIONS: Record<string, { zh: string; en: string }> = {
+  approve: { zh: '通过', en: 'approve' },
+  reject: { zh: '驳回', en: 'reject' },
+};
+
+/** 动作中文标签；未登记的动作按前缀词典兜底，兜不住再回原文。 */
+function actionLabel(action: string): { zh: string; en: string } {
+  const meta = ACTION_LABELS[action];
+  if (meta) return meta;
+  if (action.startsWith('workflow.run_')) {
+    const decision = action.slice('workflow.run_'.length);
+    const word = WORKFLOW_RUN_DECISIONS[decision] ?? { zh: decision, en: decision };
+    return { zh: `工作流运行·${word.zh}`, en: `Workflow run · ${word.en}` };
+  }
+  return { zh: action, en: action };
+}
 
 const RESOURCE_LABELS: Record<string, { zh: string; en: string }> = {
   user: { zh: '用户', en: 'User' },
@@ -93,12 +163,28 @@ const RESOURCE_LABELS: Record<string, { zh: string; en: string }> = {
   agent: { zh: '助理', en: 'Assistant' },
   knowledge_doc: { zh: '知识文档', en: 'Knowledge doc' },
   knowledge: { zh: '知识库', en: 'Knowledge' },
-  setting: { zh: '系统设置', en: 'Setting' },
-  llm_provider: { zh: '模型厂商', en: 'LLM provider' },
-  chat_session: { zh: '会话', en: 'Session' },
+  knowledge_source: { zh: '知识源', en: 'Knowledge source' },
   skill: { zh: '技能', en: 'Skill' },
+  workflow: { zh: '工作流', en: 'Workflow' },
+  workflow_run: { zh: '工作流运行', en: 'Workflow run' },
+  trigger: { zh: '触发器', en: 'Trigger' },
+  eval_dataset: { zh: '评测集', en: 'Eval dataset' },
+  eval_case: { zh: '评测用例', en: 'Eval case' },
+  eval_annotation: { zh: '评测标注', en: 'Eval annotation' },
+  eval_run: { zh: '评测运行', en: 'Eval run' },
+  published_channel: { zh: '发布渠道', en: 'Publish channel' },
+  memory: { zh: '记忆', en: 'Memory' },
+  sandbox_execution: { zh: '沙盒执行', en: 'Sandbox execution' },
+  chat_session: { zh: '会话', en: 'Session' },
+  llm_provider: { zh: '模型厂商', en: 'LLM provider' },
+  setting: { zh: '系统设置', en: 'Setting' },
   audit: { zh: '审计', en: 'Audit' },
 };
+
+/** 资源中文标签；未登记的资源回原文。 */
+function resourceLabel(type: string): { zh: string; en: string } {
+  return RESOURCE_LABELS[type] ?? { zh: type, en: type };
+}
 
 const TIME_PRESET_LABELS: Record<Exclude<TimePreset, 'all'>, { zh: string; en: string }> = {
   today: { zh: '今天', en: 'Today' },
@@ -239,8 +325,8 @@ export default function AuditPage() {
     () => [
       { value: '', label: tr('全部动作', 'All actions') },
       ...actions.map((a) => {
-        const meta = ACTION_LABELS[a];
-        return { value: a, label: meta ? tr(meta.zh, meta.en) : a };
+        const meta = actionLabel(a);
+        return { value: a, label: tr(meta.zh, meta.en) };
       }),
     ],
     [actions, tr],
@@ -250,8 +336,8 @@ export default function AuditPage() {
     () => [
       { value: '', label: tr('全部资源', 'All resources') },
       ...resourceTypes.map((r) => {
-        const meta = RESOURCE_LABELS[r];
-        return { value: r, label: meta ? tr(meta.zh, meta.en) : r };
+        const meta = resourceLabel(r);
+        return { value: r, label: tr(meta.zh, meta.en) };
       }),
     ],
     [resourceTypes, tr],
@@ -269,10 +355,10 @@ export default function AuditPage() {
   const activeChips = useMemo(() => {
     const chips: { key: string; label: string; clear: () => void }[] = [];
     if (action !== '') {
-      const meta = ACTION_LABELS[action];
+      const meta = actionLabel(action);
       chips.push({
         key: 'action',
-        label: tr(`动作：${meta ? meta.zh : action}`, `Action: ${meta ? meta.en : action}`),
+        label: tr(`动作：${meta.zh}`, `Action: ${meta.en}`),
         clear: () => {
           resetFiltersToFirstPage();
           setAction('');
@@ -280,10 +366,10 @@ export default function AuditPage() {
       });
     }
     if (resourceType !== '') {
-      const meta = RESOURCE_LABELS[resourceType];
+      const meta = resourceLabel(resourceType);
       chips.push({
         key: 'resource',
-        label: tr(`资源：${meta ? meta.zh : resourceType}`, `Resource: ${meta ? meta.en : resourceType}`),
+        label: tr(`资源：${meta.zh}`, `Resource: ${meta.en}`),
         clear: () => {
           resetFiltersToFirstPage();
           setResourceType('');
@@ -591,8 +677,8 @@ export default function AuditPage() {
                 </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
                   {items.map((row) => {
-                    const actionMeta = ACTION_LABELS[row.action];
-                    const resourceMeta = RESOURCE_LABELS[row.resource_type];
+                    const actionMeta = actionLabel(row.action);
+                    const resourceMeta = resourceLabel(row.resource_type);
                     return (
                       <tr key={row.id} className="transition-colors hover:bg-zinc-900/40">
                         <td className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-zinc-500">
@@ -610,12 +696,12 @@ export default function AuditPage() {
                             className="block max-w-full truncate text-left text-[12.5px] font-medium text-zinc-200 transition-colors hover:text-indigo-300"
                             title={row.action}
                           >
-                            {actionMeta ? tr(actionMeta.zh, actionMeta.en) : row.action}
+                            {tr(actionMeta.zh, actionMeta.en)}
                           </button>
                         </td>
                         <td className="min-w-0 px-3 py-2">
                           <span className="block truncate text-[12.5px] text-zinc-400">
-                            {resourceMeta ? tr(resourceMeta.zh, resourceMeta.en) : row.resource_type}
+                            {tr(resourceMeta.zh, resourceMeta.en)}
                           </span>
                           {row.resource_id ? (
                             <span className="mt-0.5 block truncate font-sans text-[10px] text-zinc-600" title={row.resource_id}>
@@ -655,11 +741,16 @@ export default function AuditPage() {
                 {detail.actor_user_id !== null ? ` (#${detail.actor_user_id})` : ''}
               </dd>
               <dt className="text-zinc-500">{tr('动作', 'Action')}</dt>
-              <dd className="font-sans text-zinc-200">{detail.action}</dd>
+              <dd className="text-zinc-200">
+                {tr(actionLabel(detail.action).zh, actionLabel(detail.action).en)}
+                <span className="ml-1.5 font-sans text-[10px] text-zinc-600">{detail.action}</span>
+              </dd>
               <dt className="text-zinc-500">{tr('资源', 'Resource')}</dt>
-              <dd className="break-all font-sans text-zinc-200">
-                {detail.resource_type}
-                {detail.resource_id ? ` / ${detail.resource_id}` : ''}
+              <dd className="break-all text-zinc-200">
+                {tr(resourceLabel(detail.resource_type).zh, resourceLabel(detail.resource_type).en)}
+                {detail.resource_id ? (
+                  <span className="ml-1.5 font-sans text-[10px] text-zinc-600">{detail.resource_id}</span>
+                ) : null}
               </dd>
               <dt className="text-zinc-500">Request ID</dt>
               <dd className="break-all font-sans text-zinc-400">{detail.request_id ?? '—'}</dd>

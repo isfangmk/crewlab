@@ -332,7 +332,7 @@ class PlaygroundRequest(BaseModel):
 async def playground_stream(
     body: PlaygroundRequest,
     db: AsyncSession = Depends(get_db),
-    _user: AuthUser = Depends(require_not_viewer),
+    user: AuthUser = Depends(require_not_viewer),
 ):
     """草稿助理试跑：不落会话、不落观测，跑完即弃。"""
 
@@ -366,6 +366,13 @@ async def playground_stream(
 
     async def gen():
         try:
+            # 试跑不落会话/观测，审计是唯一记录：只记谁试跑了哪个草稿
+            await write_audit(
+                actor_user_id=user.id,
+                action="agent.playground",
+                resource_type="agent",
+                resource_id=draft.name,
+            )
             async for frame in playground_service.stream_preview(
                 db,
                 agent=agent,

@@ -186,7 +186,7 @@ async def parse_skill_zip(
     file: UploadFile = File(...),
     _user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
-    """解析 zip 技能包并回预览；不写库。"""
+    """解析 zip 技能包并回预览；不写库。不进审计：导入（skill.import）才记。"""
 
     if file.filename is None or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="仅支持 .zip 技能包")

@@ -346,7 +346,10 @@ async def create_workflow(
 
 @router.post("/workflows/validate")
 async def validate_workflow(body: WorkflowDefinitionInput) -> dict:
-    """画布校验：结构 + ADK 图可执行性。不通过时返回错误，不抛 500。"""
+    """画布校验：结构 + ADK 图可执行性。不通过时返回错误，不抛 500。
+
+    纯校验不落库，不进审计：画布编辑期每次改动都可能触发一次校验。
+    """
 
     from app.adk_runtime.workflow_graph import validate
 
@@ -466,7 +469,7 @@ async def resume_run(
 async def stop_run(
     run_uid: str,
     db: AsyncSession = Depends(get_db),
-    _user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     """停止正在跑的运行：图执行到下一个事件边界收工，已跑过的节点照常落库。"""
 
@@ -475,6 +478,13 @@ async def stop_run(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     stopped = run_control.request_stop(run_uid)
+    await write_audit(
+        actor_user_id=user.id,
+        action="workflow.run_stop",
+        resource_type="workflow_run",
+        resource_id=run_uid,
+        detail={"stopped": stopped},
+    )
     return {"stopped": stopped}
 
 
@@ -506,6 +516,13 @@ async def run_single_node(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     logger.info(
         "节点试跑 workflow=%s node=%s status=%s", workflow_id, node_id, result["status"]
+    )
+    await write_audit(
+        actor_user_id=user.id,
+        action="workflow.node_run",
+        resource_type="workflow",
+        resource_id=str(workflow_id),
+        detail={"node_id": node_id, "status": result["status"]},
     )
     return result
 

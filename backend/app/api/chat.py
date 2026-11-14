@@ -175,6 +175,13 @@ async def create_session(
         )
     except LookupError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="session.create",
+        resource_type="chat_session",
+        resource_id=session.id,
+        detail={"title": session.title, "provider": session.provider, "model": session.model},
+    )
     return _session_out(session)
 
 
@@ -183,7 +190,7 @@ async def patch_session(
     session_id: str,
     body: UpdateSessionTitleRequest,
     db: AsyncSession = Depends(get_db),
-    _user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     """重命名会话。前端 renameSession 只发 title，契约与之一一对应。"""
 
@@ -191,6 +198,13 @@ async def patch_session(
         await chat_service.rename_session(db, session_id, body.title)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="session.rename",
+        resource_type="chat_session",
+        resource_id=session_id,
+        detail={"title": body.title},
+    )
     return {}
 
 
@@ -199,7 +213,7 @@ async def patch_session_flags(
     session_id: str,
     body: UpdateSessionFlagsRequest,
     db: AsyncSession = Depends(get_db),
-    _user: AuthUser = Depends(require_not_viewer),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> ChatSessionOut:
     try:
         session = await chat_service.update_session_flags(
@@ -209,6 +223,13 @@ async def patch_session_flags(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="session.update",
+        resource_type="chat_session",
+        resource_id=session_id,
+        detail={"pinned": body.pinned, "archived": body.archived},
+    )
     return _session_out(session)
 
 
@@ -233,6 +254,13 @@ async def fork_session(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     # fork 会把消息复制到新会话，统计必须按新会话 id 重新算，不能沿用源会话。
     stats = await chat_service.list_session_stats(db, [session.id])
+    await write_audit(
+        actor_user_id=user.id,
+        action="session.fork",
+        resource_type="chat_session",
+        resource_id=session.id,
+        detail={"from_session_id": session_id, "up_to_message_id": body.up_to_message_id},
+    )
     return _session_out(session, stats.get(session.id))
 
 
@@ -375,7 +403,7 @@ async def upload_attachment(
     session_id: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     """上传会话图片附件；返回附件元数据，id 供发消息时引用。"""
 
@@ -398,6 +426,14 @@ async def upload_attachment(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="session.attachment",
+        resource_type="chat_session",
+        resource_id=session_id,
+        # 审计只记附件外形，图片内容不落审计详情
+        detail={"attachment_id": row.id, "name": filename, "mime_type": content_type},
+    )
     return attachment_service.attachment_to_wire(row)
 
 
@@ -444,13 +480,20 @@ async def download_attachment(
 async def stop_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     try:
         await chat_service.get_session(db, session_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return await chat_service.stop_session(session_id)
+    result = await chat_service.stop_session(session_id)
+    await write_audit(
+        actor_user_id=user.id,
+        action="session.stop",
+        resource_type="chat_session",
+        resource_id=session_id,
+    )
+    return result
 
 
 @router.get("/chat/sessions/{session_id}/messages")
@@ -482,6 +525,7 @@ async def stream_message(
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_not_viewer),
 ):
+    # 对话消息发送不进审计：核心高频操作，消息已全量落 chat_messages，再记审计只是重复
     set_session_id(session_id)
 
     async def gen():
@@ -525,7 +569,7 @@ async def edit_and_resend(
     session_id: str,
     body: TruncateAndResendRequest,
     db: AsyncSession = Depends(get_db),
-    _user: AuthUser = Depends(require_not_viewer),
+    user: AuthUser = Depends(require_not_viewer),
 ):
     """编辑用户消息：截断后续并按新正文重发。"""
 
@@ -535,6 +579,14 @@ async def edit_and_resend(
         try:
             await chat_service.prepare_resend_from_user_message(
                 db, session_id, body.message_id
+            )
+            # 截断已落库：审计记编辑重发，正文不进详情（消息本体在 chat_messages）
+            await write_audit(
+                actor_user_id=user.id,
+                action="session.edit_resend",
+                resource_type="chat_session",
+                resource_id=session_id,
+                detail={"message_id": body.message_id},
             )
             async for frame in chat_service.stream_session_message(
                 db,

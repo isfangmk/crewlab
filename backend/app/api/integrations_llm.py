@@ -39,10 +39,11 @@ class LLMConfigIn(BaseModel):
 @router.post("/integrations/llm/test")
 async def test_llm(
     body: LLMConfigIn,
-    _admin: AuthUser = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_admin),
 ) -> dict:
     try:
-        return await llm_admin.probe_configuration(
+        result = await llm_admin.probe_configuration(
             provider=body.provider,
             api_key=body.api_key,
             base_url=body.base_url,
@@ -57,6 +58,15 @@ async def test_llm(
         # 不能让 httpx 异常冒泡成 500 的 ASGI traceback。
         logger.warning("LLM 探测失败 provider=%s: %s", body.provider, exc)
         raise HTTPException(status_code=502, detail=f"厂商连接失败: {exc}") from exc
+    # 审计只记探测外形，永不落 api_key。
+    await write_audit(
+        actor_user_id=user.id,
+        action="llm.test",
+        resource_type="llm_provider",
+        resource_id=body.provider,
+        detail={"base_url": body.base_url, "default_model": body.default_model},
+    )
+    return result
 
 
 @router.post("/integrations/llm/validate-and-save")
@@ -106,6 +116,7 @@ async def list_remote_models(
     body: LLMConfigIn,
     _admin: AuthUser = Depends(require_admin),
 ) -> dict:
+    # 纯查询类 POST（拉远端模型清单），不进审计：没有状态变化
     try:
         models = await llm_admin.fetch_remote_models(
             base_url=body.base_url,

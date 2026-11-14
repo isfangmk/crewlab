@@ -298,6 +298,7 @@ async def get_prompt(
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    # 纯读取远端 prompt 模板，不进审计：没有状态变化
     try:
         return await mcp_service.get_prompt(
             db, server_id, body.name, body.arguments

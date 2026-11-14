@@ -456,7 +456,10 @@ async def preview_scope(
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
-    """助理编辑器实时预览：命中多少篇、哪些目录/文档已不存在。"""
+    """助理编辑器实时预览：命中多少篇、哪些目录/文档已不存在。
+
+    纯查询不落库，不进审计：编辑器拖动配置就会触发一次。
+    """
 
     try:
         scope = parse_scope({"paths": body.paths, "doc_ids": body.doc_ids})

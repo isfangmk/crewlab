@@ -598,14 +598,21 @@ async def claim_next_annotation(
 async def evaluate_gate(
     run_uid: str,
     db: AsyncSession = Depends(get_db),
-    _user: AuthUser = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
     try:
-        return await eval_gate_service.evaluate_gate(db, run_uid)
+        result = await eval_gate_service.evaluate_gate(db, run_uid)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="eval.gate",
+        resource_type="eval_run",
+        resource_id=run_uid,
+    )
+    return result
 
 
 @router.get("/evals/runs/{run_uid}/export")

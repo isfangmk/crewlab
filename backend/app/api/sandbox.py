@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth
 from app.db import get_db
 from app.services import sandbox_query_service, sandbox_service
+from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
 
 logger = logging.getLogger(__name__)
@@ -148,7 +149,8 @@ async def sandbox_summary(
 @router.post("/sandbox/run", response_model=SandboxRunOut)
 async def run_sandbox_code(
     payload: SandboxRunInput,
-    _user: AuthUser = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_auth),
 ) -> SandboxRunOut:
     """手动跑一段代码：用于验证沙盒环境是否正常。"""
 
@@ -167,6 +169,18 @@ async def run_sandbox_code(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # 审计只记执行外形：代码与输出不落审计详情（本体在执行记录里）
+    await write_audit(
+        actor_user_id=user.id,
+        action="sandbox.run",
+        resource_type="sandbox_execution",
+        resource_id=result.execution_id,
+        detail={
+            "status": result.status,
+            "exit_code": result.exit_code,
+            "code_len": len(payload.code),
+        },
+    )
     return SandboxRunOut(
         execution_id=result.execution_id,
         stdout=result.stdout,

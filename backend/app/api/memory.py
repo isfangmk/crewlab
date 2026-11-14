@@ -12,6 +12,7 @@ from app.api.deps import require_not_viewer
 from app.db import get_db
 from app.models_orm.memory import MemoryItem
 from app.services import memory_service
+from app.services.audit_service import write_audit
 from app.vector_store import VectorStoreUnavailable
 
 router = APIRouter(tags=["memory"])
@@ -84,6 +85,14 @@ async def create_memory(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except VectorStoreUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    # 审计只记外形：记忆正文可能含个人事实，不复制进审计详情
+    await write_audit(
+        actor_user_id=user.id,
+        action="memory.create",
+        resource_type="memory",
+        resource_id=item.id,
+        detail={"content_len": len(body.content), "agent_id": body.agent_id},
+    )
     return _memory_to_wire(item)
 
 
@@ -92,7 +101,7 @@ async def update_memory(
     memory_id: str,
     body: MemoryUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    _user: Any = Depends(require_not_viewer),
+    user: Any = Depends(require_not_viewer),
 ) -> dict:
     """启用/停用一条记忆；停用后不再参与语义回忆。"""
 
@@ -100,6 +109,13 @@ async def update_memory(
         item = await memory_service.set_enabled(db, memory_id, body.enabled)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="memory.update",
+        resource_type="memory",
+        resource_id=memory_id,
+        detail={"enabled": body.enabled},
+    )
     return _memory_to_wire(item)
 
 
@@ -107,10 +123,16 @@ async def update_memory(
 async def delete_memory(
     memory_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: Any = Depends(require_not_viewer),
+    user: Any = Depends(require_not_viewer),
 ) -> dict:
     try:
         await memory_service.forget(db, memory_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="memory.delete",
+        resource_type="memory",
+        resource_id=memory_id,
+    )
     return {"ok": True}
