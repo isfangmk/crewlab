@@ -1,9 +1,11 @@
-// SourcesBlock — 统一「来源」区：知识库命中与网页搜索的标题 / 链接 / 摘录。
+// SourcesBlock — 检索结果独立展示区：知识库命中与网页搜索的标题 / 链接 / 摘录。
 //
+// 与解释器产出物同地位：渲染在工具卡片外的对话流里，卡片只留折叠的参数/结果。
 // 工具结果里承载引用的字段来自两处契约：
 //   - query_knowledge → knowledge_service.search_for_agent：items[doc_id,title,path,chunk_index,excerpt,score]
 //   - web_search      → web_search_service.deepseek_web_search：results[title,url,snippet,summary,date,rerank_score]
 // 其它名称里带 search / knowledge 的工具按 items|results 的通用形状读取。
+import { Search } from 'lucide-react';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
 
@@ -94,7 +96,8 @@ export function collectToolSources(
   return mergeSources(calls.map((call) => extractSources(call.name, call.result)));
 }
 
-export function SourcesSection({
+/** 检索结果独立展示区：工具卡片外渲染，与解释器产出物同地位。 */
+export function SearchResults({
   sources,
   className,
 }: {
@@ -104,16 +107,20 @@ export function SourcesSection({
   const { tr } = useI18n();
   if (sources.length === 0) return null;
   return (
-    <section className={cn('space-y-1.5', className)} aria-label={tr('来源', 'Sources')}>
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-zinc-500">
-        {tr('来源', 'Sources')}
-        <span className="text-zinc-600">({sources.length})</span>
+    <section
+      className={cn('rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2', className)}
+      aria-label={tr('搜索结果', 'Search results')}
+    >
+      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-zinc-300">
+        <Search size={12} className="text-zinc-500" />
+        {tr('搜索结果', 'Search results')}
+        <span className="text-[10px] text-zinc-500">{tr(`共 ${sources.length} 条`, `${sources.length}`)}</span>
       </div>
       <ol className="space-y-1.5">
         {sources.map((s, i) => (
           <li
             key={s.key}
-            className="rounded-lg border border-zinc-800/60 bg-zinc-900/40 px-2.5 py-1.5"
+            className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-2.5 py-1.5"
           >
             <div className="flex items-baseline gap-2">
               <span className="shrink-0 font-sans text-[10px] text-zinc-500">[{i + 1}]</span>

@@ -341,7 +341,7 @@ describe('MessageBubble 引用来源', () => {
     },
   };
 
-  it('工具卡不用展开就能看到来源', () => {
+  it('检索结果在卡外独立区，卡片只留折叠的输入/输出', () => {
     render(<MessageBubble message={{
       id: 'tool-card-knowledge',
       role: 'tool',
@@ -349,14 +349,15 @@ describe('MessageBubble 引用来源', () => {
       tool_call: knowledgeCall,
     }} />);
 
-    expect(screen.getByRole('region', { name: '来源' })).toBeInTheDocument();
+    // 检索结果是卡片外的独立区块，无需展开工具卡
+    expect(screen.getByRole('region', { name: '搜索结果' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '雷达校准手册' })).toHaveAttribute('href', '/knowledge?doc=doc-1');
     expect(screen.getByText('校准前先做零点漂移检查。')).toBeInTheDocument();
     // 折叠区未展开，不渲染原始结果 JSON
     expect(screen.queryByText('结果')).not.toBeInTheDocument();
   });
 
-  it('助手气泡把多次检索的来源收口成一块', () => {
+  it('助手气泡把多次检索的结果收口成一块', () => {
     render(<MessageBubble message={{
       id: 'assistant-with-sources',
       role: 'assistant',
@@ -372,7 +373,7 @@ describe('MessageBubble 引用来源', () => {
       ],
     }} />);
 
-    expect(screen.getAllByRole('region', { name: '来源' })).toHaveLength(1);
+    expect(screen.getAllByRole('region', { name: '搜索结果' })).toHaveLength(1);
     expect(screen.getByRole('link', { name: '雷达校准手册' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '官方文档' })).toBeInTheDocument();
   });

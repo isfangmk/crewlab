@@ -3,7 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
-  SourcesSection,
+  SearchResults,
   collectToolSources,
   extractSources,
   mergeSources,
@@ -107,10 +107,10 @@ describe('mergeSources / collectToolSources', () => {
   });
 });
 
-describe('SourcesSection', () => {
+describe('SearchResults', () => {
   it('按序号渲染标题链接、块序号与摘录', () => {
     render(
-      <SourcesSection
+      <SearchResults
         sources={extractSources('query_knowledge', {
           items: [
             { doc_id: 'doc-1', title: '雷达校准手册', path: '运维/手册', chunk_index: 1, excerpt: '零点漂移检查' },
@@ -120,7 +120,7 @@ describe('SourcesSection', () => {
       />,
     );
 
-    expect(screen.getByRole('region', { name: '来源' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '搜索结果' })).toBeInTheDocument();
     expect(screen.getByText('[1]')).toBeInTheDocument();
     expect(screen.getByText('[2]')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '雷达校准手册' })).toHaveAttribute('href', '/knowledge?doc=doc-1');
@@ -130,7 +130,7 @@ describe('SourcesSection', () => {
   });
 
   it('暂无来源时不渲染空区块', () => {
-    const { container } = render(<SourcesSection sources={[]} />);
+    const { container } = render(<SearchResults sources={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
 });

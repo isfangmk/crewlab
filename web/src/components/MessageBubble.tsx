@@ -28,7 +28,7 @@ import { Button, Chip, CodeBlock, RowActionIcon, StatusPill, Textarea } from '@/
 import { Modal } from '@/components/Modal';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
-import { SourcesSection, collectToolSources, extractSources } from '@/components/SourcesBlock';
+import { SearchResults, collectToolSources, extractSources } from '@/components/SourcesBlock';
 import { ChartMarkdown } from '@/components/ChartMarkdown';
 import { InterpreterArtifacts, type InterpreterArtifact } from '@/components/InterpreterArtifacts';
 
@@ -329,7 +329,7 @@ function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
   // the same column, matching the doc-card aesthetic.
   // 流式只渲染已到正文；底部 ThinkingIndicator 表示进行中，不在气泡内再叠三点。
   const body = message.content ?? '';
-  // 本回答用到的来源统一收口到气泡底部一块，工具卡内不再重复列
+  // 本回答用到的检索结果统一收口到气泡底部一块，工具卡内与卡下都不重复列
   const sources = collectToolSources(message.tool_calls);
   return (
     <div className="flex flex-col items-stretch gap-2">
@@ -342,11 +342,11 @@ function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
         <ToolCallBlock
           key={`${tc.name}-${i}`}
           call={tc}
-          showSources={false}
+          showSearchResults={false}
           onConfirmConfigDraft={onConfirmConfigDraft}
         />
       ))}
-      {sources.length > 0 && <SourcesSection sources={sources} className="mt-1 border-l border-zinc-800/60 pl-3" />}
+      {sources.length > 0 && <SearchResults sources={sources} />}
     </div>
   );
 }
@@ -379,13 +379,13 @@ function interpreterArtifactsOf(call: { name: string; result?: unknown }): Inter
 }
 
 /**
- * 工具调用行：通用卡片保持折叠/输入/输出的一致交互；
- * 解释器产出物（图表、表格、下载）渲染在卡片外的对话流里。
+ * 工具调用行：通用卡片保持折叠输入/输出的一致交互；
+ * 解释器产出物与检索结果都渲染在卡片外的对话流里（与 run_python 口径一致）。
  */
 function ToolCallBlock({
   call,
   onConfirmConfigDraft,
-  showSources = true,
+  showSearchResults = true,
 }: {
   call: {
     name: string;
@@ -397,17 +397,19 @@ function ToolCallBlock({
     error?: string;
   };
   onConfirmConfigDraft?: ConfirmConfigDraft;
-  showSources?: boolean;
+  /** 气泡已聚合检索结果时置 false，避免同一批结果渲染两次。 */
+  showSearchResults?: boolean;
 }) {
   const artifacts = interpreterArtifactsOf(call);
+  const searchResults = showSearchResults ? extractSources(call.name, call.result) : [];
   return (
     <div className="flex w-full flex-col gap-2">
       <ToolCallSummaryBlock
         call={call}
         onConfirmConfigDraft={onConfirmConfigDraft}
-        showSources={showSources}
       />
       {artifacts.length > 0 && <InterpreterArtifacts artifacts={artifacts} />}
+      <SearchResults sources={searchResults} />
     </div>
   );
 }
@@ -415,7 +417,6 @@ function ToolCallBlock({
 function ToolCallSummaryBlock({
   call,
   onConfirmConfigDraft,
-  showSources = true,
 }: {
   call: {
     name: string;
@@ -427,8 +428,6 @@ function ToolCallSummaryBlock({
     error?: string;
   };
   onConfirmConfigDraft?: ConfirmConfigDraft;
-  /** 气泡已聚合来源时置 false，避免同一批来源渲染两次。 */
-  showSources?: boolean;
 }) {
   const { tr } = useI18n();
   const [open, setOpen] = useState(false);
@@ -436,7 +435,6 @@ function ToolCallSummaryBlock({
   const isPending = status === 'pending';
   const isError = status === 'error' || status === 'timeout' || !!call.error;
   const hint = argSummary(call.arguments);
-  const sources = showSources ? extractSources(call.name, call.result) : [];
   // 工具结果 status=pending_approval 时，在会话内渲染批准/拒绝卡。
   const approval = pendingApproval(call.result);
   if (approval) {
@@ -481,11 +479,6 @@ function ToolCallSummaryBlock({
           )}
         </span>
       </button>
-      {sources.length > 0 && (
-        <div className="border-t border-zinc-800/60 bg-zinc-950/30 px-3 py-2">
-          <SourcesSection sources={sources} />
-        </div>
-      )}
       {configDraft && (
         <ConfigDraftCard draft={configDraft} onConfirm={onConfirmConfigDraft} />
       )}
