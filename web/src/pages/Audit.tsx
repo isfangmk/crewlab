@@ -1,6 +1,6 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Download, RefreshCw, ScrollText, Settings2, Shield } from 'lucide-react';
+import { Download, RefreshCw, ScrollText, Settings2, Shield } from 'lucide-react';
 import {
   Button,
   CodeBlock,
@@ -13,6 +13,7 @@ import {
   Input,
   PageHeader,
   RowAction,
+  SortableHead,
   TableCard,
   TableHead,
   TablePager,
@@ -26,7 +27,7 @@ import { exportSettings } from '@/api/settings';
 import { listUserOptions, type UserOption } from '@/api/users';
 import { saveBlob } from '@/lib/download';
 import { useI18n } from '@/i18n/locale';
-import { fullDateTime } from '@/lib/format';
+import { formatDateTimeLocal, fullDateTime } from '@/lib/format';
 import { parseLocalDateTime, rangeForPreset, type TimePreset } from '@/lib/timeRange';
 import { usePermissions } from '@/store/me';
 import { errorText } from '@/lib/errors';
@@ -103,7 +104,7 @@ const TIME_PRESET_LABELS: Record<Exclude<TimePreset, 'all'>, { zh: string; en: s
   today: { zh: '今天', en: 'Today' },
   '7d': { zh: '近 7 天', en: 'Last 7 days' },
   '30d': { zh: '近 30 天', en: 'Last 30 days' },
-  custom: { zh: '自定义时间', en: 'Custom time' },
+  custom: { zh: '自定义范围', en: 'Custom range' },
 };
 
 function summary(text: string, limit = 96): string {
@@ -302,9 +303,17 @@ export default function AuditPage() {
     }
     if (timePreset !== 'all') {
       const meta = TIME_PRESET_LABELS[timePreset];
+      // 自定义范围回显实际起止时间，避免只看到「自定义时间」无法核对
+      const timeLabel =
+        timePreset === 'custom' && (customFrom !== '' || customTo !== '')
+          ? tr(
+              `时间：${formatDateTimeLocal(customFrom)} → ${formatDateTimeLocal(customTo)}`,
+              `Time: ${formatDateTimeLocal(customFrom)} → ${formatDateTimeLocal(customTo)}`,
+            )
+          : tr(`时间：${meta.zh}`, `Time: ${meta.en}`);
       chips.push({
         key: 'time',
-        label: tr(`时间：${meta.zh}`, `Time: ${meta.en}`),
+        label: timeLabel,
         clear: () => {
           resetFiltersToFirstPage();
           setTimePreset('all');
@@ -314,7 +323,7 @@ export default function AuditPage() {
       });
     }
     return chips;
-  }, [action, resourceType, actorId, timePreset, users, tr]);
+  }, [action, resourceType, actorId, timePreset, customFrom, customTo, users, tr]);
 
   const clearFilters = () => {
     resetFiltersToFirstPage();
@@ -483,7 +492,7 @@ export default function AuditPage() {
           />
         </FilterPill>
         <FilterPill
-          label={tr('时间', 'Time')}
+          label={tr('时间范围', 'Time range')}
           active={timePreset !== 'all'}
           onClear={() => {
             resetFiltersToFirstPage();
@@ -491,7 +500,7 @@ export default function AuditPage() {
             setCustomFrom('');
             setCustomTo('');
           }}
-          width="w-[9rem]"
+          width="w-[11rem]"
         >
           <Select
             aria-label={tr('时间范围', 'Time range')}
@@ -505,7 +514,7 @@ export default function AuditPage() {
               { value: 'today', label: tr('今天', 'Today') },
               { value: '7d', label: tr('近 7 天', 'Last 7 days') },
               { value: '30d', label: tr('近 30 天', 'Last 30 days') },
-              { value: 'custom', label: tr('自定义', 'Custom') },
+              { value: 'custom', label: tr('自定义范围', 'Custom range') },
             ]}
             variant="ghost"
             className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
@@ -565,23 +574,15 @@ export default function AuditPage() {
                 </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">
-                    <th scope="col" className="px-3 py-2 text-left font-medium" aria-sort={sortDir === 'asc' ? 'ascending' : 'descending'}>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 hover:text-zinc-200"
-                        onClick={() => {
-                          resetFiltersToFirstPage();
-                          setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
-                        }}
-                      >
-                        {tr('时间', 'Time')}
-                        {sortDir === 'desc' ? (
-                          <ArrowDown size={12} aria-hidden />
-                        ) : (
-                          <ArrowUp size={12} aria-hidden />
-                        )}
-                      </button>
-                    </th>
+                    <SortableHead
+                      label={tr('时间', 'Time')}
+                      active
+                      order={sortDir}
+                      onClick={() => {
+                        resetFiltersToFirstPage();
+                        setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+                      }}
+                    />
                     <th scope="col" className="px-3 py-2 text-left font-medium">{tr('操作者', 'Actor')}</th>
                     <th scope="col" className="px-3 py-2 text-left font-medium">{tr('动作', 'Action')}</th>
                     <th scope="col" className="px-3 py-2 text-left font-medium">{tr('资源', 'Resource')}</th>

@@ -233,7 +233,7 @@ export default function McpPage() {
             ariaLabel={tr('搜索服务', 'Search servers')}
           />
           <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
-            {tr(`${servers.length} 个 · 匹配 ${shownServers.length}`, `${servers.length} total · ${shownServers.length} matched`)}
+            {tr(`共 ${shownServers.length} 个服务`, `${shownServers.length} services`)}
           </span>
         </FilterBar>
       )}

@@ -37,6 +37,15 @@ export function fullDateTime(input: string | number | Date): string {
   return t.toLocaleString(intlLocale(), { timeZone: getSystemTimeZoneId() });
 }
 
+/** datetime-local 值转筛选条件里的紧凑展示，本地时区精确到分钟。 */
+export function formatDateTimeLocal(value: string): string {
+  if (value === '') return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function formatNumber(n: number): string {
   if (Number.isNaN(n)) {
     throw new Error('非法数字');

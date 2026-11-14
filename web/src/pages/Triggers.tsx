@@ -349,7 +349,7 @@ export default function TriggersPage() {
                       {t.last_fired_at ? fullDateTime(t.last_fired_at) : '—'}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <div className="flex items-center justify-end gap-1.5 opacity-60 transition-opacity group-hover:opacity-100">
+                      <div className="flex items-center justify-end gap-1.5">
                         {canMutate ? (
                           <>
                             <RowAction

@@ -3,9 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Archive,
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
   Download,
   MessageSquare,
   Paperclip,
@@ -52,6 +49,7 @@ import {
   RowAction,
   RowActionIcon,
   SearchInput,
+  SortButton,
   StatusPill,
   TableCard,
   TableHead,
@@ -66,7 +64,7 @@ import { Select } from '@/components/ui/Select';
 import { Hint } from '@/components/ui/Tooltip';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
-import { formatNumber, fullDateTime } from '@/lib/format';
+import { formatDateTimeLocal, formatNumber, fullDateTime } from '@/lib/format';
 import { invalidateChatSessions } from '@/store/chatSessions';
 import { errorText } from '@/lib/errors';
 
@@ -808,9 +806,17 @@ export default function SessionsPage() {
     }
     if (timePreset !== 'all') {
       const meta = TIME_PRESET_LABELS[timePreset];
+      // 自定义范围回显实际起止时间，避免只看到「自定义」无法核对
+      const timeLabel =
+        timePreset === 'custom' && (customFrom !== '' || customTo !== '')
+          ? tr(
+              `时间：${formatDateTimeLocal(customFrom)} → ${formatDateTimeLocal(customTo)}`,
+              `Time: ${formatDateTimeLocal(customFrom)} → ${formatDateTimeLocal(customTo)}`,
+            )
+          : tr(`时间：${meta.zh}`, `Time: ${meta.en}`);
       chips.push({
         key: 'time',
-        label: tr(`时间：${meta.zh}`, `Time: ${meta.en}`),
+        label: timeLabel,
         clear: () => {
           resetFiltersToFirstPage();
           setTimePreset('all');
@@ -820,7 +826,10 @@ export default function SessionsPage() {
       });
     }
     return chips;
-  }, [agentId, modelFilter, timePreset, tr]);
+  }, [agentId, modelFilter, timePreset, customFrom, customTo, tr]);
+
+  // 搜索也算生效条件：清空入口必须一直可见，不能只剩搜索框里的 X
+  const hasActiveFilters = activeChips.length > 0 || query.trim() !== '';
 
   useAssistantPage('会话管理', 'Sessions', {
     count: total,
@@ -883,7 +892,7 @@ export default function SessionsPage() {
       <FilterBar
         className="mx-6 mt-3"
         footer={
-          timePreset === 'custom' || activeChips.length > 0 ? (
+          hasActiveFilters ? (
             <>
               {timePreset === 'custom' ? (
                 <>
@@ -913,13 +922,14 @@ export default function SessionsPage() {
               {activeChips.map((chip) => (
                 <FilterChip key={chip.key} label={chip.label} onClear={chip.clear} />
               ))}
-              {activeChips.length > 0 ? (
+              {hasActiveFilters ? (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="ml-auto"
                   onClick={() => {
                     resetFiltersToFirstPage();
+                    setQuery('');
                     setAgentId('');
                     setModelFilter('');
                     setTimePreset('all');
@@ -986,7 +996,7 @@ export default function SessionsPage() {
           />
         </FilterPill>
         <FilterPill
-          label={tr('时间', 'Time')}
+          label={tr('时间范围', 'Time range')}
           active={timePreset !== 'all'}
           onClear={() => {
             resetFiltersToFirstPage();
@@ -994,7 +1004,7 @@ export default function SessionsPage() {
             setCustomFrom('');
             setCustomTo('');
           }}
-          width="w-[9rem]"
+          width="w-[11rem]"
         >
           <Select
             aria-label={tr('时间范围', 'Time range')}
@@ -1008,7 +1018,7 @@ export default function SessionsPage() {
               { value: 'today', label: tr('今天', 'Today') },
               { value: '7d', label: tr('近 7 天', 'Last 7 days') },
               { value: '30d', label: tr('近 30 天', 'Last 30 days') },
-              { value: 'custom', label: tr('自定义', 'Custom') },
+              { value: 'custom', label: tr('自定义范围', 'Custom range') },
             ]}
             variant="ghost"
             className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
@@ -1092,22 +1102,27 @@ export default function SessionsPage() {
                           const sorted = header.column.getIsSorted();
                           // sticky：纵向滚动时表头钉在滚动容器顶部
                           return (
-                            <th key={header.id} scope="col" className="px-3 py-2 text-left font-medium">
+                            <th
+                              key={header.id}
+                              scope="col"
+                              className="px-3 py-2 text-left font-medium"
+                              aria-sort={
+                                canSort
+                                  ? sorted === 'asc'
+                                    ? 'ascending'
+                                    : sorted === 'desc'
+                                      ? 'descending'
+                                      : 'none'
+                                  : undefined
+                              }
+                            >
                               {header.isPlaceholder ? null : canSort ? (
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1 hover:text-zinc-200"
+                                <SortButton
+                                  label={flexRender(header.column.columnDef.header, header.getContext())}
+                                  active={sorted !== false}
+                                  order={sorted === 'asc' ? 'asc' : 'desc'}
                                   onClick={header.column.getToggleSortingHandler()}
-                                >
-                                  {flexRender(header.column.columnDef.header, header.getContext())}
-                                  {sorted === 'asc' ? (
-                                    <ArrowUp size={12} aria-hidden />
-                                  ) : sorted === 'desc' ? (
-                                    <ArrowDown size={12} aria-hidden />
-                                  ) : (
-                                    <ArrowUpDown size={12} className="opacity-50" aria-hidden />
-                                  )}
-                                </button>
+                                />
                               ) : (
                                 flexRender(header.column.columnDef.header, header.getContext())
                               )}

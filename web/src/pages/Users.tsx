@@ -176,6 +176,16 @@ export default function UsersPage() {
 
   const activeChips = useMemo(() => {
     const chips: { key: string; label: string; clear: () => void }[] = [];
+    if (query.trim() !== '') {
+      chips.push({
+        key: 'query',
+        label: tr(`关键字：${query.trim()}`, `Keyword: ${query.trim()}`),
+        clear: () => {
+          setQuery('');
+          setPage(0);
+        },
+      });
+    }
     if (roleFilter !== '') {
       const meta = roleMeta(roleFilter);
       chips.push({
@@ -195,7 +205,7 @@ export default function UsersPage() {
       });
     }
     return chips;
-  }, [roleFilter, statusFilter, tr]);
+  }, [query, roleFilter, statusFilter, tr]);
 
   const resetForm = () => {
     setEmail('');
@@ -366,8 +376,10 @@ export default function UsersPage() {
                 size="sm"
                 className="ml-auto"
                 onClick={() => {
+                  setQuery('');
                   setRoleFilter('');
                   setStatusFilter('');
+                  setPage(0);
                 }}
               >
                 {tr('清除全部', 'Clear all')}

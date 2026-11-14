@@ -18,6 +18,7 @@ import {
   RowAction,
   RowActionIcon,
   SearchInput,
+  SortableHead,
   StatusPill,
   TableCard,
   TableHead,
@@ -32,8 +33,6 @@ import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  ArrowDown,
-  ArrowUp,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -55,7 +54,7 @@ import {
 } from '@/api/approvals';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
-import { fullDateTime } from '@/lib/format';
+import { formatDateTimeLocal, fullDateTime } from '@/lib/format';
 import { parseLocalDateTime, rangeForPreset, type TimePreset } from '@/lib/timeRange';
 import { errorText } from '@/lib/errors';
 
@@ -351,13 +350,18 @@ export default function ApprovalsPage() {
       {timePreset !== 'all' ? (
         <FilterChip
           label={
-            timePreset === 'today'
-              ? tr('时间：今天', 'Time: Today')
-              : timePreset === '7d'
-                ? tr('时间：近 7 天', 'Time: Last 7 days')
-                : timePreset === '30d'
-                  ? tr('时间：近 30 天', 'Time: Last 30 days')
-                  : tr('时间：自定义', 'Time: Custom')
+            timePreset === 'custom' && (customFrom !== '' || customTo !== '')
+              ? tr(
+                  `时间：${formatDateTimeLocal(customFrom)} → ${formatDateTimeLocal(customTo)}`,
+                  `Time: ${formatDateTimeLocal(customFrom)} → ${formatDateTimeLocal(customTo)}`,
+                )
+              : timePreset === 'today'
+                ? tr('时间：今天', 'Time: Today')
+                : timePreset === '7d'
+                  ? tr('时间：近 7 天', 'Time: Last 7 days')
+                  : timePreset === '30d'
+                    ? tr('时间：近 30 天', 'Time: Last 30 days')
+                    : tr('时间：自定义范围', 'Time: Custom range')
           }
           onClear={() => {
             resetFiltersToFirstPage();
@@ -457,7 +461,7 @@ export default function ApprovalsPage() {
             className="flex-1"
           />
           <FilterPill
-            label={tr('时间', 'Time')}
+            label={tr('时间范围', 'Time range')}
             active={timePreset !== 'all'}
             onClear={() => {
               resetFiltersToFirstPage();
@@ -465,7 +469,7 @@ export default function ApprovalsPage() {
               setCustomFrom('');
               setCustomTo('');
             }}
-            width="w-[9rem]"
+            width="w-[11rem]"
           >
             <Select
               aria-label={tr('时间范围', 'Time range')}
@@ -479,7 +483,7 @@ export default function ApprovalsPage() {
                 { value: 'today', label: tr('今天', 'Today') },
                 { value: '7d', label: tr('近 7 天', 'Last 7 days') },
                 { value: '30d', label: tr('近 30 天', 'Last 30 days') },
-                { value: 'custom', label: tr('自定义', 'Custom') },
+                { value: 'custom', label: tr('自定义范围', 'Custom range') },
               ]}
               variant="ghost"
               className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
@@ -633,27 +637,15 @@ export default function ApprovalsPage() {
                     <th scope="col" className="whitespace-nowrap px-3 py-2 text-left font-medium">
                       {tr('来源', 'Source')}
                     </th>
-                    <th
-                      scope="col"
-                      className="whitespace-nowrap px-3 py-2 text-left font-medium"
-                      aria-sort={sortDir === 'asc' ? 'ascending' : 'descending'}
-                    >
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 hover:text-zinc-200"
-                        onClick={() => {
-                          setPage(0);
-                          setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
-                        }}
-                      >
-                        {tr('提交时间', 'Created')}
-                        {sortDir === 'desc' ? (
-                          <ArrowDown size={12} aria-hidden />
-                        ) : (
-                          <ArrowUp size={12} aria-hidden />
-                        )}
-                      </button>
-                    </th>
+                    <SortableHead
+                      label={tr('提交时间', 'Created')}
+                      active
+                      order={sortDir}
+                      onClick={() => {
+                        setPage(0);
+                        setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+                      }}
+                    />
                     <th scope="col" className="whitespace-nowrap px-3 py-2 text-right font-medium">
                       {tr('操作', 'Actions')}
                     </th>

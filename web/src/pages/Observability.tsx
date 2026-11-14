@@ -3,10 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Activity,
-  ArrowDown,
-  ArrowUp,
   ArrowUpRight,
-  ChevronsUpDown,
   CircleAlert,
   Coins,
   LoaderCircle,
@@ -49,6 +46,7 @@ import {
   rowActionClass,
   SearchInput,
   Select,
+  SortableHead,
   StatusPill,
   TableCard,
   TableHead,
@@ -59,7 +57,7 @@ import type { StatusTone } from '@/components/ui/StatusPill';
 import { Modal } from '@/components/Modal';
 import { useRequestSeq } from '@/lib/requestSeq';
 import { useI18n } from '@/i18n/locale';
-import { formatNumber, fullDateTime } from '@/lib/format';
+import { formatDateTimeLocal, formatNumber, fullDateTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { errorText } from '@/lib/errors';
 
@@ -330,6 +328,8 @@ export default function ObservabilityPage() {
     model: model || 'all',
     channel: channel || 'all',
     range,
+    custom_from: range === 'custom' ? customFrom : undefined,
+    custom_to: range === 'custom' ? customTo : undefined,
     min_duration_ms: minDuration || 'all',
     sort_by: sortBy,
     sort_order: sortOrder,
@@ -409,12 +409,20 @@ export default function ObservabilityPage() {
         today: { zh: '今天', en: 'Today' },
         '7d': { zh: '近 7 天', en: 'Last 7 days' },
         '30d': { zh: '近 30 天', en: 'Last 30 days' },
-        custom: { zh: '自定义', en: 'Custom' },
+        custom: { zh: '自定义范围', en: 'Custom range' },
       };
       const preset = presets[range];
+      // 自定义范围把实际起止时间写进条件胶囊，避免只剩「自定义」三个字看不出筛了什么
+      const rangeLabel =
+        range === 'custom' && (customFrom !== '' || customTo !== '')
+          ? tr(
+              `时间：${formatDateTimeLocal(customFrom)} → ${formatDateTimeLocal(customTo)}`,
+              `Time: ${formatDateTimeLocal(customFrom)} → ${formatDateTimeLocal(customTo)}`,
+            )
+          : tr(`时间：${preset.zh}`, `Time: ${preset.en}`);
       chips.push({
         key: 'range',
-        label: tr(`时间：${preset.zh}`, `Time: ${preset.en}`),
+        label: rangeLabel,
         clear: () => {
           resetToFirstPage();
           setRange('all');
@@ -435,7 +443,7 @@ export default function ObservabilityPage() {
       });
     }
     return chips;
-  }, [sessionId, status, agentId, model, channel, range, minDuration, tr, clearSessionFilter]);
+  }, [sessionId, status, agentId, model, channel, range, customFrom, customTo, minDuration, tr, clearSessionFilter]);
 
   return (
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">
@@ -460,7 +468,7 @@ export default function ObservabilityPage() {
       <FilterBar
         className="mx-6 mt-3"
         footer={
-          range === 'custom' || activeChips.length > 0 ? (
+          range === 'custom' || activeChips.length > 0 || q.trim() !== '' ? (
             <>
               {range === 'custom' ? (
                 <>
@@ -490,7 +498,7 @@ export default function ObservabilityPage() {
               {activeChips.map((chip) => (
                 <FilterChip key={chip.key} label={chip.label} onClear={chip.clear} />
               ))}
-              {activeChips.length > 0 ? (
+              {activeChips.length > 0 || q.trim() !== '' ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -606,7 +614,7 @@ export default function ObservabilityPage() {
             />
           </FilterPill>
           <FilterPill
-            label={tr('时间', 'Time')}
+            label={tr('时间范围', 'Time range')}
             active={range !== 'all'}
             onClear={() => {
               resetToFirstPage();
@@ -614,7 +622,7 @@ export default function ObservabilityPage() {
               setCustomFrom('');
               setCustomTo('');
             }}
-            width="w-[9rem]"
+            width="w-[11rem]"
           >
             <Select
               aria-label={tr('时间范围', 'Time range')}
@@ -628,7 +636,7 @@ export default function ObservabilityPage() {
                 { value: 'today', label: tr('今天', 'Today') },
                 { value: '7d', label: tr('近 7 天', 'Last 7 days') },
                 { value: '30d', label: tr('近 30 天', 'Last 30 days') },
-                { value: 'custom', label: tr('自定义', 'Custom') },
+                { value: 'custom', label: tr('自定义范围', 'Custom range') },
               ]}
               variant="ghost"
               className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
@@ -770,7 +778,7 @@ export default function ObservabilityPage() {
                 </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">
-                    <SortableHeadCell
+                    <SortableHead
                       label={tr('时间', 'Time')}
                       active={sortBy === 'started_at'}
                       order={sortOrder}
@@ -780,7 +788,7 @@ export default function ObservabilityPage() {
                     <th scope="col" className="px-3 py-2 text-left font-medium">{tr('输入 / 错误', 'Input / error')}</th>
                     <th scope="col" className="px-3 py-2 text-left font-medium">{tr('工具 / 技能', 'Tools / skills')}</th>
                     <th scope="col" className="px-3 py-2 text-right font-medium">{tr('总计 tokens', 'Total tokens')}</th>
-                    <SortableHeadCell
+                    <SortableHead
                       label={tr('耗时', 'Latency')}
                       active={sortBy === 'duration_ms'}
                       order={sortOrder}
@@ -916,44 +924,6 @@ export default function ObservabilityPage() {
         {selected === null ? null : <TraceDetail turn={selected} />}
       </Modal>
     </main>
-  );
-}
-
-// 可排序表头：未选中显示双向箭头，选中显示当前方向；aria-sort 挂在 th 上。
-function SortableHeadCell({
-  label,
-  active,
-  order,
-  align = 'left',
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  order: ObservationSortOrder;
-  align?: 'left' | 'right';
-  onClick(): void;
-}) {
-  const { tr } = useI18n();
-  const Icon = active ? (order === 'asc' ? ArrowUp : ArrowDown) : ChevronsUpDown;
-  return (
-    <th
-      scope="col"
-      aria-sort={active ? (order === 'asc' ? 'ascending' : 'descending') : 'none'}
-      className={cn('px-3 py-2 font-medium', align === 'right' ? 'text-right' : 'text-left')}
-    >
-      <button
-        type="button"
-        onClick={onClick}
-        title={tr(`按${label}排序`, `Sort by ${label}`)}
-        className={cn(
-          'inline-flex -my-0.5 items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500/40',
-          active && 'text-zinc-200',
-        )}
-      >
-        {label}
-        <Icon size={11} aria-hidden className={active ? 'text-indigo-300' : 'text-zinc-600'} />
-      </button>
-    </th>
   );
 }
 

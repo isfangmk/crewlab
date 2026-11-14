@@ -167,7 +167,7 @@ export default function ToolsPage() {
         <FilterBar
           className="mx-6 mt-3"
           footer={
-            risk !== '' ? (
+            risk !== '' || query.trim() !== '' ? (
               <>
                 <FilterChip
                   label={

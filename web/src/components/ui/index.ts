@@ -31,6 +31,8 @@ export { StatusPill } from './StatusPill';
 export type { StatusTone } from './StatusPill';
 export { TableCard, TablePager } from './TableCard';
 export { TableHead, TableHeadCell, TABLE_HEAD_CLASS } from './TableHead';
+export { SortButton, SortableHead } from './SortableHead';
+export type { SortOrder } from './SortableHead';
 export { COL, tableLayout } from './TableColumns';
 export { ErrorBanner, SuccessBanner } from './Banner';
 export { RowAction, RowActionIcon, rowActionClass, rowActionIconClass } from './RowAction';

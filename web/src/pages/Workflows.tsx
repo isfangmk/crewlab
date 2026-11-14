@@ -6,8 +6,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  ArrowDown,
-  ArrowUp,
   History,
   Play,
   Plus,
@@ -52,6 +50,7 @@ import {
   RowActionIcon,
   SearchInput,
   Select,
+  SortableHead,
   StatusPill,
   TableCard,
   TableHead,
@@ -221,7 +220,7 @@ export default function WorkflowsPage() {
           <FilterBar
             className="mx-6 mt-3"
             footer={
-              status !== '' ? (
+              hasFilter ? (
                 <>
                   <FilterChip
                     label={
@@ -354,19 +353,15 @@ export default function WorkflowsPage() {
                       <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
                       <th scope="col" className="px-3 py-2 text-left font-medium">{tr('运行状态', 'Run status')}</th>
                       <th scope="col" className="px-3 py-2 text-left font-medium">{tr('版本', 'Version')}</th>
-                      <th scope="col" className="px-3 py-2 text-left font-medium" aria-sort={sortDir === 'desc' ? 'descending' : 'ascending'}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSortDir((current) => (current === 'desc' ? 'asc' : 'desc'));
-                            setPage(0);
-                          }}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-500 hover:text-zinc-300"
-                        >
-                          {tr('更新时间', 'Updated')}
-                          {sortDir === 'desc' ? <ArrowDown size={11} aria-hidden /> : <ArrowUp size={11} aria-hidden />}
-                        </button>
-                      </th>
+                      <SortableHead
+                        label={tr('更新时间', 'Updated')}
+                        active
+                        order={sortDir}
+                        onClick={() => {
+                          setSortDir((current) => (current === 'desc' ? 'asc' : 'desc'));
+                          setPage(0);
+                        }}
+                      />
                       <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                     </tr>
                   </TableHead>

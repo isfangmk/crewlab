@@ -20,6 +20,7 @@ import {
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
+  FilterChip,
   FilterPill,
   Input,
   Label,
@@ -185,7 +186,39 @@ export default function KnowledgeSourcesPage() {
         }
       />
 
-      <FilterBar className="mx-6 mt-3">
+      <FilterBar
+        className="mx-6 mt-3"
+        footer={
+          kindFilter !== '' || query.trim() !== '' ? (
+            <>
+              {kindFilter !== '' ? (
+                <FilterChip
+                  label={tr(
+                    `类型：${kindFilter === 'url' ? 'URL' : 'Git'}`,
+                    `Type: ${kindFilter === 'url' ? 'URL' : 'Git'}`,
+                  )}
+                  onClear={() => {
+                    setKindFilter('');
+                    setPage(0);
+                  }}
+                />
+              ) : null}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto"
+                onClick={() => {
+                  setQuery('');
+                  setKindFilter('');
+                  setPage(0);
+                }}
+              >
+                {tr('清除全部', 'Clear all')}
+              </Button>
+            </>
+          ) : null
+        }
+      >
         <SearchInput
           value={query}
           onChange={(value) => {
@@ -465,15 +498,10 @@ export default function KnowledgeSourcesPage() {
             </p>
           }
           onConfirm={async () => {
-            try {
-              await deleteKnowledgeSource(deleting.id);
-              setDeleting(null);
-              flash('ok', tr('外部源已删除', 'Source deleted'));
-              await load(true);
-            } catch (e) {
-              // 抛回 ConfirmDialog，让失败原因显示在弹窗内并保持可重试
-              throw e;
-            }
+            await deleteKnowledgeSource(deleting.id);
+            setDeleting(null);
+            flash('ok', tr('外部源已删除', 'Source deleted'));
+            await load(true);
           }}
           onClose={() => setDeleting(null)}
         />

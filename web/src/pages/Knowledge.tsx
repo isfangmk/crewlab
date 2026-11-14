@@ -12,8 +12,6 @@ import { useAssistantPage } from '@/lib/assistantPage';
 import { usePermissions } from '@/store/me';
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import {
-  ArrowDown,
-  ArrowUp,
   BookOpen,
   ChevronRight,
   Copy,
@@ -52,6 +50,7 @@ import {
   RowActionIcon,
   SearchInput,
   Select,
+  SortableHead,
   StatusPill,
   TableCard,
   TableHead,
@@ -482,7 +481,13 @@ export default function KnowledgePage() {
     setActivePath('');
     setTitleQuery('');
     setSourceFilter('');
+    setPage(0);
   }, []);
+
+  const selectedSourceLabel =
+    sourceOptions.find((option) => option.value === sourceFilter)?.label ?? sourceFilter;
+  const hasActiveFilters =
+    activePath !== '' || sourceFilter !== '' || titleQuery.trim() !== '';
 
   // 筛选卡只承载「文档标题」筛选；语义检索走独立的检索视图
   return (
@@ -545,13 +550,24 @@ export default function KnowledgePage() {
           <FilterBar
             className="mx-6 mt-3"
             footer={
-              activePath !== '' ? (
+              hasActiveFilters ? (
                 <>
-                  <FilterChip
-                    label={tr(`目录：${localizedPath(activePath)}`, `Folder: ${localizedPath(activePath)}`)}
-                    onClear={() => setActivePath('')}
-                  />
-                  <Button variant="ghost" size="sm" onClick={resetFilters}>
+                  {activePath !== '' ? (
+                    <FilterChip
+                      label={tr(`目录：${localizedPath(activePath)}`, `Folder: ${localizedPath(activePath)}`)}
+                      onClear={() => setActivePath('')}
+                    />
+                  ) : null}
+                  {sourceFilter !== '' ? (
+                    <FilterChip
+                      label={tr(`来源：${selectedSourceLabel}`, `Source: ${sourceFilter}`)}
+                      onClear={() => {
+                        setSourceFilter('');
+                        setPage(0);
+                      }}
+                    />
+                  ) : null}
+                  <Button variant="ghost" size="sm" className="ml-auto" onClick={resetFilters}>
                     {tr('清除全部', 'Clear all')}
                   </Button>
                 </>
@@ -731,27 +747,15 @@ export default function KnowledgePage() {
                         <span className="sr-only">{tr('拖动把手', 'Drag handle')}</span>
                       </th>
                       <th scope="col" className="px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
-                      <th
-                        scope="col"
-                        className="px-3 py-2 text-left font-medium"
-                        aria-sort={updatedSort === 'asc' ? 'ascending' : 'descending'}
-                      >
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 hover:text-zinc-200"
-                          onClick={() => {
-                            setPage(0);
-                            setUpdatedSort((d) => (d === 'desc' ? 'asc' : 'desc'));
-                          }}
-                        >
-                          {tr('更新时间', 'Updated')}
-                          {updatedSort === 'desc' ? (
-                            <ArrowDown size={12} aria-hidden />
-                          ) : (
-                            <ArrowUp size={12} aria-hidden />
-                          )}
-                        </button>
-                      </th>
+                      <SortableHead
+                        label={tr('更新时间', 'Updated')}
+                        active
+                        order={updatedSort}
+                        onClick={() => {
+                          setPage(0);
+                          setUpdatedSort((d) => (d === 'desc' ? 'asc' : 'desc'));
+                        }}
+                      />
                       <th scope="col" className="px-3 py-2 text-left font-medium">{tr('索引', 'Index')}</th>
                       <th scope="col" className="px-3 py-2 text-left font-medium">{tr('参与检索', 'Retrieval')}</th>
                       <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>

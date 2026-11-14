@@ -53,6 +53,7 @@ describe('MCP 服务卡片', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText('demo-tools')).toBeInTheDocument();
+    expect(screen.getByText('共 1 个服务')).toBeInTheDocument();
     expect(screen.getByText('http://127.0.0.1:18099/sse')).toBeInTheDocument();
     expect(screen.getByText('3 个工具')).toBeInTheDocument();
     expect(screen.getByText('每次审批')).toBeInTheDocument();

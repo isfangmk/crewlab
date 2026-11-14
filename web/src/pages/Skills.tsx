@@ -228,7 +228,7 @@ function CatalogTab() {
         <FilterBar
           className="mx-6 mt-3"
           footer={
-            group !== '' || origin !== '' ? (
+            group !== '' || origin !== '' || query.trim() !== '' ? (
               <>
                 {group !== '' ? (
                   <FilterChip

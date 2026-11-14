@@ -1,7 +1,7 @@
 // 可观测页测试 —— 覆盖：
 //   1. 列表行不再整体可点，只有输入摘要是打开 Trace 详情的入口
 //   2. 时间 / 耗时表头可切换排序，并把排序参数带给后端
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
@@ -146,5 +146,37 @@ describe('ObservabilityPage', () => {
       ).toBe(true),
     );
     expect(timeHeader.closest('th')).toHaveAttribute('aria-sort', 'descending');
+  });
+
+  it('自定义时间范围在条件胶囊里显示实际起止时间', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ObservabilityPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole('button', { name: '查询 CPU 趋势' });
+    await user.click(screen.getByRole('combobox', { name: '时间范围' }));
+    await user.click(await screen.findByRole('option', { name: '自定义范围' }));
+
+    fireEvent.change(screen.getByLabelText('开始时间'), {
+      target: { value: '2026-11-14T09:00' },
+    });
+    fireEvent.change(screen.getByLabelText('结束时间'), {
+      target: { value: '2026-11-14T18:30' },
+    });
+
+    expect(
+      screen.getByText('时间：2026/11/14 09:00 → 2026/11/14 18:30'),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      const startedFrom = listQueries.at(-1)?.get('started_from');
+      const startedTo = listQueries.at(-1)?.get('started_to');
+      expect(startedFrom).not.toBeNull();
+      expect(startedTo).not.toBeNull();
+      expect(new Date(startedFrom ?? '').getTime()).toBe(new Date('2026-11-14T09:00').getTime());
+      expect(new Date(startedTo ?? '').getTime()).toBe(new Date('2026-11-14T18:30').getTime());
+    });
   });
 });
