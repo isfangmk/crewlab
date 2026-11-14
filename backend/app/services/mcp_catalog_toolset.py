@@ -71,11 +71,12 @@ class CachedMcpCatalogToolset(BaseToolset):
             raise ValueError(
                 f"MCP Server {server.name} 状态不是 ok（status={server.status!r}），请先探测"
             )
-        from app.services.mcp_service import mcp_tool_wire_name
+        from app.services.mcp_service import mcp_tool_wire_name, parse_cached_resources
 
         cached = parse_cached_tools(server.tools_cache_json, server_name=server.name)
         self._server_id = server.id
         self._server_name = server.name
+        self._resources = parse_cached_resources(server.resources_cache_json)
         self._session_manager = MCPSessionManager(connection_params=connection_params)
         tools: list[BaseTool] = []
         for item in cached:
@@ -93,6 +94,13 @@ class CachedMcpCatalogToolset(BaseToolset):
             )
             adk_tool.name = mcp_tool_wire_name(server.name, item["name"])
             tools.append(adk_tool)
+        # 有资源缓存时注入资源加载器：模型按需读资源，清单进提示词
+        if self._resources:
+            from google.adk.tools.load_mcp_resource_tool import LoadMcpResourceTool
+
+            loader = LoadMcpResourceTool(mcp_toolset=self)
+            loader.name = mcp_tool_wire_name(server.name, "load_mcp_resource")
+            tools.append(loader)
         self._tools = tools
         logger.info(
             "已从工具缓存装配 MCP 目录 server_id=%s name=%s tools=%s trusted=%s",
@@ -101,6 +109,25 @@ class CachedMcpCatalogToolset(BaseToolset):
             len(self._tools),
             server.trusted,
         )
+
+    async def list_resources(self, readonly_context=None) -> list[str]:
+        """LoadMcpResourceTool 契约：返回资源名清单（读缓存，不连远程）。"""
+
+        return [item.get("name", "") for item in self._resources if item.get("name")]
+
+    async def read_resource(self, name: str, readonly_context=None):
+        """LoadMcpResourceTool 契约：按资源名实时读取，返回 SDK 内容对象列表。"""
+
+        uri = ""
+        for item in self._resources:
+            if item.get("name") == name:
+                uri = str(item.get("uri", ""))
+                break
+        if uri == "":
+            raise ValueError(f"MCP 资源不存在: {name}")
+        session = await self._session_manager.create_session()
+        result = await session.read_resource(uri=uri)
+        return list(result.contents)
 
     @classmethod
     async def create(

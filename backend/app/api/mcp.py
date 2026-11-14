@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
-from app.services import mcp_service
+from app.services import mcp_registry_service, mcp_service
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
 
@@ -161,7 +162,7 @@ async def delete_server(
 async def test_server(
     server_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_not_viewer),
+    user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     try:
         tools = await mcp_service.test_server(db, server_id)
@@ -169,6 +170,13 @@ async def test_server(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="mcp.server_test",
+        resource_type="mcp_server",
+        resource_id=str(server_id),
+        detail={"tool_count": len(tools)},
+    )
     return {"tools": tools, "count": len(tools)}
 
 
@@ -209,3 +217,106 @@ async def run_tool(
         },
     )
     return result
+
+
+@router.get("/mcp/servers/{server_id}/resources")
+async def list_resources(
+    server_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    try:
+        items = await mcp_service.list_resources(db, server_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/mcp/servers/{server_id}/resources/read")
+async def read_resource(
+    server_id: int,
+    uri: str,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    try:
+        return await mcp_service.read_resource(db, server_id, uri)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/mcp/servers/{server_id}/resource-templates")
+async def list_resource_templates(
+    server_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    try:
+        items = await mcp_service.list_resource_templates(db, server_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/mcp/servers/{server_id}/prompts")
+async def list_prompts(
+    server_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    try:
+        items = await mcp_service.list_prompts(db, server_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"items": items, "total": len(items)}
+
+
+class McpPromptGetInput(BaseModel):
+    name: str = Field(min_length=1)
+    arguments: dict[str, str] = Field(default_factory=dict)
+
+
+@router.post("/mcp/servers/{server_id}/prompts/get")
+async def get_prompt(
+    server_id: int,
+    body: McpPromptGetInput,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    try:
+        return await mcp_service.get_prompt(
+            db, server_id, body.name, body.arguments
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/mcp/registry/servers")
+async def search_registry(
+    search: str = "",
+    limit: int = 20,
+    cursor: str = "",
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    """代理官方 MCP Registry 搜索；网络不可达显式报 502，前端给重试。"""
+
+    try:
+        return await mcp_registry_service.search_registry(
+            query=search, limit=limit, cursor=cursor
+        )
+    except (httpx.HTTPError, TypeError) as exc:
+        raise HTTPException(status_code=502, detail=f"Registry 不可达: {exc}") from exc

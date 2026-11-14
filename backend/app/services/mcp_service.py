@@ -36,6 +36,16 @@ def effective_approval_policy(server: McpServer) -> str:
     return policy
 
 
+def _cache_count(raw: str) -> int:
+    """缓存 JSON 数组长度；空 / 坏数据按 0 处理（只影响展示计数）。"""
+
+    try:
+        data = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return 0
+    return len(data) if isinstance(data, list) else 0
+
+
 def server_to_wire(s: McpServer) -> dict:
     """把 ORM 行转成前端 MCP 列表/详情用的字段字典。"""
 
@@ -53,6 +63,12 @@ def server_to_wire(s: McpServer) -> dict:
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
         "last_error": s.last_error,
         "tools_cache_json": s.tools_cache_json,
+        # 资源/提示词计数来自探测缓存，列表展示不必连远程
+        "resources_count": _cache_count(s.resources_cache_json),
+        "prompts_count": _cache_count(s.prompts_cache_json),
+        "last_probed_at": (
+            None if s.last_probed_at is None else s.last_probed_at.isoformat()
+        ),
         "embedding_sync_status": s.embedding_sync_status,
         "embedding_sync_count": s.embedding_sync_count,
         "embedding_sync_error": s.embedding_sync_error,
@@ -355,6 +371,11 @@ async def build_searchable_mcp_toolsets(
         source_tools = await source.get_tools()
         catalog_names = {tool.name for tool in source_tools}
         permitted = catalog_names if allowed is None else catalog_names & allowed
+        # 资源加载器是 Server 能力而非业务工具，白名单不裁它
+        loader_name = mcp_tool_wire_name(server.name, "load_mcp_resource")
+        if loader_name in catalog_names:
+            permitted = set(permitted)
+            permitted.add(loader_name)
         if len(permitted) == 0:
             # 白名单里没有任何这台 Server 的工具：不装配，也不留检索入口
             skipped.append(server.name)
@@ -781,6 +802,111 @@ def _format_call_tool_result(result: object) -> str:
     return "\n".join(texts)
 
 
+def _wire_field(obj: Any, *names: str) -> str:
+    """按多个命名取字段：mcp SDK 1.x 用 camelCase，2.x 用 snake_case。"""
+
+    for name in names:
+        value = getattr(obj, name, None)
+        if value:
+            return str(value)
+    return ""
+
+
+def _resource_to_wire(res: Any) -> dict:
+    return {
+        "uri": str(getattr(res, "uri", "") or ""),
+        "name": getattr(res, "name", "") or "",
+        "description": getattr(res, "description", "") or "",
+        "mime_type": _wire_field(res, "mime_type", "mimeType"),
+    }
+
+
+def _resource_template_to_wire(res: Any) -> dict:
+    return {
+        "uri_template": _wire_field(res, "uri_template", "uriTemplate"),
+        "name": getattr(res, "name", "") or "",
+        "description": getattr(res, "description", "") or "",
+        "mime_type": _wire_field(res, "mime_type", "mimeType"),
+    }
+
+
+def _prompt_to_wire(prompt: Any) -> dict:
+    arguments = []
+    for arg in getattr(prompt, "arguments", None) or []:
+        arguments.append(
+            {
+                "name": getattr(arg, "name", "") or "",
+                "description": getattr(arg, "description", "") or "",
+                "required": bool(getattr(arg, "required", False)),
+            }
+        )
+    return {
+        "name": getattr(prompt, "name", "") or "",
+        "description": getattr(prompt, "description", "") or "",
+        "arguments": arguments,
+    }
+
+
+def parse_cached_resources(raw: str) -> list[dict]:
+    """解析 resources_cache_json；坏数据当空列表，只影响展示与资源名清单。"""
+
+    try:
+        data = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+async def _probe_mcp_extras(session: Any, row: McpServer) -> list[str]:
+    """探测资源 / 资源模板 / 提示词并写缓存；单项失败只返回说明文字。
+
+    tools 是连接可用性的主判据，附加能力探测失败不能把整台 Server 判 error。
+    """
+
+    notes: list[str] = []
+    try:
+        result = await session.list_resources()
+        row.resources_cache_json = json.dumps(
+            [_resource_to_wire(item) for item in result.resources], ensure_ascii=False
+        )
+    except Exception as exc:  # noqa: BLE001 - 附加探测失败不阻塞主流程
+        row.resources_cache_json = "[]"
+        notes.append(f"resources 探测失败: {type(exc).__name__}: {exc}")
+    try:
+        result = await session.list_resource_templates()
+        # mcp SDK 2.x 字段是 snake_case；1.x 是 camelCase，两者都兜住
+        raw_templates = getattr(result, "resource_templates", None) or getattr(
+            result, "resourceTemplates", None
+        )
+        row.resource_templates_cache_json = json.dumps(
+            [_resource_template_to_wire(item) for item in raw_templates or []],
+            ensure_ascii=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        row.resource_templates_cache_json = "[]"
+        notes.append(f"resource_templates 探测失败: {type(exc).__name__}: {exc}")
+    try:
+        result = await session.list_prompts()
+        row.prompts_cache_json = json.dumps(
+            [_prompt_to_wire(item) for item in result.prompts], ensure_ascii=False
+        )
+    except Exception as exc:  # noqa: BLE001
+        row.prompts_cache_json = "[]"
+        notes.append(f"prompts 探测失败: {type(exc).__name__}: {exc}")
+    return notes
+
+
+async def _open_mcp_session(db: AsyncSession, server: McpServer):
+    """打开一条管理页直连会话；返回 (manager, session)，调用方负责 close。"""
+
+    from google.adk.tools.mcp_tool.mcp_session_manager import MCPSessionManager
+
+    params = await connection_params_for_server(db, server)
+    manager = MCPSessionManager(connection_params=params)
+    session = await manager.create_session()
+    return manager, session
+
+
 async def test_server(db: AsyncSession, server_id: int) -> list[dict]:
     from datetime import datetime, timezone
 
@@ -797,6 +923,12 @@ async def test_server(db: AsyncSession, server_id: int) -> list[dict]:
         row.status = "ok"
         row.last_error = ""
         row.tools_cache_json = json.dumps(items, ensure_ascii=False)
+        row.last_probed_at = datetime.now(timezone.utc)
+        # 附加能力（资源/提示词）探测：失败只记局部说明，tools 仍是主判据
+        session = await toolset._mcp_session_manager.create_session()  # noqa: SLF001
+        notes = await _probe_mcp_extras(session, row)
+        if notes:
+            row.last_error = "；".join(notes)
         await db.commit()
         logger.info("探测 MCP 成功 id=%s tools=%s", row.id, len(items))
         # 向量按运行时完整工具名入库，与 SearchableToolset 索引文本一致
@@ -820,6 +952,7 @@ async def test_server(db: AsyncSession, server_id: int) -> list[dict]:
         row.last_error = str(exc)
         row.embedding_sync_status = "error"
         row.embedding_sync_error = str(exc)
+        row.last_probed_at = datetime.now(timezone.utc)
         await db.commit()
         logger.exception("探测 MCP 失败 id=%s", row.id)
         raise
@@ -873,3 +1006,99 @@ async def run_tool(
         raise
     finally:
         await toolset.close()
+
+
+async def list_resources(db: AsyncSession, server_id: int) -> list[dict]:
+    """实时列出 MCP 资源（管理页展开区用；与探测缓存可能有短暂不一致）。"""
+
+    row = await get_server(db, server_id)
+    manager, session = await _open_mcp_session(db, row)
+    try:
+        result = await session.list_resources()
+        return [_resource_to_wire(item) for item in result.resources]
+    finally:
+        await manager.close()
+
+
+async def list_resource_templates(db: AsyncSession, server_id: int) -> list[dict]:
+    row = await get_server(db, server_id)
+    manager, session = await _open_mcp_session(db, row)
+    try:
+        result = await session.list_resource_templates()
+        raw_templates = getattr(result, "resource_templates", None) or getattr(
+            result, "resourceTemplates", None
+        )
+        return [_resource_template_to_wire(item) for item in raw_templates or []]
+    finally:
+        await manager.close()
+
+
+async def read_resource(db: AsyncSession, server_id: int, uri: str) -> dict:
+    """读取单个资源内容；文本/blob 分字段返回，便于前端 CodeBlock 展示。"""
+
+    if uri.strip() == "":
+        raise ValueError("uri 不能为空")
+    row = await get_server(db, server_id)
+    manager, session = await _open_mcp_session(db, row)
+    try:
+        result = await session.read_resource(uri=uri)
+        contents: list[dict] = []
+        for item in result.contents:
+            entry: dict[str, Any] = {
+                "uri": str(getattr(item, "uri", "") or ""),
+                "mime_type": _wire_field(item, "mime_type", "mimeType"),
+            }
+            text = getattr(item, "text", None)
+            if isinstance(text, str):
+                entry["text"] = text
+            else:
+                entry["blob"] = getattr(item, "blob", "") or ""
+            contents.append(entry)
+        return {"uri": uri, "contents": contents}
+    finally:
+        await manager.close()
+
+
+async def list_prompts(db: AsyncSession, server_id: int) -> list[dict]:
+    row = await get_server(db, server_id)
+    manager, session = await _open_mcp_session(db, row)
+    try:
+        result = await session.list_prompts()
+        return [_prompt_to_wire(item) for item in result.prompts]
+    finally:
+        await manager.close()
+
+
+async def get_prompt(
+    db: AsyncSession,
+    server_id: int,
+    name: str,
+    arguments: dict[str, str],
+) -> dict:
+    """按参数取提示词消息；返回角色与文本，前端可直接预览。"""
+
+    if name.strip() == "":
+        raise ValueError("prompt name 不能为空")
+    row = await get_server(db, server_id)
+    manager, session = await _open_mcp_session(db, row)
+    try:
+        result = await session.get_prompt(name, arguments=arguments)
+        messages: list[dict] = []
+        for message in result.messages:
+            content = getattr(message, "content", None)
+            text = getattr(content, "text", None)
+            messages.append(
+                {
+                    "role": str(getattr(message, "role", "") or ""),
+                    "text": text if isinstance(text, str) else json.dumps(
+                        content, ensure_ascii=False, default=str
+                    ),
+                }
+            )
+        return {
+            "name": name,
+            "description": getattr(result, "description", "") or "",
+            "messages": messages,
+        }
+    finally:
+        await manager.close()

@@ -30,6 +30,10 @@ _REQUIRED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("eval_datasets", "baseline_run_uid", "VARCHAR(32)"),
     ("eval_datasets", "gate_max_regressions", "INTEGER NOT NULL DEFAULT 0"),
     ("eval_datasets", "gate_min_pass_rate", "FLOAT NOT NULL DEFAULT 0.0"),
+    ("mcp_servers", "resources_cache_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("mcp_servers", "prompts_cache_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("mcp_servers", "resource_templates_cache_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("mcp_servers", "last_probed_at", "TIMESTAMP"),
 )
 
 

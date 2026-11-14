@@ -33,6 +33,17 @@ class McpServer(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     last_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     tools_cache_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    # 资源/提示词缓存：探测时写入，列表展示不连远程
+    resources_cache_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
+    prompts_cache_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
+    resource_templates_cache_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
+    last_probed_at: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True)
     # 工具向量同步状态：idle | syncing | ok | error
     embedding_sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
     embedding_sync_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

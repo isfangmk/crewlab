@@ -12,6 +12,9 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Eye,
+  FileText,
+  Globe,
   Loader2,
   Pencil,
   Play,
@@ -20,6 +23,7 @@ import {
   RefreshCw,
   Server,
   ShieldCheck,
+  Sparkles,
   Trash2,
   Wrench,
   XCircle,
@@ -29,12 +33,20 @@ import { ApiError } from '@/api/client';
 import {
   createMcpServer,
   deleteMcpServer,
+  getMcpPrompt,
+  listMcpPrompts,
+  listMcpResources,
   listMcpServers,
   parseToolsCache,
+  readMcpResource,
   runMcpTool,
+  searchMcpRegistry,
   testMcpServer,
   updateMcpServer,
   type McpJsonSchema,
+  type McpPrompt,
+  type McpRegistryItem,
+  type McpResource,
   type McpServer,
   type McpServerInput,
   type McpTool,
@@ -90,6 +102,7 @@ export default function McpPage() {
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<McpServer | null>(null);
   const [testState, setTestState] = useState<Record<number, { loading: boolean; tools?: McpTool[]; error?: string }>>({});
+  const [registryOpen, setRegistryOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     const current = reqSeq.next();
@@ -216,10 +229,15 @@ export default function McpPage() {
               {tr('刷新', 'Refresh')}
             </RowAction>
             {isAdmin && (
-              <Button onClick={() => setEditing({ id: null, input: emptyInput() })} variant="primary" size="sm">
-                <Plus size={12} />
-                {tr('新建', 'New server')}
-              </Button>
+              <>
+                <RowAction icon={Globe} onClick={() => setRegistryOpen(true)}>
+                  {tr('从 Registry 添加', 'Add from Registry')}
+                </RowAction>
+                <Button onClick={() => setEditing({ id: null, input: emptyInput() })} variant="primary" size="sm">
+                  <Plus size={12} />
+                  {tr('新建', 'New server')}
+                </Button>
+              </>
             )}
           </>
         }
@@ -286,6 +304,25 @@ export default function McpPage() {
           onChange={(patch) => setEditing((cur) => (cur ? { ...cur, input: { ...cur.input, ...patch } } : cur))}
           onClose={() => setEditing(null)}
           onSave={() => void handleSave()}
+        />
+      )}
+
+      {registryOpen && (
+        <RegistryDialog
+          onClose={() => setRegistryOpen(false)}
+          onPick={(item) => {
+            // Registry 预填登记表单：endpoint 缺失（包形式）时留空，由用户补部署地址
+            setRegistryOpen(false);
+            setEditing({
+              id: null,
+              input: {
+                ...emptyInput(),
+                name: item.name,
+                transport: item.transport,
+                endpoint: item.endpoint,
+              },
+            });
+          }}
         />
       )}
 
@@ -433,13 +470,31 @@ function ServerRow({
               <span className="shrink-0 text-zinc-700">·</span>
               <span className="min-w-0 truncate" title={server.endpoint}>{server.endpoint || '—'}</span>
             </div>
-            {/* 摘要行：工具数 / 审批口径 / 工具索引，替代一排彩色胶囊。 */}
+            {/* 摘要行：工具/资源/提示词数 · 审批口径 · 工具索引，沿用分隔点串联。 */}
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-zinc-500">
               <span className={cn(loaded.error && 'text-warn')}>
                 {loaded.error
                   ? tr('工具缓存异常', 'Tool cache error')
                   : tr(`${toolCount} 个工具`, `${toolCount} tool${toolCount === 1 ? '' : 's'}`)}
               </span>
+              {!loaded.error && (
+                <>
+                  <span className="text-zinc-700">·</span>
+                  <span>
+                    {tr(
+                      `资源 ${server.resources_count ?? 0}`,
+                      `Resource${(server.resources_count ?? 0) === 1 ? '' : 's'} ${server.resources_count ?? 0}`,
+                    )}
+                  </span>
+                  <span className="text-zinc-700">·</span>
+                  <span>
+                    {tr(
+                      `提示词 ${server.prompts_count ?? 0}`,
+                      `Prompt${(server.prompts_count ?? 0) === 1 ? '' : 's'} ${server.prompts_count ?? 0}`,
+                    )}
+                  </span>
+                </>
+              )}
               {!freePass && (
                 <>
                   <span className="text-zinc-700">·</span>
@@ -515,6 +570,8 @@ function ServerRow({
               ))}
             </div>
           )}
+          {/* 资源 / 提示词分组：展开时实时拉取，失败给横幅与重试 */}
+          <ServerExtras server={server} />
         </div>
       )}
     </Card>
@@ -829,6 +886,481 @@ function ToolRunModal({
             </CodeBlock>
           </DetailSection>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+// ---------- 资源 / 提示词 ------------------------------------------------------
+
+function ServerExtras({ server }: { server: McpServer }) {
+  const { tr } = useI18n();
+  const [loading, setLoading] = useState(true);
+  const [resources, setResources] = useState<McpResource[]>([]);
+  const [prompts, setPrompts] = useState<McpPrompt[]>([]);
+  const [extrasErr, setExtrasErr] = useState<string | null>(null);
+  const [readUri, setReadUri] = useState<string | null>(null);
+  const [usePrompt, setUsePrompt] = useState<McpPrompt | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setExtrasErr(null);
+    try {
+      const [res, prs] = await Promise.all([
+        listMcpResources(server.id),
+        listMcpPrompts(server.id),
+      ]);
+      setResources(res);
+      setPrompts(prs);
+    } catch (e) {
+      setExtrasErr(errorText(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [server.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <div className="mt-4 space-y-4">
+      {extrasErr && (
+        <ErrorBanner className="flex items-center justify-between gap-2">
+          <span>{tr(`资源 / 提示词拉取失败：${extrasErr}`, `Failed to load resources / prompts: ${extrasErr}`)}</span>
+          <RowAction icon={RefreshCw} onClick={() => void load()}>
+            {tr('重试', 'Retry')}
+          </RowAction>
+        </ErrorBanner>
+      )}
+
+      {/* 资源分组 */}
+      <div>
+        <div className="mb-2.5 flex items-center gap-2">
+          <FileText size={12} className="text-zinc-500" />
+          <span className="text-[11px] font-medium text-zinc-300">{tr('资源', 'Resources')}</span>
+          <span className="text-[10px] text-zinc-500">{tr(`${resources.length} 个`, `${resources.length}`)}</span>
+        </div>
+        {loading ? (
+          <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+            <Loader2 size={12} className="animate-spin" /> {tr('加载中…', 'Loading…')}
+          </div>
+        ) : resources.length === 0 && !extrasErr ? (
+          <EmptyStateCard
+            icon={FileText}
+            title={tr('该服务未暴露资源', 'This server exposes no resources')}
+            hint={tr('资源由 MCP Server 的 resources 能力提供。', 'Resources come from the MCP server resources capability.')}
+          />
+        ) : resources.length > 0 ? (
+          <div className="overflow-hidden rounded-lg border border-zinc-800/60 bg-zinc-950/30">
+            <table className="og-action-table w-full text-left text-[12px]">
+              <TableHead>
+                <tr>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('名称', 'Name')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">URI</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('类型', 'Type')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('操作', 'Actions')}</th>
+                </tr>
+              </TableHead>
+              <tbody className="divide-y divide-zinc-800/50">
+                {resources.map((res) => (
+                  <tr key={res.uri} className="transition-colors hover:bg-zinc-900/70">
+                    <td className="px-3 py-2 align-top">
+                      <span className="font-sans text-[12px] text-zinc-100">{res.name || '—'}</span>
+                      {res.description && (
+                        <div className="mt-0.5 line-clamp-1 text-[11px] text-zinc-500">{res.description}</div>
+                      )}
+                    </td>
+                    <td className="max-w-xs px-3 py-2 align-top font-sans text-[11px] text-zinc-400">
+                      <span className="block truncate" title={res.uri}>{res.uri}</span>
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <Chip dense className="font-sans">{res.mime_type || '—'}</Chip>
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <RowAction icon={Eye} onClick={() => setReadUri(res.uri)}>
+                        {tr('读取', 'Read')}
+                      </RowAction>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
+
+      {/* 提示词分组 */}
+      <div>
+        <div className="mb-2.5 flex items-center gap-2">
+          <Sparkles size={12} className="text-zinc-500" />
+          <span className="text-[11px] font-medium text-zinc-300">{tr('提示词', 'Prompts')}</span>
+          <span className="text-[10px] text-zinc-500">{tr(`${prompts.length} 个`, `${prompts.length}`)}</span>
+        </div>
+        {loading ? (
+          <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+            <Loader2 size={12} className="animate-spin" /> {tr('加载中…', 'Loading…')}
+          </div>
+        ) : prompts.length === 0 && !extrasErr ? (
+          <EmptyStateCard
+            icon={Sparkles}
+            title={tr('该服务未暴露提示词', 'This server exposes no prompts')}
+            hint={tr('提示词由 MCP Server 的 prompts 能力提供。', 'Prompts come from the MCP server prompts capability.')}
+          />
+        ) : prompts.length > 0 ? (
+          <div className="overflow-hidden rounded-lg border border-zinc-800/60 bg-zinc-950/30">
+            <table className="og-action-table w-full text-left text-[12px]">
+              <TableHead>
+                <tr>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('名称', 'Name')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('参数', 'Arguments')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('说明', 'Description')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('操作', 'Actions')}</th>
+                </tr>
+              </TableHead>
+              <tbody className="divide-y divide-zinc-800/50">
+                {prompts.map((prompt) => (
+                  <tr key={prompt.name} className="transition-colors hover:bg-zinc-900/70">
+                    <td className="px-3 py-2 align-top font-sans text-[12px] text-zinc-100">{prompt.name}</td>
+                    <td className="px-3 py-2 align-top">
+                      <div className="flex flex-wrap gap-1">
+                        {prompt.arguments.length === 0 ? (
+                          <Chip dense>{tr('无参数', 'none')}</Chip>
+                        ) : (
+                          prompt.arguments.map((arg) => (
+                            <Chip key={arg.name} dense tone={arg.required ? 'warning' : 'default'} className="font-sans">
+                              {arg.name}
+                            </Chip>
+                          ))
+                        )}
+                      </div>
+                    </td>
+                    <td className="max-w-sm px-3 py-2 align-top text-[12px] leading-relaxed text-zinc-400">
+                      {prompt.description || '—'}
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <RowAction icon={Play} onClick={() => setUsePrompt(prompt)}>
+                        {tr('使用', 'Use')}
+                      </RowAction>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
+
+      {readUri && (
+        <ResourceReadDialog serverId={server.id} uri={readUri} onClose={() => setReadUri(null)} />
+      )}
+      {usePrompt && (
+        <PromptUseDialog serverId={server.id} prompt={usePrompt} onClose={() => setUsePrompt(null)} />
+      )}
+    </div>
+  );
+}
+
+function ResourceReadDialog({
+  serverId,
+  uri,
+  onClose,
+}: {
+  serverId: number;
+  uri: string;
+  onClose: () => void;
+}) {
+  const { tr } = useI18n();
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [blocks, setBlocks] = useState<Array<{ uri: string; mime_type: string; text?: string; blob?: string }>>([]);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setErr(null);
+    readMcpResource(serverId, uri)
+      .then((r) => {
+        if (alive) setBlocks(r.contents);
+      })
+      .catch((e) => {
+        if (alive) setErr(errorText(e));
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [serverId, uri]);
+
+  return (
+    <Modal open onClose={onClose} size="lg" title={tr(`读取 ${uri}`, `Read ${uri}`)}>
+      <div className="space-y-3">
+        {loading ? (
+          <div className="flex items-center gap-2 text-[12px] text-zinc-500">
+            <Loader2 size={12} className="animate-spin" /> {tr('读取中…', 'Reading…')}
+          </div>
+        ) : err ? (
+          <ErrorBanner>{err}</ErrorBanner>
+        ) : (
+          blocks.map((block, index) => (
+            <DetailSection
+              key={`${block.uri}-${index}`}
+              title={block.mime_type || tr('内容', 'Content')}
+            >
+              {block.text != null ? (
+                <CodeBlock>{block.text}</CodeBlock>
+              ) : (
+                <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/30 px-3 py-2 text-[11px] text-zinc-500">
+                  {tr(
+                    `二进制内容（base64）：${(block.blob ?? '').length} 字符，暂不预览。`,
+                    `Binary content (base64): ${(block.blob ?? '').length} chars, no preview.`,
+                  )}
+                </div>
+              )}
+            </DetailSection>
+          ))
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function PromptUseDialog({
+  serverId,
+  prompt,
+  onClose,
+}: {
+  serverId: number;
+  prompt: McpPrompt;
+  onClose: () => void;
+}) {
+  const { tr } = useI18n();
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [running, setRunning] = useState(false);
+  const [runErr, setRunErr] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Array<{ role: string; text: string }> | null>(null);
+
+  const onUse = async () => {
+    setRunning(true);
+    setRunErr(null);
+    setMessages(null);
+    try {
+      const args: Record<string, string> = {};
+      for (const arg of prompt.arguments) {
+        const raw = values[arg.name] ?? '';
+        if (raw.trim() === '' && arg.required) {
+          throw new Error(tr(`参数 ${arg.name} 必填`, `Argument ${arg.name} is required`));
+        }
+        if (raw !== '') args[arg.name] = raw;
+      }
+      const resp = await getMcpPrompt(serverId, prompt.name, args);
+      setMessages(resp.messages);
+    } catch (e) {
+      setRunErr(e instanceof ApiError ? e.message : errorText(e));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={tr(`使用 ${prompt.name}`, `Use ${prompt.name}`)}
+      footer={
+        <>
+          <Button size="sm" onClick={onClose} variant="ghost">{tr('关闭', 'Close')}</Button>
+          <Button size="sm" variant="primary" disabled={running} onClick={() => void onUse()}>
+            {running ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+            {running ? tr('取用中…', 'Fetching…') : tr('取用提示词', 'Fetch prompt')}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {prompt.description && (
+          <p className="text-[12px] leading-relaxed text-zinc-400">{prompt.description}</p>
+        )}
+        {prompt.arguments.length > 0 && (
+          <div className="grid grid-cols-1 gap-x-3 gap-y-2.5 sm:grid-cols-2">
+            {prompt.arguments.map((arg) => (
+              <Label key={arg.name} className="block min-w-0">
+                <span className="mb-0.5 flex h-5 items-center gap-1 overflow-hidden">
+                  <span className="shrink-0 font-sans text-[11px] text-info">{arg.name}</span>
+                  {arg.required ? <span className="shrink-0 text-[10px] text-warn">*</span> : null}
+                  {arg.description ? (
+                    <span className="min-w-0 flex-1 truncate text-[10px] text-zinc-500">{arg.description}</span>
+                  ) : null}
+                </span>
+                <Input
+                  type="text"
+                  value={values[arg.name] ?? ''}
+                  onChange={(e) => setValues((cur) => ({ ...cur, [arg.name]: e.target.value }))}
+                  className="w-full font-sans text-[12px]"
+                />
+              </Label>
+            ))}
+          </div>
+        )}
+        {runErr && <ErrorBanner>{runErr}</ErrorBanner>}
+        {messages && (
+          <DetailSection title={tr('提示词消息', 'Prompt messages')}>
+            <div className="space-y-2">
+              {messages.map((message, index) => (
+                <div key={index} className="rounded-lg border border-zinc-800/60 bg-zinc-950/30 px-3 py-2">
+                  <Chip dense tone="info" className="font-sans">{message.role}</Chip>
+                  <CodeBlock className="mt-1.5">{message.text}</CodeBlock>
+                </div>
+              ))}
+            </div>
+          </DetailSection>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ---------- Registry 一键登记 --------------------------------------------------
+
+function RegistryDialog({
+  onClose,
+  onPick,
+}: {
+  onClose: () => void;
+  onPick: (item: McpRegistryItem) => void;
+}) {
+  const { tr } = useI18n();
+  const [query, setQuery] = useState('');
+  const [items, setItems] = useState<McpRegistryItem[]>([]);
+  const [nextCursor, setNextCursor] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [searched, setSearched] = useState(false);
+
+  const runSearch = useCallback(
+    async (cursor: string, append: boolean) => {
+      setLoading(true);
+      setErr(null);
+      try {
+        const r = await searchMcpRegistry(query, 20, cursor);
+        setItems((cur) => (append ? [...cur, ...r.items] : r.items));
+        setNextCursor(r.next_cursor);
+        setSearched(true);
+      } catch (e) {
+        setErr(errorText(e));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [query],
+  );
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={tr('从 Registry 添加', 'Add from Registry')}
+      footer={
+        <Button size="sm" onClick={onClose} variant="ghost">{tr('关闭', 'Close')}</Button>
+      }
+    >
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !loading) void runSearch('', false);
+            }}
+            placeholder={tr('搜索官方注册表…', 'Search the official registry…')}
+            ariaLabel={tr('搜索注册表', 'Search registry')}
+            className="min-w-[13.5rem] max-w-[14.5rem]"
+            fluid
+          />
+          <RowAction
+            icon={loading ? Loader2 : Globe}
+            iconClassName={loading ? 'animate-spin' : undefined}
+            disabled={loading}
+            onClick={() => void runSearch('', false)}
+          >
+            {tr('搜索', 'Search')}
+          </RowAction>
+        </div>
+
+        {err && (
+          <ErrorBanner className="flex items-center justify-between gap-2">
+            <span>{err}</span>
+            <RowAction icon={RefreshCw} onClick={() => void runSearch('', false)}>
+              {tr('重试', 'Retry')}
+            </RowAction>
+          </ErrorBanner>
+        )}
+
+        {!err && searched && (
+          <div className="text-[11px] text-zinc-500">
+            {tr(`共 ${items.length} 个结果`, `${items.length} result${items.length === 1 ? '' : 's'}`)}
+          </div>
+        )}
+
+        {!err && !searched && items.length === 0 ? (
+          <EmptyStateCard
+            icon={Globe}
+            title={tr('搜索官方 MCP 注册表', 'Search the official MCP registry')}
+            hint={tr(
+              '输入关键词搜索，选中后预填登记表单。',
+              'Search by keyword; picking a result prefills the registration form.',
+            )}
+          />
+        ) : !err && searched && items.length === 0 ? (
+          <EmptyStateCard
+            icon={Globe}
+            title={tr('无匹配结果', 'No matching results')}
+            hint={tr('换个关键词试试。', 'Try a different keyword.')}
+          />
+        ) : items.length > 0 ? (
+          <div className="space-y-2">
+            {items.map((item) => (
+              <div key={`${item.name}-${item.endpoint}`} className="rounded-lg border border-zinc-800/60 bg-zinc-900/40 px-3 py-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className="min-w-0 truncate font-sans text-[12.5px] text-zinc-100">{item.name}</span>
+                      <Chip dense>{item.transport}</Chip>
+                    </div>
+                    {item.description && (
+                      <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-zinc-500">{item.description}</div>
+                    )}
+                    {item.endpoint && (
+                      <div className="mt-0.5 truncate font-sans text-[10px] text-zinc-500" title={item.endpoint}>
+                        {item.endpoint}
+                      </div>
+                    )}
+                    {item.hint && (
+                      <div className="mt-1 flex items-start gap-1.5 text-[10.5px] leading-4 text-warn">
+                        <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+                        <span>{item.hint}</span>
+                      </div>
+                    )}
+                  </div>
+                  <RowAction icon={Plus} onClick={() => onPick(item)}>
+                    {tr('添加', 'Add')}
+                  </RowAction>
+                </div>
+              </div>
+            ))}
+            {nextCursor !== '' && (
+              <div className="flex justify-center">
+                <RowAction icon={Loader2} iconClassName={loading ? 'animate-spin' : undefined} disabled={loading} onClick={() => void runSearch(nextCursor, true)}>
+                  {tr('加载更多', 'Load more')}
+                </RowAction>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
     </Modal>
   );

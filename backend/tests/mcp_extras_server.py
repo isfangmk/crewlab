@@ -1,0 +1,48 @@
+"""测试用本地 MCP Server：一个工具、静态+模板资源、一个带参提示词。
+
+给 test_mcp_resources_prompts.py 当子进程起（SSE）；文件名不以 test_ 开头，
+pytest 不会收集。端口从命令行第一个参数读。
+"""
+
+from __future__ import annotations
+
+import sys
+
+from mcp.server.mcpserver import MCPServer
+
+server = MCPServer(name="extras-demo", description="资源/提示词探测测试用")
+
+
+@server.tool()
+def echo(text: str) -> str:
+    """原样返回输入文本。"""
+    return text
+
+
+@server.resource(
+    "demo://greeting",
+    name="greeting",
+    description="问候语资源",
+    mime_type="text/plain",
+)
+def greeting() -> str:
+    return "你好，这是测试资源内容"
+
+
+@server.resource(
+    "demo://notes/{note_id}",
+    name="note",
+    description="按 id 取笔记",
+    mime_type="text/plain",
+)
+def note(note_id: str) -> str:
+    return f"笔记内容 {note_id}"
+
+
+@server.prompt(name="summarize", description="生成主题摘要")
+def summarize(topic: str) -> str:
+    return f"请总结主题：{topic}"
+
+
+if __name__ == "__main__":
+    server.run(transport="sse", host="127.0.0.1", port=int(sys.argv[1]))

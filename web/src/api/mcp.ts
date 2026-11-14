@@ -17,6 +17,9 @@ export interface McpServer {
   updated_at?: string | null;
   last_error: string;
   tools_cache_json: string;
+  resources_count?: number;
+  prompts_count?: number;
+  last_probed_at?: string | null;
   embedding_sync_status?: string;
   embedding_sync_count?: number;
   embedding_sync_error?: string;
@@ -151,6 +154,152 @@ export async function runMcpTool(
   );
   if (typeof r.tool !== 'string' || typeof r.result_text !== 'string' || typeof r.is_error !== 'boolean') {
     throw new Error('MCP 运行响应字段不完整');
+  }
+  return r;
+}
+
+/** MCP 资源清单项（resources/list）。 */
+export interface McpResource {
+  uri: string;
+  name: string;
+  description: string;
+  mime_type: string;
+}
+
+/** MCP 资源模板项（resources/templates/list）。 */
+export interface McpResourceTemplate {
+  uri_template: string;
+  name: string;
+  description: string;
+  mime_type: string;
+}
+
+/** MCP 提示词参数定义。 */
+export interface McpPromptArgument {
+  name: string;
+  description: string;
+  required: boolean;
+}
+
+/** MCP 提示词清单项（prompts/list）。 */
+export interface McpPrompt {
+  name: string;
+  description: string;
+  arguments: McpPromptArgument[];
+}
+
+/** 资源读取内容块；文本走 text，二进制走 blob（base64）。 */
+export interface McpResourceContent {
+  uri: string;
+  mime_type: string;
+  text?: string;
+  blob?: string;
+}
+
+export interface McpResourceReadResp {
+  uri: string;
+  contents: McpResourceContent[];
+}
+
+/** 提示词展开后的单条消息。 */
+export interface McpPromptMessage {
+  role: string;
+  text: string;
+}
+
+export interface McpPromptGetResp {
+  name: string;
+  description: string;
+  messages: McpPromptMessage[];
+}
+
+/** Registry 搜索结果项：已映射为登记表单预填结构。 */
+export interface McpRegistryItem {
+  name: string;
+  description: string;
+  transport: 'http' | 'sse';
+  endpoint: string;
+  hint: string;
+}
+
+export interface McpRegistrySearchResp {
+  items: McpRegistryItem[];
+  next_cursor: string;
+  total: number;
+}
+
+export async function listMcpResources(serverId: number): Promise<McpResource[]> {
+  const r = await request<{ items: McpResource[]; total: number }>(
+    'GET',
+    `/mcp/servers/${serverId}/resources`,
+  );
+  if (!Array.isArray(r.items)) {
+    throw new Error('MCP 资源响应缺少 items');
+  }
+  return r.items;
+}
+
+export async function readMcpResource(serverId: number, uri: string): Promise<McpResourceReadResp> {
+  const r = await request<McpResourceReadResp>(
+    'GET',
+    `/mcp/servers/${serverId}/resources/read?uri=${encodeURIComponent(uri)}`,
+  );
+  if (!Array.isArray(r.contents)) {
+    throw new Error('MCP 资源读取响应缺少 contents');
+  }
+  return r;
+}
+
+export async function listMcpResourceTemplates(serverId: number): Promise<McpResourceTemplate[]> {
+  const r = await request<{ items: McpResourceTemplate[]; total: number }>(
+    'GET',
+    `/mcp/servers/${serverId}/resource-templates`,
+  );
+  if (!Array.isArray(r.items)) {
+    throw new Error('MCP 资源模板响应缺少 items');
+  }
+  return r.items;
+}
+
+export async function listMcpPrompts(serverId: number): Promise<McpPrompt[]> {
+  const r = await request<{ items: McpPrompt[]; total: number }>(
+    'GET',
+    `/mcp/servers/${serverId}/prompts`,
+  );
+  if (!Array.isArray(r.items)) {
+    throw new Error('MCP 提示词响应缺少 items');
+  }
+  return r.items;
+}
+
+export async function getMcpPrompt(
+  serverId: number,
+  name: string,
+  args: Record<string, string>,
+): Promise<McpPromptGetResp> {
+  const r = await request<McpPromptGetResp>(
+    'POST',
+    `/mcp/servers/${serverId}/prompts/get`,
+    { name, arguments: args },
+  );
+  if (!Array.isArray(r.messages)) {
+    throw new Error('MCP 提示词响应缺少 messages');
+  }
+  return r;
+}
+
+export async function searchMcpRegistry(
+  search: string,
+  limit = 20,
+  cursor = '',
+): Promise<McpRegistrySearchResp> {
+  const params = new URLSearchParams();
+  if (search !== '') params.set('search', search);
+  params.set('limit', String(limit));
+  if (cursor !== '') params.set('cursor', cursor);
+  const r = await request<McpRegistrySearchResp>('GET', `/mcp/registry/servers?${params.toString()}`);
+  if (!Array.isArray(r.items)) {
+    throw new Error('Registry 搜索响应缺少 items');
   }
   return r;
 }

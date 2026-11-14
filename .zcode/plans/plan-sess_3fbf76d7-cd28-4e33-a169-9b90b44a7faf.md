@@ -1,117 +1,225 @@
-# 五大功能实施计划（① 解释器+Artifacts → ② 自动化触发 → ⑤ Memory → ③ 子Agent → ④ 对外发布）
+# 三大功能实施计划：助理版本+Playground → 评测 2.0 → MCP Resources/Prompts+Registry
 
 ## Context
 
-产品定位「以对话为中心的 Agent 工作台」。五个大功能的底座在本轮已铺好：沙盒执行器双实现（local/docker）、文件落盘方案、向量存储抽象（namespace 可扩展）、工作流后台执行范式（`workflow_runner._spawn`）、审计/可观测记账、分享免登录模式。本计划按依赖与价值排序为 5 个可独立交付的阶段，每阶段完成后单独提交并跑全量回归。
+产品已具备对话、助理、工具/技能/MCP、知识库、审批、触发器、Memory、子 Agent、发布、评测、沙箱、Artifacts、可观测。本轮补三个「上生产」必需的能力，对照业界（Langfuse / Open WebUI / LibreChat / MCP 规范）的差距：
 
-**全局纪律**：无 mock 测试（真实依赖集成）；契约不符显式失败；审计留痕；UI 按 `docs/UI设计规范.md`；每个阶段走 `git commit`。
+1. **助理版本与 Playground** — 当前 `agent_service.update_user_agent` 原地覆盖（`agent_service.py:575-591`），旧值直接丢失；调人设只能开正式会话，污染上下文。
+2. **评测 2.0** — 当前只有确定性断言判分（`eval_runner.py:114-158` 的 `judge`，注释明确写「不引入模型裁判」）；无 LLM-judge、无人工标注、无 CI 门禁、无对抗用例、无导出。
+3. **MCP 完整化** — 当前只缓存 tools（`mcp_servers.tools_cache_json`）；`mcp` SDK 2.3.0 已支持 `list_resources/read_resource/list_prompts/get_prompt`，ADK 2.14.0 的 `McpToolset` 已有 `use_mcp_resources=True`，但都未接入。
 
----
+**已定范围**（用户拍板）：
+- MCP 只做 **Resources/Prompts + Registry 一键登记**；OAuth（浏览器跳转依赖）、MCP Apps（SDK 无协议支持）、Tasks（无便捷 API）**不进本轮**。
+- 红队做 **对抗用例集**（复用现有评测管线 + 内置对抗库），不做完整红队框架。
+- 助理版本**只做历史 + 回滚**，会话仍实时读当前配置，不做版本锁定。
 
-## 阶段 A：对话内代码解释器 + Artifacts
-
-**数据模型**：新表 `artifacts`（`models_orm/artifact.py`）：`id(uuid)`、`session_id(FK chat_sessions)`、`message_id`、`kind('chart'|'table'|'file'|'text')`、`title`、`mime`、`payload_json`（echarts option/表格数据/文本）、`data_bytes`(可空 BLOB，文件类)、`created_at`。加进 `models_orm/__init__.py`。
-
-**后端**：
-1. `app/tools/code_interpreter.py`（新）：`run_python(code: str, purpose: str = "") -> dict` async 函数，声明 `tool_context: ToolContext` 取 session id。内部：复用 `workflow_node_impl.SANDBOX_SCRIPT_TEMPLATE` 思路构造脚本（state 传空、marker+JSON 信封），信封约定新增 `artifacts` 数组——用户代码调用注入的 `emit_chart(option,title)` / `emit_table(rows,title)` / `emit_file(name,b64)` helper 把产出带出（base64 走 stdout 信封，规避沙盒无文件取回通道的缺口）。调 `sandbox_service.run_code(ctx=SandboxContext(source="chat", session_id=...))`（`sandbox_service.py` 增 `SOURCE_CHAT="chat"` 常量）。返回 dict：`{status, stdout_tail, artifacts:[{kind,title,mime,payload}], error}`。
-2. 注册：`app/tools/catalog.py` `BUILTIN_TOOL_SPECS` 加条目（group=`"code"`、risk=`"safe"`——执行器本身是受控沙盒）+ `_BUILTIN_TOOL_REGISTRY` 映射；`builtin_tool_service._BUILTIN_TOOL_GROUPS` 加 `"code": "代码解释器"` 分组；`app/tools/catalog.py` 的 workflow_tool_names 装配点把新工具并入 `build_knowledge_tools`（`toolset.py:26-41`）。
-3. Artifacts 服务：`app/services/artifact_service.py`——`save_from_tool_result(session_id, message_id, artifacts) -> list[Artifact]`、`list_by_session`、`get_bytes`（下载复用 `api/chat.py:418-439` 的字节 Response 模式）。新端点 `app/api/artifacts.py`：`GET /chat/sessions/{id}/artifacts`、`GET /artifacts/{id}/download`（require_auth）。
-4. 消息流挂接：`chat_service.AdkFramePersister` 在 `tool_end` 帧处理分支（chat_service.py:1135-1173）检测 `tool.name == "run_python"` 且 result 含 artifacts → 调 artifact_service 落库，并把 `artifact_ids` 写进 tool_card result；历史回放经 `message_to_wire` 透出。
-
-**前端**：
-1. `MessageBubble.tsx#ToolCallSummaryBlock`：`call.name === 'run_python'` 时特化渲染——代码块 + artifact 卡片（chart 类用 `ChartCard`/`ChartCanvas` 渲染 payload，table 用简单表格，file 给下载链接 `GET /artifacts/{id}/download`）。
-2. 会话页右栏：`ChatThread.tsx` 布局改 `flex-row`，加停靠式 Artifacts 面板（仿 `components/workflow/WorkflowInspector.tsx:121-130` 的可拖拽停靠卡），列出本会话 artifacts（按 kind 过滤/预览/下载）。图表渲染复用 `ChartCard.tsx` 的 `ChartCanvas`。
-3. 工具目录页 `/tools` 自动带出新分组（builtin_tool_service 已支持）。
-
-**测试**（真实依赖，无 mock）：`tests/test_code_interpreter_tool.py`——真调 `run_python` 跑真实代码（local 执行器）：算术、emit_chart 产出 payload 结构、emit_file 字节还原、维度/异常分支、`SOURCE_CHAT` 落库到 sandbox_executions；API 集成：会话 artifacts 列表与下载字节一致。
+**全局纪律**：无 mock 测试（真实依赖，连不上则 skip 并说明）；契约不符显式失败；中文注释只写「做了什么/为什么」；UI 严格按 `docs/UI设计规范.md`；每阶段跑受影响测试 + tsc + eslint，中文 `git commit`；后端改完用 `scripts/backend-restart.ps1` 重启（禁 `--reload`）；不使用浏览器测试。
 
 ---
 
-## 阶段 B：自动化触发器（Cron + Webhook）
+## 阶段 A：助理版本与回滚 + Playground
 
-**数据模型**：`models_orm/trigger.py`——`TriggerRule(id, name, kind('cron'|'webhook'), cron_expr, target_kind('workflow'|'agent'), workflow_id?, agent_id?, prompt?, enabled, max_retries, webhook_token_hash, created_by, created_at)`；`TriggerRun(id, trigger_id, status('running'|'succeeded'|'failed'), attempt, error, started_at, finished_at, ref_id)`（工作流 run_uid 或会话 id）。
+### A1. 数据模型
 
-**后端**：
-1. `app/api/triggers.py`：CRUD（require_not_viewer，admin 限删）+ `POST /triggers/webhook/{token}/fire`（公开端点，豁免方式=不声明鉴权依赖，先例 `GET /chat/shares/{token}`）。
-2. `app/services/trigger_service.py`：cron 解析用 **croniter**（pyproject 新依赖，uv 加）；`compute_next_run`；执行分发——workflow → `workflow_runner.start_run(triggered_by=f"trigger:{id}", source="published")`（后台异步，现成范式）；agent → 进程内 `create_session` + `async for frame in stream_session_message(...)` 消费至 done（`set_request_id(f"trigger-{id}-...")`），遇 `approval_pending` 帧记「等待人工审批后中止」。
-3. 调度器：`app/services/trigger_scheduler.py`——lifespan 启动的 asyncio 循环任务（复用 `workflow_runner._spawn` 强引用模式），每 30s 扫 enabled cron 触发器，到点（croniter 上次/下次比较）即派发；同 TriggerRun 写入 + 重试（attempt ≤ max_retries，指数退避）。
-4. 审计：`trigger.create/update/delete/fire`（actor_user_id 可 None）；失败重试口径记在 TriggerRun.attempt。
+新表 `user_agent_versions`（`backend/app/models_orm/agent_version.py`）：
+- `id` Integer PK autoincrement
+- `agent_name` String(128) FK `user_agents.name` ondelete=CASCADE + index
+- `version` Integer（单调递增；UniqueConstraint("agent_name","version")）
+- `snapshot_json` Text（整份 `UserAgentInput` 序列化，含 display_name/system_prompt/examples/knowledge_scope/skills/sub_agents）
+- `change_summary` String(256) 默认 ""（可选备注）
+- `created_by` Integer nullable
+- `created_at` AwareDateTime server_default=now
+- `restored_from_version` Integer nullable（回滚时记录来源版本）
 
-**前端**：新页 `web/src/pages/Triggers.tsx`（TableCard 表格：名称/类型/目标/计划/状态/最近运行/操作；创建弹窗选目标——工作流下拉或助理+prompt；webhook 展示一次性 URL）；路由/App.tsx/Sidebar（工作流分组加「触发器」项）/routes.ts 命令面板。
+在 `models_orm/__init__.py` import 注册；新表由 `main.py` lifespan 的 `Base.metadata.create_all` 自动建，无需动 `db_schema._REQUIRED_COLUMNS`。
 
-**测试**：croniter 到点计算单测；触发器 CRUD 集成；webhook fire 真后端触发真实工作流 run（断言 run_uid 产生与状态流转）；agent 触发集成（消耗 1 轮真实对话）。
+### A2. 后端服务
+
+新 `backend/app/services/agent_version_service.py`：
+- `snapshot_agent_version(db, agent_name, snapshot: dict, *, created_by, change_summary="", restored_from_version=None) -> int` — 版本号取 `max(version)+1`，写入并返回版本号。
+- `list_versions(db, agent_name) -> list[dict]`（version/created_at/created_by/change_summary/restored_from_version）
+- `get_version(db, agent_name, version) -> dict`（含完整 snapshot）
+- `rollback(db, agent_name, version, *, actor_user_id) -> ResolvedAgent` — 读快照 → 走 `agent_service.update_user_agent` 全量覆盖 → 再快照一版（`restored_from_version=version`）。
+
+`agent_service.py` 改动：
+- `create_user_agent` 成功后 `snapshot_agent_version`（版本 1）。
+- `update_user_agent` 成功后 `snapshot_agent_version`。
+- `agent_to_wire` 增加 `version: int`（当前最新版本号）与 `updated_at`。
+
+### A3. 后端 API（`backend/app/api/agents.py`）
+
+- `GET /agents/custom/{name}/versions` → `{items:[...], total}`（require_auth）
+- `GET /agents/custom/{name}/versions/{version}` → 快照详情（require_auth）
+- `POST /agents/custom/{name}/rollback` body `{version, change_summary?}` → `agent_to_wire`（require_not_viewer，审计 `agent.rollback`）
+- `POST /agents/playground/stream` body `{agent: UserAgentInput, content, thinking_enabled, web_search_enabled, locale?}` → SSE（require_not_viewer；不落 `chat_messages`/`observation_turns`）
+
+Playground 实现要点：
+- 复用 `adk_runtime/stream_bridge.py:594` 的 `stream_adk_turn(..., session_service=InMemorySessionService())`（先例 `adk_runtime/workflow_node_impl.py:755-796` 的 `InMemoryRunner`）。
+- 复制 `chat_service.stream_session_message` 的「解析模型 → compose_persona → build_agent_tool_bundle」链路，**去掉** `_add_message` / `observation_service.start_chat_turn` / `AdkFramePersister`。
+- 会话 id 用一次性 uuid，`user_id="playground:{user_id}"`；SSE 包装复用 `api/chat.py:471` 的 `_sse_from_stream`。
+- 草稿助理不落库：直接用 `UserAgentInput` 构造 `ResolvedAgent`（新增 `agent_service.resolve_draft_agent(db, body) -> ResolvedAgent`，复用 `validate_skill_binding`/`validate_scope`/`parse_examples` 等校验，只是不 insert）。
+
+### A4. 前端
+
+`web/src/api/agents.ts` 增：`listAgentVersions`、`getAgentVersion`、`rollbackAgent`、`playgroundStream(input, content, cbs, signal)`（SSE 消费照抄 `api/chat.ts` 的 `consumeSseResponse`/`dispatchFrame`/`StreamCallbacks`）。
+
+`web/src/pages/Agents.tsx`：
+- 编辑态 footer 加「版本历史」按钮（`RowAction` 尺寸），打开版本列表 Modal：版本号/时间/来源（回滚标记）/变更摘要 + 「回滚到此版本」`RowAction`（`ConfirmDialog` 二次确认）。
+- 编辑态 footer 加「试跑」按钮，打开右侧 `AgentPlaygroundPanel`（抽屉/侧栏），**携带当前草稿**（AgentEditor 各 `useState` 组装成 `UserAgentInput`，不必先保存）。
+
+新 `web/src/components/AgentPlaygroundPanel.tsx`：
+- 顶部：模型下拉（复用 `ChatModelControls.ModelDropdown`）+ 思考/联网开关 + 清空按钮。
+- 中部：消息列表（复用 `components/MessageBubble.tsx` 渲染 tool_card/tool_intent/delta）。
+- 底部：输入框 + 发送/停止；每次发送清空上一轮（Playground 默认单轮试跑，可保留多轮但会话在内存）。
+- 明确标注「试跑不落会话、不影响正式对话」。
+
+UI 规范对齐：`§3.7 助理编辑器固定分区`（Playground 按钮放 footer 不动 Tabs）、`§2.5 详情弹窗`（版本列表 Modal 结构）、`§2.7 空状态`（无版本历史时 `EmptyStateCard`）、`§5.1 行内操作`（回滚用 `RowAction`，删除/复制用 `RowActionIcon`）。
+
+### A5. 测试
+
+- `backend/tests/test_agent_versions.py`：httpx 打真实服务（照 `test_agent_persona.py` 模式），unique name + `finally` 清理；断言 create 后版本 1、PATCH 后版本 2、rollback 后 GET 字段与 v1 一致、版本 3 的 `restored_from_version=1`。
+- `backend/tests/test_agent_playground.py`：流端点断言 `assistant_delta`/`done` 帧；跑完比对 `chat_messages` 计数无新增（可用 `GET /chat/sessions` + `GET /chat/sessions/{id}/messages` 对照）。
+- `web/src/pages/Agents.test.tsx` 增：版本历史弹窗渲染、回滚 ConfirmDialog 流程、Playground 面板开合与草稿携带（MSW `http.get('/api/v1/agents/:name/versions')`、`http.post('.../rollback')`、playground 流用 `HttpResponse.stream` 造 SSE）。
 
 ---
 
-## 阶段 C：跨会话 Memory
+## 阶段 B：评测 2.0（LLM-judge + 人工标注 + CI 门禁 + 对抗用例集）
 
-**数据模型**：`models_orm/memory.py`——`MemoryItem(id, scope_agent_id(可空=全局), content(Text), source_session_id?, enabled, created_by, created_at)`。`vector_store/__init__.py` 加 `MEMORY_NAMESPACE = "memory_items"`。
+### B1. 数据模型（`backend/app/models_orm/eval.py` 扩展）
 
-**后端**：
-1. `app/services/memory_service.py`：`remember(content, agent_id?)`（入库 + `embed_text` 写 `MEMORY_NAMESPACE`，ref=str(id)）、`recall(query, agent_id?) -> list`（`embed_text` + `vs.search` + 回业务库 join enabled 过滤，复用 `search_docs` 向量通道模式 knowledge_service.py:581-614）、`forget(id)`（删行+删向量）、`list`。`VECTOR_BACKEND=none` 时显式失败（`raise_vector_store_unavailable`）。
-2. 对话工具：`app/tools/memory.py`——`remember_memory(content)` / `recall_memory(query)` 两个内置工具（catalog 注册，group="memory"），模型可在对话中主动存取记忆；recall 结果按 agent scope 过滤（本助理或全局）。
-3. API：`app/api/memory.py` CRUD + 检索（require_not_viewer）。
-4. 导航：侧栏「记忆」占位（`Sidebar.tsx:366 planned:true`）转正式页面。
+- `EvalJudgeConfig`（表 `eval_judge_configs`，1:1 绑 dataset）：`dataset_id` FK unique、`enabled` bool、`rubric` Text（评分标准）、`judge_provider`/`judge_model`（默认跟随评测目标）、`pass_score` float（阈值）、`created_at`/`updated_at`。
+- `EvalJudgeScore`（表 `eval_judge_scores`）：`id` String32 PK、`result_id` FK `eval_case_results.id` ondelete=CASCADE、`dimension` String(64)、`score` float、`reason` Text、`judge_model` String、`created_at`。
+- `EvalAnnotation`（表 `eval_annotations`）：`id` String32 PK、`result_id` FK、`annotator_user_id` Integer、`label` String(32)（good/needs_work/bad）、`comment` Text、`created_at`。
+- `EvalCase` 加列 `kind` String(16) 默认 "normal"（`normal`/`redteam`）、`attack_type` String(64) 默认 ""（越狱/提示注入/工具滥用/…）、`safety_keywords_json` Text 默认 "[]"（出现即判失败的泄漏/合规词）—— 登记进 `db_schema._REQUIRED_COLUMNS`。
+- `EvalDataset` 加列 `baseline_run_uid` String(32) nullable、`gate_max_regressions` Integer 默认 0、`gate_min_pass_rate` float 默认 0.0 —— 登记进 `_REQUIRED_COLUMNS`。
 
-**前端**：新页 `web/src/pages/Memory.tsx`（TableCard 列表：内容/归属助理/来源会话/时间/启停；新增弹窗；删除 ConfirmDialog）；按新页面注册清单接入（App.tsx 路由、Sidebar、routes.ts）。
+### B2. 后端服务
 
-**测试**：真实嵌入写入 + 语义检索命中（同义改写 query）、scope 过滤、`VECTOR_BACKEND=none` 显式失败、删除后检索不命中、对话工具集成（真实会话让模型记住/回忆——消耗 1-2 轮对话）。
+新 `backend/app/services/eval_judge_service.py`：
+- `judge_result(db, result: EvalCaseResult, config: EvalJudgeConfig) -> list[EvalJudgeScore]` — 组装输入（`result.output` + `result.tool_names` + `chat_service.list_messages(db, result.session_id)` 取工具入参出参）→ `litellm.acompletion`（用 `llm_config.compose_litellm_model`/`resolve_model`/`provider_extra_body`）→ 要求 JSON 结构化输出（`response_format` 或 prompt 约束）→ 解析成维度分。解析失败显式记 `judge_model="parse_error"` 并落 reason，不静默吞。
+- 判定优先级：确定性 `judge()`（复用 `eval_runner.judge`）→ LLM-judge 平均分 ≥ `pass_score`。
+
+`backend/app/services/eval_runner.py` 改：`_run_case` 末尾若 dataset 启用了 judge，调 `eval_judge_service.judge_result` 并落分；`_run_detached` 汇总时把 judge 分计入 `passed/failed`（judge 不过也算 failed，reason 里写明）。
+
+新 `backend/app/services/annotation_service.py`：队列 CRUD、`claim_next`（认领下一条未标注结果）、`submit_annotation`、`list_annotations`、一致性统计（多人标注同一 result 的一致率）。
+
+新 `backend/app/services/eval_gate_service.py`：`evaluate_gate(db, run_uid) -> dict` — 调 `eval_service.compare_runs` 对比 `dataset.baseline_run_uid`，按 `gate_max_regressions`/`gate_min_pass_rate` 判 `pass|fail`，返回 `{pass, regressions, pass_rate, reasons}`。
+
+红队：复用现有 `EvalCase` + 新增 `kind="redteam"`；`eval_runner._run_case` 对 redteam 用例额外跑 `safety_keywords` 断言（命中即 failed）；内置对抗用例库 `backend/app/services/redteam_library.py`（越狱、提示注入、工具滥用、数据外泄各 3-5 条，创建数据集时可一键导入）。
+
+### B3. 后端 API（`backend/app/api/evals.py`）
+
+- `GET/PUT /evals/datasets/{id}/judge-config`（require_not_viewer）
+- `GET /evals/runs/{run_uid}/results/{result_id}/judge-scores`（require_auth）
+- `POST /evals/annotations`、`GET /evals/runs/{run_uid}/annotations`、`GET /evals/annotations/queue`（claim）、`POST /evals/annotations/{id}`（require_not_viewer，审计 `eval.annotation`）
+- `POST /evals/runs/{run_uid}/gate` → `{pass, regressions, pass_rate, reasons}`（require_auth）
+- `GET /evals/runs/{run_uid}/export?format=csv|json`（require_auth，审计 `eval.export`，脱敏走 `app/services/redaction.py`）
+- `POST /evals/datasets/{id}/redteam/seed`（require_not_viewer，导入内置对抗库）
+
+### B4. CI 门禁
+
+新 `scripts/eval-gate.ps1`：入参 `dataset_id`、`baseline_run_uid`、`--fail-on-regressions`；流程 = 创建 run → 轮询完成 → 调 gate → 非零退出码。鉴权用现有 `api_tokens` Bearer（`auth_service.resolve_bearer`）。文档写进 `docs/产品功能迭代计划.md` 落地记录。
+
+### B5. 前端
+
+`web/src/api/evals.ts` 增：`getJudgeConfig/saveJudgeConfig`、`listAnnotations/claimNextAnnotation/submitAnnotation`、`evaluateGate`、`exportEvalRun`、`seedRedteamCases`。
+
+`web/src/pages/EvalDataset.tsx`：
+- `RunResultDialog` 结果表加「评分」列（确定性 + judge 分 + 阈值徽章），点行展开 judge 维度分与理由；结果行加「标注」`RowAction`（打开标注弹窗，选 label + comment）。
+- 顶部 Tabs 拆「用例 / 运行记录 / 标注队列 / 门禁」；门禁 Tab 展示 baseline 选择、阈值配置、最近一次 gate 结果（pass/fail 徽章 + 回归清单）。
+- 用例表加 `kind` 列（普通/对抗 chip）+ `attack_type`；「导入对抗用例」按钮。
+- `RunDialog` 加「启用 LLM 评分」开关 + rubric 编辑。
+- 顶部「导出」按钮（CSV/JSON）。
+
+`web/src/pages/Evals.tsx`：数据集行加 gate 状态徽章（若配置了 baseline）。
+
+UI 规范对齐：`§2.4.2 排序与时间`（标注队列、结果表都要时间排序）、`§2.5 详情弹窗`（judge 分详情）、`§4.1 状态语义`（pass/fail/needs_work 用 `StatusPill`）、`§5.1 行内操作`。
+
+### B6. 测试
+
+- `backend/tests/test_eval_judge.py`：真实调用 judge 模型跑 1 条短输出（连不上 skip）；解析失败分支用畸形返回单测。
+- `backend/tests/test_eval_annotations.py`：认领/提交/一致性统计全链路。
+- `backend/tests/test_eval_gate.py`：造两轮 run，断言回归超阈值时 `pass=false` 且 reasons 含回归用例。
+- `backend/tests/test_eval_redteam.py`：导入对抗库 → 跑 1 条越狱用例 → 断言 `safety_keywords` 命中判 failed。
+- `backend/tests/test_eval_export.py`：CSV/JSON 导出字段完整 + 脱敏。
+- `web/src/pages/EvalDataset.test.tsx` 增：judge 分列、标注弹窗、门禁 Tab、导入对抗用例、导出按钮。
 
 ---
 
-## 阶段 D：多 Agent 协作（子 Agent 委托）
+## 阶段 C：MCP Resources / Prompts + Registry 一键登记
 
-**数据模型**：`models_orm/agent.py` 加列 `sub_agents_json`（JSON 数组，存子助理 name 列表；NULL=无委托）——用既有 `db_schema.py` `_REQUIRED_COLUMNS` 幂等补列机制。
+### C1. 数据模型
 
-**后端**：
-1. `agent_service.py`：`ResolvedAgent` 加字段；保存校验 `validate_sub_agents`（存在性、防自引用、**防环**——沿父子链 DFS）；`agent_to_wire`/wire 透出。
-2. 装配：`agent_factory.build_chat_agent` 加 `sub_agents` 参数与**参数化 ADK agent name**（现在硬编码 `"workbench_chat"`，agent_factory.py:122——子 Agent 各用 `agent:<name>`）；子 Agent 递归用各自能力装配（知识范围/技能/工具独立）。两处装配点同改：`chat_service.py:1495-1518` 与 `approval_service.py:428-446`。
-3. ADK 原生委托：`LlmAgent(sub_agents=[...])` 自动生成 `transfer_to_<子名>` 工具，委托即 ADK Runner 内部切换（无自研编排）；委托过程经现有 tool/事件帧自然流过可观测。
-4. 边界：委托深度由树结构天然限制（防环校验）；`when_to_use`（字段已存在）作为委托判断依据写进子 Agent description。
+`mcp_servers` 加列（登记 `db_schema._REQUIRED_COLUMNS`）：
+- `resources_cache_json` Text 默认 "[]"（`[{uri, name, description, mime_type}]`）
+- `prompts_cache_json` Text 默认 "[]"（`[{name, description, arguments:[{name, description, required}]}]`）
+- `resource_templates_cache_json` Text 默认 "[]"
+- `last_probed_at` AwareDateTime nullable
 
-**前端**：助理编辑器（Agents.tsx）加「子助理」分组（多选已保存助理，排除自身）；详情弹窗展示委托列表。
+OAuth/Apps/Tasks **不加列**（本轮不做）。
 
-**测试**：真后端集成——创建父子助理（父无知识范围、子绑定「运维文档」scope）→ 流式会话让父委托子查文档 → 断言命中范围内文档；防环校验 400；委托链在 observability 有 trace。
+### C2. 后端服务（`backend/app/services/mcp_service.py` 扩展）
 
----
+- `test_server` 扩展：连上后除 `list_tools` 外，再 `list_resources`/`list_resource_templates`/`list_prompts`，一并写入三个 cache 列；任一失败不整体判 error（记 `last_error` 局部信息，tools 仍是主判据）。
+- 新 `async list_resources(db, server_id) -> list[dict]`、`async read_resource(db, server_id, uri) -> dict`、`async list_prompts(db, server_id) -> list[dict]`、`async get_prompt(db, server_id, name, arguments) -> dict` — 复用 `connection_params_for_server` + `mcp.client.session.ClientSession` 的 `list_resources`/`read_resource`/`list_prompts`/`get_prompt`。
+- 运行时装配：`build_searchable_mcp_toolsets` 里给 `McpToolset` 加 `use_mcp_resources=True`（ADK 2.14.0 自动注入 `load_mcp_resource` 工具），让模型可按需读资源。
 
-## 阶段 E：对外发布（OpenAI 兼容 API + 独立聊天页）
+新 `backend/app/services/mcp_registry_service.py`：
+- `search_registry(query, limit, cursor) -> dict` — httpx 调 `https://registry.modelcontextprotocol.io/v0/servers?search=&limit=&cursor=`；网络不可达显式抛错（前端显示错误横幅）。
+- `registry_entry_to_server_input(entry) -> dict` — 映射 `remotes`（Streamable HTTP/SSE URL）或 `packages`（npm/pypi，转 endpoint 提示）到 `McpServerInput` 预填结构。
 
-**数据模型**：`models_orm/channel.py`——`PublishedChannel(id, name, agent_id, key_hash unique, expires_at?, enabled, created_by, created_at)`（签发复刻 share_service 模式：token_urlsafe 一次性返回 + sha256 落库）；`observation_turns` 加可空列 `channel`（`db_schema` 幂等补列）。
+### C3. 后端 API（`backend/app/api/mcp.py`）
 
-**后端**：
-1. `app/api/publish.py`：
-   - 管理端点（require_admin）：channels CRUD + 签发（原文一次性返回）+ 启停。
-   - `POST /v1/chat/completions`（公开路由，豁免=不声明鉴权依赖）：`Authorization: Bearer pk-…` → 哈希查 channel（enabled/过期校验，401 同 deps.py 风格）→ messages 数组取最后 user 消息 → 每 channel 一个持久会话（上下文延续）→ 进程内消费 `stream_session_message` → **OpenAI chunk 格式映射**：`assistant_delta→delta.content`、`thinking_delta` 丢弃、tool/approval 帧丢弃（对外只回文本）、`done.usage`→`stream_options.include_usage` 的最终 chunk、终止 `data: [DONE]`；非流式聚合全文返回。记账：`observation_turns.channel` 落渠道名。
-   - `GET /v1/models`（列已发布渠道的模型，OpenAI 兼容）。
-2. 独立聊天页（P1 减项，若时间紧延后）：`/embed/{key}` 公开路由 + 公开流端点，复用 ShareView 模式。
+- `GET /mcp/servers/{id}/resources`（require_auth）
+- `GET /mcp/servers/{id}/resources/read?uri=`（require_auth）
+- `GET /mcp/servers/{id}/resource-templates`（require_auth）
+- `GET /mcp/servers/{id}/prompts`（require_auth）
+- `POST /mcp/servers/{id}/prompts/get` body `{name, arguments}`（require_auth）
+- `GET /mcp/registry/servers?search=&limit=&cursor=`（require_auth，代理 + 结果映射）
 
-**前端**：新页 `web/src/pages/Publish.tsx`（渠道列表：名称/助理/Key 掩码/用量(tokens)/状态/操作；创建弹窗选助理+有效期，Key 一次性展示+复制）；侧栏治理分组加「发布管理」；用量卡片可在渠道详情展示（observation 按 channel 过滤）。
+`server_to_wire` 增 `resources_count`/`prompts_count`/`last_probed_at`。补 `test` 端点审计 `mcp.server_test`（当前缺失）。
 
-**测试**：签发后真实调用 `/v1/chat/completions`（流式与非流式各一，消耗 1-2 轮 DeepSeek）断言 OpenAI chunk 结构与 usage；错 key 401；停用渠道 401；observation 按渠道可查。
+### C4. 前端
+
+`web/src/api/mcp.ts` 增：`listMcpResources`/`readMcpResource`/`listMcpPrompts`/`getMcpPrompt`/`searchMcpRegistry`。
+
+`web/src/pages/Mcp.tsx`（严格按 UI 规范 `§3.9 MCP 服务卡片`）：
+- `ServerRow` 摘要行加「资源 N · 提示词 N」（沿用分隔点串联，不堆胶囊）。
+- 展开区在「工具清单」之后加两个分组：「资源」（uri/名称/类型 + 「读取」`RowAction` 打开 `CodeBlock` 显示内容）与「提示词」（名称/参数表 + 「使用」`RowAction` 弹窗填参数后取 prompt 消息）。
+- 顶部加「从 Registry 添加」按钮，打开 Modal：搜索框 + 结果列表（名称/描述/传输方式）→ 点「添加」预填 `ServerEditor` 表单。
+- `ServerEditor` 不动主结构，只让 Registry 预填能填入 name/endpoint/transport。
+
+UI 规范对齐：`§3.9`（展开区分组标题、错误横幅共用一条、`RowActionIcon` 尺寸）、`§2.7 空状态`（无资源/提示词时 `EmptyStateCard`）、`§3.5 可搜索选择器`（Registry 搜索框）。
+
+### C5. 测试
+
+- `backend/tests/test_mcp_resources_prompts.py`：改造 `scripts/mcp-demo/server.py` 或用 `mcp/client/_memory.py` 内存传输起本地 MCP server，断言 `test_server` 写入三个 cache 列、`read_resource`/`get_prompt` 返回结构；连不上 skip。
+- `backend/tests/test_mcp_registry.py`：`search_registry` 真实打 registry（不可达 skip）、`registry_entry_to_server_input` 映射单测。
+- `web/src/pages/Mcp.test.tsx` 增：展开区资源/提示词分组、读取弹窗、Registry 搜索与预填。
 
 ---
 
 ## 执行顺序与提交节奏
 
-按 A → B → C → D → E 顺序实施（无硬依赖，按价值排序），**每个阶段结束：跑全量 pytest + tsc + vitest，git commit 一次**。预计改动面：
+A → B → C，**每阶段结束**：跑受影响的 backend pytest（只跑新增/相关文件，禁全量）+ 前端 `npx tsc -b --noEmit` + 相关 vitest + eslint，然后中文 `git commit` 一次。后端改完用 `scripts/backend-restart.ps1` 重启并确认 `/healthz` 200。
 
-- 阶段 A：后端 6 文件新增/修改 + 前端 4 文件 + 测试 1 文件
-- 阶段 B：后端 4 新增 + main.py 挂载 + 前端 1 新页 + 注册 4 处 + 测试
-- 阶段 C：后端 4 新增 + 前端 1 新页 + 工具 1 文件 + 测试
-- 阶段 D：后端 3 修改 + 前端编辑器 + 测试
-- 阶段 E：后端 3 新增 + main.py + observation 加列 + 前端 1 新页 + 测试
+改动面预估：
+- 阶段 A：后端 1 新表 + 2 服务新增/改 + 1 API 改；前端 2 组件新增/改 + 1 API client；测试 3 文件。
+- 阶段 B：后端 4 新表/加列 + 4 服务 + 1 API 改；前端 2 页面改 + 1 API client；测试 6 文件；CI 脚本 1。
+- 阶段 C：后端 1 表加列 + 2 服务新增/改 + 1 API 改；前端 1 页面改 + 1 API client；测试 3 文件。
 
 ## 验证方式（每阶段）
 
-1. `cd backend && uv run python -m pytest -q` 全绿（含各阶段新用例）
-2. `cd web && npx tsc -b --noEmit && npx vitest run` 全绿
-3. 后端重启 + 浏览器实测核心链路（解释器跑图表、触发器到点执行、记忆存取、父子委托、OpenAI 端点 curl 流式）
-4. git commit（主题化 message，沿用中文惯例）
+1. `cd backend && uv run python -m pytest tests/test_<新文件>.py -q` 全绿（连不上真实依赖的用例 skip 并说明）。
+2. `cd web && npx tsc -b --noEmit && npx vitest run <相关测试文件>` 全绿；`npx eslint <改动文件>` 通过。
+3. 后端重启 + `curl /healthz` 200；Playground 流端点用 `curl -N` 看到 `assistant_delta`/`done` 帧且 `chat_messages` 无新增。
+4. `git commit`（中文主题化 message）。
 
 ## 风险与边界
 
-- 阶段 A 的 local 执行器是无隔离模式（本机 dev）；生产切 docker 配置即可，代码不动
-- 阶段 B 的无人值守会话遇审批会中止并记录（绝不自动批准，符合 G1 口径）；建议绑定只读工具助理
-- 阶段 E 的 OpenAI 端点不暴露工具/审批帧（对外只回文本），工具型助理不适用对外发布——文档写明
-- 全程不打断：每阶段完成即提交并直接进入下一阶段
+- **Playground 不落库**：绕开 `stream_session_message` 直调 `stream_adk_turn` + `InMemorySessionService`；工具审批在试跑中一律「自动拒绝」并提示（试跑不写审批记录），避免留下悬挂审批。
+- **LLM-judge 不可复现性**：rubric + 结构化输出 + 留存 `judge_model` 与原始 reason；判分失败显式落 `parse_error`，不静默吞。测试只跑 1-2 条真实调用，其余走解析单测。
+- **Registry 网络依赖**：`registry.modelcontextprotocol.io` 不可达时显式报错并给重试入口，不做静默降级；测试 skip。
+- **对抗用例集**：只做「输入 + 安全断言」复用现有管线，不自研攻击生成器；内置库来源需在 `redteam_library.py` 注释里写明。
+- **版本回滚影响所有会话**：会话实时读助理配置（`chat_service.py:1478`），回滚立即生效——这是本轮接受的口径，回滚弹窗里必须明示。
+- **不使用浏览器测试**。
