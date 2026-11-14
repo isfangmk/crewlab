@@ -1,15 +1,21 @@
 // 评测集详情：用例维护、发起真实会话评测、运行结果与基线对比。
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
+  ChevronDown,
+  ClipboardCheck,
+  Download,
   GitCompare,
   Loader2,
+  MessageSquareText,
   Pencil,
   Play,
   Plus,
   Power,
   RefreshCw,
+  ShieldCheck,
+  Swords,
   Trash2,
 } from 'lucide-react';
 import {
@@ -24,8 +30,13 @@ import {
   RowActionIcon,
   Select,
   StatusPill,
+  Switch,
   TableCard,
   TableHead,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   Textarea,
   Toast,
   type ToastTone,
@@ -36,6 +47,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
+import { saveBlob } from '@/lib/download';
 import { fullDateTime } from '@/lib/format';
 import { CASE_STATUS_META, RUN_STATUS_META, caseStatusMeta } from '@/lib/evalStatus';
 import { useTimeout } from '@/lib/useTimeout';
@@ -44,17 +56,35 @@ import { usePermissions } from '@/store/me';
 import { listAgents, type AgentSummary } from '@/api/agents';
 import { listModels, type ModelCatalog } from '@/api/chat';
 import {
+  claimNextAnnotation,
   compareEvalRuns,
   createEvalCase,
   deleteEvalCase,
+  evaluateGate,
+  exportEvalRun,
   getEvalDataset,
   getEvalRun,
+  getJudgeConfig,
+  listAnnotations,
+  listJudgeScores,
+  saveJudgeConfig,
+  seedRedteamCases,
   startEvalRun,
+  submitAnnotation,
+  updateAnnotation,
   updateEvalCase,
+  updateEvalDataset,
+  type EvalAnnotation,
   type EvalCase,
   type EvalCaseInput,
+  type EvalCaseKind,
+  type EvalCaseResult,
   type EvalCompare,
+  type EvalConsistency,
   type EvalDatasetDetail,
+  type EvalGateResult,
+  type EvalJudgeConfig,
+  type EvalJudgeScore,
   type EvalRun,
   type EvalRunDetail,
 } from '@/api/evals';
@@ -77,6 +107,8 @@ export default function EvalDatasetPage() {
   const [runErr, setRunErr] = useState<string | null>(null);
   const [compareFor, setCompareFor] = useState<EvalRun | null>(null);
   const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
+  const [tab, setTab] = useState<'cases' | 'runs' | 'annotations' | 'gate'>('cases');
+  const [seeding, setSeeding] = useState(false);
 
   const flashTimer = useTimeout();
   const flash = useCallback(
@@ -85,6 +117,20 @@ export default function EvalDatasetPage() {
       flashTimer(() => setToast(null), 4000);
     },
     [flashTimer],
+  );
+
+  // 导出走文件流接口，拿到 blob 后触发浏览器下载
+  const exportRun = useCallback(
+    async (runUid: string, format: 'json' | 'csv') => {
+      try {
+        const { blob, filename } = await exportEvalRun(runUid, format);
+        saveBlob(blob, filename);
+        flash('ok', tr('导出已开始', 'Export started'));
+      } catch (e) {
+        flash('err', errorText(e));
+      }
+    },
+    [flash, tr],
   );
 
   const load = useCallback(async (silent = false) => {
@@ -104,6 +150,25 @@ export default function EvalDatasetPage() {
       setLoading(false);
     }
   }, [id]);
+
+  // 导入内置对抗库：同名用例跳过，可重复执行
+  const seedRedteam = useCallback(async () => {
+    setSeeding(true);
+    try {
+      const result = await seedRedteamCases(id);
+      await load(true);
+      flash(
+        'ok',
+        result.created === 0
+          ? tr('对抗用例已在库中，无新增', 'Red team cases already present')
+          : tr(`已导入 ${result.created} 条对抗用例`, `Imported ${result.created} red team cases`),
+      );
+    } catch (e) {
+      flash('err', errorText(e));
+    } finally {
+      setSeeding(false);
+    }
+  }, [id, load, flash, tr]);
 
   useEffect(() => {
     void load();
@@ -215,6 +280,18 @@ export default function EvalDatasetPage() {
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
         {err && <ErrorBanner>{err}</ErrorBanner>}
 
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as 'cases' | 'runs' | 'annotations' | 'gate')}
+        >
+          <TabsList aria-label={tr('评测集分区', 'Dataset sections')}>
+            <TabsTrigger value="cases">{tr('用例', 'Cases')}</TabsTrigger>
+            <TabsTrigger value="runs">{tr('运行记录', 'Runs')}</TabsTrigger>
+            <TabsTrigger value="annotations">{tr('标注队列', 'Annotation queue')}</TabsTrigger>
+            <TabsTrigger value="gate">{tr('门禁', 'Gate')}</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="cases" keepMounted>
         <section className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -229,10 +306,21 @@ export default function EvalDatasetPage() {
               </p>
             </div>
             {canMutate && (
-              <Button size="sm" onClick={() => setCaseEditor({ case: null })}>
-                <Plus size={12} />
-                {tr('新增用例', 'Add case')}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void seedRedteam()}
+                  disabled={seeding}
+                >
+                  <Swords size={12} />
+                  {seeding ? tr('导入中…', 'Importing…') : tr('导入对抗用例', 'Import red team cases')}
+                </Button>
+                <Button size="sm" onClick={() => setCaseEditor({ case: null })}>
+                  <Plus size={12} />
+                  {tr('新增用例', 'Add case')}
+                </Button>
+              </div>
             )}
           </div>
           {dataset.cases.length === 0 ? (
@@ -251,6 +339,7 @@ export default function EvalDatasetPage() {
                   <col className={COL.main} />
                   <col className={COL.detail} />
                   <col className={COL.tag} />
+                  <col className={COL.tag} />
                   <col className={COL.actionsIcon} />
                 </colgroup>
                 <TableHead>
@@ -260,6 +349,9 @@ export default function EvalDatasetPage() {
                     </th>
                     <th scope="col" className="px-3 py-2 text-left font-medium">
                       {tr('断言', 'Assertions')}
+                    </th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">
+                      {tr('类型', 'Kind')}
                     </th>
                     <th scope="col" className="px-3 py-2 text-left font-medium">
                       {tr('状态', 'Status')}
@@ -285,6 +377,24 @@ export default function EvalDatasetPage() {
                       </td>
                       <td className="px-3 py-2">
                         <CaseAssertions item={item} />
+                      </td>
+                      <td className="px-3 py-2">
+                        {item.kind === 'redteam' ? (
+                          <div className="space-y-1">
+                            <Chip dense tone="warning">
+                              {tr('对抗', 'Red team')}
+                            </Chip>
+                            {item.attack_type && (
+                              <span className="block font-sans text-[10px] text-zinc-500">
+                                {item.attack_type}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <Chip dense tone="default">
+                            {tr('普通', 'Normal')}
+                          </Chip>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <StatusPill
@@ -338,7 +448,9 @@ export default function EvalDatasetPage() {
             </TableCard>
           )}
         </section>
+          </TabsContent>
 
+          <TabsContent value="runs" keepMounted>
         <section className="space-y-2">
           <div>
             <h2 className="text-[12px] font-semibold text-zinc-200">
@@ -450,6 +562,20 @@ export default function EvalDatasetPage() {
                                 onClick={() => setCompareFor(run)}
                               />
                             </Hint>
+                            <Hint
+                              content={
+                                run.status === 'completed'
+                                  ? tr('导出 CSV', 'Export CSV')
+                                  : tr('运行完成后可导出', 'Export after completion')
+                              }
+                            >
+                              <RowActionIcon
+                                icon={Download}
+                                label={tr('导出', 'Export')}
+                                disabled={run.status !== 'completed'}
+                                onClick={() => void exportRun(run.run_uid, 'csv')}
+                              />
+                            </Hint>
                           </div>
                         </td>
                       </tr>
@@ -460,6 +586,23 @@ export default function EvalDatasetPage() {
             </TableCard>
           )}
         </section>
+          </TabsContent>
+
+          <TabsContent value="annotations" keepMounted>
+            <AnnotationQueueTab
+              runs={dataset.runs}
+              onFlash={flash}
+            />
+          </TabsContent>
+
+          <TabsContent value="gate" keepMounted>
+            <GateTab
+              dataset={dataset}
+              onSaved={() => void load(true)}
+              onFlash={flash}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
 
       {caseEditor !== null && (
@@ -512,6 +655,7 @@ export default function EvalDatasetPage() {
         <RunResultDialog
           run={activeRun}
           error={runErr}
+          onExport={(runUid, format) => void exportRun(runUid, format)}
           onClose={() => {
             setActiveRunUid(null);
             setActiveRun(null);
@@ -536,6 +680,10 @@ export default function EvalDatasetPage() {
 function CaseAssertions({ item }: { item: EvalCase }) {
   const { tr } = useI18n();
   const chips: string[] = [];
+  // 对抗用例的安全断言：出现泄漏词即判失败，展示口径与其他断言一致
+  for (const keyword of item.safety_keywords ?? []) {
+    chips.push(tr(`安全「${keyword}」`, `safety "${keyword}"`));
+  }
   for (const keyword of item.expected_keywords) {
     chips.push(tr(`含「${keyword}」`, `contains "${keyword}"`));
   }
@@ -605,6 +753,11 @@ function CaseEditor({
   const editing = item !== null;
   const [name, setName] = useState(item?.name ?? '');
   const [input, setInput] = useState(item?.input ?? '');
+  const [kind, setKind] = useState<EvalCaseKind>(item?.kind ?? 'normal');
+  const [attackType, setAttackType] = useState(item?.attack_type ?? '');
+  const [safetyKeywords, setSafetyKeywords] = useState(
+    (item?.safety_keywords ?? []).join('\n'),
+  );
   const [expectedKeywords, setExpectedKeywords] = useState(
     (item?.expected_keywords ?? []).join('\n'),
   );
@@ -634,6 +787,9 @@ function CaseEditor({
       const payload: EvalCaseInput = {
         name: name.trim(),
         input: input.trim(),
+        kind,
+        attack_type: attackType.trim(),
+        safety_keywords: splitLines(safetyKeywords),
         expected_keywords: splitLines(expectedKeywords),
         forbidden_keywords: splitLines(forbiddenKeywords),
         expected_tools: splitLines(expectedTools),
@@ -669,7 +825,12 @@ function CaseEditor({
             variant="primary"
             size="sm"
             onClick={() => void save()}
-            disabled={saving || name.trim() === '' || input.trim() === ''}
+            disabled={
+              saving ||
+              name.trim() === '' ||
+              input.trim() === '' ||
+              (kind === 'redteam' && attackType.trim() === '')
+            }
           >
             {saving ? tr('保存中…', 'Saving…') : tr('保存用例', 'Save case')}
           </Button>
@@ -700,6 +861,50 @@ function CaseEditor({
                 'The real prompt sent to the assistant in a fresh session',
               )}
               rows={3}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="eval-case-kind">{tr('用例类型', 'Case kind')}</Label>
+            <Select
+              id="eval-case-kind"
+              value={kind}
+              onValueChange={(value) => setKind(value as EvalCaseKind)}
+              options={[
+                { value: 'normal', label: tr('普通回归', 'Normal') },
+                { value: 'redteam', label: tr('对抗（红队）', 'Red team') },
+              ]}
+              aria-label={tr('用例类型', 'Case kind')}
+              className="w-full"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="eval-case-attack-type">
+              {tr('攻击类型', 'Attack type')}
+            </Label>
+            <Input
+              id="eval-case-attack-type"
+              value={attackType}
+              onChange={(e) => setAttackType(e.target.value)}
+              placeholder={tr(
+                '对抗用例必填，如 jailbreak / prompt_injection',
+                'Required for red team cases, e.g. jailbreak / prompt_injection',
+              )}
+              maxLength={64}
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="eval-case-safety-keywords">
+              {tr('安全断言（泄漏词）', 'Safety keywords')}
+            </Label>
+            <Textarea
+              id="eval-case-safety-keywords"
+              value={safetyKeywords}
+              onChange={(e) => setSafetyKeywords(e.target.value)}
+              placeholder={tr(
+                '每行一个；输出出现即判失败（对抗用例核心断言）',
+                'One per line; any match in the output fails the case',
+              )}
+              rows={2}
             />
           </div>
           <div className="space-y-1.5">
@@ -811,16 +1016,18 @@ function RunDialog({
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
   const [agentId, setAgentId] = useState('default');
   const [modelValue, setModelValue] = useState('');
+  const [judge, setJudge] = useState<EvalJudgeConfig | null>(null);
   const [starting, setStarting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([listAgents(), listModels()])
-      .then(([agentList, modelCatalog]) => {
+    void Promise.all([listAgents(), listModels(), getJudgeConfig(datasetId)])
+      .then(([agentList, modelCatalog, judgeConfig]) => {
         if (cancelled) return;
         setAgents(agentList.items);
         setCatalog(modelCatalog);
+        setJudge(judgeConfig);
         if (!agentList.items.some((item) => item.name === 'default')) {
           setAgentId(agentList.items[0]?.name ?? '');
         }
@@ -831,7 +1038,7 @@ function RunDialog({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [datasetId]);
 
   const agentOptions = (agents ?? []).map((agent) => ({
     value: agent.name,
@@ -853,6 +1060,16 @@ function RunDialog({
     setStarting(true);
     setErr(null);
     try {
+      // 评分配置跟着本次运行落库，运行中按该配置逐条打分
+      if (judge !== null) {
+        await saveJudgeConfig(datasetId, {
+          enabled: judge.enabled,
+          rubric: judge.rubric,
+          judge_provider: judge.judge_provider,
+          judge_model: judge.judge_model,
+          pass_score: judge.pass_score,
+        });
+      }
       const [provider, model] = modelValue === '' ? ['', ''] : modelValue.split('::', 2);
       const run = await startEvalRun(datasetId, {
         agent_id: agentId,
@@ -924,22 +1141,143 @@ function RunDialog({
             )}
           </p>
         </div>
+        <div className="space-y-2 rounded-lg border border-zinc-800/60 bg-zinc-950/60 px-3 py-2.5">
+          <Label className="flex w-full items-center justify-between gap-3 text-[11px] text-zinc-300">
+            <span>
+              {tr('启用 LLM 评分', 'Enable LLM judge')}
+              <span className="ml-2 text-[10px] text-zinc-500">
+                {tr(
+                  '确定性断言之外按 rubric 打维度分，低于阈值判失败',
+                  'Score output quality per rubric; below threshold fails the case',
+                )}
+              </span>
+            </span>
+            <Switch
+              checked={judge?.enabled ?? false}
+              onCheckedChange={(checked) =>
+                setJudge((prev) =>
+                  prev === null
+                    ? {
+                        dataset_id: datasetId,
+                        enabled: checked,
+                        rubric: '',
+                        judge_provider: '',
+                        judge_model: '',
+                        pass_score: 3,
+                        updated_at: null,
+                      }
+                    : { ...prev, enabled: checked },
+                )
+              }
+              aria-label={tr('启用 LLM 评分', 'Enable LLM judge')}
+            />
+          </Label>
+          {judge?.enabled && (
+            <div className="space-y-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="eval-judge-rubric">
+                  {tr('评分标准（rubric）', 'Rubric')}
+                </Label>
+                <Textarea
+                  id="eval-judge-rubric"
+                  value={judge.rubric}
+                  onChange={(e) =>
+                    setJudge((prev) =>
+                      prev === null ? prev : { ...prev, rubric: e.target.value },
+                    )
+                  }
+                  placeholder={tr(
+                    '例如：按正确性、完整性、相关性各打 0-5 分',
+                    'e.g. score correctness, completeness, relevance from 0-5',
+                  )}
+                  rows={2}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="eval-judge-pass">
+                  {tr('通过阈值（0-5 平均分）', 'Pass score (avg 0-5)')}
+                </Label>
+                <Input
+                  id="eval-judge-pass"
+                  type="number"
+                  min={0}
+                  max={5}
+                  step={0.5}
+                  value={String(judge.pass_score)}
+                  onChange={(e) =>
+                    setJudge((prev) =>
+                      prev === null
+                        ? prev
+                        : { ...prev, pass_score: Number(e.target.value) || 0 },
+                    )
+                  }
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </Modal>
   );
+}
+
+// LLM 评分平均分：解析失败的 parse 记录不计入，无有效维度返回 null
+function judgeAvg(items: EvalJudgeScore[] | undefined): number | null {
+  const dims = (items ?? []).filter((item) => item.dimension !== 'parse');
+  if (dims.length === 0) return null;
+  return dims.reduce((sum, item) => sum + item.score, 0) / dims.length;
 }
 
 function RunResultDialog({
   run,
   error,
   onClose,
+  onExport,
 }: {
   run: EvalRunDetail | null;
   error: string | null;
   onClose(): void;
+  onExport(runUid: string, format: 'json' | 'csv'): void;
 }) {
   const { tr } = useI18n();
   const meta = run ? RUN_STATUS_META[run.status] : null;
+  // 评分数据独立接口：运行完成后一次性取回逐结果 judge 分与阈值配置
+  const [scores, setScores] = useState<Record<string, EvalJudgeScore[]> | null>(null);
+  const [judgeConfig, setJudgeConfig] = useState<EvalJudgeConfig | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [annotate, setAnnotate] = useState<EvalCaseResult | null>(null);
+
+  useEffect(() => {
+    if (run === null || run.status !== 'completed') return;
+    // 只在进入 completed 的这一刻取一次；此后 run 引用不再变化
+    const runUid = run.run_uid;
+    const datasetId = run.dataset_id;
+    const resultIds = run.results.map((item) => item.id);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [config, pairs] = await Promise.all([
+          getJudgeConfig(datasetId),
+          Promise.all(
+            resultIds.map(async (resultId) => {
+              const data = await listJudgeScores(runUid, resultId);
+              return [resultId, data.items] as const;
+            }),
+          ),
+        ]);
+        if (cancelled) return;
+        setJudgeConfig(config);
+        setScores(Object.fromEntries(pairs));
+      } catch {
+        // 评分加载失败不影响结果展示；展开行会显示缺省提示
+        if (!cancelled) setScores({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [run]);
+
   const totalTokens = (run?.results ?? []).reduce(
     (sum, item) => sum + (item.total_tokens ?? 0),
     0,
@@ -985,6 +1323,22 @@ function RunResultDialog({
                 `${totalTokens.toLocaleString()} tokens · ${(totalDuration / 1000).toFixed(1)}s`,
               )}
             </span>
+            {run.status === 'completed' && (
+              <>
+                <RowAction
+                  icon={Download}
+                  onClick={() => onExport(run.run_uid, 'csv')}
+                >
+                  {tr('导出 CSV', 'Export CSV')}
+                </RowAction>
+                <RowAction
+                  icon={Download}
+                  onClick={() => onExport(run.run_uid, 'json')}
+                >
+                  {tr('导出 JSON', 'Export JSON')}
+                </RowAction>
+              </>
+            )}
             <span className="ml-auto font-sans text-[10px] text-zinc-500">
               {run.agent_id} · {run.provider} · {run.model}
             </span>
@@ -1009,63 +1363,153 @@ function RunResultDialog({
                   <tr>
                     <th className="px-3 py-2 font-medium">{tr('用例', 'Case')}</th>
                     <th className="px-3 py-2 font-medium">{tr('结果', 'Result')}</th>
+                    <th className="px-3 py-2 font-medium">{tr('评分', 'Score')}</th>
                     <th className="px-3 py-2 font-medium">{tr('失败原因', 'Reasons')}</th>
                     <th className="px-3 py-2 font-medium">{tr('输出 / 追踪', 'Output / trace')}</th>
+                    <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/40 align-top">
                   {run.results.map((result) => {
                     const itemMeta = CASE_STATUS_META[result.status];
+                    const avg = judgeAvg(scores?.[result.id]);
+                    const dims = scores?.[result.id] ?? [];
                     return (
-                      <tr key={result.id} className="hover:bg-zinc-900/40">
-                        <td className="max-w-[10rem] px-3 py-2">
-                          <span className="block truncate font-medium text-zinc-200">
-                            {result.case_name}
-                          </span>
-                          <span className="block truncate text-[10px] text-zinc-500">
-                            {result.input}
-                          </span>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2">
-                          <StatusPill tone={itemMeta.tone} label={tr(itemMeta.zh, itemMeta.en)} />
-                          <span className="mt-1 block tabular-nums text-[10px] text-zinc-500">
-                            {result.duration_ms ?? '—'}ms · {result.total_tokens ?? '—'} tk
-                          </span>
-                        </td>
-                        <td className="max-w-[14rem] px-3 py-2 text-[10px] text-zinc-400">
-                          {result.failure_reasons.length === 0 ? (
-                            <span className="text-zinc-600">—</span>
-                          ) : (
-                            <ul className="list-disc space-y-0.5 pl-3">
-                              {result.failure_reasons.map((reason) => (
-                                <li key={reason}>{reason}</li>
-                              ))}
-                            </ul>
-                          )}
-                          {result.tool_names.length > 0 && (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {result.tool_names.map((tool) => (
-                                <Chip key={tool} dense tone="info">
-                                  {tool}
-                                </Chip>
-                              ))}
+                      <Fragment key={result.id}>
+                        <tr className="hover:bg-zinc-900/40">
+                          <td className="max-w-[10rem] px-3 py-2">
+                            <span className="block truncate font-medium text-zinc-200">
+                              {result.case_name}
+                            </span>
+                            <span className="block truncate text-[10px] text-zinc-500">
+                              {result.input}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2">
+                            <StatusPill tone={itemMeta.tone} label={tr(itemMeta.zh, itemMeta.en)} />
+                            <span className="mt-1 block tabular-nums text-[10px] text-zinc-500">
+                              {result.duration_ms ?? '—'}ms · {result.total_tokens ?? '—'} tk
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2">
+                            {avg === null ? (
+                              <span className="text-[10px] text-zinc-600">—</span>
+                            ) : (
+                              <div className="flex items-center gap-1">
+                                <span className="tabular-nums text-[11px] text-zinc-200">
+                                  {avg.toFixed(1)}
+                                </span>
+                                {judgeConfig?.enabled && (
+                                  <Chip
+                                    dense
+                                    tone={avg >= judgeConfig.pass_score ? 'success' : 'danger'}
+                                  >
+                                    {avg >= judgeConfig.pass_score
+                                      ? tr('过线', 'Above')
+                                      : tr('低于阈值', 'Below')}
+                                  </Chip>
+                                )}
+                              </div>
+                            )}
+                            {dims.some((item) => item.dimension === 'parse') && (
+                              <span className="mt-1 block text-[10px] text-danger">
+                                {tr('评分解析失败', 'Judge parse error')}
+                              </span>
+                            )}
+                          </td>
+                          <td className="max-w-[14rem] px-3 py-2 text-[10px] text-zinc-400">
+                            {result.failure_reasons.length === 0 ? (
+                              <span className="text-zinc-600">—</span>
+                            ) : (
+                              <ul className="list-disc space-y-0.5 pl-3">
+                                {result.failure_reasons.map((reason) => (
+                                  <li key={reason}>{reason}</li>
+                                ))}
+                              </ul>
+                            )}
+                            {result.tool_names.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {result.tool_names.map((tool) => (
+                                  <Chip key={tool} dense tone="info">
+                                    {tool}
+                                  </Chip>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="max-w-[18rem] px-3 py-2">
+                            <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded bg-zinc-950/70 px-2 py-1 text-[10px] leading-4 text-zinc-400">
+                              {result.output || '—'}
+                            </pre>
+                            {result.session_id && (
+                              <Link
+                                to={`/observability?session_id=${encodeURIComponent(result.session_id)}`}
+                                className="mt-1 inline-block whitespace-nowrap text-[10px] text-indigo-300 hover:text-indigo-200"
+                              >
+                                {tr('查看 trace', 'View trace')}
+                              </Link>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="flex items-center justify-end gap-0.5">
+                              <Hint content={tr('评分详情', 'Score details')}>
+                                <RowActionIcon
+                                  icon={ChevronDown}
+                                  label={tr('评分详情', 'Score details')}
+                                  className={expanded === result.id ? 'rotate-180' : ''}
+                                  onClick={() =>
+                                    setExpanded((prev) => (prev === result.id ? null : result.id))
+                                  }
+                                />
+                              </Hint>
+                              <Hint content={tr('标注', 'Annotate')}>
+                                <RowActionIcon
+                                  icon={MessageSquareText}
+                                  label={tr('标注', 'Annotate')}
+                                  onClick={() => setAnnotate(result)}
+                                />
+                              </Hint>
                             </div>
-                          )}
-                        </td>
-                        <td className="max-w-[18rem] px-3 py-2">
-                          <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded bg-zinc-950/70 px-2 py-1 text-[10px] leading-4 text-zinc-400">
-                            {result.output || '—'}
-                          </pre>
-                          {result.session_id && (
-                            <Link
-                              to={`/observability?session_id=${encodeURIComponent(result.session_id)}`}
-                              className="mt-1 inline-block whitespace-nowrap text-[10px] text-indigo-300 hover:text-indigo-200"
-                            >
-                              {tr('查看 trace', 'View trace')}
-                            </Link>
-                          )}
-                        </td>
-                      </tr>
+                          </td>
+                        </tr>
+                        {expanded === result.id && (
+                          <tr className="bg-zinc-950/40">
+                            <td colSpan={6} className="px-3 py-2">
+                              {dims.length === 0 ? (
+                                <span className="text-[10px] text-zinc-500">
+                                  {tr(
+                                    '本次运行没有 LLM 评分记录（未启用评分或结果为 error）。',
+                                    'No LLM judge scores for this result.',
+                                  )}
+                                </span>
+                              ) : (
+                                <table className="w-full text-left text-[10px]">
+                                  <thead className="text-zinc-500">
+                                    <tr>
+                                      <th className="py-1 pr-3 font-medium">{tr('维度', 'Dimension')}</th>
+                                      <th className="py-1 pr-3 font-medium">{tr('分数', 'Score')}</th>
+                                      <th className="py-1 pr-3 font-medium">{tr('理由', 'Reason')}</th>
+                                      <th className="py-1 font-medium">{tr('裁判模型', 'Judge model')}</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-zinc-800/40">
+                                    {dims.map((item) => (
+                                      <tr key={item.id}>
+                                        <td className="py-1 pr-3 text-zinc-200">{item.dimension}</td>
+                                        <td className="py-1 pr-3 tabular-nums text-zinc-300">
+                                          {item.score.toFixed(1)}
+                                        </td>
+                                        <td className="py-1 pr-3 text-zinc-400">{item.reason}</td>
+                                        <td className="py-1 font-sans text-zinc-500">{item.judge_model}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     );
                   })}
                 </tbody>
@@ -1073,6 +1517,14 @@ function RunResultDialog({
             </div>
           )}
         </div>
+      )}
+      {annotate !== null && (
+        <AnnotationDialog
+          resultId={annotate.id}
+          caseName={annotate.case_name}
+          onClose={() => setAnnotate(null)}
+          onSaved={() => setAnnotate(null)}
+        />
       )}
     </Modal>
   );
@@ -1253,5 +1705,588 @@ function SummaryCard({
       <div className="text-[10px] text-zinc-500">{label}</div>
       <div className={`mt-0.5 text-sm font-semibold tabular-nums ${tone}`}>{value}</div>
     </div>
+  );
+}
+
+// 人工判定标签的展示口径：颜色跟语义走，文案双语
+const LABEL_META: Record<
+  string,
+  { zh: string; en: string; tone: 'success' | 'warning' | 'danger' }
+> = {
+  good: { zh: '好', en: 'Good', tone: 'success' },
+  needs_work: { zh: '待改进', en: 'Needs work', tone: 'warning' },
+  bad: { zh: '差', en: 'Bad', tone: 'danger' },
+};
+
+function AnnotationDialog({
+  resultId,
+  caseName,
+  existing,
+  onClose,
+  onSaved,
+}: {
+  resultId: string;
+  caseName: string;
+  existing?: EvalAnnotation | null;
+  onClose(): void;
+  onSaved(): void;
+}) {
+  const { tr } = useI18n();
+  const [label, setLabel] = useState<EvalAnnotation['label']>(existing?.label ?? 'good');
+  const [comment, setComment] = useState(existing?.comment ?? '');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    setSaving(true);
+    setErr(null);
+    try {
+      if (existing != null) {
+        await updateAnnotation(existing.id, { label, comment });
+      } else {
+        await submitAnnotation({ result_id: resultId, label, comment });
+      }
+      onSaved();
+    } catch (e) {
+      setErr(errorText(e));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={tr('标注评测结果', 'Annotate result')}
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            {tr('取消', 'Cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => void save()}
+            disabled={saving}
+          >
+            {saving ? tr('保存中…', 'Saving…') : tr('提交标注', 'Submit')}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {err && <ErrorBanner>{err}</ErrorBanner>}
+        <p className="text-[11px] text-zinc-400">
+          {tr('用例', 'Case')}:{' '}
+          <span className="text-zinc-200">{caseName}</span>
+        </p>
+        <div className="space-y-1.5">
+          <Label htmlFor="eval-annotation-label">{tr('判定', 'Label')}</Label>
+          <Select
+            id="eval-annotation-label"
+            value={label}
+            onValueChange={(value) => setLabel(value as EvalAnnotation['label'])}
+            options={[
+              { value: 'good', label: tr('好', 'Good') },
+              { value: 'needs_work', label: tr('待改进', 'Needs work') },
+              { value: 'bad', label: tr('差', 'Bad') },
+            ]}
+            aria-label={tr('判定', 'Label')}
+            className="w-full"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="eval-annotation-comment">{tr('备注', 'Comment')}</Label>
+          <Textarea
+            id="eval-annotation-comment"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder={tr('可选：记录判定依据', 'Optional: note your reasoning')}
+            rows={3}
+            maxLength={2000}
+          />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function AnnotationQueueTab({
+  runs,
+  onFlash,
+}: {
+  runs: EvalRun[];
+  onFlash(tone: ToastTone, text: string): void;
+}) {
+  const { tr } = useI18n();
+  const completed = useMemo(
+    () => runs.filter((run) => run.status === 'completed'),
+    [runs],
+  );
+  const [runUid, setRunUid] = useState(completed[0]?.run_uid ?? '');
+  const [stats, setStats] = useState<EvalConsistency | null>(null);
+  const [items, setItems] = useState<EvalAnnotation[]>([]);
+  const [claim, setClaim] = useState<EvalCaseResult | null>(null);
+  const [editing, setEditing] = useState<EvalAnnotation | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    if (runUid === '') return;
+    try {
+      const data = await listAnnotations(runUid);
+      setItems(data.items);
+      setStats(data.consistency);
+      setErr(null);
+    } catch (e) {
+      setErr(errorText(e));
+    }
+  }, [runUid]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const claimNext = async () => {
+    try {
+      const data = await claimNextAnnotation(runUid);
+      if (data.result === null) {
+        setClaim(null);
+        onFlash('ok', tr('标注队列已清空', 'Annotation queue is empty'));
+      } else {
+        setClaim(data.result);
+      }
+    } catch (e) {
+      onFlash('err', errorText(e));
+    }
+  };
+
+  if (completed.length === 0) {
+    return (
+      <EmptyStateCard
+        icon={ClipboardCheck}
+        title={tr('还没有可标注的运行', 'No runs to annotate')}
+        hint={tr(
+          '先运行一次评测，完成后在这里逐条人工判定结果。',
+          'Run an eval first, then annotate its results here.',
+        )}
+      />
+    );
+  }
+
+  return (
+    <section className="space-y-3">
+      {err && <ErrorBanner>{err}</ErrorBanner>}
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="eval-ann-run">{tr('运行', 'Run')}</Label>
+          <Select
+            id="eval-ann-run"
+            value={runUid}
+            onValueChange={(value) => {
+              setRunUid(value);
+              setClaim(null);
+            }}
+            options={completed.map((run) => ({
+              value: run.run_uid,
+              label: `${run.started_at ? fullDateTime(run.started_at) : '—'} · ${run.model} · ${run.passed_cases}/${run.total_cases}`,
+            }))}
+            aria-label={tr('运行', 'Run')}
+            className="min-w-[22rem]"
+          />
+        </div>
+        <Button size="sm" onClick={() => void claimNext()} disabled={runUid === ''}>
+          <ClipboardCheck size={12} />
+          {tr('认领下一条', 'Claim next')}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => void reload()}>
+          <RefreshCw size={12} />
+          {tr('刷新', 'Refresh')}
+        </Button>
+      </div>
+
+      {stats !== null && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <SummaryCard
+            label={tr('已标注', 'Annotated')}
+            value={`${stats.annotated_results}/${stats.results_total}`}
+            tone="text-zinc-200"
+          />
+          <SummaryCard
+            label={tr('多人标注', 'Multi-annotated')}
+            value={String(stats.multi_annotated)}
+            tone="text-zinc-200"
+          />
+          <SummaryCard
+            label={tr('一致率', 'Agreement')}
+            value={
+              stats.agreement_rate === null
+                ? '—'
+                : `${(stats.agreement_rate * 100).toFixed(0)}%`
+            }
+            tone="text-zinc-200"
+          />
+          <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/60 px-3 py-2">
+            <div className="text-[10px] text-zinc-500">{tr('判定分布', 'Labels')}</div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {(['good', 'needs_work', 'bad'] as const).map((key) => (
+                <Chip key={key} dense tone={LABEL_META[key].tone}>
+                  {tr(LABEL_META[key].zh, LABEL_META[key].en)} {stats.label_counts[key] ?? 0}
+                </Chip>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {items.length === 0 ? (
+        <EmptyStateCard
+          icon={ClipboardCheck}
+          title={tr('还没有标注', 'No annotations yet')}
+          hint={tr(
+            '点「认领下一条」开始逐条判定；同一结果可多人标注，一致率自动统计。',
+            'Claim the next result to start; multiple annotators feed the agreement rate.',
+          )}
+        />
+      ) : (
+        <TableCard>
+          <table {...tableLayout(56)}>
+            <colgroup>
+              <col className={COL.main} />
+              <col className={COL.tag} />
+              <col className={COL.detail} />
+              <col className={COL.tag} />
+              <col className={COL.time} />
+              <col className={COL.actionsIcon} />
+            </colgroup>
+            <TableHead>
+              <tr className="whitespace-nowrap">
+                <th scope="col" className="px-3 py-2 text-left font-medium">
+                  {tr('用例', 'Case')}
+                </th>
+                <th scope="col" className="px-3 py-2 text-left font-medium">
+                  {tr('判定', 'Label')}
+                </th>
+                <th scope="col" className="px-3 py-2 text-left font-medium">
+                  {tr('备注', 'Comment')}
+                </th>
+                <th scope="col" className="px-3 py-2 text-left font-medium">
+                  {tr('标注人', 'Annotator')}
+                </th>
+                <th scope="col" className="px-3 py-2 text-left font-medium">
+                  {tr('时间', 'Time')}
+                </th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">
+                  {tr('操作', 'Actions')}
+                </th>
+              </tr>
+            </TableHead>
+            <tbody className="divide-y divide-zinc-800/40">
+              {items.map((item) => {
+                const meta = LABEL_META[item.label] ?? LABEL_META.good;
+                return (
+                  <tr key={item.id} className="group align-top transition-colors hover:bg-zinc-900/40">
+                    <td className="px-3 py-2">
+                      <span className="block truncate text-[12px] text-zinc-100">
+                        {item.case_name ?? item.result_id}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Chip dense tone={meta.tone}>
+                        {tr(meta.zh, meta.en)}
+                      </Chip>
+                    </td>
+                    <td className="max-w-[16rem] px-3 py-2 text-[10px] text-zinc-400">
+                      {item.comment || <span className="text-zinc-600">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-zinc-400">
+                      {item.annotator_user_id ?? '—'}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-zinc-500">
+                      {item.created_at ? fullDateTime(item.created_at) : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
+                        <Hint content={tr('编辑标注', 'Edit annotation')}>
+                          <RowActionIcon
+                            icon={Pencil}
+                            label={tr('编辑标注', 'Edit annotation')}
+                            onClick={() => setEditing(item)}
+                          />
+                        </Hint>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </TableCard>
+      )}
+
+      {claim !== null && (
+        <AnnotationDialog
+          resultId={claim.id}
+          caseName={claim.case_name}
+          onClose={() => setClaim(null)}
+          onSaved={() => {
+            setClaim(null);
+            void reload();
+            onFlash('ok', tr('标注已提交', 'Annotation saved'));
+          }}
+        />
+      )}
+      {editing !== null && (
+        <AnnotationDialog
+          resultId={editing.result_id}
+          caseName={editing.case_name ?? editing.result_id}
+          existing={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            void reload();
+            onFlash('ok', tr('标注已更新', 'Annotation updated'));
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function GateTab({
+  dataset,
+  onSaved,
+  onFlash,
+}: {
+  dataset: EvalDatasetDetail;
+  onSaved(): void;
+  onFlash(tone: ToastTone, text: string): void;
+}) {
+  const { tr } = useI18n();
+  const completed = useMemo(
+    () => dataset.runs.filter((run) => run.status === 'completed'),
+    [dataset.runs],
+  );
+  const [baseline, setBaseline] = useState(dataset.baseline_run_uid ?? '');
+  const [maxRegressions, setMaxRegressions] = useState(
+    String(dataset.gate_max_regressions),
+  );
+  const [minPassRate, setMinPassRate] = useState(String(dataset.gate_min_pass_rate));
+  const [saving, setSaving] = useState(false);
+  const [gateRunUid, setGateRunUid] = useState(completed[0]?.run_uid ?? '');
+  const [gate, setGate] = useState<EvalGateResult | null>(null);
+  const [running, setRunning] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await updateEvalDataset(dataset.id, {
+        baseline_run_uid: baseline,
+        gate_max_regressions: Math.max(0, Math.round(Number(maxRegressions) || 0)),
+        gate_min_pass_rate: Math.min(1, Math.max(0, Number(minPassRate) || 0)),
+      });
+      onSaved();
+      onFlash('ok', tr('门禁配置已保存', 'Gate config saved'));
+    } catch (e) {
+      onFlash('err', errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const evaluate = async () => {
+    setRunning(true);
+    setErr(null);
+    try {
+      setGate(await evaluateGate(gateRunUid));
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  if (completed.length === 0) {
+    return (
+      <EmptyStateCard
+        icon={ShieldCheck}
+        title={tr('还没有可门禁的运行', 'No runs to gate')}
+        hint={tr(
+          '门禁需要至少一次已完成的运行作为基线或被评对象。',
+          'The gate needs at least one completed run as baseline or target.',
+        )}
+      />
+    );
+  }
+
+  return (
+    <section className="space-y-3">
+      {err && <ErrorBanner>{err}</ErrorBanner>}
+      <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/60 p-3">
+        <h3 className="text-[12px] font-semibold text-zinc-200">
+          {tr('门禁配置', 'Gate config')}
+        </h3>
+        <p className="mt-0.5 text-[11px] text-zinc-500">
+          {tr(
+            '与基线运行对比：回归数超过上限、或通过率低于下限，门禁即 fail；CI 调同一判定。',
+            'Compared against the baseline run: too many regressions or low pass rate fails the gate; CI uses the same rule.',
+          )}
+        </p>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="eval-gate-baseline">{tr('基线运行', 'Baseline run')}</Label>
+            <Select
+              id="eval-gate-baseline"
+              value={baseline}
+              onValueChange={setBaseline}
+              options={[
+                { value: '', label: tr('未设门禁', 'Not configured') },
+                ...completed.map((run) => ({
+                  value: run.run_uid,
+                  label: `${run.started_at ? fullDateTime(run.started_at) : '—'} · ${run.model} · ${run.passed_cases}/${run.total_cases}`,
+                })),
+              ]}
+              aria-label={tr('基线运行', 'Baseline run')}
+              className="w-full"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="eval-gate-max-regressions">
+              {tr('允许回归数上限', 'Max regressions')}
+            </Label>
+            <Input
+              id="eval-gate-max-regressions"
+              type="number"
+              min={0}
+              value={maxRegressions}
+              onChange={(e) => setMaxRegressions(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="eval-gate-min-pass">
+              {tr('通过率下限（0-1）', 'Min pass rate (0-1)')}
+            </Label>
+            <Input
+              id="eval-gate-min-pass"
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={minPassRate}
+              onChange={(e) => setMinPassRate(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <Button size="sm" variant="primary" onClick={() => void save()} disabled={saving}>
+            {saving ? tr('保存中…', 'Saving…') : tr('保存配置', 'Save config')}
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="eval-gate-run">{tr('执行门禁的运行', 'Run to gate')}</Label>
+          <Select
+            id="eval-gate-run"
+            value={gateRunUid}
+            onValueChange={setGateRunUid}
+            options={completed.map((run) => ({
+              value: run.run_uid,
+              label: `${run.started_at ? fullDateTime(run.started_at) : '—'} · ${run.model} · ${run.passed_cases}/${run.total_cases}`,
+            }))}
+            aria-label={tr('执行门禁的运行', 'Run to gate')}
+            className="min-w-[22rem]"
+          />
+        </div>
+        <Button
+          size="sm"
+          onClick={() => void evaluate()}
+          disabled={running || gateRunUid === '' || baseline === ''}
+        >
+          {running ? (
+            <>
+              <Loader2 size={12} className="animate-spin" />
+              {tr('判定中…', 'Evaluating…')}
+            </>
+          ) : (
+            <>
+              <ShieldCheck size={12} />
+              {tr('执行门禁', 'Run gate')}
+            </>
+          )}
+        </Button>
+      </div>
+
+      {gate !== null && (
+        <div className="space-y-2 rounded-lg border border-zinc-800/60 bg-zinc-950/60 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill
+              tone={gate.pass ? 'ok' : 'danger'}
+              label={gate.pass ? tr('门禁通过', 'Gate passed') : tr('门禁未通过', 'Gate failed')}
+            />
+            <span className="text-[11px] text-zinc-400">
+              {tr('基线', 'Baseline')}:{' '}
+              <span className="font-sans text-[10px] text-zinc-500">{gate.baseline_run_uid}</span>
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <SummaryCard
+              label={tr('通过率', 'Pass rate')}
+              value={`${(gate.pass_rate * 100).toFixed(0)}%`}
+              tone="text-zinc-200"
+            />
+            <SummaryCard
+              label={tr('回归', 'Regressions')}
+              value={String(gate.regressions)}
+              tone={gate.regressions > 0 ? 'text-danger' : 'text-zinc-200'}
+            />
+            <SummaryCard
+              label={tr('改善', 'Improved')}
+              value={String(gate.improved)}
+              tone="text-ok"
+            />
+          </div>
+          {gate.reasons.length > 0 && (
+            <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-zinc-400">
+              {gate.reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          )}
+          {gate.regressed_cases.length > 0 && (
+            <div className="max-h-[30vh] overflow-y-auto rounded-lg border border-zinc-800/60">
+              <table className="w-full text-left text-[11px]">
+                <thead className="sticky top-0 z-10 bg-zinc-900/95 text-zinc-500">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">{tr('回归用例', 'Regressed case')}</th>
+                    <th className="px-3 py-2 font-medium">{tr('当前失败原因', 'Current reasons')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/40">
+                  {gate.regressed_cases.map((row) => (
+                    <tr key={`${row.case_id ?? row.case_name}`}>
+                      <td className="px-3 py-2 font-medium text-zinc-200">{row.case_name}</td>
+                      <td className="px-3 py-2 text-[10px] text-zinc-400">
+                        {row.current_reasons.length === 0 ? (
+                          <span className="text-zinc-600">—</span>
+                        ) : (
+                          <ul className="list-disc space-y-0.5 pl-3">
+                            {row.current_reasons.map((reason) => (
+                              <li key={reason}>{reason}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }

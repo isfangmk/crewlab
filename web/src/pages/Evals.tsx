@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import {
   Button,
+  Chip,
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
@@ -269,6 +270,16 @@ export default function EvalsPage() {
                         <span className="block truncate text-[10px] leading-4 text-zinc-500">
                           {dataset.description || tr('未填写说明', 'No description')}
                         </span>
+                        {dataset.baseline_run_uid !== '' && (
+                          <div className="mt-1">
+                            <Chip dense tone="info">
+                              {tr(
+                                `门禁基线 · 回归≤${dataset.gate_max_regressions} · 通过率≥${Math.round(dataset.gate_min_pass_rate * 100)}%`,
+                                `Gate · ≤${dataset.gate_max_regressions} regressions · ≥${Math.round(dataset.gate_min_pass_rate * 100)}% pass`,
+                              )}
+                            </Chip>
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         {last && meta ? (

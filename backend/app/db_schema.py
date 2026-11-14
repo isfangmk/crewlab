@@ -24,6 +24,12 @@ _REQUIRED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("knowledge_docs", "external_source_id", "VARCHAR(36)"),
     ("knowledge_docs", "external_key", "VARCHAR(1024)"),
     ("knowledge_docs", "external_hash", "VARCHAR(64)"),
+    ("eval_cases", "kind", "VARCHAR(16) NOT NULL DEFAULT 'normal'"),
+    ("eval_cases", "attack_type", "VARCHAR(64) NOT NULL DEFAULT ''"),
+    ("eval_cases", "safety_keywords_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("eval_datasets", "baseline_run_uid", "VARCHAR(32)"),
+    ("eval_datasets", "gate_max_regressions", "INTEGER NOT NULL DEFAULT 0"),
+    ("eval_datasets", "gate_min_pass_rate", "FLOAT NOT NULL DEFAULT 0.0"),
 )
 
 

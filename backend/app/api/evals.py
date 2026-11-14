@@ -6,17 +6,30 @@
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
-from app.services import eval_runner, eval_service
+from app.services import (
+    annotation_service,
+    eval_gate_service,
+    eval_judge_service,
+    eval_runner,
+    eval_service,
+    redteam_library,
+)
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
+from app.services.llm_config import resolve_model
+from app.services.redaction import redact_value
 
 router = APIRouter(tags=["evals"])
 
@@ -29,11 +42,18 @@ class DatasetCreateRequest(BaseModel):
 class DatasetUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = None
+    # 门禁配置：基线运行 + 回归上限 + 通过率下限
+    baseline_run_uid: str | None = None
+    gate_max_regressions: int | None = Field(default=None, ge=0)
+    gate_min_pass_rate: float | None = Field(default=None, ge=0, le=1)
 
 
 class CaseCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     input: str = Field(min_length=1)
+    kind: str = "normal"
+    attack_type: str = ""
+    safety_keywords: list[str] = Field(default_factory=list)
     expected_keywords: list[str] = Field(default_factory=list)
     forbidden_keywords: list[str] = Field(default_factory=list)
     expected_tools: list[str] = Field(default_factory=list)
@@ -47,6 +67,9 @@ class CaseCreateRequest(BaseModel):
 class CaseUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     input: str | None = Field(default=None, min_length=1)
+    kind: str | None = None
+    attack_type: str | None = None
+    safety_keywords: list[str] | None = None
     expected_keywords: list[str] | None = None
     forbidden_keywords: list[str] | None = None
     expected_tools: list[str] | None = None
@@ -64,13 +87,28 @@ class RunCreateRequest(BaseModel):
     model: str = ""
 
 
+class JudgeConfigRequest(BaseModel):
+    enabled: bool = False
+    rubric: str = ""
+    judge_provider: str = ""
+    judge_model: str = ""
+    pass_score: float = Field(default=3.0, ge=0, le=eval_judge_service.MAX_SCORE)
+
+
+class AnnotationCreateRequest(BaseModel):
+    result_id: str = Field(min_length=1, max_length=32)
+    label: str = Field(min_length=1, max_length=32)
+    comment: str = ""
+
+
+class AnnotationUpdateRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=32)
+    comment: str = ""
+
+
 def _dataset_detail(dataset: Any, cases: list[Any], runs: list[Any]) -> dict[str, Any]:
     return {
-        "id": dataset.id,
-        "name": dataset.name,
-        "description": dataset.description,
-        "created_at": dataset.created_at.isoformat() if dataset.created_at else None,
-        "updated_at": dataset.updated_at.isoformat() if dataset.updated_at else None,
+        **eval_service.dataset_to_wire(dataset),
         "cases": [eval_service.case_to_wire(item) for item in cases],
         "runs": [eval_service.run_to_wire(item) for item in runs],
     }
@@ -138,6 +176,9 @@ async def update_dataset(
             dataset_id,
             name=body.name,
             description=body.description,
+            baseline_run_uid=body.baseline_run_uid,
+            gate_max_regressions=body.gate_max_regressions,
+            gate_min_pass_rate=body.gate_min_pass_rate,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -188,6 +229,9 @@ async def create_case(
         fields = eval_service.validate_case_fields(
             name=body.name,
             input_text=body.input,
+            kind=body.kind,
+            attack_type=body.attack_type,
+            safety_keywords=body.safety_keywords,
             expected_keywords=body.expected_keywords,
             forbidden_keywords=body.forbidden_keywords,
             expected_tools=body.expected_tools,
@@ -230,6 +274,17 @@ async def update_case(
         fields = eval_service.validate_case_fields(
             name=body.name if body.name is not None else current["name"],
             input_text=body.input if body.input is not None else current["input"],
+            kind=body.kind if body.kind is not None else current["kind"],
+            attack_type=(
+                body.attack_type
+                if body.attack_type is not None
+                else current["attack_type"]
+            ),
+            safety_keywords=(
+                body.safety_keywords
+                if body.safety_keywords is not None
+                else current["safety_keywords"]
+            ),
             expected_keywords=(
                 body.expected_keywords
                 if body.expected_keywords is not None
@@ -375,3 +430,262 @@ async def compare_run(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/evals/datasets/{dataset_id}/judge-config")
+async def get_judge_config(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    try:
+        await eval_service.get_dataset(db, dataset_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    config = await eval_judge_service.get_judge_config(db, dataset_id)
+    if config is None:
+        # 未配置 = 关闭状态的默认口径，前端直接可编辑
+        return {
+            "dataset_id": dataset_id,
+            "enabled": False,
+            "rubric": "",
+            "judge_provider": "",
+            "judge_model": "",
+            "pass_score": 3.0,
+            "updated_at": None,
+        }
+    return eval_judge_service.judge_config_to_wire(config)
+
+
+@router.put("/evals/datasets/{dataset_id}/judge-config")
+async def save_judge_config(
+    dataset_id: int,
+    body: JudgeConfigRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    try:
+        await eval_service.get_dataset(db, dataset_id)
+        fields = eval_judge_service.validate_judge_fields(
+            enabled=body.enabled,
+            rubric=body.rubric,
+            judge_provider=body.judge_provider,
+            judge_model=body.judge_model,
+            pass_score=body.pass_score,
+        )
+        # 指定了裁判模型就先校验可解析，避免运行期才暴雷
+        if fields["judge_provider"] != "":
+            await resolve_model(db, fields["judge_provider"], fields["judge_model"])
+        row = await eval_judge_service.save_judge_config(db, dataset_id, fields=fields)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="eval.judge_config_update",
+        resource_type="eval_dataset",
+        resource_id=str(dataset_id),
+        detail={"enabled": row.enabled, "pass_score": row.pass_score},
+    )
+    return eval_judge_service.judge_config_to_wire(row)
+
+
+@router.get("/evals/runs/{run_uid}/results/{result_id}/judge-scores")
+async def list_judge_scores(
+    run_uid: str,
+    result_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    try:
+        detail = await eval_service.get_run_detail(db, run_uid)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if result_id not in {item["id"] for item in detail["results"]}:
+        raise HTTPException(status_code=404, detail="评测结果不存在")
+    items = await eval_judge_service.list_judge_scores(db, result_id)
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/evals/annotations")
+async def create_annotation(
+    body: AnnotationCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    try:
+        row = await annotation_service.submit_annotation(
+            db,
+            result_id=body.result_id,
+            annotator_user_id=user.id,
+            label=body.label,
+            comment=body.comment,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="eval.annotation",
+        resource_type="eval_annotation",
+        resource_id=row.id,
+        detail={"result_id": row.result_id, "label": row.label},
+    )
+    return annotation_service.annotation_to_wire(row)
+
+
+@router.post("/evals/annotations/{annotation_id}")
+async def update_annotation(
+    annotation_id: str,
+    body: AnnotationUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    try:
+        row = await annotation_service.update_annotation(
+            db, annotation_id, label=body.label, comment=body.comment
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="eval.annotation",
+        resource_type="eval_annotation",
+        resource_id=row.id,
+        detail={"result_id": row.result_id, "label": row.label},
+    )
+    return annotation_service.annotation_to_wire(row)
+
+
+@router.get("/evals/runs/{run_uid}/annotations")
+async def list_annotations(
+    run_uid: str,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    try:
+        items = await annotation_service.list_annotations(db, run_uid)
+        stats = await annotation_service.consistency(db, run_uid)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"items": items, "total": len(items), "consistency": stats}
+
+
+@router.get("/evals/annotations/queue")
+async def claim_next_annotation(
+    run_uid: str = Query(min_length=1),
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_auth),
+) -> dict:
+    try:
+        item = await annotation_service.claim_next(
+            db, run_uid=run_uid, annotator_user_id=user.id
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if item is None:
+        # 队列清空是正常状态，返回空载荷而不是错误
+        return {"result": None, "annotation_count": 0}
+    return item
+
+
+@router.post("/evals/runs/{run_uid}/gate")
+async def evaluate_gate(
+    run_uid: str,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    try:
+        return await eval_gate_service.evaluate_gate(db, run_uid)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/evals/runs/{run_uid}/export")
+async def export_run(
+    run_uid: str,
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_auth),
+) -> Response:
+    try:
+        detail = await eval_service.get_run_detail(db, run_uid)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="eval.export",
+        resource_type="eval_run",
+        resource_id=run_uid,
+        detail={"format": format},
+    )
+    # 导出内容按统一脱敏规则处理，避免把密钥类字段带出系统
+    run_meta = {key: value for key, value in detail.items() if key != "results"}
+    results = [redact_value(item) for item in detail["results"]]
+    if format == "json":
+        payload = redact_value({**run_meta, "results": results})
+        return Response(
+            content=json.dumps(payload, ensure_ascii=False, indent=2),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="eval-{run_uid}.json"'
+            },
+        )
+    columns = [
+        "case_name",
+        "status",
+        "input",
+        "output",
+        "failure_reasons",
+        "tool_names",
+        "duration_ms",
+        "total_tokens",
+        "trace_id",
+        "session_id",
+        "created_at",
+    ]
+    buffer = io.StringIO()
+    # utf-8-sig 让 Excel 直接双击打开不乱码
+    writer = csv.writer(buffer)
+    writer.writerow(columns)
+    for item in results:
+        row = []
+        for column in columns:
+            value = item.get(column)
+            if isinstance(value, list):
+                value = " / ".join(str(part) for part in value)
+            row.append(value if value is not None else "")
+        writer.writerow(row)
+    return Response(
+        content="\ufeff" + buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="eval-{run_uid}.csv"'},
+    )
+
+
+@router.post("/evals/datasets/{dataset_id}/redteam/seed")
+async def seed_redteam_cases(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    try:
+        created = await redteam_library.seed_redteam_cases(db, dataset_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="eval.redteam_seed",
+        resource_type="eval_dataset",
+        resource_id=str(dataset_id),
+        detail={"created": len(created)},
+    )
+    return {"created": len(created), "items": [eval_service.case_to_wire(row) for row in created]}

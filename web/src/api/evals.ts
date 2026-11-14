@@ -1,8 +1,10 @@
 // 评测集与评测运行：真实会话跑分，结果保留 trace / 会话关联。
-import { request } from './client';
+import { request, requestFile } from './client';
 
 export type EvalRunStatus = 'running' | 'completed' | 'failed';
 export type EvalCaseStatus = 'passed' | 'failed' | 'error';
+export type EvalCaseKind = 'normal' | 'redteam';
+export type EvalAnnotationLabel = 'good' | 'needs_work' | 'bad';
 
 export type EvalRun = {
   run_uid: string;
@@ -24,6 +26,9 @@ export type EvalDataset = {
   id: number;
   name: string;
   description: string;
+  baseline_run_uid: string;
+  gate_max_regressions: number;
+  gate_min_pass_rate: number;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -39,6 +44,9 @@ export type EvalCase = {
   dataset_id: number;
   name: string;
   input: string;
+  kind: EvalCaseKind;
+  attack_type: string;
+  safety_keywords: string[];
   expected_keywords: string[];
   forbidden_keywords: string[];
   expected_tools: string[];
@@ -76,6 +84,9 @@ export type EvalCaseSnapshot = {
   case_id: number | null;
   name: string;
   input: string;
+  kind?: EvalCaseKind;
+  attack_type?: string;
+  safety_keywords?: string[];
   expected_keywords: string[];
   forbidden_keywords: string[];
   expected_tools: string[];
@@ -121,6 +132,9 @@ export type EvalCompare = {
 export type EvalCaseInput = {
   name: string;
   input: string;
+  kind?: EvalCaseKind;
+  attack_type?: string;
+  safety_keywords?: string[];
   expected_keywords: string[];
   forbidden_keywords: string[];
   expected_tools: string[];
@@ -129,6 +143,59 @@ export type EvalCaseInput = {
   max_total_tokens: number | null;
   enabled: boolean;
   sort_order?: number | null;
+};
+
+export type EvalJudgeConfig = {
+  dataset_id: number;
+  enabled: boolean;
+  rubric: string;
+  judge_provider: string;
+  judge_model: string;
+  pass_score: number;
+  updated_at: string | null;
+};
+
+export type EvalJudgeScore = {
+  id: string;
+  result_id: string;
+  dimension: string;
+  score: number;
+  reason: string;
+  judge_model: string;
+  created_at: string | null;
+};
+
+export type EvalAnnotation = {
+  id: string;
+  result_id: string;
+  annotator_user_id: number | null;
+  label: EvalAnnotationLabel;
+  comment: string;
+  created_at: string | null;
+  case_name?: string;
+  run_uid?: string;
+  result_status?: EvalCaseStatus;
+};
+
+export type EvalConsistency = {
+  results_total: number;
+  annotated_results: number;
+  multi_annotated: number;
+  agreement_rate: number | null;
+  label_counts: Record<string, number>;
+};
+
+export type EvalGateResult = {
+  run_uid: string;
+  baseline_run_uid: string;
+  pass: boolean;
+  pass_rate: number;
+  regressions: number;
+  improved: number;
+  max_regressions: number;
+  min_pass_rate: number;
+  reasons: string[];
+  regressed_cases: EvalCompareRow[];
 };
 
 export function listEvalDatasets() {
@@ -144,7 +211,13 @@ export function createEvalDataset(input: { name: string; description: string }) 
 
 export function updateEvalDataset(
   id: number,
-  input: { name?: string; description?: string },
+  input: {
+    name?: string;
+    description?: string;
+    baseline_run_uid?: string;
+    gate_max_regressions?: number;
+    gate_min_pass_rate?: number;
+  },
 ) {
   return request<EvalDataset>('PATCH', `/evals/datasets/${id}`, input);
 }
@@ -187,5 +260,88 @@ export function compareEvalRuns(runUid: string, baseline: string) {
   return request<EvalCompare>(
     'GET',
     `/evals/runs/${encodeURIComponent(runUid)}/compare?baseline=${encodeURIComponent(baseline)}`,
+  );
+}
+
+export function getJudgeConfig(datasetId: number) {
+  return request<EvalJudgeConfig>('GET', `/evals/datasets/${datasetId}/judge-config`);
+}
+
+export function saveJudgeConfig(
+  datasetId: number,
+  input: {
+    enabled: boolean;
+    rubric: string;
+    judge_provider: string;
+    judge_model: string;
+    pass_score: number;
+  },
+) {
+  return request<EvalJudgeConfig>(
+    'PUT',
+    `/evals/datasets/${datasetId}/judge-config`,
+    input,
+  );
+}
+
+export function listJudgeScores(runUid: string, resultId: string) {
+  return request<{ items: EvalJudgeScore[]; total: number }>(
+    'GET',
+    `/evals/runs/${encodeURIComponent(runUid)}/results/${encodeURIComponent(resultId)}/judge-scores`,
+  );
+}
+
+export function listAnnotations(runUid: string) {
+  return request<{
+    items: EvalAnnotation[];
+    total: number;
+    consistency: EvalConsistency;
+  }>('GET', `/evals/runs/${encodeURIComponent(runUid)}/annotations`);
+}
+
+export function claimNextAnnotation(runUid: string) {
+  return request<{ result: EvalCaseResult | null; annotation_count: number }>(
+    'GET',
+    `/evals/annotations/queue?run_uid=${encodeURIComponent(runUid)}`,
+  );
+}
+
+export function submitAnnotation(input: {
+  result_id: string;
+  label: EvalAnnotationLabel;
+  comment: string;
+}) {
+  return request<EvalAnnotation>('POST', '/evals/annotations', input);
+}
+
+export function updateAnnotation(
+  id: string,
+  input: { label: EvalAnnotationLabel; comment: string },
+) {
+  return request<EvalAnnotation>(
+    'POST',
+    `/evals/annotations/${encodeURIComponent(id)}`,
+    input,
+  );
+}
+
+export function evaluateGate(runUid: string) {
+  return request<EvalGateResult>(
+    'POST',
+    `/evals/runs/${encodeURIComponent(runUid)}/gate`,
+  );
+}
+
+export function exportEvalRun(runUid: string, format: 'json' | 'csv') {
+  return requestFile(
+    `/evals/runs/${encodeURIComponent(runUid)}/export`,
+    new URLSearchParams({ format }),
+  );
+}
+
+export function seedRedteamCases(datasetId: number) {
+  return request<{ created: number; items: EvalCase[] }>(
+    'POST',
+    `/evals/datasets/${datasetId}/redteam/seed`,
   );
 }

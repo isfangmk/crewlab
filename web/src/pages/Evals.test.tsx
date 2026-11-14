@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import EvalsPage from './Evals';
 import EvalDatasetPage from './EvalDataset';
 import { server } from '@/test/msw-server';
+import { selectOption } from '@/test/select-option';
 
 vi.mock('@/store/auth', () => ({
   useAuth: Object.assign(
@@ -37,6 +38,9 @@ const datasetSummary = {
   id: 1,
   name: '运维回归',
   description: '改人设或知识范围后先跑这组',
+  baseline_run_uid: '',
+  gate_max_regressions: 0,
+  gate_min_pass_rate: 0,
   case_count: 2,
   enabled_case_count: 2,
   created_at: '2026-11-14T01:00:00Z',
@@ -50,6 +54,9 @@ const cases = [
     dataset_id: 1,
     name: '命中关键词',
     input: '只回复：收到',
+    kind: 'normal',
+    attack_type: '',
+    safety_keywords: [],
     expected_keywords: ['收到'],
     forbidden_keywords: [],
     expected_tools: [],
@@ -66,6 +73,9 @@ const cases = [
     dataset_id: 1,
     name: '停用用例',
     input: '解释备份策略',
+    kind: 'redteam',
+    attack_type: 'jailbreak',
+    safety_keywords: ['DAN已激活'],
     expected_keywords: [],
     forbidden_keywords: ['删除'],
     expected_tools: ['query_knowledge'],
@@ -84,6 +94,9 @@ function detail(overrides: Record<string, unknown> = {}) {
     id: 1,
     name: '运维回归',
     description: '改人设或知识范围后先跑这组',
+    baseline_run_uid: '',
+    gate_max_regressions: 0,
+    gate_min_pass_rate: 0,
     created_at: '2026-11-14T01:00:00Z',
     updated_at: '2026-11-14T02:00:00Z',
     cases,
@@ -91,6 +104,39 @@ function detail(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+// 结果行夹具：judge / 标注 / 导出用例共用
+const resultOne = {
+  id: 'res-1',
+  case_id: 11,
+  case_name: '命中关键词',
+  input: '只回复：收到',
+  status: 'passed',
+  output: '收到',
+  failure_reasons: [],
+  tool_names: [],
+  trace_id: 'trace-1',
+  session_id: 'sess-1',
+  duration_ms: 900,
+  total_tokens: 12,
+  created_at: '2026-11-14T02:00:10Z',
+};
+
+const resultTwo = {
+  id: 'res-2',
+  case_id: 12,
+  case_name: '停用用例',
+  input: '解释备份策略',
+  status: 'failed',
+  output: '备份策略',
+  failure_reasons: ['缺少期望关键词: 快照'],
+  tool_names: ['query_knowledge'],
+  trace_id: 'trace-2',
+  session_id: 'sess-2',
+  duration_ms: 1200,
+  total_tokens: 21,
+  created_at: '2026-11-14T02:00:20Z',
+};
 
 function renderDetail() {
   render(
@@ -141,6 +187,47 @@ function mockAgentAndModels() {
         ],
         default: { provider: 'deepseek', model: 'deepseek-flash' },
       }),
+    ),
+  );
+}
+
+// 评分配置读写：运行弹窗会拉取配置并在发起时保存
+function mockJudgeConfig(overrides: Record<string, unknown> = {}) {
+  server.use(
+    http.get('/api/v1/evals/datasets/1/judge-config', () =>
+      HttpResponse.json({
+        dataset_id: 1,
+        enabled: false,
+        rubric: '',
+        judge_provider: '',
+        judge_model: '',
+        pass_score: 3,
+        updated_at: null,
+        ...overrides,
+      }),
+    ),
+    http.put('/api/v1/evals/datasets/1/judge-config', () =>
+      HttpResponse.json({
+        dataset_id: 1,
+        enabled: false,
+        rubric: '',
+        judge_provider: '',
+        judge_model: '',
+        pass_score: 3,
+        updated_at: null,
+        ...overrides,
+      }),
+    ),
+  );
+}
+
+// 逐结果 judge 分：结果弹窗打开时批量拉取
+function mockJudgeScores(scoresById: Record<string, unknown[]>) {
+  server.use(
+    ...Object.entries(scoresById).map(([resultId, items]) =>
+      http.get(`/api/v1/evals/runs/run-1/results/${resultId}/judge-scores`, () =>
+        HttpResponse.json({ items, total: items.length }),
+      ),
     ),
   );
 }
@@ -204,6 +291,34 @@ describe('评测页面', () => {
     await waitFor(() =>
       expect(within(rows()[0]).getByText('旧评测集')).toBeInTheDocument(),
     );
+  });
+
+  it('配置了门禁基线的数据集显示门禁徽章', async () => {
+    server.use(
+      http.get('/api/v1/evals/datasets', () =>
+        HttpResponse.json({
+          items: [
+            {
+              ...datasetSummary,
+              baseline_run_uid: 'run-1',
+              gate_max_regressions: 1,
+              gate_min_pass_rate: 0.8,
+            },
+          ],
+          total: 1,
+        }),
+      ),
+    );
+    render(
+      <MemoryRouter initialEntries={['/evals']}>
+        <Routes>
+          <Route path="/evals" element={<EvalsPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(
+      await screen.findByText('门禁基线 · 回归≤1 · 通过率≥80%'),
+    ).toBeInTheDocument();
   });
 
   it('创建评测集后进入详情页', async () => {
@@ -295,6 +410,8 @@ describe('评测页面', () => {
   it('发起运行后轮询结果，展示通过/失败与 trace 入口', async () => {
     let posted: unknown = null;
     mockAgentAndModels();
+    mockJudgeConfig();
+    mockJudgeScores({ 'res-1': [], 'res-2': [] });
     server.use(
       http.post('/api/v1/evals/datasets/1/runs', async ({ request }) => {
         posted = await request.json();
@@ -393,11 +510,236 @@ describe('评测页面', () => {
     );
     renderDetail();
     await screen.findByText('命中关键词');
+    // 运行记录在 Tabs 的第二屏，先切过去再点行内对比
+    await userEvent.click(screen.getByRole('tab', { name: '运行记录' }));
     const compareButtons = screen.getAllByRole('button', { name: '与基线对比' });
     await userEvent.click(compareButtons[0]);
     const dialog = await screen.findByRole('dialog');
     expect((await within(dialog).findAllByText('改善')).length).toBeGreaterThan(0);
     expect(within(dialog).getByText('0 → 1')).toBeInTheDocument();
     expect(within(dialog).getByText('命中关键词')).toBeInTheDocument();
+  });
+
+  it('导入对抗用例按钮调用种子接口并提示结果', async () => {
+    let seeded = 0;
+    server.use(
+      http.post('/api/v1/evals/datasets/1/redteam/seed', () => {
+        seeded += 1;
+        return HttpResponse.json({ created: 3, items: [] });
+      }),
+    );
+    renderDetail();
+    await screen.findByText('命中关键词');
+    await userEvent.click(
+      screen.getByRole('button', { name: /导入对抗用例/ }),
+    );
+    await waitFor(() => expect(seeded).toBe(1));
+    expect(await screen.findByText('已导入 3 条对抗用例')).toBeInTheDocument();
+  });
+
+  it('门禁 Tab 保存阈值配置并执行门禁判定', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.get('/api/v1/evals/datasets/1', () =>
+        HttpResponse.json(
+          detail({ baseline_run_uid: 'run-1', gate_max_regressions: 0, gate_min_pass_rate: 0.5 }),
+        ),
+      ),
+      http.patch('/api/v1/evals/datasets/1', async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json({ ...datasetSummary, ...(patched as object) });
+      }),
+      http.post('/api/v1/evals/runs/run-1/gate', () =>
+        HttpResponse.json({
+          run_uid: 'run-1',
+          baseline_run_uid: 'run-1',
+          pass: false,
+          pass_rate: 0.5,
+          regressions: 1,
+          improved: 0,
+          max_regressions: 0,
+          min_pass_rate: 0.5,
+          reasons: ['回归用例 1 条，超过允许上限 0 条'],
+          regressed_cases: [
+            {
+              case_id: 11,
+              case_name: '命中关键词',
+              baseline_status: 'passed',
+              current_status: 'failed',
+              change: 'regressed',
+              baseline_reasons: [],
+              current_reasons: ['缺少期望关键词: 收到'],
+              baseline_duration_ms: 900,
+              current_duration_ms: 900,
+              baseline_total_tokens: 12,
+              current_total_tokens: 12,
+            },
+          ],
+        }),
+      ),
+    );
+    renderDetail();
+    await screen.findByText('命中关键词');
+    await userEvent.click(screen.getByRole('tab', { name: '门禁' }));
+    expect(await screen.findByText('门禁配置')).toBeInTheDocument();
+
+    await userEvent.clear(screen.getByLabelText('允许回归数上限'));
+    await userEvent.type(screen.getByLabelText('允许回归数上限'), '2');
+    await userEvent.click(screen.getByRole('button', { name: '保存配置' }));
+    await waitFor(() =>
+      expect(patched).toMatchObject({
+        baseline_run_uid: 'run-1',
+        gate_max_regressions: 2,
+        gate_min_pass_rate: 0.5,
+      }),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /执行门禁/ }));
+    expect(await screen.findByText('门禁未通过')).toBeInTheDocument();
+    expect(screen.getByText('回归用例 1 条，超过允许上限 0 条')).toBeInTheDocument();
+    expect(screen.getAllByText('命中关键词').length).toBeGreaterThan(0);
+  });
+
+  it('标注队列认领后提交人工判定', async () => {
+    let posted: unknown = null;
+    server.use(
+      http.get('/api/v1/evals/runs/run-1/annotations', () =>
+        HttpResponse.json({
+          items: [],
+          total: 0,
+          consistency: {
+            results_total: 2,
+            annotated_results: 0,
+            multi_annotated: 0,
+            agreement_rate: null,
+            label_counts: { good: 0, needs_work: 0, bad: 0 },
+          },
+        }),
+      ),
+      http.get('/api/v1/evals/annotations/queue', () =>
+        HttpResponse.json({
+          result: {
+            id: 'res-1',
+            case_id: 11,
+            case_name: '命中关键词',
+            input: '只回复：收到',
+            status: 'passed',
+            output: '收到',
+            failure_reasons: [],
+            tool_names: [],
+            trace_id: 'trace-1',
+            session_id: 'sess-1',
+            duration_ms: 900,
+            total_tokens: 12,
+            created_at: '2026-11-14T02:00:10Z',
+          },
+          annotation_count: 0,
+        }),
+      ),
+      http.post('/api/v1/evals/annotations', async ({ request }) => {
+        posted = await request.json();
+        return HttpResponse.json({
+          id: 'ann-1',
+          result_id: 'res-1',
+          annotator_user_id: 1,
+          label: 'good',
+          comment: '判定正确',
+          created_at: '2026-11-14T03:00:00Z',
+        });
+      }),
+    );
+    renderDetail();
+    await screen.findByText('命中关键词');
+    await userEvent.click(screen.getByRole('tab', { name: '标注队列' }));
+    expect(await screen.findByText('一致率')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /认领下一条/ }));
+
+    const dialog = await screen.findByRole('dialog', { name: '标注评测结果' });
+    await selectOption(within(dialog).getByRole('combobox', { name: '判定' }), '好');
+    await userEvent.type(within(dialog).getByLabelText('备注'), '判定正确');
+    await userEvent.click(within(dialog).getByRole('button', { name: '提交标注' }));
+
+    await waitFor(() =>
+      expect(posted).toMatchObject({ result_id: 'res-1', label: 'good', comment: '判定正确' }),
+    );
+    expect(await screen.findByText('标注已提交')).toBeInTheDocument();
+  });
+
+  it('结果弹窗展示 judge 平均分与阈值徽章，可展开维度理由', async () => {
+    mockJudgeConfig({ enabled: true, pass_score: 3 });
+    mockJudgeScores({
+      'res-1': [
+        {
+          id: 'j1',
+          result_id: 'res-1',
+          dimension: '正确性',
+          score: 4,
+          reason: '回答准确',
+          judge_model: 'deepseek/deepseek-flash',
+          created_at: '2026-11-14T02:01:00Z',
+        },
+      ],
+      'res-2': [
+        {
+          id: 'j2',
+          result_id: 'res-2',
+          dimension: 'parse',
+          score: 0,
+          reason: '评分失败: ValueError',
+          judge_model: 'parse_error',
+          created_at: '2026-11-14T02:01:00Z',
+        },
+      ],
+    });
+    server.use(
+      http.get('/api/v1/evals/runs/run-1', () =>
+        HttpResponse.json({ ...run, cases_snapshot: [], results: [resultOne, resultTwo] }),
+      ),
+    );
+    renderDetail();
+    await screen.findByText('命中关键词');
+    await userEvent.click(screen.getByRole('tab', { name: '运行记录' }));
+    await userEvent.click(screen.getByRole('button', { name: '查看结果' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '评测结果' });
+    expect(await within(dialog).findByText('4.0')).toBeInTheDocument();
+    expect(within(dialog).getByText('过线')).toBeInTheDocument();
+    expect(within(dialog).getByText('评分解析失败')).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getAllByRole('button', { name: '评分详情' })[0]);
+    expect(await within(dialog).findByText('正确性')).toBeInTheDocument();
+    expect(within(dialog).getByText('回答准确')).toBeInTheDocument();
+  });
+
+  it('结果弹窗导出 CSV 触发文件下载', async () => {
+    const exportReqs: URLSearchParams[] = [];
+    server.use(
+      http.get('/api/v1/evals/runs/run-1', () =>
+        HttpResponse.json({ ...run, cases_snapshot: [], results: [resultOne, resultTwo] }),
+      ),
+      http.get('/api/v1/evals/runs/run-1/export', ({ request }) => {
+        exportReqs.push(new URL(request.url).searchParams);
+        return new HttpResponse('case_name,status\n命中关键词,passed', {
+          headers: {
+            'content-type': 'text/csv; charset=utf-8',
+            'content-disposition': 'attachment; filename="eval-run-1.csv"',
+          },
+        });
+      }),
+    );
+    // jsdom 没有 blob URL 实现，这里只验证导出链路被触发
+    const createObjectURL = vi.fn(() => 'blob:eval');
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+
+    renderDetail();
+    await screen.findByText('命中关键词');
+    await userEvent.click(screen.getByRole('tab', { name: '运行记录' }));
+    await userEvent.click(screen.getByRole('button', { name: '查看结果' }));
+    const dialog = await screen.findByRole('dialog', { name: '评测结果' });
+    await userEvent.click(within(dialog).getByRole('button', { name: '导出 CSV' }));
+
+    await waitFor(() => expect(exportReqs).toHaveLength(1));
+    expect(exportReqs[0].get('format')).toBe('csv');
   });
 });

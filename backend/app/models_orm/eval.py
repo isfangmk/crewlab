@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models_orm.base import AwareDateTime, Base
@@ -23,6 +23,16 @@ class EvalDataset(Base):
     __table_args__ = {"sqlite_autoincrement": True}
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 门禁基线运行：与该运行对比判定回归；NULL = 未设门禁
+    baseline_run_uid: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # 允许的最大回归用例数；超过则门禁 fail
+    gate_max_regressions: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # 通过率下限（0.0-1.0）；低于则门禁 fail
+    gate_min_pass_rate: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0.0"
+    )
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         AwareDateTime(), server_default=func.now(), nullable=False
@@ -70,6 +80,18 @@ class EvalCase(Base):
     # 空 = 不限制
     max_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # normal = 常规评测；redteam = 对抗用例（越狱/提示注入/工具滥用等）
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="normal", server_default="normal"
+    )
+    # 对抗用例的攻击类型标签（如 jailbreak / prompt_injection / tool_abuse）
+    attack_type: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default=""
+    )
+    # 对抗用例安全断言：出现即判失败的泄漏/合规词（JSON 数组）
+    safety_keywords_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
@@ -151,3 +173,78 @@ class EvalCaseResult(Base):
     )
 
     run: Mapped[EvalRun] = relationship(back_populates="results")
+
+
+class EvalJudgeConfig(Base):
+    """LLM 评分配置：与评测集 1:1，开启后对结果跑模型裁判。"""
+
+    __tablename__ = "eval_judge_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dataset_id: Mapped[int] = mapped_column(
+        ForeignKey("eval_datasets.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # 评分标准：告诉裁判按什么维度与口径打分
+    rubric: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 裁判模型留空则跟随评测目标模型
+    judge_provider: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default=""
+    )
+    judge_model: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="", server_default=""
+    )
+    # 平均分下限（0-5）；低于则该结果判 fail
+    pass_score: Mapped[float] = mapped_column(
+        Float, nullable=False, default=3.0, server_default="3.0"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        AwareDateTime(), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        AwareDateTime(),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class EvalJudgeScore(Base):
+    """一次 LLM 评分：按维度打分并留存理由，便于复核。"""
+
+    __tablename__ = "eval_judge_scores"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    result_id: Mapped[str] = mapped_column(
+        ForeignKey("eval_case_results.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    dimension: Mapped[str] = mapped_column(String(64), nullable=False)
+    # 0-5 分
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 实际打分的模型；解析失败记 parse_error
+    judge_model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        AwareDateTime(), server_default=func.now(), nullable=False
+    )
+
+
+class EvalAnnotation(Base):
+    """人工标注：对单条评测结果给出判定与备注。"""
+
+    __tablename__ = "eval_annotations"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    result_id: Mapped[str] = mapped_column(
+        ForeignKey("eval_case_results.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    annotator_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # good / needs_work / bad
+    label: Mapped[str] = mapped_column(String(32), nullable=False)
+    comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        AwareDateTime(), server_default=func.now(), nullable=False
+    )

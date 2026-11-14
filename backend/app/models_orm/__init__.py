@@ -9,7 +9,15 @@ from app.models_orm.audit import AuditLog
 from app.models_orm.base import Base
 from app.models_orm.chat import ChatMessage, ChatSession
 from app.models_orm.channel import PublishedChannel
-from app.models_orm.eval import EvalCase, EvalCaseResult, EvalDataset, EvalRun
+from app.models_orm.eval import (
+    EvalAnnotation,
+    EvalCase,
+    EvalCaseResult,
+    EvalDataset,
+    EvalJudgeConfig,
+    EvalJudgeScore,
+    EvalRun,
+)
 from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.models_orm.knowledge_source import KnowledgeSource
 from app.models_orm.llm import AppSetting, LlmProvider
@@ -50,6 +58,9 @@ __all__ = [
     "EvalCase",
     "EvalRun",
     "EvalCaseResult",
+    "EvalJudgeConfig",
+    "EvalJudgeScore",
+    "EvalAnnotation",
     "ObservationTurn",
     "ObservationToolCall",
     "SandboxExecution",

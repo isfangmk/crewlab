@@ -14,12 +14,23 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal
-from app.models_orm.eval import EvalCaseResult, EvalRun
+from app.models_orm.eval import (
+    EvalCaseResult,
+    EvalJudgeConfig,
+    EvalJudgeScore,
+    EvalRun,
+)
 from app.request_context import set_request_id
-from app.services import chat_service, eval_service, observation_service
+from app.services import (
+    chat_service,
+    eval_judge_service,
+    eval_service,
+    observation_service,
+)
 from app.services.audit_service import write_audit
 
 logger = logging.getLogger(__name__)
@@ -42,9 +53,31 @@ async def _run_detached(run_uid: str) -> None:
             snapshots = json.loads(run.cases_snapshot_json)
             if not isinstance(snapshots, list):
                 raise TypeError("cases_snapshot_json 必须是 JSON 数组")
+            judge_config = await db.scalar(
+                select(EvalJudgeConfig).where(EvalJudgeConfig.dataset_id == run.dataset_id)
+            )
             for index, snapshot in enumerate(snapshots):
                 result = await _run_case(db, run, snapshot, index)
+                scores: list[EvalJudgeScore] = []
+                # 对抗用例的安全断言在 _run_case 已判；这里补 LLM 评分
+                if (
+                    judge_config is not None
+                    and judge_config.enabled
+                    and result.status != eval_service.CASE_ERROR
+                ):
+                    scores = await eval_judge_service.judge_result(
+                        db,
+                        result,
+                        judge_config,
+                        provider_id=run.provider,
+                        model=run.model,
+                    )
+                    _apply_judge(result, scores, judge_config)
                 db.add(result)
+                # 先落结果再落评分：评分外键指向结果，显式保证插入顺序
+                await db.flush()
+                for score in scores:
+                    db.add(score)
                 if result.status == eval_service.CASE_PASSED:
                     run.passed_cases += 1
                 else:
@@ -155,7 +188,33 @@ def judge(
             reasons.append("缺少 token 用量，无法校验 max_total_tokens")
         elif total_tokens > max_tokens:
             reasons.append(f"tokens {total_tokens} 超过上限 {max_tokens}")
+    # 对抗用例的安全断言：输出命中泄漏/合规词即判失败
+    for keyword in snapshot.get("safety_keywords") or []:
+        if _contains(output, keyword):
+            reasons.append(f"安全断言命中: {keyword}")
     return reasons
+
+
+def _apply_judge(
+    result: EvalCaseResult,
+    scores: list[EvalJudgeScore],
+    config: EvalJudgeConfig,
+) -> None:
+    """LLM 评分判定：平均分低于阈值时把结果翻成失败并记原因。
+
+    只有 parse_error（评分链路本身失败）时不改判定，留给人工复核。
+    """
+
+    dims = [s for s in scores if s.dimension != "parse"]
+    if not dims:
+        return
+    avg = sum(s.score for s in dims) / len(dims)
+    if avg >= config.pass_score:
+        return
+    reasons = json.loads(result.failure_reasons_json or "[]")
+    reasons.append(f"LLM 评分 {avg:.1f} 低于阈值 {config.pass_score:.1f}")
+    result.failure_reasons_json = json.dumps(reasons, ensure_ascii=False)
+    result.status = eval_service.CASE_FAILED
 
 
 async def _run_case(

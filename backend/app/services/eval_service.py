@@ -31,6 +31,11 @@ CASE_PASSED = "passed"
 CASE_FAILED = "failed"
 CASE_ERROR = "error"
 
+# 用例类型：normal 常规回归；redteam 对抗（越狱/注入/滥用）
+KIND_NORMAL = "normal"
+KIND_REDTEAM = "redteam"
+CASE_KINDS = (KIND_NORMAL, KIND_REDTEAM)
+
 MAX_CASES = 200
 MAX_LIST_ITEMS = 50
 
@@ -82,6 +87,9 @@ def validate_case_fields(
     forbidden_tools: list[str],
     max_duration_ms: int | None,
     max_total_tokens: int | None,
+    kind: str = KIND_NORMAL,
+    attack_type: str = "",
+    safety_keywords: list[str] | None = None,
 ) -> dict[str, Any]:
     case_name = name.strip()
     if case_name == "":
@@ -95,6 +103,15 @@ def validate_case_fields(
         raise ValueError("max_duration_ms 不能为负数")
     if max_total_tokens is not None and max_total_tokens < 0:
         raise ValueError("max_total_tokens 不能为负数")
+    clean_kind = kind.strip()
+    if clean_kind not in CASE_KINDS:
+        raise ValueError(f"kind 只能是 {' / '.join(CASE_KINDS)}")
+    clean_attack = attack_type.strip()
+    if len(clean_attack) > 64:
+        raise ValueError("attack_type 最长 64 个字符")
+    # 对抗用例必须标攻击类型，便于筛选与统计
+    if clean_kind == KIND_REDTEAM and clean_attack == "":
+        raise ValueError("对抗用例必须填写 attack_type")
     return {
         "name": case_name,
         "input": prompt,
@@ -106,6 +123,11 @@ def validate_case_fields(
         "forbidden_tools": _normalize_strings(forbidden_tools, "forbidden_tools"),
         "max_duration_ms": max_duration_ms,
         "max_total_tokens": max_total_tokens,
+        "kind": clean_kind,
+        "attack_type": clean_attack,
+        "safety_keywords": _normalize_strings(
+            safety_keywords or [], "safety_keywords"
+        ),
     }
 
 
@@ -114,6 +136,9 @@ def dataset_to_wire(dataset: EvalDataset) -> dict[str, Any]:
         "id": dataset.id,
         "name": dataset.name,
         "description": dataset.description,
+        "baseline_run_uid": dataset.baseline_run_uid or "",
+        "gate_max_regressions": dataset.gate_max_regressions,
+        "gate_min_pass_rate": dataset.gate_min_pass_rate,
         "created_at": dataset.created_at.isoformat() if dataset.created_at else None,
         "updated_at": dataset.updated_at.isoformat() if dataset.updated_at else None,
     }
@@ -125,6 +150,9 @@ def case_to_wire(case: EvalCase) -> dict[str, Any]:
         "dataset_id": case.dataset_id,
         "name": case.name,
         "input": case.input,
+        "kind": case.kind,
+        "attack_type": case.attack_type,
+        "safety_keywords": _load_list(case.safety_keywords_json),
         "expected_keywords": _load_list(case.expected_keywords_json),
         "forbidden_keywords": _load_list(case.forbidden_keywords_json),
         "expected_tools": _load_list(case.expected_tools_json),
@@ -181,6 +209,9 @@ def snapshot_case(case: EvalCase) -> dict[str, Any]:
         "case_id": case.id,
         "name": case.name,
         "input": case.input,
+        "kind": case.kind,
+        "attack_type": case.attack_type,
+        "safety_keywords": _load_list(case.safety_keywords_json),
         "expected_keywords": _load_list(case.expected_keywords_json),
         "forbidden_keywords": _load_list(case.forbidden_keywords_json),
         "expected_tools": _load_list(case.expected_tools_json),
@@ -245,6 +276,9 @@ async def list_datasets(db: AsyncSession) -> list[dict[str, Any]]:
                 "id": dataset.id,
                 "name": dataset.name,
                 "description": dataset.description,
+                "baseline_run_uid": dataset.baseline_run_uid or "",
+                "gate_max_regressions": dataset.gate_max_regressions,
+                "gate_min_pass_rate": dataset.gate_min_pass_rate,
                 "case_count": total,
                 "enabled_case_count": enabled,
                 "created_at": (
@@ -286,12 +320,37 @@ async def create_dataset(
     return row
 
 
+def validate_gate_fields(
+    *,
+    baseline_run_uid: str | None,
+    gate_max_regressions: int | None,
+    gate_min_pass_rate: float | None,
+) -> dict[str, Any]:
+    """门禁配置校验：阈值范围合法；基线运行存在性由调用方查库确认。"""
+
+    out: dict[str, Any] = {}
+    if baseline_run_uid is not None:
+        out["baseline_run_uid"] = baseline_run_uid.strip()
+    if gate_max_regressions is not None:
+        if gate_max_regressions < 0:
+            raise ValueError("gate_max_regressions 不能为负数")
+        out["gate_max_regressions"] = gate_max_regressions
+    if gate_min_pass_rate is not None:
+        if gate_min_pass_rate < 0 or gate_min_pass_rate > 1:
+            raise ValueError("gate_min_pass_rate 必须在 0-1 之间")
+        out["gate_min_pass_rate"] = float(gate_min_pass_rate)
+    return out
+
+
 async def update_dataset(
     db: AsyncSession,
     dataset_id: int,
     *,
     name: str | None,
     description: str | None,
+    baseline_run_uid: str | None = None,
+    gate_max_regressions: int | None = None,
+    gate_min_pass_rate: float | None = None,
 ) -> EvalDataset:
     row = await get_dataset(db, dataset_id)
     if name is not None:
@@ -301,6 +360,23 @@ async def update_dataset(
             row.name = clean_name
     if description is not None:
         row.description = description.strip()
+    gate = validate_gate_fields(
+        baseline_run_uid=baseline_run_uid,
+        gate_max_regressions=gate_max_regressions,
+        gate_min_pass_rate=gate_min_pass_rate,
+    )
+    if "baseline_run_uid" in gate:
+        uid = gate["baseline_run_uid"]
+        if uid != "":
+            # 基线必须是本评测集的运行，否则回归对比无意义
+            run = await db.get(EvalRun, uid)
+            if run is None or run.dataset_id != row.id:
+                raise ValueError("基线运行不存在或不属于该评测集")
+        row.baseline_run_uid = uid or None
+    if "gate_max_regressions" in gate:
+        row.gate_max_regressions = gate["gate_max_regressions"]
+    if "gate_min_pass_rate" in gate:
+        row.gate_min_pass_rate = gate["gate_min_pass_rate"]
     await db.commit()
     await db.refresh(row)
     return row
@@ -342,6 +418,9 @@ async def get_case(db: AsyncSession, case_id: int) -> EvalCase:
 def _apply_case_fields(row: EvalCase, fields: dict[str, Any]) -> None:
     row.name = fields["name"]
     row.input = fields["input"]
+    row.kind = fields["kind"]
+    row.attack_type = fields["attack_type"]
+    row.safety_keywords_json = _dump_list(fields["safety_keywords"])
     row.expected_keywords_json = _dump_list(fields["expected_keywords"])
     row.forbidden_keywords_json = _dump_list(fields["forbidden_keywords"])
     row.expected_tools_json = _dump_list(fields["expected_tools"])
