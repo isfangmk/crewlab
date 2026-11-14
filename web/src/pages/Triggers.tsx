@@ -1,11 +1,14 @@
 // 自动化触发器：Cron / Webhook 驱动工作流或助理会话。
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarClock, Loader2, Plus, RefreshCw, Trash2, Webhook } from 'lucide-react';
+import { CalendarClock, Check, Copy, Loader2, Plus, Power, RefreshCw, Trash2 } from 'lucide-react';
 import {
   Button,
+  CodeBlock,
   EmptyStateCard,
+  ErrorBanner,
   FilterBar,
   Input,
+  Label,
   PageHeader,
   RowAction,
   RowActionIcon,
@@ -15,6 +18,9 @@ import {
   TableCard,
   TableHead,
   TablePager,
+  Textarea,
+  Toast,
+  type ToastTone,
   tableLayout,
   COL,
 } from '@/components/ui';
@@ -23,9 +29,9 @@ import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
+import { useTimeout } from '@/lib/useTimeout';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
-import { cn } from '@/lib/cn';
 import { listWorkflows } from '@/api/workflows';
 import {
   createTrigger,
@@ -41,6 +47,16 @@ import { listAgents, type AgentSummary } from '@/api/agents';
 
 const PAGE_SIZE = 20;
 
+const RUN_STATUS_LABELS: Record<
+  TriggerRunItem['status'],
+  { zh: string; en: string; tone: 'ok' | 'danger' | 'warn' | 'info' }
+> = {
+  running: { zh: '进行中', en: 'Running', tone: 'info' },
+  waiting: { zh: '等待审批', en: 'Waiting', tone: 'warn' },
+  succeeded: { zh: '成功', en: 'Succeeded', tone: 'ok' },
+  failed: { zh: '失败', en: 'Failed', tone: 'danger' },
+};
+
 export default function TriggersPage() {
   const { tr } = useI18n();
   const { canMutate, isAdmin } = usePermissions();
@@ -54,6 +70,18 @@ export default function TriggersPage() {
   const [runsFor, setRunsFor] = useState<TriggerRuleItem | null>(null);
   const [runs, setRuns] = useState<TriggerRunItem[] | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [workflowNames, setWorkflowNames] = useState<Record<number, string>>({});
+  const [revealedWebhook, setRevealedWebhook] = useState<{ name: string; url: string } | null>(null);
+  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
+
+  const flashTimer = useTimeout();
+  const flash = useCallback(
+    (tone: ToastTone, text: string) => {
+      setToast({ tone, text });
+      flashTimer(() => setToast(null), 4000);
+    },
+    [flashTimer],
+  );
 
   const load = useCallback(
     async (silent = false) => {
@@ -75,6 +103,18 @@ export default function TriggersPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    void listWorkflows({ limit: 100 })
+      .then((result) => {
+        setWorkflowNames(
+          Object.fromEntries(result.items.map((item) => [item.id, item.name])),
+        );
+      })
+      .catch(() => {
+        // 名称解析失败时保留 #id 展示，不阻塞触发器列表
+      });
+  }, []);
+
   const filtered = (items ?? []).filter((t) => {
     const q = query.trim().toLowerCase();
     if (!q) return true;
@@ -92,9 +132,16 @@ export default function TriggersPage() {
   const onFire = async (rule: TriggerRuleItem) => {
     setBusyId(rule.id);
     try {
-      await fireTrigger(rule.id);
+      const run = await fireTrigger(rule.id);
       await load(true);
       if (runsFor?.id === rule.id) await refreshRuns(rule);
+      if (run.status === 'failed') {
+        flash('err', tr('触发失败', 'Trigger failed'));
+      } else {
+        flash('ok', tr('已触发', 'Triggered'));
+      }
+    } catch (e) {
+      flash('err', errorText(e));
     } finally {
       setBusyId(null);
     }
@@ -102,9 +149,13 @@ export default function TriggersPage() {
 
   const onToggle = async (rule: TriggerRuleItem) => {
     setBusyId(rule.id);
+    const nextEnabled = !rule.enabled;
     try {
-      await updateTrigger(rule.id, { enabled: !rule.enabled });
+      await updateTrigger(rule.id, { enabled: nextEnabled });
       await load(true);
+      flash('ok', nextEnabled ? tr('已启用', 'Enabled') : tr('已停用', 'Disabled'));
+    } catch (e) {
+      flash('err', errorText(e));
     } finally {
       setBusyId(null);
     }
@@ -152,9 +203,7 @@ export default function TriggersPage() {
 
       <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
         {err && (
-          <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300">
-            {err}
-          </div>
+          <ErrorBanner className="mb-3">{err}</ErrorBanner>
         )}
         {loading && items === null ? (
           <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
@@ -171,7 +220,12 @@ export default function TriggersPage() {
             )}
             action={
               canMutate && (
-                <Button variant="primary" onClick={() => setEditor({ mode: 'create' })}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="h-7 px-3 text-[11.5px]"
+                  onClick={() => setEditor({ mode: 'create' })}
+                >
                   <Plus size={12} />
                   {tr('新建触发器', 'New trigger')}
                 </Button>
@@ -211,7 +265,7 @@ export default function TriggersPage() {
               <TableHead>
                 <tr className="whitespace-nowrap">
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('名称', 'Name')}</th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('类型', 'Kind')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('目标类型', 'Target type')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('目标', 'Target')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('下次触发', 'Next fire')}</th>
@@ -222,16 +276,20 @@ export default function TriggersPage() {
                 {paged.map((t) => (
                   <tr
                     key={t.id}
-                    className="group cursor-pointer transition-colors hover:bg-zinc-900/40"
-                    onClick={() => {
-                      setRunsFor(t);
-                      void refreshRuns(t);
-                    }}
+                    className="group transition-colors hover:bg-zinc-900/40"
                   >
                     <td className="px-3 py-2">
-                      <span className="block truncate text-[12.5px] font-medium text-zinc-100">
+                      <button
+                        type="button"
+                        title={t.name}
+                        onClick={() => {
+                          setRunsFor(t);
+                          void refreshRuns(t);
+                        }}
+                        className="block max-w-full truncate text-left text-[12.5px] font-medium text-zinc-100 hover:text-indigo-300"
+                      >
                         {t.name}
-                      </span>
+                      </button>
                       <span className="block truncate text-[10px] leading-4 text-zinc-500">
                         {t.kind === 'cron' ? `cron · ${t.cron_expr}` : 'webhook'}
                       </span>
@@ -242,9 +300,21 @@ export default function TriggersPage() {
                         : tr('助理', 'Assistant')}
                     </td>
                     <td className="px-3 py-2 text-[11px] text-zinc-300">
-                      {t.target_kind === 'workflow'
-                        ? `#${t.workflow_id}`
-                        : t.agent_id}
+                      {t.target_kind === 'workflow' ? (
+                        <>
+                          <span
+                            className="block truncate"
+                            title={workflowNames[t.workflow_id ?? -1] ?? `#${t.workflow_id}`}
+                          >
+                            {workflowNames[t.workflow_id ?? -1] ?? `#${t.workflow_id}`}
+                          </span>
+                          <span className="block text-[10px] text-zinc-500">#{t.workflow_id}</span>
+                        </>
+                      ) : (
+                        <span className="block truncate" title={t.agent_id ?? ''}>
+                          {t.agent_id}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <StatusPill
@@ -256,10 +326,7 @@ export default function TriggersPage() {
                       {t.next_fire_at ? fullDateTime(t.next_fire_at) : '—'}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <div
-                        className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
                         <RowAction
                           icon={busyId === t.id ? Loader2 : RefreshCw}
                           iconClassName={busyId === t.id ? 'animate-spin' : undefined}
@@ -272,7 +339,7 @@ export default function TriggersPage() {
                           <>
                             <Hint content={tr('启停', 'Toggle')}>
                               <RowActionIcon
-                                icon={Webhook}
+                                icon={Power}
                                 label={t.enabled ? tr('停用', 'Disable') : tr('启用', 'Enable')}
                                 onClick={() => void onToggle(t)}
                               />
@@ -302,10 +369,22 @@ export default function TriggersPage() {
       {editor && (
         <TriggerEditor
           onClose={() => setEditor(null)}
-          onSaved={() => {
+          onSaved={(created) => {
             setEditor(null);
             void load();
+            flash('ok', tr('触发器已创建', 'Trigger created'));
+            if (created.webhookUrl !== null) {
+              setRevealedWebhook({ name: created.name, url: created.webhookUrl });
+            }
           }}
+        />
+      )}
+      {revealedWebhook && (
+        <WebhookRevealModal
+          name={revealedWebhook.name}
+          url={revealedWebhook.url}
+          onCopied={() => flash('ok', tr('Webhook 地址已复制', 'Webhook URL copied'))}
+          onClose={() => setRevealedWebhook(null)}
         />
       )}
       {runsFor && (
@@ -333,19 +412,15 @@ export default function TriggersPage() {
                 >
                   <div className="min-w-0">
                     <StatusPill
-                      tone={
-                        r.status === 'succeeded'
-                          ? 'ok'
-                          : r.status === 'failed'
-                            ? 'danger'
-                            : r.status === 'waiting'
-                              ? 'warn'
-                              : 'info'
-                      }
-                      label={r.status}
+                      tone={RUN_STATUS_LABELS[r.status].tone}
+                      label={tr(
+                        RUN_STATUS_LABELS[r.status].zh,
+                        RUN_STATUS_LABELS[r.status].en,
+                      )}
                     />
                     <div className="mt-1 truncate text-[10px] text-zinc-500">
-                      {r.started_at ? fullDateTime(r.started_at) : '—'} · attempt {r.attempt}
+                      {r.started_at ? fullDateTime(r.started_at) : '—'} ·{' '}
+                      {tr(`第 ${r.attempt} 次`, `attempt ${r.attempt}`)}
                       {r.ref_id ? ` · ${r.ref_id}` : ''}
                     </div>
                     {r.error && (
@@ -372,9 +447,11 @@ export default function TriggersPage() {
             await deleteTrigger(deleting.id);
             setDeleting(null);
             await load(true);
+            flash('ok', tr('触发器已删除', 'Trigger deleted'));
           }}
         />
       )}
+      {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
     </main>
   );
 }
@@ -384,10 +461,9 @@ function TriggerEditor({
   onSaved,
 }: {
   onClose(): void;
-  onSaved(): void;
+  onSaved(created: { name: string; webhookUrl: string | null }): void;
 }) {
   const { tr } = useI18n();
-  const { isAdmin } = usePermissions();
   const [name, setName] = useState('');
   const [kind, setKind] = useState<'cron' | 'webhook'>('cron');
   const [targetKind, setTargetKind] = useState<'workflow' | 'agent'>('workflow');
@@ -421,8 +497,8 @@ function TriggerEditor({
     setSaving(true);
     setErr(null);
     try {
-      const r = await createTrigger({
-        name,
+      const created = await createTrigger({
+        name: name.trim(),
         kind,
         target_kind: targetKind,
         cron_expr: kind === 'cron' ? cronExpr : '',
@@ -430,13 +506,13 @@ function TriggerEditor({
         agent_id: targetKind === 'agent' ? agentId : undefined,
         prompt: targetKind === 'agent' ? prompt : '',
       });
-      if (typeof r === 'object' && r !== null && 'webhook_url' in (r as object)) {
-        const url = (r as { webhook_url?: string }).webhook_url ?? '';
-        setErr(tr(`已创建。Webhook 地址（只显示一次）：${url}`, `Created. Webhook URL (shown once): ${url}`));
-        setSaving(false);
-        return;
-      }
-      onSaved();
+      const rawUrl =
+        typeof created.webhook_url === 'string' ? created.webhook_url : '';
+      onSaved({
+        name: name.trim(),
+        webhookUrl:
+          rawUrl === '' ? null : `${window.location.origin}${rawUrl}`,
+      });
     } catch (e) {
       setErr(errorText(e));
       setSaving(false);
@@ -451,28 +527,43 @@ function TriggerEditor({
       size="md"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             {tr('取消', 'Cancel')}
           </Button>
           <Button
             variant="primary"
             size="sm"
             onClick={() => void save()}
-            disabled={saving || !name || (kind === 'cron' && !cronExpr) || (targetKind === 'workflow' && !workflowId) || (targetKind === 'agent' && !agentId)}
+            disabled={
+              saving ||
+              name.trim() === '' ||
+              (kind === 'cron' && cronExpr.trim() === '') ||
+              (targetKind === 'workflow' && workflowId === null) ||
+              (targetKind === 'agent' && agentId === '')
+            }
           >
-            {tr('保存', 'Save')}
+            {saving ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
           </Button>
         </>
       }
     >
       <div className="space-y-3">
-        <label className="block">
-          <span className="mb-1 block text-[11px] text-zinc-400">{tr('名称', 'Name')}</span>
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-[11px] text-zinc-400">{tr('触发方式', 'Kind')}</span>
+        {err && <ErrorBanner>{err}</ErrorBanner>}
+        <div className="space-y-1.5">
+          <Label htmlFor="trigger-name">{tr('名称', 'Name')}</Label>
+          <Input
+            id="trigger-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={128}
+            autoFocus
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="trigger-kind">{tr('触发方式', 'Kind')}</Label>
           <Select
+            id="trigger-kind"
+            aria-label={tr('触发方式', 'Kind')}
             value={kind}
             onValueChange={(v) => setKind(v as 'cron' | 'webhook')}
             options={[
@@ -480,18 +571,24 @@ function TriggerEditor({
               { value: 'webhook', label: tr('Webhook 调用', 'Webhook call') },
             ]}
           />
-        </label>
+        </div>
         {kind === 'cron' && (
-          <label className="block">
-            <span className="mb-1 block text-[11px] text-zinc-400">
+          <div className="space-y-1.5">
+            <Label htmlFor="trigger-cron">
               {tr('Cron 表达式（五段）', 'Cron expression (5 fields)')}
-            </span>
-            <Input value={cronExpr} onChange={(e) => setCronExpr(e.target.value)} />
-          </label>
+            </Label>
+            <Input
+              id="trigger-cron"
+              value={cronExpr}
+              onChange={(e) => setCronExpr(e.target.value)}
+            />
+          </div>
         )}
-        <label className="block">
-          <span className="mb-1 block text-[11px] text-zinc-400">{tr('目标类型', 'Target')}</span>
+        <div className="space-y-1.5">
+          <Label htmlFor="trigger-target-kind">{tr('目标类型', 'Target type')}</Label>
           <Select
+            id="trigger-target-kind"
+            aria-label={tr('目标类型', 'Target type')}
             value={targetKind}
             onValueChange={(v) => setTargetKind(v as 'workflow' | 'agent')}
             options={[
@@ -499,53 +596,114 @@ function TriggerEditor({
               { value: 'agent', label: tr('发起助理会话', 'Start assistant session') },
             ]}
           />
-        </label>
+        </div>
         {targetKind === 'workflow' ? (
-          <label className="block">
-            <span className="mb-1 block text-[11px] text-zinc-400">{tr('工作流', 'Workflow')}</span>
+          <div className="space-y-1.5">
+            <Label htmlFor="trigger-workflow">{tr('工作流', 'Workflow')}</Label>
             <Select
+              id="trigger-workflow"
+              aria-label={tr('工作流', 'Workflow')}
               value={workflowId === null ? '' : String(workflowId)}
               onValueChange={(v) => setWorkflowId(Number(v))}
               options={workflows.map((w) => ({ value: String(w.id), label: w.name }))}
             />
-            <span className="mt-1 block text-[10px] text-zinc-500">
+            <p className="text-[11px] text-zinc-500">
               {tr('触发时运行该工作流的已发布版本。', 'The published version runs on fire.')}
-            </span>
-          </label>
+            </p>
+          </div>
         ) : (
           <>
-            <label className="block">
-              <span className="mb-1 block text-[11px] text-zinc-400">{tr('助理', 'Assistant')}</span>
+            <div className="space-y-1.5">
+              <Label htmlFor="trigger-agent">{tr('助理', 'Assistant')}</Label>
               <Select
+                id="trigger-agent"
+                aria-label={tr('助理', 'Assistant')}
                 value={agentId}
                 onValueChange={setAgentId}
                 options={agents.map((a) => ({ value: a.name, label: a.name }))}
               />
-              <span className="mt-1 block text-[10px] text-zinc-500">
+              <p className="text-[11px] text-zinc-500">
                 {tr(
                   '建议绑定只读工具的助理：无人值守时审批会中止回合。',
                   'Prefer read-only assistants: approval waits stop the turn.',
                 )}
-              </span>
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-[11px] text-zinc-400">
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="trigger-prompt">
                 {tr('触发时的用户消息', 'Prompt on fire')}
-              </span>
-              <Input value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-            </label>
+              </Label>
+              <Textarea
+                id="trigger-prompt"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                className="h-20 w-full resize-y"
+              />
+            </div>
           </>
         )}
-        {isAdmin && kind === 'webhook' && (
-          <p className="text-[10px] text-zinc-500">
+        {kind === 'webhook' && (
+          <p className="text-[11px] text-zinc-500">
             {tr(
-              'Webhook URL 在保存后只显示一次，请立即复制保存。',
+              'Webhook 地址在保存后只显示一次，请立即复制保存。',
               'The webhook URL is shown once after saving — copy it now.',
             )}
           </p>
         )}
-        {err && <p className="break-all text-[11px] text-red-400">{err}</p>}
-        {cn('') && null}
+      </div>
+    </Modal>
+  );
+}
+
+function WebhookRevealModal({
+  name,
+  url,
+  onCopied,
+  onClose,
+}: {
+  name: string;
+  url: string;
+  onCopied(): void;
+  onClose(): void;
+}) {
+  const { tr } = useI18n();
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    onCopied();
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={tr(`Webhook 地址 · ${name}`, `Webhook URL · ${name}`)}
+      size="md"
+      footer={
+        <Button variant="primary" size="sm" onClick={onClose}>
+          {tr('我已保存', 'I saved it')}
+        </Button>
+      }
+    >
+      <div className="space-y-3 text-xs text-zinc-300">
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-300">
+          {tr(
+            '地址只显示这一次，关闭后无法再次查看；丢失请重新创建触发器。',
+            'This URL is shown only once and cannot be viewed again; recreate the trigger if lost.',
+          )}
+        </p>
+        <CodeBlock maxHeightClassName="max-h-none">{url}</CodeBlock>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => void copy()}>
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? tr('已复制', 'Copied') : tr('复制地址', 'Copy URL')}
+          </Button>
+          <span className="text-[10px] text-zinc-500">
+            {tr('外部系统 POST 到该地址即可触发', 'External systems POST to this URL')}
+          </span>
+        </div>
       </div>
     </Modal>
   );

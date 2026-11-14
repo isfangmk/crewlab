@@ -15,8 +15,10 @@ import {
   Button,
   CodeBlock,
   EmptyStateCard,
+  ErrorBanner,
   FilterBar,
   Input,
+  Label,
   PageHeader,
   RowAction,
   RowActionIcon,
@@ -26,6 +28,8 @@ import {
   TableCard,
   TableHead,
   TablePager,
+  Toast,
+  type ToastTone,
   COL,
   tableLayout,
 } from '@/components/ui';
@@ -34,6 +38,7 @@ import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
+import { useTimeout } from '@/lib/useTimeout';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
 import { listAgents, type AgentSummary } from '@/api/agents';
@@ -68,6 +73,16 @@ export default function PublishPage() {
   const [rotating, setRotating] = useState<PublishedChannel | null>(null);
   const [deleting, setDeleting] = useState<PublishedChannel | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
+
+  const flashTimer = useTimeout();
+  const flash = useCallback(
+    (tone: ToastTone, text: string) => {
+      setToast({ tone, text });
+      flashTimer(() => setToast(null), 4000);
+    },
+    [flashTimer],
+  );
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -103,11 +118,13 @@ export default function PublishPage() {
 
   const onToggle = async (channel: PublishedChannel) => {
     setBusyId(channel.id);
+    const nextEnabled = !channel.enabled;
     try {
-      await setChannelEnabled(channel.id, !channel.enabled);
+      await setChannelEnabled(channel.id, nextEnabled);
       await load(true);
+      flash('ok', nextEnabled ? tr('渠道已启用', 'Channel enabled') : tr('渠道已停用', 'Channel disabled'));
     } catch (e) {
-      setErr(errorText(e));
+      flash('err', errorText(e));
     } finally {
       setBusyId(null);
     }
@@ -178,9 +195,7 @@ export default function PublishPage() {
 
       <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
         {err && (
-          <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300">
-            {err}
-          </div>
+          <ErrorBanner className="mb-3">{err}</ErrorBanner>
         )}
         {loading && items === null ? (
           <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
@@ -196,7 +211,12 @@ export default function PublishPage() {
               'After creating a channel, external systems can call the assistant with the issued key.',
             )}
             action={
-              <Button variant="primary" onClick={() => setCreating(true)}>
+              <Button
+                variant="primary"
+                size="sm"
+                className="h-7 px-3 text-[11.5px]"
+                onClick={() => setCreating(true)}
+              >
                 <Plus size={12} />
                 {tr('新建渠道', 'New channel')}
               </Button>
@@ -207,7 +227,9 @@ export default function PublishPage() {
             icon={Globe}
             title={tr('没有匹配的渠道', 'No matching channels')}
             action={
-              <Button onClick={() => setQuery('')}>{tr('清除筛选', 'Clear filters')}</Button>
+              <Button size="sm" onClick={() => setQuery('')}>
+                {tr('清除筛选', 'Clear filters')}
+              </Button>
             }
           />
         ) : (
@@ -250,10 +272,10 @@ export default function PublishPage() {
                   return (
                     <tr key={channel.id} className="group transition-colors hover:bg-zinc-900/40">
                       <td className="px-3 py-2">
-                        <span className="block truncate text-[12.5px] font-medium text-zinc-100">
+                        <span className="block truncate text-[12.5px] font-medium text-zinc-100" title={channel.name}>
                           {channel.name}
                         </span>
-                        <span className="block truncate text-[10px] leading-4 text-zinc-500">
+                        <span className="block truncate text-[10px] leading-4 text-zinc-500" title={channel.expires_at ? fullDateTime(channel.expires_at) : tr('永不过期', 'Never expires')}>
                           {channel.expires_at
                             ? tr(
                                 `有效期至 ${fullDateTime(channel.expires_at)}`,
@@ -263,7 +285,7 @@ export default function PublishPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2">
-                        <span className="block truncate font-mono text-[11px] text-zinc-300">
+                        <span className="block truncate font-mono text-[11px] text-zinc-300" title={channel.agent_id}>
                           {channel.agent_id}
                         </span>
                         <span className="block truncate text-[10px] text-zinc-500">
@@ -339,10 +361,11 @@ export default function PublishPage() {
       {creating && (
         <ChannelEditor
           onClose={() => setCreating(false)}
-          onSaved={(name, key) => {
+          onSaved={(createdName, key) => {
             setCreating(false);
-            setRevealed({ name, key });
+            setRevealed({ name: createdName, key });
             void load(true);
+            flash('ok', tr('渠道已创建', 'Channel created'));
           }}
         />
       )}
@@ -351,9 +374,11 @@ export default function PublishPage() {
         <KeyRevealModal
           name={revealed.name}
           apiKey={revealed.key}
+          onCopied={() => flash('ok', tr('Key 已复制', 'Key copied'))}
           onClose={() => setRevealed(null)}
         />
       )}
+      {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
 
       {rotating && (
         <ConfirmDialog
@@ -370,6 +395,7 @@ export default function PublishPage() {
             setRotating(null);
             setRevealed({ name: rotating.name, key: result.key });
             await load(true);
+            flash('ok', tr('Key 已轮换', 'Key rotated'));
           }}
         />
       )}
@@ -388,6 +414,7 @@ export default function PublishPage() {
             await deleteChannel(deleting.id);
             setDeleting(null);
             await load(true);
+            flash('ok', tr('渠道已删除', 'Channel deleted'));
           }}
         />
       )}
@@ -479,7 +506,7 @@ function ChannelEditor({
       size="md"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             {tr('取消', 'Cancel')}
           </Button>
           <Button
@@ -493,50 +520,51 @@ function ChannelEditor({
         </>
       }
     >
-      <div className="space-y-3 text-xs text-zinc-300">
-        {err && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300">
-            {err}
-          </div>
-        )}
-        <label className="block">
-          <span className="mb-1 block text-[11px] text-zinc-400">{tr('渠道名称', 'Channel name')}</span>
+      <div className="space-y-3">
+        {err && <ErrorBanner>{err}</ErrorBanner>}
+        <div className="space-y-1.5">
+          <Label htmlFor="channel-name">{tr('渠道名称', 'Channel name')}</Label>
           <Input
+            id="channel-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={tr('例如 运维问答对外版', 'e.g. public ops assistant')}
             maxLength={128}
             className="w-full"
+            autoFocus
           />
-          <span className="mt-1 block text-[10px] text-zinc-500">
+          <p className="text-[11px] text-zinc-500">
             {tr('同时用于用量记账，需唯一。', 'Also used for usage accounting; must be unique.')}
-          </span>
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-[11px] text-zinc-400">{tr('发布助理', 'Assistant')}</span>
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="channel-agent">{tr('发布助理', 'Assistant')}</Label>
           <Select
+            id="channel-agent"
             value={agentId}
             onValueChange={setAgentId}
             options={agentOptions}
             disabled={agents === null}
-            label={tr('发布助理', 'Assistant')}
+            aria-label={tr('发布助理', 'Assistant')}
             className="w-full"
           />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-[11px] text-zinc-400">{tr('模型', 'Model')}</span>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="channel-model">{tr('模型', 'Model')}</Label>
           <Select
+            id="channel-model"
             value={modelValue}
             onValueChange={setModelValue}
             options={modelOptions}
             disabled={catalog === null}
-            label={tr('模型', 'Model')}
+            aria-label={tr('模型', 'Model')}
             className="w-full"
           />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-[11px] text-zinc-400">{tr('有效期', 'Expiry')}</span>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="channel-expiry">{tr('有效期', 'Expiry')}</Label>
           <Select
+            id="channel-expiry"
             value={expiresHours}
             onValueChange={setExpiresHours}
             options={[
@@ -545,10 +573,10 @@ function ChannelEditor({
               { value: '168', label: tr('7 天', '7 days') },
               { value: '720', label: tr('30 天', '30 days') },
             ]}
-            label={tr('有效期', 'Expiry')}
+            aria-label={tr('有效期', 'Expiry')}
             className="w-full"
           />
-        </label>
+        </div>
       </div>
     </Modal>
   );
@@ -557,10 +585,12 @@ function ChannelEditor({
 function KeyRevealModal({
   name,
   apiKey,
+  onCopied,
   onClose,
 }: {
   name: string;
   apiKey: string;
+  onCopied(): void;
   onClose(): void;
 }) {
   const { tr } = useI18n();
@@ -569,6 +599,7 @@ function KeyRevealModal({
   const copy = async () => {
     await navigator.clipboard.writeText(apiKey);
     setCopied(true);
+    onCopied();
   };
 
   return (
