@@ -1,11 +1,12 @@
-// 连线中点弹出的插入节点面板长于可视高度时要能独立滚动。
-// React Flow 默认把滚轮当画布缩放，面板必须带 nowheel 才能让滚轮落回节点列表。
+// 连线中点弹出的插入节点面板：
+//   1. 长于可视高度时要能独立滚动，滚轮不缩放画布；
+//   2. 挂到 body 并做视口内定位，避免被节点卡片盖住或伸出画布。
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EdgeProps } from '@xyflow/react';
 
-import { WorkflowEdge, type CanvasFlowEdge } from './WorkflowEdge';
+import { placeEdgePopup, WorkflowEdge, type CanvasFlowEdge } from './WorkflowEdge';
 import type { CatalogKind } from '@/api/workflows';
 import { setLocale } from '@/i18n/locale';
 
@@ -13,6 +14,7 @@ vi.mock('@xyflow/react', () => ({
   BaseEdge: () => null,
   EdgeLabelRenderer: ({ children }: { children: ReactNode }) => <>{children}</>,
   getBezierPath: () => ['M0,0', 0, 0],
+  useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
   Position: { Left: 'left', Right: 'right' },
 }));
 
@@ -45,7 +47,42 @@ describe('连线插入节点面板', () => {
     fireEvent.click(screen.getByRole('button', { name: '在连线中间插入节点' }));
 
     const input = screen.getByRole('textbox', { name: '搜索要插入的节点' });
-    expect(input.closest('.nowheel')).not.toBeNull();
+    const panel = input.closest('.nowheel');
+    expect(panel).not.toBeNull();
+    expect(panel?.parentElement).toBe(document.body);
     expect(screen.getByText('大模型')).toBeInTheDocument();
+  });
+});
+
+describe('placeEdgePopup', () => {
+  const viewport = { width: 1000, height: 800 };
+  const popup = { width: 212, height: 260 };
+
+  it('下方空间充足时贴在锚点下方并水平居中', () => {
+    expect(placeEdgePopup({ left: 400, top: 100, bottom: 120, width: 20 }, popup, viewport)).toEqual({
+      left: 304,
+      top: 128,
+    });
+  });
+
+  it('下方放不下时翻到锚点上方', () => {
+    expect(placeEdgePopup({ left: 400, top: 700, bottom: 720, width: 20 }, popup, viewport)).toEqual({
+      left: 304,
+      top: 432,
+    });
+  });
+
+  it('靠近视口右侧时向左收，不越界', () => {
+    const { left } = placeEdgePopup({ left: 980, top: 100, bottom: 120, width: 20 }, popup, viewport);
+    expect(left).toBe(viewport.width - popup.width - 8);
+  });
+
+  it('比视口还高时从顶部开始，仍保留边距', () => {
+    const { top } = placeEdgePopup(
+      { left: 400, top: 100, bottom: 120, width: 20 },
+      { width: 212, height: 900 },
+      viewport,
+    );
+    expect(top).toBe(8);
   });
 });
