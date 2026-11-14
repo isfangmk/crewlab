@@ -28,6 +28,7 @@ export { FilterBar, ChoiceChip, FilterChip, FilterPill } from './FilterBar';
 export { SearchInput } from './SearchInput';
 export { MetricCard, DEFAULT_METRIC_ICON } from './MetricCard';
 export { StatusPill } from './StatusPill';
+export type { StatusTone } from './StatusPill';
 export { TableCard, TablePager } from './TableCard';
 export { TableHead, TableHeadCell, TABLE_HEAD_CLASS } from './TableHead';
 export { COL, tableLayout } from './TableColumns';

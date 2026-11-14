@@ -42,6 +42,7 @@ const ROUTE_DEFS: RouteDef[] = [
   { path: '/audit', zh: '审计日志', en: 'Audit logs', keywords: ['audit', 'logs', 'shenji'], group: '治理' },
   { path: '/observability', zh: '可观测', en: 'Observability', keywords: ['observability', 'trace', 'token', 'keguance'], group: '治理' },
   { path: '/publish', zh: '发布管理', en: 'Publishing', keywords: ['publish', 'openai', 'api', 'key', 'fabu'], group: '治理' },
+  { path: '/evals', zh: '评测', en: 'Evals', keywords: ['evals', 'eval', 'regression', 'test', 'pingce'], group: '治理' },
   { path: '/users', zh: '用户与权限', en: 'Users & roles', keywords: ['users', 'roles', 'permissions', 'yonghu'], group: '治理' },
 
   { path: '/settings/llm', zh: '设置 / 模型', en: 'Settings / LLM', keywords: ['llm', 'model', 'moxing'], group: '设置' },

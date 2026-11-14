@@ -8,6 +8,7 @@ from app.models_orm.audit import AuditLog
 from app.models_orm.base import Base
 from app.models_orm.chat import ChatMessage, ChatSession
 from app.models_orm.channel import PublishedChannel
+from app.models_orm.eval import EvalCase, EvalCaseResult, EvalDataset, EvalRun
 from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.models_orm.llm import AppSetting, LlmProvider
 from app.models_orm.mcp import McpServer, McpToolEmbedding
@@ -41,6 +42,10 @@ __all__ = [
     "AuditLog",
     "ShareToken",
     "PublishedChannel",
+    "EvalDataset",
+    "EvalCase",
+    "EvalRun",
+    "EvalCaseResult",
     "ObservationTurn",
     "ObservationToolCall",
     "SandboxExecution",

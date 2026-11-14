@@ -20,6 +20,8 @@ const WorkflowsPage = lazy(() => import('@/pages/Workflows'));
 const TriggersPage = lazy(() => import('@/pages/Triggers'));
 const MemoryPage = lazy(() => import('@/pages/Memory'));
 const PublishPage = lazy(() => import('@/pages/Publish'));
+const EvalsPage = lazy(() => import('@/pages/Evals'));
+const EvalDatasetPage = lazy(() => import('@/pages/EvalDataset'));
 const WorkflowEditorPage = lazy(() => import('@/pages/WorkflowEditor'));
 const WorkflowRunPage = lazy(() => import('@/pages/WorkflowRun'));
 const SandboxPage = lazy(() => import('@/pages/Sandbox'));
@@ -97,6 +99,8 @@ export default function App() {
         <Route path='/triggers' element={<TriggersPage />} />
         <Route path='/memory' element={<MemoryPage />} />
         <Route path='/publish' element={<PublishPage />} />
+        <Route path='/evals' element={<EvalsPage />} />
+        <Route path='/evals/:datasetId' element={<EvalDatasetPage key={location.pathname} />} />
         <Route path="/workflows/runs/:runUid" element={<WorkflowRunPage />} />
         <Route path="/workflows/:id" element={<WorkflowEditorPage key={location.pathname} />} />
         <Route path="/knowledge" element={<KnowledgePage />} />
