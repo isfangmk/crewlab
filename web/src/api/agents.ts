@@ -16,9 +16,9 @@ export type KnowledgeScope = { paths: string[]; doc_ids: string[] };
 
 /** 助理列表/详情响应字段。 */
 export type AgentSummary = {
-  /** ADK 标识（主键，创建后不可改名） */
+  /** 助理唯一标识（Agent ID），用于接口、会话与委托引用 */
   name: string;
-  /** 面向用户的中文名 */
+  /** 面向用户的显示名称（Display Name），可使用中文 */
   display_name: string;
   description: string;
   when_to_use: string;

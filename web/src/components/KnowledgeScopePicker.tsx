@@ -2,8 +2,9 @@
 //
 // 范围在 SQL 层生效（knowledge_scope.scope_condition），不是检索后筛选；
 // 因此这里必须把「命中 0 篇」「路径已不存在」当场拦住，而不是保存时才报错。
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ChevronRight, Folder, FolderOpen, Search } from 'lucide-react';
+import { cn } from '@/lib/cn';
 import { errorText } from '@/lib/errors';
 
 import type { ScopePreview } from '@/api/knowledge';
@@ -12,6 +13,7 @@ import {
   listPaths,
   localizedDocTitle,
   localizedPath,
+  localizedPathSegment,
   scopePreview,
   searchKnowledge,
   type KnowledgeDoc,
@@ -57,6 +59,56 @@ const DOC_FILTER_LIMIT = 50;
 // 选择器只加载可用的一页：不传 limit 会让后端拉全库并计算全库正文统计
 const DOC_LOAD_LIMIT = 200;
 
+type FolderNode = {
+  name: string;
+  path: string;
+  /** 含子目录的文档数，与选中该目录后实际生效的范围一致 */
+  subtreeCount: number;
+  children: FolderNode[];
+};
+
+type MutableFolderNode = Omit<FolderNode, 'children'> & {
+  children: Map<string, MutableFolderNode>;
+};
+
+/** 把后端按 path 聚合的扁平行还原成目录树；中间层级即使没有直属文档也要保留。 */
+function buildFolderTree(rows: PathRow[]): FolderNode[] {
+  const root: MutableFolderNode = {
+    name: '',
+    path: '',
+    subtreeCount: 0,
+    children: new Map(),
+  };
+  for (const row of rows) {
+    if (!row.path) continue;
+    const parts = row.path.split('/').filter(Boolean);
+    let cur = root;
+    let cumulative = '';
+    for (let i = 0; i < parts.length; i += 1) {
+      const segment = parts[i];
+      cumulative = cumulative === '' ? segment : `${cumulative}/${segment}`;
+      let child = cur.children.get(segment);
+      if (!child) {
+        child = { name: segment, path: cumulative, subtreeCount: 0, children: new Map() };
+        cur.children.set(segment, child);
+      }
+      child.subtreeCount += row.count;
+      cur = child;
+    }
+  }
+
+  const freeze = (node: MutableFolderNode): FolderNode[] =>
+    [...node.children.values()]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((child) => ({
+        name: child.name,
+        path: child.path,
+        subtreeCount: child.subtreeCount,
+        children: freeze(child),
+      }));
+  return freeze(root);
+}
+
 export function KnowledgeScopePicker({
   value,
   onChange,
@@ -77,6 +129,9 @@ export function KnowledgeScopePicker({
   const [trialHits, setTrialHits] = useState<SearchHit[] | null>(null);
   const [trialError, setTrialError] = useState<string | null>(null);
   const [trialBusy, setTrialBusy] = useState(false);
+  // 树节点默认全部展开；用户逐个折叠后保持自己的选择。
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const expandedInitialized = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +149,22 @@ export function KnowledgeScopePicker({
       cancelled = true;
     };
   }, []);
+
+  const folderTree = useMemo(() => buildFolderTree(paths), [paths]);
+
+  useEffect(() => {
+    if (expandedInitialized.current || folderTree.length === 0) return;
+    expandedInitialized.current = true;
+    const next = new Set<string>();
+    const walk = (nodes: FolderNode[]) => {
+      for (const node of nodes) {
+        next.add(node.path);
+        walk(node.children);
+      }
+    };
+    walk(folderTree);
+    setExpanded(next);
+  }, [folderTree]);
 
   const wire = useMemo(() => scopeSelectionToWire(value), [value]);
 
@@ -127,12 +198,97 @@ export function KnowledgeScopePicker({
     };
   }, [value.mode, wire, onPreviewChange]);
 
+  // 父目录已选中时，子目录必然被前缀匹配覆盖；此时子项只展示继承态，不再单独勾选。
+  const isPathInherited = (path: string) =>
+    value.paths.some((selected) => path.startsWith(`${selected}/`));
+
   const togglePath = (path: string) => {
+    if (isPathInherited(path)) return;
     const has = value.paths.includes(path);
-    onChange({
-      ...value,
-      paths: has ? value.paths.filter((p) => p !== path) : [...value.paths, path],
+    // 选中父目录后清掉被覆盖的子目录，保存的路径列表保持最小。
+    const next = value.paths.filter((p) => p !== path && !p.startsWith(`${path}/`));
+    if (!has) next.push(path);
+    onChange({ ...value, paths: next });
+  };
+
+  const toggleExpanded = (path: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
     });
+  };
+
+  const renderFolder = (node: FolderNode, depth: number): ReactNode => {
+    const hasChildren = node.children.length > 0;
+    const isExpanded = expanded.has(node.path);
+    const selected = value.paths.includes(node.path);
+    const inherited = isPathInherited(node.path);
+    const label = localizedPath(node.path);
+    return (
+      <div key={node.path}>
+        <div
+          className={cn(
+            'flex items-center gap-1 rounded py-0.5 pr-1 text-[11px]',
+            inherited ? 'text-zinc-500' : 'text-zinc-300 hover:bg-zinc-900/60',
+          )}
+          style={{ paddingLeft: `${depth * 14 + 2}px` }}
+        >
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={() => toggleExpanded(node.path)}
+              aria-label={tr(
+                `${isExpanded ? '收起' : '展开'}目录 ${label}`,
+                `${isExpanded ? 'Collapse' : 'Expand'} folder ${label}`,
+              )}
+              aria-expanded={isExpanded}
+              className="flex h-5 w-4 shrink-0 items-center justify-center rounded text-zinc-500 hover:text-zinc-300"
+            >
+              <ChevronRight size={11} className={cn('transition-transform', isExpanded && 'rotate-90')} />
+            </button>
+          ) : (
+            <span className="h-5 w-4 shrink-0" aria-hidden />
+          )}
+          <Checkbox
+            checked={selected || inherited}
+            disabled={inherited}
+            onCheckedChange={() => togglePath(node.path)}
+            aria-label={tr(`范围目录 ${label}`, `Scope folder ${label}`)}
+            className="h-3 w-3"
+          />
+          {isExpanded && hasChildren ? (
+            <FolderOpen size={11} className="shrink-0 text-zinc-500" aria-hidden />
+          ) : (
+            <Folder size={11} className="shrink-0 text-zinc-500" aria-hidden />
+          )}
+          <button
+            type="button"
+            onClick={() => togglePath(node.path)}
+            disabled={inherited}
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-left disabled:cursor-default"
+          >
+            <span className="truncate">{localizedPathSegment(node.name)}</span>
+            {inherited && (
+              <span className="shrink-0 text-[10px] text-zinc-600">{tr('随上级', 'inherited')}</span>
+            )}
+            <span
+              className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-zinc-500"
+              title={tr(
+                `含子目录共 ${node.subtreeCount} 篇`,
+                `${node.subtreeCount} document(s) including subfolders`,
+              )}
+            >
+              {node.subtreeCount}
+            </span>
+          </button>
+        </div>
+        {isExpanded && hasChildren && (
+          <div>{node.children.map((child) => renderFolder(child, depth + 1))}</div>
+        )}
+      </div>
+    );
   };
 
   const toggleDoc = (id: string) => {
@@ -164,7 +320,7 @@ export function KnowledgeScopePicker({
     [docs, value.doc_ids],
   );
   // 根目录不是可选范围：空范围已经代表「全部知识库」，后端也拒绝空路径
-  const folderRows = useMemo(() => paths.filter((row) => row.path !== ''), [paths]);
+  // 目录树在 buildFolderTree 中已按 path 层级聚合，根节点本身不渲染。
 
   const runTrial = useCallback(async () => {
     if (trialQuery.trim() === '') return;
@@ -221,29 +377,11 @@ export function KnowledgeScopePicker({
             <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
               {tr('目录（含子目录）', 'Folders (with subfolders)')}
             </div>
-            {folderRows.length === 0 ? (
+            {folderTree.length === 0 ? (
               <p className="text-[11px] text-zinc-500">{tr('知识库暂无目录。', 'No folders yet.')}</p>
             ) : (
-              <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-                {folderRows.map((row) => {
-                  const checked = value.paths.includes(row.path);
-                  const label = localizedPath(row.path);
-                  return (
-                    <label
-                      key={row.path}
-                      className="flex items-center gap-1.5 rounded border border-zinc-800/60 px-2 py-1 text-[11px] text-zinc-300"
-                    >
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={() => togglePath(row.path)}
-                        aria-label={tr(`范围目录 ${label}`, `Scope folder ${label}`)}
-                        className="h-3 w-3"
-                      />
-                      <span>{label}</span>
-                      <span className="text-zinc-500">{row.count}</span>
-                    </label>
-                  );
-                })}
+              <div className="max-h-56 overflow-y-auto rounded border border-zinc-800/60 p-1">
+                {folderTree.map((node) => renderFolder(node, 0))}
               </div>
             )}
           </div>

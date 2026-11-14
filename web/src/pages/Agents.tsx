@@ -45,7 +45,8 @@ import { mcpToolWireName } from '@/lib/mcpWire';
 import { Modal } from '@/components/Modal';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Button, Card, Checkbox, Chip, CodeBlock, DetailSection, EmptyStateCard,
-  ErrorBanner, FilterBar, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Textarea } from '@/components/ui';
+  ErrorBanner, FilterBar, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Textarea,
+  Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui';
 import {
   createUserAgent,
   deleteAgent,
@@ -204,7 +205,7 @@ export default function AgentsPage() {
         <SearchInput
           value={query}
           onChange={setQuery}
-          placeholder={tr('搜索中文名 / ADK 名称 / 描述', 'Search display name / ADK name / description')}
+          placeholder={tr('搜索显示名称 / Agent 标识 / 描述', 'Search display name / Agent ID / description')}
           ariaLabel={tr('搜索', 'Search')}
         />
         <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
@@ -351,7 +352,7 @@ function AgentCard({
   const toolCount = agent.tools.length;
   const isUser = agent.source === 'user';
   const canDelete = agent.source !== 'builtin' && agent.name !== 'default';
-  // 中文名优先取后端 display_name；旧数据或预置助理退回内置短名 / ADK 标识。
+  // 显示名称优先取后端 display_name；旧数据或预置助理退回内置短名 / Agent 标识。
   const displayName = agent.display_name || SHORT_LABELS[agent.name] || agent.name;
   // 知识范围：两个列表都空 = 继承全部知识库；否则优先列出目录名（最多两个），
   // 文档集只报篇数——路径比「N 个目录」更能说清这个助理到底管哪一摊。
@@ -400,7 +401,7 @@ function AgentCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <Hint content={tr(`${displayName}（${agent.name}）`, `${displayName} (${agent.name})`)}>
+            <Hint content={tr(`${displayName}（Agent 标识：${agent.name}）`, `${displayName} (Agent ID: ${agent.name})`)}>
               <button
                 type="button"
                 onClick={onView}
@@ -803,6 +804,8 @@ function AgentEditor({
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // 配置项按用途分区，避免单页纵向滚动过长；切换分区不丢草稿。
+  const [tab, setTab] = useState<'basic' | 'persona' | 'knowledge' | 'capabilities' | 'runtime'>('basic');
 
   useEffect(() => {
     let cancelled = false;
@@ -853,6 +856,41 @@ function AgentEditor({
       scopePreviewState.doc_count === 0 ||
       scopePreviewState.unknown_paths.length > 0 ||
       scopePreviewState.unknown_doc_ids.length > 0);
+
+  // 保存按钮在底部，必填项却分散在多个分区：缺失时给出可定位的提示。
+  const missingRequired: string[] = [];
+  if (mode === 'create' && name.trim() === '')
+    missingRequired.push(tr('Agent 标识', 'Agent identifier'));
+  if (displayName.trim() === '') missingRequired.push(tr('显示名称', 'Display name'));
+  if (description.trim() === '') missingRequired.push(tr('描述', 'Description'));
+  if (systemPrompt.trim() === '') missingRequired.push(tr('系统提示', 'System prompt'));
+  const saveBlockedHint =
+    missingRequired.length > 0
+      ? tr(`还需填写：${missingRequired.join('、')}`, `Still required: ${missingRequired.join(', ')}`)
+      : scopeBlocked
+        ? tr(
+            '知识范围不可用，请到「知识范围」分区检查',
+            'Knowledge scope is invalid; check the Knowledge tab',
+          )
+        : '';
+  const basicIncomplete =
+    (mode === 'create' && name.trim() === '') ||
+    displayName.trim() === '' ||
+    description.trim() === '';
+  const personaIncomplete = systemPrompt.trim() === '';
+
+  const tabLabel = (label: string, incomplete: boolean) => (
+    <>
+      {label}
+      {incomplete && (
+        <span
+          aria-hidden
+          title={tr('有必填项未完成', 'Required fields incomplete')}
+          className="h-1.5 w-1.5 rounded-full bg-warn"
+        />
+      )}
+    </>
+  );
 
   const submit = async () => {
     setErr(null);
@@ -907,6 +945,9 @@ function AgentEditor({
       }
       footer={
         <>
+          {saveBlockedHint !== '' && (
+            <span className="mr-auto text-[11px] text-zinc-500">{saveBlockedHint}</span>
+          )}
           <Button variant="outline" size="sm"
             type="button"
             onClick={onClose}
@@ -939,175 +980,201 @@ function AgentEditor({
           </ErrorBanner>
         )}
 
-        {/* 宽弹窗下基础信息并排，避免长表单变成一条竖直的窄列。 */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Field label={tr('ADK 名称', 'ADK name')} required>
-            <Input
-              type="text"
-              value={name}
-              disabled={mode === 'edit'}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={tr('lower_snake 或 kebab-case，例如 my_db_assistant', 'lower_snake or kebab-case, e.g. my_db_assistant')}
-              className="w-full font-mono"
-              maxLength={64}
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as typeof tab)}
+          className="space-y-4"
+        >
+          <TabsList aria-label={tr('助理配置分区', 'Assistant configuration sections')}>
+            <TabsTrigger value="basic">{tabLabel(tr('基础', 'Basics'), basicIncomplete)}</TabsTrigger>
+            <TabsTrigger value="persona">{tabLabel(tr('人设', 'Persona'), personaIncomplete)}</TabsTrigger>
+            <TabsTrigger value="knowledge">
+              {tabLabel(tr('知识范围', 'Knowledge'), scopeBlocked)}
+            </TabsTrigger>
+            <TabsTrigger value="capabilities">{tr('能力绑定', 'Capabilities')}</TabsTrigger>
+            <TabsTrigger value="runtime">{tr('委托与运行', 'Delegation & runtime')}</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="basic" keepMounted className="min-h-[24rem] space-y-4">
+            {/* 宽弹窗下基础信息并排，避免长表单变成一条竖直的窄列。 */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field label={tr('Agent 标识', 'Agent identifier')} required>
+                <Input
+                  type="text"
+                  value={name}
+                  disabled={mode === 'edit'}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={tr('小写字母开头，例如 oncall-duty', 'Start with a lowercase letter, e.g. oncall-duty')}
+                  className="w-full font-mono"
+                  maxLength={64}
+                />
+                <div className="mt-1 text-balance text-[11px] text-zinc-500">
+                  {tr(
+                    '接口、会话与委托引用的唯一标识，也是 ADK 运行时名称的生成来源；创建后不可修改。',
+                    'Unique ID used by APIs, sessions and delegation; also the source of the ADK runtime name. Immutable after creation.',
+                  )}
+                </div>
+              </Field>
+
+              <Field label={tr('显示名称', 'Display name')} required>
+                <Input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder={tr('例如：运维值班助理', 'e.g. 运维值班助理')}
+                  className="w-full"
+                  maxLength={64}
+                />
+                <div className="mt-1 text-balance text-[11px] text-zinc-500">
+                  {tr(
+                    '面向用户的展示名称，可使用中文；不参与运行时标识与调用。',
+                    'User-facing label; may be localized. Not used as a runtime identifier.',
+                  )}
+                </div>
+              </Field>
+            </div>
+
+            <Field label={tr('描述', 'Description')} required>
+              <Input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={tr('一句话说清这个助理擅长什么', 'One sentence on what this assistant is good at')}
+                className="w-full"
+                maxLength={512}
+              />
+              <div className="mt-1 text-[11px] text-zinc-500">
+                {tr('显示在助理卡片与选择器里。', 'Shown on the assistant card and picker.')}
+              </div>
+            </Field>
+
+            <Field label={tr('何时使用', 'When to use')}>
+              <Textarea
+                value={whenToUse}
+                onChange={(e) => setWhenToUse(e.target.value)}
+                placeholder={tr('给 coordinator 的判断线索：什么场景把任务派给这个助理', 'Hint for the coordinator: when to delegate to this assistant')}
+                className="h-20 w-full resize-y"
+              />
+            </Field>
+          </TabsContent>
+
+          <TabsContent value="persona" keepMounted className="min-h-[24rem]">
+            <PersonaFields
+              value={{ systemPrompt, criticalReminder, outputFormat, examples }}
+              onChange={(patch) => {
+                if (patch.systemPrompt !== undefined) setSystemPrompt(patch.systemPrompt);
+                if (patch.criticalReminder !== undefined) setCriticalReminder(patch.criticalReminder);
+                if (patch.outputFormat !== undefined) setOutputFormat(patch.outputFormat);
+                if (patch.examples !== undefined) setExamples(patch.examples);
+              }}
             />
-            <div className="mt-1 text-[11px] text-zinc-500">
-              {tr('ADK 标识与主键，创建后不能改名。', 'ADK identifier and primary key; cannot be renamed after creation.')}
-            </div>
-          </Field>
+          </TabsContent>
 
-          <Field label={tr('中文名称', 'Display name')} required>
-            <Input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder={tr('例如：运维值班助理', 'e.g. 运维值班助理')}
-              className="w-full"
-              maxLength={64}
+          <TabsContent value="knowledge" keepMounted className="min-h-[24rem]">
+            <KnowledgeScopePicker
+              value={scope}
+              onChange={setScope}
+              onPreviewChange={setScopePreviewState}
             />
-            <div className="mt-1 text-[11px] text-zinc-500">
-              {tr('卡片、会话与选择器优先展示中文名。', 'Shown first on cards, sessions and pickers.')}
-            </div>
-          </Field>
-        </div>
+          </TabsContent>
 
-        <Field label={tr('描述', 'Description')} required>
-          <Input
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder={tr('一句话说清这个助理擅长什么', 'One sentence on what this assistant is good at')}
-            className="w-full"
-            maxLength={512}
-          />
-          <div className="mt-1 text-[11px] text-zinc-500">
-            {tr('显示在助理卡片与选择器里。', 'Shown on the assistant card and picker.')}
-          </div>
-        </Field>
+          <TabsContent value="capabilities" keepMounted className="min-h-[24rem]">
+            <CapabilityBinding
+              catalog={catalog}
+              catalogError={catalogError}
+              allowedTools={allowedTools}
+              disallowedTools={disallowedTools}
+              onAllowedToolsChange={setAllowedTools}
+              onDisallowedToolsChange={setDisallowedTools}
+              selectedSkills={selectedSkills}
+              onSelectedSkillsChange={setSelectedSkills}
+            />
+          </TabsContent>
 
-        <Field label={tr('何时使用', 'When to use')}>
-          <Textarea
-            value={whenToUse}
-            onChange={(e) => setWhenToUse(e.target.value)}
-            placeholder={tr('给 coordinator 的判断线索：什么场景把任务派给这个助理', 'Hint for the coordinator: when to delegate to this assistant')}
-            className="h-20 w-full resize-y"
-          />
-        </Field>
-
-        <FieldGroup label={tr('人设与示例', 'Persona & examples')} required>
-          <PersonaFields
-            value={{ systemPrompt, criticalReminder, outputFormat, examples }}
-            onChange={(patch) => {
-              if (patch.systemPrompt !== undefined) setSystemPrompt(patch.systemPrompt);
-              if (patch.criticalReminder !== undefined) setCriticalReminder(patch.criticalReminder);
-              if (patch.outputFormat !== undefined) setOutputFormat(patch.outputFormat);
-              if (patch.examples !== undefined) setExamples(patch.examples);
-            }}
-          />
-        </FieldGroup>
-
-        <FieldGroup label={tr('知识范围', 'Knowledge scope')}>
-          <KnowledgeScopePicker
-            value={scope}
-            onChange={setScope}
-            onPreviewChange={setScopePreviewState}
-          />
-        </FieldGroup>
-
-        <Field label={tr('能力绑定', 'Capability binding')}>
-          <CapabilityBinding
-            catalog={catalog}
-            catalogError={catalogError}
-            allowedTools={allowedTools}
-            disallowedTools={disallowedTools}
-            onAllowedToolsChange={setAllowedTools}
-            onDisallowedToolsChange={setDisallowedTools}
-            selectedSkills={selectedSkills}
-            onSelectedSkillsChange={setSelectedSkills}
-          />
-        </Field>
-
-        <FieldGroup label={tr('子助理委托', 'Sub-assistant delegation')}>
-          <p className="mb-2 text-[11px] leading-relaxed text-zinc-500">
-            {tr(
-              '勾选的助理会成为父助理的可委托对象；由父助理按各自的「何时使用」判断何时转交，委托链最多 3 层。',
-              'Checked assistants become delegation targets; the parent decides when to hand off based on each one\'s "when to use", up to 3 levels deep.',
-            )}
-          </p>
-          {subAgentCandidates.length === 0 ? (
-            <div className="rounded border border-dashed border-zinc-800/60 px-2 py-1.5 text-[11px] text-zinc-500">
-              {tr('还没有其他助理可委托', 'No other assistants available yet')}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
-              {subAgentCandidates.map((item) => {
-                const checked = subAgents.includes(item.name);
-                return (
-                  <div
-                    key={item.name}
-                    className="flex items-start gap-1.5 rounded px-1.5 py-1 hover:bg-zinc-900/60"
-                  >
-                    <Checkbox
-                      checked={checked}
-                      onCheckedChange={() =>
-                        setSubAgents(
-                          checked
-                            ? subAgents.filter((name) => name !== item.name)
-                            : [...subAgents, item.name],
-                        )
-                      }
-                      className="mt-0.5 h-3 w-3"
-                      aria-label={tr(`委托给 ${item.name}`, `Delegate to ${item.name}`)}
-                    />
-                    <div className="min-w-0">
-                      <div className="truncate text-[11px] text-zinc-200">
-                        {item.display_name || SHORT_LABELS[item.name] || item.name}
-                        <span className="ml-1 font-mono text-[10px] text-zinc-500">({item.name})</span>
+          <TabsContent value="runtime" keepMounted className="min-h-[24rem] space-y-4">
+            <FieldGroup label={tr('子助理委托', 'Sub-assistant delegation')}>
+              <p className="mb-2 text-[11px] leading-relaxed text-zinc-500">
+                {tr(
+                  '勾选的助理会成为父助理的可委托对象；由父助理按各自的「何时使用」判断何时转交，委托链最多 3 层。',
+                  'Checked assistants become delegation targets; the parent decides when to hand off based on each one\'s "when to use", up to 3 levels deep.',
+                )}
+              </p>
+              {subAgentCandidates.length === 0 ? (
+                <div className="rounded border border-dashed border-zinc-800/60 px-2 py-1.5 text-[11px] text-zinc-500">
+                  {tr('还没有其他助理可委托', 'No other assistants available yet')}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
+                  {subAgentCandidates.map((item) => {
+                    const checked = subAgents.includes(item.name);
+                    return (
+                      <div
+                        key={item.name}
+                        className="flex items-start gap-1.5 rounded px-1.5 py-1 hover:bg-zinc-900/60"
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() =>
+                            setSubAgents(
+                              checked
+                                ? subAgents.filter((name) => name !== item.name)
+                                : [...subAgents, item.name],
+                            )
+                          }
+                          className="mt-0.5 h-3 w-3"
+                          aria-label={tr(`委托给 ${item.name}`, `Delegate to ${item.name}`)}
+                        />
+                        <div className="min-w-0">
+                          <div className="truncate text-[11px] text-zinc-200">
+                            {item.display_name || SHORT_LABELS[item.name] || item.name}
+                            <span className="ml-1 font-mono text-[10px] text-zinc-500">({item.name})</span>
+                          </div>
+                          <div className="truncate text-[10px] text-zinc-500">
+                            {item.when_to_use || item.description}
+                          </div>
+                        </div>
                       </div>
-                      <div className="truncate text-[10px] text-zinc-500">
-                        {item.when_to_use || item.description}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </FieldGroup>
+                    );
+                  })}
+                </div>
+              )}
+            </FieldGroup>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <Field label={tr('权限模式', 'Permission mode')}>
-            <Select
-              label={tr('权限模式', 'Permission mode')}
-              value={permissionMode}
-              onValueChange={(v) => setPermissionMode(v)}
-              className="w-full"
-            >
-              <option value="">{tr('（不限）', '(unrestricted)')}</option>
-              <option value="read-only">{tr('只读 — 所有 MCP 工具都需人工确认', 'Read-only — every MCP tool needs confirmation')}</option>
-            </Select>
-          </Field>
-          <Field label={tr('模型', 'Model')}>
-            <Input
-              type="text"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder={tr('留空 = 继承', 'Empty = inherit')}
-              className="w-full"
-            />
-          </Field>
-          <Field label={tr('最大轮数', 'Max turns')}>
-            <Input
-              type="number"
-              value={maxTurns || ''}
-              onChange={(e) => setMaxTurns(parseInt(e.target.value, 10) || 0)}
-              placeholder={tr('留空 = 继承', 'Empty = inherit')}
-              min={0}
-              max={100}
-              className="w-full"
-            />
-          </Field>
-        </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Field label={tr('权限模式', 'Permission mode')}>
+                <Select
+                  label={tr('权限模式', 'Permission mode')}
+                  value={permissionMode}
+                  onValueChange={(v) => setPermissionMode(v)}
+                  className="w-full"
+                >
+                  <option value="">{tr('（不限）', '(unrestricted)')}</option>
+                  <option value="read-only">{tr('只读 — 所有 MCP 工具都需人工确认', 'Read-only — every MCP tool needs confirmation')}</option>
+                </Select>
+              </Field>
+              <Field label={tr('模型', 'Model')}>
+                <Input
+                  type="text"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder={tr('留空 = 继承', 'Empty = inherit')}
+                  className="w-full"
+                />
+              </Field>
+              <Field label={tr('最大轮数', 'Max turns')}>
+                <Input
+                  type="number"
+                  value={maxTurns || ''}
+                  onChange={(e) => setMaxTurns(parseInt(e.target.value, 10) || 0)}
+                  placeholder={tr('留空 = 继承', 'Empty = inherit')}
+                  min={0}
+                  max={100}
+                  className="w-full"
+                />
+              </Field>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </Modal>
   );
@@ -1179,7 +1246,7 @@ function DeleteAgentDialog({
           <p>
             {tr('确定删除自定义助理 ', 'Delete custom assistant ')}
             <span className="text-zinc-100">{displayName}</span>
-            <span className="ml-1 font-mono text-zinc-400">({agent.name})</span>?
+            <span className="ml-2 font-mono text-zinc-400">({agent.name})</span>?
           </p>
           <p className="mt-2 text-zinc-500">
             {tr(

@@ -1,5 +1,5 @@
 import { Hint } from '@/components/ui/Tooltip';
-// 会话绑定助理的徽标；优先展示后端中文名，缺省回退内置短名或 ADK 标识。
+// 会话绑定助理的徽标；优先展示后端显示名称，缺省回退内置短名或 Agent 标识。
 import { Bot } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { tr as trInline, useI18n } from '@/i18n/locale';
@@ -34,7 +34,7 @@ export function AgentBadge({
   className,
 }: {
   agentId?: string | null;
-  /** 后端配置的中文名；缺省时退回内置映射或 ADK 标识 */
+  /** 后端配置的显示名称；缺省时退回内置映射或 Agent 标识 */
   label?: string | null;
   size?: AgentBadgeSize;
   className?: string;
@@ -52,7 +52,7 @@ export function AgentBadge({
       : 'px-1 py-0.5 text-[10px]';
   const iconSize = size === 'sm' ? 11 : 9;
   return (
-    <Hint content={tr(`此会话固定使用 ${display}（${agentId}）`, `This session is pinned to ${display} (${agentId})`)}><span
+    <Hint content={tr(`此会话固定使用 ${display}（Agent 标识：${agentId}）`, `This session is pinned to ${display} (Agent ID: ${agentId})`)}><span
 
       className={cn(base, sizeCls, className)}
     >

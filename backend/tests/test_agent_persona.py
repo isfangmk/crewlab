@@ -83,7 +83,7 @@ def test_parse_examples_limits() -> None:
 
 
 def test_display_name_validation() -> None:
-    """中文名只用于展示：去空白、限长、拒绝空串与控制字符。"""
+    """显示名称只用于展示：去空白、限长、拒绝空串与控制字符。"""
 
     assert validate_display_name("  运维值班助理  ") == "运维值班助理"
     with pytest.raises(ValueError):

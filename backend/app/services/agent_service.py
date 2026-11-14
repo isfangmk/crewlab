@@ -62,7 +62,7 @@ class ResolvedAgent:
     model: str
     max_turns: int
     source: str
-    # 面向用户的中文名；为空时前端回退到 ADK 标识
+    # 面向用户的显示名称；为空时前端回退到助理唯一标识
     display_name: str = ""
     output_format: str = "free"
     examples: tuple[dict[str, str], ...] = ()
@@ -249,7 +249,7 @@ def validate_agent_name(name: str) -> None:
 
 
 def validate_display_name(display_name: str) -> str:
-    """中文名只用于展示：非空、限长，不能包含换行等控制字符。"""
+    """显示名称只用于展示：非空、限长，不能包含换行等控制字符。"""
 
     value = display_name.strip()
     if value == "":

@@ -15,7 +15,7 @@ class UserAgent(Base):
 
     __tablename__ = "user_agents"
 
-    # name 是 ADK 标识与主键；display_name 是面向用户的中文名
+    # name 是助理唯一标识与主键；display_name 是面向用户的显示名称
     name: Mapped[str] = mapped_column(String(128), primary_key=True)
     display_name: Mapped[str] = mapped_column(
         String(128), nullable=False, default="", server_default=""

@@ -30,8 +30,15 @@ class KnowledgeScopeInput(BaseModel):
 
 
 class UserAgentInput(BaseModel):
-    name: str | None = None
-    display_name: str = Field(min_length=1, max_length=64)
+    name: str | None = Field(
+        default=None,
+        description="助理唯一标识，用于接口、会话与委托引用；创建后不可修改",
+    )
+    display_name: str = Field(
+        min_length=1,
+        max_length=64,
+        description="面向用户的显示名称，可使用中文；不参与运行时标识",
+    )
     description: str = Field(min_length=1)
     when_to_use: str
     system_prompt: str = Field(min_length=1)

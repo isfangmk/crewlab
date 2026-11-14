@@ -104,7 +104,7 @@ describe('AgentsPage', () => {
     const useButton = (await screen.findAllByRole('button', { name: '使用此助理' }))[0];
     expect(useButton).toHaveAttribute('data-variant', 'plain');
     expect(useButton).toHaveClass('bg-indigo-500/10', 'text-indigo-300');
-    // 卡片标题用中文名；ADK 标识单独一行，二者都必须在卡片上可见
+    // 卡片标题用显示名称；Agent 标识单独一行，二者都必须在卡片上可见
     expect(await screen.findByText('specialist-sre')).toBeInTheDocument();
     await userEvent.click(await screen.findByRole('button', { name: 'SRE 专家' }));
 
@@ -124,7 +124,7 @@ describe('AgentsPage', () => {
         <AgentsPage />
       </MemoryRouter>,
     );
-    // user 助理用中文名做标题，ADK 标识保留在副标题
+    // user 助理用显示名称做标题，Agent ID 保留在副标题
     await userEvent.click(await screen.findByRole('button', { name: '数据库专家' }));
 
     const dialog = await screen.findByRole('dialog');
@@ -167,6 +167,7 @@ describe('AgentsPage', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
     const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('tab', { name: '能力绑定' }));
     // 白名单为空 = 继承全部，Server 直接显示为已挂载
     expect(await within(dialog).findByText('mcp · demo-operations')).toBeInTheDocument();
     expect(within(dialog).getByText('已挂载')).toBeInTheDocument();
@@ -191,6 +192,7 @@ describe('AgentsPage', () => {
     );
     await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
     const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('tab', { name: '人设' }));
 
     await userEvent.click(within(dialog).getByRole('button', { name: '知识问答' }));
 
@@ -222,14 +224,16 @@ describe('AgentsPage', () => {
     const dialog = await screen.findByRole('dialog');
 
     await userEvent.type(
-      within(dialog).getByPlaceholderText(/lower_snake/),
+      within(dialog).getByPlaceholderText(/oncall-duty/),
       'scoped_agent',
     );
     await userEvent.type(within(dialog).getByPlaceholderText(/例如：运维值班助理/), '范围测试助理');
     await userEvent.type(within(dialog).getByPlaceholderText(/一句话说清/), '限定知识范围的助理');
+    await userEvent.click(within(dialog).getByRole('tab', { name: '人设' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'SRE 排障' }));
 
     // 指定范围 → 勾选目录 → 预览命中数
+    await userEvent.click(within(dialog).getByRole('tab', { name: '知识范围' }));
     await userEvent.click(within(dialog).getByRole('radio', { name: '指定范围' }));
     const pathBox = await within(dialog).findByRole('checkbox', { name: /范围目录 数据库/ });
     await userEvent.click(pathBox);
@@ -244,6 +248,46 @@ describe('AgentsPage', () => {
     expect(payload.critical_reminder).toMatch(/证据/);
     expect((payload.examples as unknown[]).length).toBe(1);
     expect(payload.knowledge_scope).toEqual({ paths: ['数据库'], doc_ids: [] });
+  });
+
+  it('知识范围目录按层级展示，选中父目录覆盖子目录', async () => {
+    server.use(
+      http.get('/api/v1/knowledge/paths', () =>
+        HttpResponse.json({
+          items: [
+            { path: '运维文档/Linux', count: 2 },
+            { path: '运维文档/容器', count: 1 },
+          ],
+          total: 3,
+        }),
+      ),
+    );
+
+    render(
+      <MemoryRouter>
+        <AgentsPage />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('tab', { name: '知识范围' }));
+    await userEvent.click(within(dialog).getByRole('radio', { name: '指定范围' }));
+
+    // 中间层级由子路径自动补全，计数按含子目录口径汇总
+    const parent = await within(dialog).findByRole('checkbox', { name: '范围目录 运维文档' });
+    const child = within(dialog).getByRole('checkbox', { name: '范围目录 运维文档/Linux' });
+    expect(parent).not.toBeChecked();
+    expect(child).not.toBeChecked();
+
+    await userEvent.click(parent);
+    expect(parent).toBeChecked();
+    expect(child).toBeChecked();
+    expect(child).toHaveAttribute('aria-disabled', 'true');
+
+    await userEvent.click(parent);
+    expect(parent).not.toBeChecked();
+    expect(child).not.toBeChecked();
+    expect(child).not.toHaveAttribute('aria-disabled', 'true');
   });
 
   it('范围内命中 0 篇时禁止保存', async () => {
@@ -267,11 +311,13 @@ describe('AgentsPage', () => {
     const dialog = await screen.findByRole('dialog');
 
     // 必填项先填齐，确保禁用只来自范围校验
-    await userEvent.type(within(dialog).getByPlaceholderText(/lower_snake/), 'empty_scope_agent');
+    await userEvent.type(within(dialog).getByPlaceholderText(/oncall-duty/), 'empty_scope_agent');
     await userEvent.type(within(dialog).getByPlaceholderText(/例如：运维值班助理/), '空范围助理');
     await userEvent.type(within(dialog).getByPlaceholderText(/一句话说清/), '范围为空');
+    await userEvent.click(within(dialog).getByRole('tab', { name: '人设' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'SRE 排障' }));
 
+    await userEvent.click(within(dialog).getByRole('tab', { name: '知识范围' }));
     await userEvent.click(within(dialog).getByRole('radio', { name: '指定范围' }));
     await userEvent.click(await within(dialog).findByRole('checkbox', { name: /范围目录 数据库/ }));
 
