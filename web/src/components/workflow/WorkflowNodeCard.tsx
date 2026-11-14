@@ -124,17 +124,23 @@ export function WorkflowNodeCard({ data, selected }: NodeProps<CanvasFlowNode>) 
         </div>
       )}
 
-      {/* 目标锚点在左、源锚点在右（top 20px，外扩 7px）。 */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        className="!left-[-7px] !top-[20px] !h-3 !w-3 !border-2 !border-card !bg-zinc-400 transition-all hover:!scale-125 hover:!bg-indigo-500"
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="!right-[-7px] !top-[20px] !h-3 !w-3 !border-2 !border-card !bg-zinc-400 transition-all hover:!scale-125 hover:!bg-indigo-500"
-      />
+      {/* 目标锚点在左、源锚点在右（top 20px，外扩 7px）。
+          开始节点没有入边、结束节点没有出边，只在能接线的一侧渲染锚点。
+          锚点只保留可拖拽的命中区，不再画圆点，画布上只留连线本身。 */}
+      {node.kind !== 'start' && (
+        <Handle
+          type="target"
+          position={Position.Left}
+          className="!left-[-7px] !top-[20px] !h-3 !w-3 !border-0 !bg-transparent opacity-0"
+        />
+      )}
+      {node.kind !== 'end' && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          className="!right-[-7px] !top-[20px] !h-3 !w-3 !border-0 !bg-transparent opacity-0"
+        />
+      )}
 
       <div
         className={cn(

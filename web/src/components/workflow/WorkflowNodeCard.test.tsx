@@ -9,18 +9,20 @@ import type { NodeProps } from '@xyflow/react';
 
 import { WorkflowNodeCard, type CanvasFlowNode } from './WorkflowNodeCard';
 import { emptyNode } from '@/lib/workflowMeta';
+import type { NodeKind } from '@/api/workflows';
 
 vi.mock('@xyflow/react', () => ({
-  Handle: () => null,
+  Handle: ({ type }: { type: string }) => <div data-testid={`handle-${type}`} />,
   Position: { Left: 'left', Right: 'right' },
 }));
 
 function renderCard(options: {
+  kind?: NodeKind;
   status?: 'running' | 'succeeded' | 'failed' | 'waiting';
   waitingKind?: 'approval' | 'input';
   outputKey?: string;
 }) {
-  const node = emptyNode('approval', 'gate', { x: 0, y: 0 });
+  const node = emptyNode(options.kind ?? 'approval', 'gate', { x: 0, y: 0 });
   node.label = '值班确认';
   if (options.outputKey !== undefined) node.output_key = options.outputKey;
   const props = {
@@ -85,5 +87,29 @@ describe('WorkflowNodeCard 结果变量', () => {
   it('所有卡片都不展示结果变量徽标', () => {
     renderCard({ outputKey: 'result' });
     expect(screen.queryByText(/→\s*result/)).not.toBeInTheDocument();
+  });
+});
+
+describe('WorkflowNodeCard 连线锚点', () => {
+  beforeEach(() => {
+    localStorage.setItem('ongrid-locale', 'zh-CN');
+  });
+
+  it('开始节点没有入边锚点', () => {
+    renderCard({ kind: 'start' });
+    expect(screen.queryByTestId('handle-target')).not.toBeInTheDocument();
+    expect(screen.getByTestId('handle-source')).toBeInTheDocument();
+  });
+
+  it('结束节点没有出边锚点', () => {
+    renderCard({ kind: 'end' });
+    expect(screen.queryByTestId('handle-source')).not.toBeInTheDocument();
+    expect(screen.getByTestId('handle-target')).toBeInTheDocument();
+  });
+
+  it('中间节点保留两侧锚点', () => {
+    renderCard({ kind: 'http' });
+    expect(screen.getByTestId('handle-target')).toBeInTheDocument();
+    expect(screen.getByTestId('handle-source')).toBeInTheDocument();
   });
 });

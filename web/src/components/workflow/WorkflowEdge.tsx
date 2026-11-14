@@ -82,11 +82,13 @@ export function WorkflowEdge({
   const popupRef = useRef<HTMLDivElement>(null);
   const [popupPos, setPopupPos] = useState<{ left: number; top: number } | null>(null);
 
+  // 锚点中心在卡片外侧 7px；锚点已隐藏，连线要画到卡片边缘，避免两端留缝。
+  const handleOffset = 7;
   const [path, labelX, labelY] = getBezierPath({
-    sourceX: sourceX - 2,
+    sourceX: sourceX - handleOffset,
     sourceY,
     sourcePosition: Position.Right,
-    targetX: targetX + 2,
+    targetX: targetX + handleOffset,
     targetY,
     targetPosition: Position.Left,
     curvature: 0.16,
