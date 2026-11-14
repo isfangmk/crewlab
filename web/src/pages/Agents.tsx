@@ -25,6 +25,7 @@ import { Hint } from '@/components/ui/Tooltip';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  AlertTriangle,
   BookOpen,
   Bot,
   Check,
@@ -35,12 +36,8 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Sparkles,
   Trash2,
   Users,
-  Wrench,
-  Zap,
-  type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { mcpToolWireName } from '@/lib/mcpWire';
@@ -373,6 +370,12 @@ function AgentCard({
       : scopePaths.length > 0
         ? scopePaths.slice(0, 2).join('、') + (scopePaths.length > 2 ? ` +${scopePaths.length - 2}` : '')
         : tr(`${scopeDocs.length} 篇文档`, `${scopeDocs.length} doc(s)`);
+  const formatLabel = tr(OUTPUT_FORMAT_LABELS[agent.output_format].zh, OUTPUT_FORMAT_LABELS[agent.output_format].en);
+  const modelLabel = agent.model !== '' ? agent.model : tr('默认模型', 'Default model');
+  const skillLabel = agent.skills == null ? tr('全部', 'All') : String(agent.skills.length);
+  const delegationCount = agent.sub_agents?.length ?? 0;
+  const delegationLabel = delegationCount > 0 ? String(delegationCount) : tr('无', 'None');
+  const exampleCount = agent.examples?.length ?? 0;
 
   const onUse = useCallback(async () => {
     if (busy) return;
@@ -395,19 +398,19 @@ function AgentCard({
   }, [agent, busy, navigate, tr]);
 
   return (
-    <Card className="group flex flex-col">
+    <Card className="group flex flex-col transition-colors hover:border-zinc-700/70 hover:bg-zinc-900/50">
       {/* 头部：头像 + 名称/来源 + 行内操作。只有名称是进详情的入口。 */}
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/30 to-violet-500/10 text-indigo-300 ring-1 ring-inset ring-indigo-500/30">
-          <Bot size={17} />
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-indigo-500/25 via-indigo-500/10 to-transparent text-indigo-300 ring-1 ring-inset ring-indigo-500/20">
+          <Bot size={18} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+          <div className="flex min-w-0 items-center gap-1.5">
             <Hint content={tr(`${displayName}（Agent 标识：${agent.name}）`, `${displayName} (Agent ID: ${agent.name})`)}>
               <button
                 type="button"
                 onClick={onView}
-                className="min-w-0 truncate text-[12.5px] font-semibold leading-5 text-zinc-100 transition-colors hover:text-indigo-300"
+                className="min-w-0 truncate text-[13px] font-semibold leading-5 text-zinc-100 transition-colors hover:text-indigo-300"
               >
                 {displayName}
               </button>
@@ -415,9 +418,15 @@ function AgentCard({
             <SourceLabel source={agent.source} />
             {agent.permission_mode === 'read-only' && <Chip dense tone="success">{tr('只读', 'Read-only')}</Chip>}
           </div>
-          <div className="truncate font-mono text-[10px] leading-4 text-zinc-500">{agent.name}</div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-zinc-500">
+            <span className="truncate" title={agent.name}>{agent.name}</span>
+            <span className="shrink-0 text-zinc-700">·</span>
+            <span className={cn('truncate', agent.model === '' && 'text-zinc-600')} title={agent.model || undefined}>
+              {modelLabel}
+            </span>
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="-mr-1 -mt-0.5 flex shrink-0 items-center gap-0.5">
           {isUser && (
             <Hint content={tr('编辑', 'Edit')}>
               <RowActionIcon
@@ -441,56 +450,43 @@ function AgentCard({
       </div>
 
       {/* 描述固定两行高度，同一行的卡片底部元信息才能对齐。 */}
-      <p className="mt-3 line-clamp-2 min-h-[2.6em] text-[12.5px] leading-5 text-zinc-200">
+      <p className="mt-3 line-clamp-2 min-h-[2.6em] text-[12px] leading-[1.65] text-zinc-300">
         {agent.description}
       </p>
 
-      {/* 何时使用：单行元信息，与四格元信息同层，不单独做标签行。 */}
-      {agent.when_to_use && (
-        <Fact
-          icon={Zap}
-          label={tr('何时使用', 'When')}
-          value={agent.when_to_use}
-          className="mt-1.5"
-        />
-      )}
-
       {/* 关键提醒是运行时真正注入的约束，卡片上直接露出来，不用点进详情才知道。 */}
       {agent.critical_reminder && (
-        <div className="mt-2.5 rounded-md border-l-2 border-warn/50 bg-warn/[0.06] py-1.5 pl-2 pr-2">
-          <p className="line-clamp-2 text-[11px] leading-snug text-zinc-400" title={agent.critical_reminder}>
+        <div className="mt-2.5 flex items-start gap-1.5 rounded-lg border border-warn/20 bg-warn/[0.05] px-2.5 py-1.5">
+          <AlertTriangle size={11} className="mt-0.5 shrink-0 text-warn" />
+          <p className="line-clamp-2 text-[10.5px] leading-4 text-zinc-400" title={agent.critical_reminder}>
             {agent.critical_reminder}
           </p>
         </div>
       )}
 
-      {/* 四格元信息：工具 / 知识范围 / 输出格式 / 示例，回答「这个助理到底怎么配的」。 */}
-      <div className="mt-3 mb-3 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-zinc-800/60 pt-2.5">
-        <Fact
-          icon={Wrench}
-          label={tr('工具', 'Tools')}
-          value={toolCount > 0 ? tr(`${toolCount} 个`, `${toolCount}`) : tr('继承全部', 'Inherits all')}
-        />
-        <Fact icon={BookOpen} label={tr('知识范围', 'Scope')} value={scopeLabel} title={scopeTitle} />
-        <Fact
-          icon={ListChecks}
-          label={tr('输出格式', 'Format')}
-          value={tr(OUTPUT_FORMAT_LABELS[agent.output_format].zh, OUTPUT_FORMAT_LABELS[agent.output_format].en)}
-        />
-        <Fact
-          icon={Sparkles}
-          label={tr('示例', 'Examples')}
-          value={agent.examples.length > 0 ? tr(`${agent.examples.length} 条`, `${agent.examples.length}`) : tr('无', 'None')}
-        />
+      {/* 三格配置摘要：工具 / 技能 / 委托，对应「这个助理能做什么」。 */}
+      <div className="mt-3 grid grid-cols-3 divide-x divide-zinc-800/60 rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
+        <Stat label={tr('工具', 'Tools')} value={toolCount > 0 ? String(toolCount) : tr('全部', 'All')} />
+        <Stat label={tr('技能', 'Skills')} value={skillLabel} />
+        <Stat label={tr('委托', 'Delegation')} value={delegationLabel} />
+      </div>
+
+      <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[10px]">
+        <BookOpen size={11} className="shrink-0 text-zinc-500" />
+        <span className="shrink-0 text-zinc-500">{tr('知识范围', 'Scope')}</span>
+        <span className="min-w-0 truncate text-zinc-300" title={scopeTitle}>{scopeLabel}</span>
       </div>
 
       <div className="mt-auto flex items-center justify-between gap-2 border-t border-zinc-800/60 pt-2.5">
-        {/* 等宽字体只给模型 id（ASCII）；中文标签落等宽栈会回退到异形字形 */}
-        <span
-          className={cn('min-w-0 truncate text-[10px] text-zinc-500', agent.model !== '' && 'font-mono')}
-          title={agent.model || undefined}
-        >
-          {agent.model !== '' ? agent.model : tr('模型继承默认', 'Model inherited')}
+        <span className="flex min-w-0 items-center gap-1.5 text-[9.5px] text-zinc-500">
+          <ListChecks size={11} className="shrink-0" />
+          <span className="truncate">{formatLabel}</span>
+          {exampleCount > 0 && (
+            <>
+              <span className="shrink-0 text-zinc-700">·</span>
+              <span className="shrink-0">{tr(`${exampleCount} 条示例`, `${exampleCount} example(s)`)}</span>
+            </>
+          )}
         </span>
         <Hint content={tr('用此助理开新会话', 'Start a new session with this assistant')}>
           <Button variant="plain" size="sm"
@@ -511,15 +507,13 @@ function AgentCard({
   );
 }
 
-/** 卡片元信息一格：图标 + 字段名 + 值（值过长单行省略，悬停看全文）。 */
-function Fact({ icon: Icon, label, value, title, className }: { icon: LucideIcon; label: string; value: string; title?: string; className?: string }) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className={cn('flex min-w-0 items-center gap-1.5', className)}>
-      <Icon size={11} className="shrink-0 text-zinc-500" />
-      <span className="shrink-0 text-[10px] text-zinc-500">{label}</span>
-      <span className="truncate text-[11px] font-medium text-zinc-200" title={title ?? value}>
+    <div className="min-w-0 px-2 first:pl-0 last:pr-0">
+      <div className="truncate text-[13px] font-semibold leading-none tabular-nums text-zinc-100" title={value}>
         {value}
-      </span>
+      </div>
+      <div className="mt-1 truncate text-[9px] text-zinc-500">{label}</div>
     </div>
   );
 }
@@ -620,7 +614,7 @@ function AgentDetailModal({
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-[11px] text-zinc-400">{agent.name}</span>
+          <span className="font-sans text-[11px] text-zinc-400">{agent.name}</span>
           <SourceLabel source={agent.source} />
           {agent.permission_mode === 'read-only' && <Chip dense tone="success">{tr('只读', 'Read-only')}</Chip>}
           <span className="ml-auto text-[11px] text-zinc-500">
@@ -680,7 +674,7 @@ function AgentDetailModal({
           <DetailSection title={tr('子助理委托', 'Sub-assistant delegation')}>
             <div className="flex flex-wrap gap-1.5">
               {agent.sub_agents.map((name) => (
-                <Chip key={name} dense className="font-mono">
+                <Chip key={name} dense className="font-sans">
                   {name}
                 </Chip>
               ))}
@@ -711,7 +705,7 @@ function AgentDetailModal({
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {agent.tools.map((t) => (
-                <Chip key={t} dense className="font-mono">
+                <Chip key={t} dense className="font-sans">
                   {t}
                 </Chip>
               ))}
@@ -722,7 +716,7 @@ function AgentDetailModal({
         {(agent.model || (agent.max_turns ?? 0) > 0) && (
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-zinc-500">
             {agent.model && (
-              <span>{tr('模型', 'Model')}: <span className="font-mono text-zinc-300">{agent.model}</span></span>
+              <span>{tr('模型', 'Model')}: <span className="font-sans text-zinc-300">{agent.model}</span></span>
             )}
             {(agent.max_turns ?? 0) > 0 && (
               <span>{tr('最大轮数', 'Max turns')}: <span className="text-zinc-300">{agent.max_turns}</span></span>
@@ -798,6 +792,10 @@ const EDITOR_SECTIONS: {
     hintEn: 'Choose sub-assistants, permissions and model settings',
   },
 ];
+
+// 与后端 agent_service._NAME_RE 保持一致：小写字母开头，仅限小写字母、数字、_、-，最长 64。
+const AGENT_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
+const RESERVED_AGENT_NAME = 'default';
 
 // AgentEditor is the create + edit form modal. Reused by three flows:
 //   - create blank: existing=null, seed=undefined
@@ -906,26 +904,48 @@ function AgentEditor({
       scopePreviewState.unknown_paths.length > 0 ||
       scopePreviewState.unknown_doc_ids.length > 0);
 
+  const isCreate = mode === 'create';
+  const trimmedName = name.trim();
+  // 标识格式错误与「未填写」分开提示：用户填了内容却不符合规则时，要直接说清原因。
+  const nameIssue =
+    isCreate && trimmedName !== ''
+      ? trimmedName === RESERVED_AGENT_NAME
+        ? 'reserved'
+        : !AGENT_NAME_RE.test(trimmedName)
+          ? 'invalid'
+          : null
+      : null;
+  const nameError =
+    nameIssue === 'invalid'
+      ? tr(
+          '格式不正确：仅限小写字母、数字、_、-，且需小写字母开头。',
+          'Invalid format: lowercase letters, digits, _ and - only; must start with a lowercase letter.',
+        )
+      : nameIssue === 'reserved'
+        ? tr('default 是系统保留名。', '"default" is reserved.')
+        : null;
+
   // 保存按钮在底部，必填项却分散在多个分区：缺失时给出可定位的提示。
   const missingRequired: string[] = [];
-  if (mode === 'create' && name.trim() === '')
-    missingRequired.push(tr('Agent 标识', 'Agent identifier'));
+  if (isCreate && trimmedName === '') missingRequired.push(tr('Agent 标识', 'Agent identifier'));
   if (displayName.trim() === '') missingRequired.push(tr('显示名称', 'Display name'));
   if (description.trim() === '') missingRequired.push(tr('描述', 'Description'));
   if (systemPrompt.trim() === '') missingRequired.push(tr('系统提示', 'System prompt'));
   const saveBlockedHint =
     missingRequired.length > 0
       ? tr(`还需填写：${missingRequired.join('、')}`, `Still required: ${missingRequired.join(', ')}`)
-      : examplesInvalid(examples)
-        ? tr('示例的输入与输出都不能为空。', 'Both sides of every example are required.')
-        : scopeBlocked
-          ? tr(
-              '知识范围不可用，请到「知识范围」分区检查',
-              'Knowledge scope is invalid; check the Knowledge section',
-            )
-          : '';
+      : nameError !== null
+        ? nameError
+        : examplesInvalid(examples)
+          ? tr('示例的输入与输出都不能为空。', 'Both sides of every example are required.')
+          : scopeBlocked
+            ? tr(
+                '知识范围不可用，请到「知识范围」分区检查',
+                'Knowledge scope is invalid; check the Knowledge section',
+              )
+            : '';
   const basicIncomplete =
-    (mode === 'create' && name.trim() === '') ||
+    (isCreate && (trimmedName === '' || nameIssue !== null)) ||
     displayName.trim() === '' ||
     description.trim() === '';
   const personaIncomplete = systemPrompt.trim() === '';
@@ -934,7 +954,6 @@ function AgentEditor({
     0,
     EDITOR_SECTIONS.findIndex((item) => item.key === section),
   );
-  const isCreate = mode === 'create';
   const isLastSection = sectionIndex === EDITOR_SECTIONS.length - 1;
   const sectionIncomplete: Record<EditorSection, boolean> = {
     basic: basicIncomplete,
@@ -947,8 +966,9 @@ function AgentEditor({
   const createStepHint = (() => {
     if (!isCreate) return saveBlockedHint;
     if (section === 'basic') {
+      if (nameError !== null) return tr('请修正 Agent 标识', 'Fix the Agent identifier');
       const missing: string[] = [];
-      if (name.trim() === '') missing.push(tr('Agent 标识', 'Agent identifier'));
+      if (trimmedName === '') missing.push(tr('Agent 标识', 'Agent identifier'));
       if (displayName.trim() === '') missing.push(tr('显示名称', 'Display name'));
       if (description.trim() === '') missing.push(tr('描述', 'Description'));
       return missing.length > 0
@@ -972,7 +992,7 @@ function AgentEditor({
   })();
   const saveDisabled =
     submitting ||
-    (mode === 'create' && name.trim() === '') ||
+    (isCreate && (trimmedName === '' || nameIssue !== null)) ||
     displayName.trim() === '' ||
     description.trim() === '' ||
     systemPrompt.trim() === '' ||
@@ -1186,15 +1206,21 @@ function AgentEditor({
                   value={name}
                   disabled={mode === 'edit'}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={tr('小写字母开头，例如 oncall-duty', 'Start with a lowercase letter, e.g. oncall-duty')}
-                  className="w-full font-mono"
+                  placeholder={tr('例如 oncall-duty', 'e.g. oncall-duty')}
+                  className="w-full font-sans"
                   maxLength={64}
+                  aria-invalid={nameError !== null ? true : undefined}
+                  aria-describedby="agent-name-help"
                 />
-                <div className="mt-1 text-balance text-[11px] text-zinc-500">
+                <div
+                  id="agent-name-help"
+                  className="mt-1 text-balance text-[11px] text-zinc-500"
+                >
                   {tr(
-                    '接口、会话与委托引用的唯一标识，也是 ADK 运行时名称的生成来源；创建后不可修改。',
-                    'Unique ID used by APIs, sessions and delegation; also the source of the ADK runtime name. Immutable after creation.',
+                    '小写字母开头，仅限小写字母、数字、_、-，最长 64 位；default 不可用。',
+                    'Lowercase start; only lowercase letters, digits, _ and -; max 64; "default" is reserved.',
                   )}
+                  {nameError !== null && <div className="text-danger">{nameError}</div>}
                 </div>
               </Field>
 
@@ -1309,7 +1335,7 @@ function AgentEditor({
                         <div className="min-w-0">
                           <div className="truncate text-[11px] text-zinc-200">
                             {item.display_name || SHORT_LABELS[item.name] || item.name}
-                            <span className="ml-1 font-mono text-[10px] text-zinc-500">({item.name})</span>
+                            <span className="ml-1 font-sans text-[10px] text-zinc-500">({item.name})</span>
                           </div>
                           <div className="truncate text-[10px] text-zinc-500">
                             {item.when_to_use || item.description}
@@ -1428,7 +1454,7 @@ function DeleteAgentDialog({
           <p>
             {tr('确定删除自定义助理 ', 'Delete custom assistant ')}
             <span className="text-zinc-100">{displayName}</span>
-            <span className="ml-2 font-mono text-zinc-400">({agent.name})</span>?
+            <span className="ml-2 font-sans text-zinc-400">({agent.name})</span>?
           </p>
           <p className="mt-2 text-zinc-500">
             {tr(

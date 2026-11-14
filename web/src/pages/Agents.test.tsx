@@ -208,7 +208,7 @@ describe('AgentsPage', () => {
 
     // 禁用名单可逐个屏蔽
     await userEvent.click(within(dialog).getByRole('button', { name: '屏蔽 mcp__demo-operations__get_service_health' }));
-    expect(within(dialog).getByText('已屏蔽 1')).toBeInTheDocument();
+    expect(within(dialog).getAllByText('已屏蔽 1').length).toBeGreaterThan(0);
   });
 
   it('套用模板会同时填正文、关键提醒、输出格式与示例', async () => {
@@ -265,7 +265,9 @@ describe('AgentsPage', () => {
     await userEvent.click(within(dialog).getByRole('radio', { name: '指定范围' }));
     const pathBox = await within(dialog).findByRole('checkbox', { name: /范围目录 数据库/ });
     await userEvent.click(pathBox);
-    expect(await within(dialog).findByText(/命中 2 篇文档/)).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText((_, element) => element?.textContent?.trim() === '命中 2 篇文档'),
+    ).toBeInTheDocument();
     await clickNext(dialog);
     await clickNext(dialog);
 
@@ -383,6 +385,37 @@ describe('AgentsPage', () => {
     expect(within(dialog).getByPlaceholderText(/一句话说清/)).toHaveValue('测试用途');
   });
 
+  it('Agent 标识按后端正则校验并给出准确提示', async () => {
+    render(
+      <MemoryRouter>
+        <AgentsPage />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
+    const dialog = await screen.findByRole('dialog');
+
+    const nameInput = within(dialog).getByPlaceholderText(/oncall-duty/);
+    expect(nameInput).toHaveAttribute('maxlength', '64');
+    expect(within(dialog).getByText(/最长 64 位/)).toBeInTheDocument();
+
+    await userEvent.type(nameInput, 'Bad Name');
+    expect((await within(dialog).findAllByText(/格式不正确/)).length).toBeGreaterThan(0);
+    expect(within(dialog).getByRole('button', { name: '下一步' })).toBeDisabled();
+
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, 'default');
+    expect((await within(dialog).findAllByText(/default 是系统保留名/)).length).toBeGreaterThan(0);
+
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, 'valid-agent_2');
+    expect(within(dialog).queryAllByText(/格式不正确/)).toHaveLength(0);
+    expect(within(dialog).queryAllByText(/系统保留名/)).toHaveLength(0);
+
+    await userEvent.type(within(dialog).getByPlaceholderText(/例如：运维值班助理/), '合法标识助理');
+    await userEvent.type(within(dialog).getByPlaceholderText(/一句话说清/), '校验 Agent 标识格式');
+    expect(within(dialog).getByRole('button', { name: '下一步' })).toBeEnabled();
+  });
+
   it('知识范围支持搜索目录与文档并直接勾选', async () => {
     render(
       <MemoryRouter>
@@ -413,7 +446,7 @@ describe('AgentsPage', () => {
     // 搜索不到已选项时，已选摘要仍保留，避免用户以为选择丢了
     await userEvent.clear(search);
     await userEvent.type(search, '网络');
-    expect(await within(dialog).findByText('已选')).toBeInTheDocument();
+    expect(await within(dialog).findByText('已选范围')).toBeInTheDocument();
     expect(within(dialog).getByText('MySQL 慢查询排查')).toBeInTheDocument();
   });
 

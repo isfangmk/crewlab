@@ -1,0 +1,2239 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>助理编辑器 · 设计预览</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --font: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      }
+
+      :root[data-theme="dark"] {
+        --page: #08080c;
+        --page-glow: rgba(99, 102, 241, 0.14);
+        --modal: #101015;
+        --panel: #121218;
+        --panel-soft: #0e0e13;
+        --panel-raised: #17171f;
+        --input: #0b0b10;
+        --border: #27272f;
+        --border-soft: #202027;
+        --border-strong: #35353f;
+        --text: #f4f4f5;
+        --text-soft: #d4d4d8;
+        --muted: #a1a1aa;
+        --faint: #71717a;
+        --accent: #818cf8;
+        --accent-strong: #6366f1;
+        --accent-soft: rgba(99, 102, 241, 0.12);
+        --accent-line: rgba(129, 140, 248, 0.32);
+        --ok: #34d399;
+        --warn: #fbbf24;
+        --danger: #f87171;
+        --shadow: 0 32px 90px rgba(0, 0, 0, 0.62), 0 2px 8px rgba(0, 0, 0, 0.35);
+        --ring: rgba(129, 140, 248, 0.28);
+        --hover: rgba(255, 255, 255, 0.035);
+        --chip: rgba(255, 255, 255, 0.04);
+      }
+
+      :root[data-theme="light"] {
+        --page: #eef0f4;
+        --page-glow: rgba(99, 102, 241, 0.1);
+        --modal: #ffffff;
+        --panel: #fbfbfc;
+        --panel-soft: #f6f6f8;
+        --panel-raised: #ffffff;
+        --input: #ffffff;
+        --border: #e4e4e7;
+        --border-soft: #ececef;
+        --border-strong: #d4d4d8;
+        --text: #18181b;
+        --text-soft: #3f3f46;
+        --muted: #52525b;
+        --faint: #71717a;
+        --accent: #4f46e5;
+        --accent-strong: #4f46e5;
+        --accent-soft: rgba(79, 70, 229, 0.07);
+        --accent-line: rgba(79, 70, 229, 0.2);
+        --ok: #059669;
+        --warn: #b45309;
+        --danger: #dc2626;
+        --shadow: 0 30px 80px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.06);
+        --ring: rgba(79, 70, 229, 0.18);
+        --hover: rgba(24, 24, 27, 0.035);
+        --chip: rgba(24, 24, 27, 0.04);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--font);
+        background: var(--page);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button,
+      input {
+        font-family: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      .preview-bar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        height: 58px;
+        padding: 0 24px;
+        border-bottom: 1px solid var(--border-soft);
+        background: color-mix(in srgb, var(--modal) 88%, transparent);
+        backdrop-filter: blur(12px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 250px;
+      }
+
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 9px;
+        background: linear-gradient(145deg, #6366f1, #8b5cf6);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+        box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+      }
+
+      .brand-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        line-height: 1.2;
+      }
+
+      .brand-copy strong {
+        font-size: 12.5px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+
+      .brand-copy span {
+        font-size: 10.5px;
+        color: var(--faint);
+      }
+
+      .screen-switch {
+        display: inline-flex;
+        gap: 2px;
+        padding: 3px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--panel-soft);
+      }
+
+      .screen-switch button {
+        border: 0;
+        border-radius: 6px;
+        padding: 6px 12px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 500;
+        transition: 0.15s ease;
+      }
+
+      .screen-switch button:hover {
+        color: var(--text);
+      }
+
+      .screen-switch button.active {
+        background: var(--panel-raised);
+        color: var(--text);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+      }
+
+      .preview-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-left: auto;
+      }
+
+      .viewport {
+        font-size: 10.5px;
+        color: var(--faint);
+        padding: 4px 8px;
+        border: 1px solid var(--border-soft);
+        border-radius: 6px;
+      }
+
+      .theme-toggle {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--muted);
+      }
+
+      .theme-toggle:hover {
+        color: var(--text);
+        border-color: var(--border-strong);
+      }
+
+      .stage {
+        position: relative;
+        min-height: calc(100vh - 58px);
+        display: flex;
+        justify-content: center;
+        padding: 20px 24px 24px;
+        overflow: hidden;
+        background:
+          radial-gradient(900px 420px at 50% -10%, var(--page-glow), transparent 70%),
+          var(--page);
+      }
+
+      .page-ghost {
+        position: absolute;
+        inset: 26px 24px auto;
+        max-width: 1180px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        opacity: 0.32;
+        filter: blur(1.5px);
+        pointer-events: none;
+      }
+
+      .ghost-card {
+        height: 120px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+      }
+
+      .modal {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        width: min(920px, calc(100vw - 48px));
+        height: min(744px, calc(100vh - 96px));
+        min-height: 620px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--modal);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .modal-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        padding: 18px 22px 12px;
+      }
+
+      .modal-head h1 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .modal-head p {
+        margin: 4px 0 0;
+        color: var(--faint);
+        font-size: 11px;
+      }
+
+      .icon-button {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--faint);
+      }
+
+      .icon-button:hover {
+        background: var(--hover);
+        color: var(--text);
+      }
+
+      .stepper {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 22px 14px;
+      }
+
+      .step {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--faint);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .step-num {
+        display: grid;
+        place-items: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 1px solid var(--border-strong);
+        color: var(--faint);
+        font-size: 9.5px;
+        line-height: 1;
+      }
+
+      .step .check-icon {
+        display: none;
+        width: 10px;
+        height: 10px;
+      }
+
+      .step.done {
+        color: var(--muted);
+      }
+
+      .step.done .step-num {
+        border-color: transparent;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .step.done .step-number {
+        display: none;
+      }
+
+      .step.done .check-icon {
+        display: block;
+      }
+
+      .step.active {
+        color: var(--text);
+        font-weight: 500;
+      }
+
+      .step.active .step-num {
+        border-color: transparent;
+        background: var(--accent-strong);
+        color: #fff;
+        box-shadow: 0 0 0 3px var(--ring);
+      }
+
+      .step-sep {
+        width: 18px;
+        height: 1px;
+        background: var(--border);
+        flex: 0 0 auto;
+      }
+
+      .modal-body {
+        flex: 1;
+        min-height: 0;
+        padding: 14px 22px 16px;
+        overflow-y: auto;
+      }
+
+      .screen {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        height: 100%;
+      }
+
+      .summary {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 10px 13px;
+        border: 1px solid var(--accent-line);
+        border-radius: 10px;
+        background: linear-gradient(100deg, var(--accent-soft), transparent 70%);
+      }
+
+      .summary-main {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        white-space: nowrap;
+      }
+
+      .summary-label {
+        margin-right: 2px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .summary-value {
+        color: var(--accent);
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      .summary-unit {
+        color: var(--muted);
+        font-size: 10.5px;
+      }
+
+      .summary-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-left: auto;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 7px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--muted);
+        background: var(--chip);
+        font-size: 10px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .chip.accent {
+        border-color: var(--accent-line);
+        color: var(--accent);
+        background: var(--accent-soft);
+      }
+
+      .chip.ok {
+        color: var(--ok);
+        border-color: color-mix(in srgb, var(--ok) 28%, var(--border));
+      }
+
+      .panel {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+        overflow: hidden;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 11px 13px;
+        border-bottom: 1px solid var(--border-soft);
+      }
+
+      .panel-heading {
+        min-width: 0;
+      }
+
+      .panel-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: -0.005em;
+      }
+
+      .panel-subtitle {
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 10px;
+        line-height: 1.4;
+      }
+
+      .count {
+        display: inline-grid;
+        place-items: center;
+        min-width: 18px;
+        height: 16px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: var(--chip);
+        color: var(--faint);
+        font-size: 9.5px;
+        font-weight: 500;
+      }
+
+      .search {
+        position: relative;
+        display: flex;
+        align-items: center;
+        width: 238px;
+        flex: 0 1 auto;
+        transition: width 0.18s ease;
+      }
+
+      .search.grow {
+        flex: 1;
+        width: auto;
+        max-width: 280px;
+      }
+
+      .search .search-icon {
+        position: absolute;
+        left: 9px;
+        width: 13px;
+        height: 13px;
+        color: var(--faint);
+        pointer-events: none;
+      }
+
+      .search input {
+        width: 100%;
+        height: 32px;
+        padding: 0 30px 0 29px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        outline: none;
+        background: var(--input);
+        color: var(--text);
+        font-size: 11px;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      .search input::placeholder {
+        color: var(--faint);
+      }
+
+      .search input::-webkit-search-cancel-button,
+      .search input::-webkit-search-decoration {
+        -webkit-appearance: none;
+        appearance: none;
+      }
+
+      .search input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--ring);
+      }
+
+      .search-clear {
+        position: absolute;
+        right: 4px;
+        display: grid;
+        place-items: center;
+        width: 23px;
+        height: 23px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--faint);
+      }
+
+      .search-clear:hover {
+        background: var(--hover);
+        color: var(--text);
+      }
+
+      .capability-layout {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 276px;
+        gap: 10px;
+      }
+
+      .capability-panel {
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .capability-panel .panel-head {
+        flex-wrap: wrap;
+      }
+
+      .capability-panel .panel-head .search {
+        width: 218px;
+        margin-left: auto;
+      }
+
+      .cap-side {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        padding: 12px;
+        gap: 10px;
+      }
+
+      .cap-side .preview-card {
+        margin-top: 1px;
+      }
+
+      .assigned-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-height: 0;
+        overflow-y: auto;
+      }
+
+      .assigned-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 25px;
+        padding: 3px 4px;
+        border-radius: 5px;
+        color: var(--text-soft);
+        font-size: 10px;
+      }
+
+      .assigned-row:hover {
+        background: var(--hover);
+      }
+
+      .assigned-dot {
+        width: 4px;
+        height: 4px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+
+      .assigned-name {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .assigned-kind {
+        flex: 0 0 auto;
+        color: var(--faint);
+        font-size: 9px;
+      }
+
+      .cap-side .side-note {
+        margin-top: auto;
+        padding-top: 9px;
+        border-top: 1px solid var(--border-soft);
+      }
+
+      .search-meta {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 4px;
+        padding: 7px 13px;
+        border-bottom: 1px solid var(--border-soft);
+        color: var(--faint);
+        font-size: 10px;
+      }
+
+      .search-meta strong {
+        color: var(--accent);
+        font-weight: 600;
+      }
+
+      .groups {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 4px;
+      }
+
+      .group {
+        border: 1px solid transparent;
+        border-radius: 8px;
+      }
+
+      .group + .group {
+        margin-top: 2px;
+      }
+
+      .group-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        min-height: 37px;
+        padding: 5px 8px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--text-soft);
+        text-align: left;
+      }
+
+      .group-head:hover {
+        background: var(--hover);
+      }
+
+      .group-chevron {
+        width: 12px;
+        height: 12px;
+        color: var(--faint);
+        transition: transform 0.16s ease;
+        flex: 0 0 auto;
+      }
+
+      .group.open .group-chevron {
+        transform: rotate(90deg);
+      }
+
+      .group-icon {
+        display: grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        color: var(--accent);
+        background: var(--accent-soft);
+        flex: 0 0 auto;
+      }
+
+      .group-icon .icon {
+        width: 12px;
+        height: 12px;
+      }
+
+      .group-name {
+        font-size: 11.5px;
+        font-weight: 500;
+        color: var(--text);
+      }
+
+      .group-selected {
+        color: var(--accent);
+        font-size: 9.5px;
+      }
+
+      .group-hint {
+        margin-left: auto;
+        overflow: hidden;
+        color: var(--faint);
+        font-size: 9.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .group-body {
+        display: none;
+        padding: 1px 0 5px;
+      }
+
+      .group.open .group-body {
+        display: block;
+      }
+
+      .cap-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        margin: 0 5px;
+        padding: 5px 8px 5px 31px;
+        border-radius: 6px;
+        color: var(--muted);
+      }
+
+      .cap-row:hover {
+        background: var(--hover);
+      }
+
+      .check {
+        position: relative;
+        display: inline-flex;
+        flex: 0 0 auto;
+      }
+
+      .check input {
+        position: absolute;
+        inset: 0;
+        margin: 0;
+        opacity: 0;
+        cursor: pointer;
+      }
+
+      .check-box {
+        display: grid;
+        place-items: center;
+        width: 13px;
+        height: 13px;
+        border: 1px solid var(--border-strong);
+        border-radius: 4px;
+        background: var(--input);
+        color: transparent;
+      }
+
+      .check-box .icon {
+        width: 9px;
+        height: 9px;
+        stroke-width: 2.4;
+      }
+
+      .check input:checked + .check-box {
+        border-color: var(--accent-strong);
+        background: var(--accent-strong);
+        color: #fff;
+      }
+
+      .check input:indeterminate + .check-box {
+        border-color: var(--accent-strong);
+        background: transparent;
+        color: transparent;
+      }
+
+      .check input:indeterminate + .check-box::after {
+        content: "";
+        width: 6px;
+        height: 2px;
+        border-radius: 1px;
+        background: var(--accent);
+      }
+
+      .check input:focus-visible + .check-box {
+        box-shadow: 0 0 0 3px var(--ring);
+      }
+
+      .cap-name {
+        min-width: 0;
+        flex: 0 0 auto;
+        max-width: 290px;
+        overflow: hidden;
+        color: var(--text-soft);
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .cap-desc {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        color: var(--faint);
+        font-size: 10px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .cap-row .chip {
+        flex: 0 0 auto;
+      }
+
+      .row-link {
+        flex: 0 0 auto;
+        padding: 2px 5px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--faint);
+        font-size: 9.5px;
+        opacity: 0;
+      }
+
+      .cap-row:hover .row-link {
+        opacity: 1;
+      }
+
+      .row-link:hover {
+        background: var(--hover);
+        color: var(--text-soft);
+      }
+
+      /* ---- knowledge scope ---- */
+      .scope-mode {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .segmented {
+        display: inline-flex;
+        padding: 2px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel-soft);
+      }
+
+      .segmented button {
+        padding: 5px 10px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--faint);
+        font-size: 10.5px;
+      }
+
+      .segmented button:hover {
+        color: var(--text-soft);
+      }
+
+      .segmented button.active {
+        background: var(--panel-raised);
+        color: var(--text);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+      }
+
+      .mode-hint {
+        color: var(--faint);
+        font-size: 10px;
+      }
+
+      .scope-grid {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 292px;
+        gap: 10px;
+      }
+
+      .scope-all {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 40px;
+        text-align: center;
+      }
+
+      .scope-all-icon {
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .scope-all-icon .icon {
+        width: 21px;
+        height: 21px;
+      }
+
+      .scope-all-title {
+        margin-top: 11px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .scope-all-text {
+        max-width: 380px;
+        margin: 6px 0 0;
+        color: var(--faint);
+        font-size: 11px;
+        line-height: 1.6;
+      }
+
+      .scope-all .chip {
+        margin-top: 12px;
+      }
+
+      .scope-tree {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .scope-tree .panel-head {
+        flex-wrap: nowrap;
+      }
+
+      .scope-tree .search {
+        width: 190px;
+        flex: 0 0 auto;
+        margin-left: auto;
+        padding: 0;
+      }
+
+      .scope-tree .search input {
+        height: 31px;
+      }
+
+      .tree,
+      .scope-results {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 0 6px 6px;
+      }
+
+      .tree-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 29px;
+        padding: 3px 7px;
+        border-radius: 6px;
+        color: var(--text-soft);
+        font-size: 11px;
+      }
+
+      .tree-row:hover {
+        background: var(--hover);
+      }
+
+      .tree-row.selected {
+        background: var(--accent-soft);
+        color: var(--text);
+      }
+
+      .tree-row.inherited {
+        color: var(--muted);
+      }
+
+      .tree-indent {
+        width: 12px;
+        flex: 0 0 auto;
+      }
+
+      .tree-chevron {
+        width: 11px;
+        height: 11px;
+        flex: 0 0 auto;
+        color: var(--faint);
+      }
+
+      .tree-chevron.placeholder {
+        visibility: hidden;
+      }
+
+      .folder-icon {
+        width: 12px;
+        height: 12px;
+        flex: 0 0 auto;
+        color: var(--faint);
+      }
+
+      .tree-row.selected .folder-icon,
+      .tree-row.inherited .folder-icon {
+        color: var(--accent);
+      }
+
+      .tree-name {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .inherit-tag {
+        color: var(--faint);
+        font-size: 9px;
+      }
+
+      .tree-count {
+        flex: 0 0 auto;
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+
+      .tree-row.selected .tree-count {
+        color: var(--accent);
+      }
+
+      .tree-footer {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 34px;
+        margin: 0 10px 8px;
+        padding: 0 7px;
+        border-top: 1px solid var(--border-soft);
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .tree-footer .icon {
+        width: 11px;
+        height: 11px;
+      }
+
+      .tree-footer .count {
+        margin-left: 2px;
+      }
+
+      .scope-results {
+        padding-top: 2px;
+      }
+
+      .result-group-label {
+        padding: 5px 7px 3px;
+        color: var(--faint);
+        font-size: 9px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .result-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 33px;
+        padding: 4px 7px;
+        border-radius: 6px;
+        color: var(--text-soft);
+        font-size: 11px;
+      }
+
+      .result-row:hover {
+        background: var(--hover);
+      }
+
+      .result-main {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .result-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .result-path {
+        overflow: hidden;
+        color: var(--faint);
+        font-size: 9px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        padding: 34px 12px;
+        color: var(--faint);
+        font-size: 10.5px;
+        text-align: center;
+      }
+
+      .empty .icon {
+        width: 18px;
+        height: 18px;
+        opacity: 0.7;
+      }
+
+      .scope-side {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        padding: 11px 12px;
+        gap: 10px;
+      }
+
+      .side-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .side-title {
+        font-size: 11.5px;
+        font-weight: 600;
+      }
+
+      .text-button {
+        border: 0;
+        background: transparent;
+        color: var(--faint);
+        font-size: 10px;
+      }
+
+      .text-button:hover {
+        color: var(--text-soft);
+      }
+
+      .selected-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+
+      .selected-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        max-width: 100%;
+        padding: 4px 5px 4px 7px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--chip);
+        color: var(--text-soft);
+        font-size: 9.5px;
+      }
+
+      .selected-chip span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .selected-chip .icon {
+        width: 9px;
+        height: 9px;
+        flex: 0 0 auto;
+        color: var(--faint);
+      }
+
+      .preview-card {
+        padding: 10px 11px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--panel-soft);
+      }
+
+      .preview-label {
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+
+      .preview-number {
+        margin-top: 2px;
+        color: var(--text);
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: -0.03em;
+        line-height: 1.1;
+      }
+
+      .preview-number span {
+        margin-left: 3px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 400;
+        letter-spacing: 0;
+      }
+
+      .preview-meter {
+        height: 4px;
+        margin-top: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--border-soft);
+      }
+
+      .preview-meter span {
+        display: block;
+        width: 45%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--accent-strong), var(--accent));
+      }
+
+      .breakdown {
+        margin: 8px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 3px;
+      }
+
+      .breakdown li {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--muted);
+        font-size: 9.5px;
+      }
+
+      .breakdown li::before {
+        content: "";
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--accent);
+        opacity: 0.7;
+      }
+
+      .breakdown strong {
+        margin-left: auto;
+        color: var(--text-soft);
+        font-weight: 500;
+      }
+
+      .side-note {
+        margin: 0;
+        color: var(--faint);
+        font-size: 9px;
+        line-height: 1.5;
+      }
+
+      .trial {
+        margin-top: auto;
+        padding-top: 9px;
+        border-top: 1px solid var(--border-soft);
+      }
+
+      .side-label {
+        margin-bottom: 5px;
+        color: var(--muted);
+        font-size: 9.5px;
+      }
+
+      .trial-row {
+        display: flex;
+        gap: 5px;
+      }
+
+      .trial-row input {
+        min-width: 0;
+        flex: 1;
+        height: 29px;
+        padding: 0 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        outline: none;
+        background: var(--input);
+        color: var(--text);
+        font-size: 10px;
+      }
+
+      .trial-row input::placeholder {
+        color: var(--faint);
+      }
+
+      .trial-row input:focus {
+        border-color: var(--accent);
+      }
+
+      .trial-row button {
+        height: 29px;
+        padding: 0 9px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--panel-raised);
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .trial-row button:hover {
+        color: var(--text);
+        border-color: var(--border-strong);
+      }
+
+      .modal-foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 22px;
+        border-top: 1px solid var(--border-soft);
+        background: color-mix(in srgb, var(--panel-soft) 55%, transparent);
+      }
+
+      .foot-hint {
+        flex: 1;
+        min-width: 0;
+        color: var(--faint);
+        font-size: 10px;
+      }
+
+      .btn {
+        height: 31px;
+        padding: 0 13px;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--panel-raised);
+        color: var(--text-soft);
+        font-size: 11px;
+        font-weight: 500;
+        transition: 0.15s ease;
+      }
+
+      .btn:hover {
+        border-color: var(--border-strong);
+        color: var(--text);
+      }
+
+      .btn.primary {
+        border-color: transparent;
+        background: var(--accent-strong);
+        color: #fff;
+        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.24);
+      }
+
+      .btn.primary:hover {
+        filter: brightness(1.06);
+        color: #fff;
+      }
+
+      .icon {
+        width: 14px;
+        height: 14px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      @media (max-width: 860px) {
+        .preview-bar {
+          gap: 10px;
+          padding: 0 14px;
+        }
+
+        .brand {
+          min-width: 0;
+        }
+
+        .brand-copy span,
+        .viewport {
+          display: none;
+        }
+
+        .stage {
+          padding: 14px;
+        }
+
+        .modal {
+          width: calc(100vw - 28px);
+          height: calc(100vh - 86px);
+        }
+
+        .scope-grid {
+          grid-template-columns: minmax(0, 1fr);
+          overflow-y: auto;
+        }
+
+        .scope-side {
+          min-height: 250px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden">
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.2-3.2" />
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24">
+        <path d="M18 6 6 18M6 6l12 12" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="m5 12 4.5 4.5L19 7" />
+      </symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24">
+        <path d="m9 18 6-6-6-6" />
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+      </symbol>
+      <symbol id="i-tool" viewBox="0 0 24 24">
+        <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.3 2.3-2.7-2.7Z" />
+      </symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24">
+        <path d="m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z" />
+        <path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z" />
+      </symbol>
+      <symbol id="i-server" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="7" rx="2" />
+        <rect x="3" y="13" width="18" height="7" rx="2" />
+        <path d="M7 7.5h.01M7 16.5h.01" />
+      </symbol>
+      <symbol id="i-layers" viewBox="0 0 24 24">
+        <path d="m12 3 9 5-9 5-9-5Z" />
+        <path d="m3 13 9 5 9-5" />
+      </symbol>
+      <symbol id="i-doc" viewBox="0 0 24 24">
+        <path d="M6 3h8l4 4v14H6Z" />
+        <path d="M14 3v4h4M9 12h6M9 16h6" />
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24">
+        <path d="M20 15.2A8 8 0 0 1 8.8 4 8.4 8.4 0 1 0 20 15.2Z" />
+      </symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </symbol>
+    </svg>
+
+    <header class="preview-bar">
+      <div class="brand">
+        <span class="brand-mark">O</span>
+        <div class="brand-copy">
+          <strong>Ongrid</strong>
+          <span>助理编辑器 · 交互设计预览</span>
+        </div>
+      </div>
+
+      <nav class="screen-switch" aria-label="设计稿切换">
+        <button type="button" class="active" data-screen="capability">能力绑定</button>
+        <button type="button" data-screen="knowledge">知识范围</button>
+      </nav>
+
+      <div class="preview-actions">
+        <span class="viewport">1280 × 900</span>
+        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="切换主题">
+          <svg class="icon"><use href="#i-sun" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="stage">
+      <div class="page-ghost" aria-hidden="true">
+        <div class="ghost-card"></div>
+        <div class="ghost-card"></div>
+        <div class="ghost-card"></div>
+      </div>
+
+      <section class="modal" aria-label="新建助理设计稿">
+        <header class="modal-head">
+          <div>
+            <h1>新建助理</h1>
+            <p>
+              第 <span id="step-index">4</span> / 5 步 ·
+              <span id="step-name">能力绑定</span>
+            </p>
+          </div>
+          <button type="button" class="icon-button" aria-label="关闭">
+            <svg class="icon"><use href="#i-x" /></svg>
+          </button>
+        </header>
+
+        <div class="stepper" id="stepper">
+          <div class="step done">
+            <span class="step-num">
+              <span class="step-number">1</span>
+              <svg class="check-icon"><use href="#i-check" /></svg>
+            </span>
+            基础
+          </div>
+          <span class="step-sep"></span>
+          <div class="step done">
+            <span class="step-num">
+              <span class="step-number">2</span>
+              <svg class="check-icon"><use href="#i-check" /></svg>
+            </span>
+            人设
+          </div>
+          <span class="step-sep"></span>
+          <div class="step">
+            <span class="step-num"><span class="step-number">3</span></span>
+            知识范围
+          </div>
+          <span class="step-sep"></span>
+          <div class="step active">
+            <span class="step-num"><span class="step-number">4</span></span>
+            能力绑定
+          </div>
+          <span class="step-sep"></span>
+          <div class="step">
+            <span class="step-num"><span class="step-number">5</span></span>
+            委托与运行
+          </div>
+        </div>
+
+        <div class="modal-body">
+          <section class="screen" data-screen-panel="capability">
+            <div class="capability-layout">
+            <section class="panel capability-panel">
+              <header class="panel-head">
+                <div class="panel-heading">
+                  <div class="panel-title">能力目录</div>
+                  <div class="panel-subtitle">勾选后立即生效；搜索只保留匹配项</div>
+                </div>
+                <label class="search">
+                  <svg class="icon search-icon"><use href="#i-search" /></svg>
+                  <input
+                    id="cap-search"
+                    type="search"
+                    autocomplete="off"
+                    placeholder="搜索工具 / 技能 / MCP"
+                    aria-label="搜索能力"
+                  />
+                  <button type="button" class="search-clear" id="cap-clear" aria-label="清空搜索" hidden>
+                    <svg class="icon"><use href="#i-x" /></svg>
+                  </button>
+                </label>
+              </header>
+
+              <div class="search-meta" id="cap-meta" hidden>
+                匹配 <strong id="cap-match-count">0</strong> 项
+              </div>
+
+              <div class="groups" id="cap-groups">
+                <section class="group open" data-group data-default-open="true">
+                  <button type="button" class="group-head" aria-expanded="true">
+                    <svg class="icon group-chevron"><use href="#i-chevron" /></svg>
+                    <span class="group-icon"><svg class="icon"><use href="#i-tool" /></svg></span>
+                    <span class="group-name">内置工具</span>
+                    <span class="count">5</span>
+                    <span class="group-selected">已选 5</span>
+                    <span class="group-hint">随技能目录始终装配；联网类工具按对话开关挂载</span>
+                  </button>
+                  <div class="group-body">
+                    <label class="cap-row" data-search="query_knowledge 检索 组织 知识库 文档">
+                      <span class="check">
+                        <input type="checkbox" checked />
+                        <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                      </span>
+                      <span class="cap-name">query_knowledge</span>
+                      <span class="cap-desc">检索组织知识库，返回带来源的片段</span>
+                      <span class="chip">始终可用</span>
+                      <button type="button" class="row-link">屏蔽</button>
+                    </label>
+                    <label class="cap-row" data-search="run_python 代码 解释器 沙箱 图表">
+                      <span class="check">
+                        <input type="checkbox" checked />
+                        <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                      </span>
+                      <span class="cap-name">run_python</span>
+                      <span class="cap-desc">在隔离沙箱执行 Python，生成图表与表格</span>
+                      <span class="chip">始终可用</span>
+                      <button type="button" class="row-link">屏蔽</button>
+                    </label>
+                    <label class="cap-row" data-search="web_search 联网 搜索 网页">
+                      <span class="check">
+                        <input type="checkbox" checked />
+                        <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                      </span>
+                      <span class="cap-name">web_search</span>
+                      <span class="cap-desc">联网检索并抓取网页正文</span>
+                      <span class="chip">随开关</span>
+                      <button type="button" class="row-link">屏蔽</button>
+                    </label>
+                    <label class="cap-row" data-search="create_ticket 工单 排障">
+                      <span class="check">
+                        <input type="checkbox" checked />
+                        <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                      </span>
+                      <span class="cap-name">create_ticket</span>
+                      <span class="cap-desc">创建排障工单并关联会话</span>
+                      <span class="chip">始终可用</span>
+                      <button type="button" class="row-link">屏蔽</button>
+                    </label>
+                    <label class="cap-row" data-search="query_metrics 指标 监控 prometheus">
+                      <span class="check">
+                        <input type="checkbox" checked />
+                        <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                      </span>
+                      <span class="cap-name">query_metrics</span>
+                      <span class="cap-desc">查询指标与告警，支持 PromQL</span>
+                      <span class="chip">始终可用</span>
+                      <button type="button" class="row-link">屏蔽</button>
+                    </label>
+                  </div>
+                </section>
+
+                <section class="group open" data-group>
+                  <button type="button" class="group-head" aria-expanded="true">
+                    <svg class="icon group-chevron"><use href="#i-chevron" /></svg>
+                    <span class="group-icon"><svg class="icon"><use href="#i-spark" /></svg></span>
+                    <span class="group-name">技能</span>
+                    <span class="count">2</span>
+                    <span class="group-selected">已选 2</span>
+                    <span class="group-hint">勾选的技能才装配；技能内的工具随技能自动开启</span>
+                  </button>
+                  <div class="group-body">
+                    <label class="cap-row" data-search="knowledge-qa 知识问答 检索 知识库">
+                      <span class="check">
+                        <input type="checkbox" checked />
+                        <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                      </span>
+                      <span class="cap-name">knowledge-qa</span>
+                      <span class="cap-desc">知识问答：限定范围检索、引用来源、拒答</span>
+                      <span class="chip">已装配</span>
+                      <button type="button" class="row-link">3 个工具</button>
+                    </label>
+                    <label class="cap-row" data-search="incident-response 故障 响应 排障">
+                      <span class="check">
+                        <input type="checkbox" checked />
+                        <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                      </span>
+                      <span class="cap-name">incident-response</span>
+                      <span class="cap-desc">故障响应：止损、升级、复盘模板</span>
+                      <span class="chip">已装配</span>
+                      <button type="button" class="row-link">1 个工具</button>
+                    </label>
+                  </div>
+                </section>
+
+                <section class="group open" data-group>
+                  <button type="button" class="group-head" aria-expanded="true">
+                    <svg class="icon group-chevron"><use href="#i-chevron" /></svg>
+                    <span class="group-icon"><svg class="icon"><use href="#i-server" /></svg></span>
+                    <span class="group-name">MCP Server</span>
+                    <span class="count">2</span>
+                    <span class="group-selected">已挂载 1</span>
+                    <span class="group-hint">勾选即整台挂载；工具清单按需展开</span>
+                  </button>
+                  <div class="group-body">
+                    <label class="cap-row" data-search="db-tools 数据库 知识库 mysql redis">
+                      <span class="check">
+                        <input type="checkbox" checked />
+                        <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                      </span>
+                      <span class="cap-name">mcp · db-tools</span>
+                      <span class="cap-desc">数据库只读查询与实例健康检查</span>
+                      <span class="chip ok">已挂载</span>
+                      <button type="button" class="row-link">3 个工具</button>
+                    </label>
+                    <label class="cap-row" data-search="k8s-tools 容器 集群 kubernetes">
+                      <span class="check">
+                        <input type="checkbox" />
+                        <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                      </span>
+                      <span class="cap-name">mcp · k8s-tools</span>
+                      <span class="cap-desc">集群、工作负载与事件查询</span>
+                      <span class="chip">未挂载</span>
+                      <button type="button" class="row-link">2 个工具</button>
+                    </label>
+                  </div>
+                </section>
+              </div>
+            </section>
+
+            <aside class="panel cap-side">
+              <div class="side-head">
+                <span class="side-title">装配预览</span>
+                <span class="chip accent">实时</span>
+              </div>
+
+              <div>
+                <div class="preview-label">进入初始上下文</div>
+                <div class="preview-number">9 <span>个工具</span></div>
+              </div>
+
+              <div class="preview-card">
+                <div class="preview-label">工具来源</div>
+                <ul class="breakdown">
+                  <li>内置工具 <strong>5</strong></li>
+                  <li>技能工具 <strong>4</strong></li>
+                  <li>MCP 可检索 <strong>3</strong></li>
+                </ul>
+              </div>
+
+              <div class="side-label">已选能力</div>
+              <div class="assigned-list">
+                <div class="assigned-row">
+                  <span class="assigned-dot"></span>
+                  <span class="assigned-name">内置工具 · 5 个</span>
+                  <span class="assigned-kind">始终装配</span>
+                </div>
+                <div class="assigned-row">
+                  <span class="assigned-dot"></span>
+                  <span class="assigned-name">knowledge-qa</span>
+                  <span class="assigned-kind">技能 · 3 工具</span>
+                </div>
+                <div class="assigned-row">
+                  <span class="assigned-dot"></span>
+                  <span class="assigned-name">incident-response</span>
+                  <span class="assigned-kind">技能 · 1 工具</span>
+                </div>
+                <div class="assigned-row">
+                  <span class="assigned-dot"></span>
+                  <span class="assigned-name">db-tools</span>
+                  <span class="assigned-kind">MCP · 可检索</span>
+                </div>
+              </div>
+
+              <p class="side-note">MCP 工具不进入初始上下文，模型按需检索；技能工具随技能自动装配。</p>
+            </aside>
+            </div>
+          </section>
+
+          <section class="screen" data-screen-panel="knowledge" hidden>
+            <div class="scope-mode">
+              <div class="segmented" aria-label="知识范围模式">
+                <button type="button" data-scope-mode="all">全部知识库</button>
+                <button type="button" data-scope-mode="range" class="active">指定范围</button>
+              </div>
+              <span class="mode-hint" id="mode-hint">只在这些文档内检索；命中 0 篇时无法保存</span>
+            </div>
+
+            <div class="scope-grid" id="scope-grid">
+              <section class="panel scope-tree">
+                <header class="panel-head">
+                  <div class="panel-heading">
+                    <div class="panel-title">知识库目录 <span class="count">20</span></div>
+                    <div class="panel-subtitle">选择目录会包含全部子目录</div>
+                  </div>
+                  <label class="search">
+                    <svg class="icon search-icon"><use href="#i-search" /></svg>
+                    <input
+                      id="scope-search"
+                      type="search"
+                      autocomplete="off"
+                      placeholder="搜索目录或文档"
+                      aria-label="搜索知识范围"
+                    />
+                    <button type="button" class="search-clear" id="scope-clear" aria-label="清空搜索" hidden>
+                      <svg class="icon"><use href="#i-x" /></svg>
+                    </button>
+                  </label>
+                </header>
+
+                <div class="tree" id="scope-tree">
+                  <div class="tree-row">
+                    <span class="tree-indent"></span>
+                    <svg class="icon tree-chevron"><use href="#i-chevron" /></svg>
+                    <span class="check">
+                      <input type="checkbox" />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-folder" /></svg>
+                    <span class="tree-name">运维文档</span>
+                    <span class="tree-count">20</span>
+                  </div>
+                  <div class="tree-row selected">
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <svg class="icon tree-chevron"><use href="#i-chevron" /></svg>
+                    <span class="check">
+                      <input type="checkbox" checked />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-folder" /></svg>
+                    <span class="tree-name">数据库</span>
+                    <span class="tree-count">8</span>
+                  </div>
+                  <div class="tree-row inherited">
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <span class="check">
+                      <input type="checkbox" checked disabled />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-folder" /></svg>
+                    <span class="tree-name">MySQL</span>
+                    <span class="inherit-tag">随上级</span>
+                    <span class="tree-count">5</span>
+                  </div>
+                  <div class="tree-row inherited">
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <span class="check">
+                      <input type="checkbox" checked disabled />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-folder" /></svg>
+                    <span class="tree-name">Redis</span>
+                    <span class="inherit-tag">随上级</span>
+                    <span class="tree-count">3</span>
+                  </div>
+                  <div class="tree-row">
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <svg class="icon tree-chevron"><use href="#i-chevron" /></svg>
+                    <span class="check">
+                      <input type="checkbox" data-partial />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-folder" /></svg>
+                    <span class="tree-name">网络</span>
+                    <span class="inherit-tag">部分</span>
+                    <span class="tree-count">3</span>
+                  </div>
+                  <div class="tree-row selected">
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <span class="check">
+                      <input type="checkbox" checked />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-doc" /></svg>
+                    <span class="tree-name">变更窗口说明</span>
+                    <span class="inherit-tag">指定</span>
+                  </div>
+                  <div class="tree-row">
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <span class="check">
+                      <input type="checkbox" />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-doc" /></svg>
+                    <span class="tree-name">网络变更审批流程</span>
+                  </div>
+                  <div class="tree-row">
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <span class="check">
+                      <input type="checkbox" />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-folder" /></svg>
+                    <span class="tree-name">容器</span>
+                    <span class="tree-count">2</span>
+                  </div>
+                  <div class="tree-row">
+                    <span class="tree-indent"></span>
+                    <span class="tree-indent"></span>
+                    <span class="check">
+                      <input type="checkbox" />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-folder" /></svg>
+                    <span class="tree-name">Linux</span>
+                    <span class="tree-count">2</span>
+                  </div>
+                  <div class="tree-row">
+                    <span class="tree-indent"></span>
+                    <span class="check">
+                      <input type="checkbox" />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-folder" /></svg>
+                    <span class="tree-name">安全</span>
+                    <span class="tree-count">1</span>
+                  </div>
+                  <div class="tree-row">
+                    <span class="tree-indent"></span>
+                    <span class="check">
+                      <input type="checkbox" />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-folder" /></svg>
+                    <span class="tree-name">流程</span>
+                    <span class="tree-count">3</span>
+                  </div>
+                </div>
+
+                <div class="scope-results" id="scope-results" hidden>
+                  <div class="result-group-label">目录</div>
+                  <label class="result-row" data-search="运维文档 数据库 mysql redis">
+                    <span class="check">
+                      <input type="checkbox" checked />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-folder" /></svg>
+                    <span class="result-main">
+                      <span class="result-title">运维文档 / 数据库</span>
+                      <span class="result-path">8 篇文档 · 含子目录</span>
+                    </span>
+                  </label>
+                  <div class="result-group-label">文档</div>
+                  <label class="result-row" data-search="mysql 慢查询 连接数 排查 数据库">
+                    <span class="check">
+                      <input type="checkbox" checked disabled />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-doc" /></svg>
+                    <span class="result-main">
+                      <span class="result-title">MySQL 慢查询与连接数排查</span>
+                      <span class="result-path">运维文档 / 数据库</span>
+                    </span>
+                  </label>
+                  <label class="result-row" data-search="mysql 主从 延迟 复制 数据库">
+                    <span class="check">
+                      <input type="checkbox" checked disabled />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-doc" /></svg>
+                    <span class="result-main">
+                      <span class="result-title">MySQL 主从延迟定位手册</span>
+                      <span class="result-path">运维文档 / 数据库 / MySQL</span>
+                    </span>
+                  </label>
+                  <label class="result-row" data-search="redis 连接池 超时 数据库">
+                    <span class="check">
+                      <input type="checkbox" />
+                      <span class="check-box"><svg class="icon"><use href="#i-check" /></svg></span>
+                    </span>
+                    <svg class="icon folder-icon"><use href="#i-doc" /></svg>
+                    <span class="result-main">
+                      <span class="result-title">Redis 连接池超时处理</span>
+                      <span class="result-path">运维文档 / 数据库 / Redis</span>
+                    </span>
+                  </label>
+                  <div class="empty" id="scope-empty" hidden>
+                    <svg class="icon"><use href="#i-search" /></svg>
+                    没有匹配的目录或文档
+                  </div>
+                </div>
+
+                <div class="tree-footer">
+                  <svg class="icon"><use href="#i-doc" /></svg>
+                  当前范围
+                  <span class="count">1 个目录 · 1 篇文档</span>
+                </div>
+              </section>
+
+              <aside class="panel scope-side">
+                <div class="side-head">
+                  <span class="side-title">已选范围</span>
+                  <button type="button" class="text-button">清空</button>
+                </div>
+
+                <div class="selected-list">
+                  <span class="selected-chip">
+                    <svg class="icon"><use href="#i-folder" /></svg>
+                    <span>运维文档 / 数据库</span>
+                    <svg class="icon"><use href="#i-x" /></svg>
+                  </span>
+                  <span class="selected-chip">
+                    <svg class="icon"><use href="#i-doc" /></svg>
+                    <span>变更窗口说明</span>
+                    <svg class="icon"><use href="#i-x" /></svg>
+                  </span>
+                </div>
+
+                <div class="preview-card">
+                  <div class="preview-label">范围命中</div>
+                  <div class="preview-number">9 <span>篇文档</span></div>
+                  <div class="preview-meter"><span></span></div>
+                  <ul class="breakdown">
+                    <li>运维文档 / 数据库 <strong>8</strong></li>
+                    <li>指定文档 <strong>1</strong></li>
+                  </ul>
+                </div>
+
+                <p class="side-note">文档可跨目录单独加入，与目录选择叠加。</p>
+
+                <div class="trial">
+                  <div class="side-label">按当前范围试检索</div>
+                  <div class="trial-row">
+                    <input type="text" placeholder="输入检索词" />
+                    <button type="button">试跑</button>
+                  </div>
+                </div>
+              </aside>
+            </div>
+
+            <div class="panel scope-all" id="scope-all" hidden>
+              <span class="scope-all-icon"><svg class="icon"><use href="#i-layers" /></svg></span>
+              <div class="scope-all-title">检索全部知识库</div>
+              <p class="scope-all-text">
+                不限制目录与文档，问答时在所有已索引内容中检索。适合内容范围小、或希望助理自行判断的场景。
+              </p>
+              <span class="chip ok">无范围限制</span>
+            </div>
+          </section>
+        </div>
+
+        <footer class="modal-foot">
+          <span class="foot-hint" id="foot-hint">MCP 工具不进入初始上下文，模型按需检索</span>
+          <button type="button" class="btn">取消</button>
+          <button type="button" class="btn">上一步</button>
+          <button type="button" class="btn primary">下一步</button>
+        </footer>
+      </section>
+    </main>
+
+    <script>
+      const root = document.documentElement;
+      const themeToggle = document.getElementById('theme-toggle');
+
+      function renderThemeIcon() {
+        const dark = root.dataset.theme === 'dark';
+        themeToggle.innerHTML = `<svg class="icon"><use href="#${dark ? 'i-sun' : 'i-moon'}" /></svg>`;
+      }
+
+      themeToggle.addEventListener('click', () => {
+        root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        renderThemeIcon();
+      });
+      renderThemeIcon();
+
+      // 步骤条与弹窗标题跟随设计稿切换。
+      const screenButtons = [...document.querySelectorAll('.screen-switch button')];
+      const screenPanels = [...document.querySelectorAll('[data-screen-panel]')];
+      const steps = [...document.querySelectorAll('#stepper .step')];
+      const stepIndex = document.getElementById('step-index');
+      const stepName = document.getElementById('step-name');
+      const footHint = document.getElementById('foot-hint');
+
+      const screenMeta = {
+        capability: {
+          index: 4,
+          name: '能力绑定',
+          hint: 'MCP 工具不进入初始上下文，模型按需检索',
+        },
+        knowledge: {
+          index: 3,
+          name: '知识范围',
+          hint: '至少选择一个目录或文档；目录包含全部子目录',
+        },
+      };
+
+      let scopeMode = 'range';
+      const scopeModeButtons = [...document.querySelectorAll('[data-scope-mode]')];
+      const scopeGrid = document.getElementById('scope-grid');
+      const scopeAll = document.getElementById('scope-all');
+      const modeHint = document.getElementById('mode-hint');
+
+      function applyScopeMode(mode) {
+        scopeMode = mode;
+        const all = mode === 'all';
+        scopeModeButtons.forEach((button) => {
+          button.classList.toggle('active', button.dataset.scopeMode === mode);
+        });
+        scopeGrid.hidden = all;
+        scopeAll.hidden = !all;
+        modeHint.textContent = all
+          ? '不限制目录与文档，检索全部知识库'
+          : '只在这些文档内检索；命中 0 篇时无法保存';
+        if (!document.querySelector('[data-screen-panel="knowledge"]').hidden) {
+          footHint.textContent = all
+            ? '全部知识库模式下不限制检索范围'
+            : screenMeta.knowledge.hint;
+        }
+      }
+
+      scopeModeButtons.forEach((button) => {
+        button.addEventListener('click', () => applyScopeMode(button.dataset.scopeMode));
+      });
+
+      screenButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          const screen = button.dataset.screen;
+          screenButtons.forEach((item) => item.classList.toggle('active', item === button));
+          screenPanels.forEach((panel) => {
+            panel.hidden = panel.dataset.screenPanel !== screen;
+          });
+          const meta = screenMeta[screen];
+          stepIndex.textContent = String(meta.index);
+          stepName.textContent = meta.name;
+          footHint.textContent =
+            screen === 'knowledge' && scopeMode === 'all'
+              ? '全部知识库模式下不限制检索范围'
+              : meta.hint;
+          steps.forEach((step, index) => {
+            const number = index + 1;
+            step.classList.toggle('done', number < meta.index);
+            step.classList.toggle('active', number === meta.index);
+          });
+        });
+      });
+
+      // 能力搜索：分组内保留匹配行，空分组整体隐藏。
+      const capSearch = document.getElementById('cap-search');
+      const capClear = document.getElementById('cap-clear');
+      const capMeta = document.getElementById('cap-meta');
+      const capMatchCount = document.getElementById('cap-match-count');
+      const capGroups = [...document.querySelectorAll('#cap-groups .group')];
+
+      function setGroupOpen(group, open) {
+        group.classList.toggle('open', open);
+        group.querySelector('.group-head').setAttribute('aria-expanded', String(open));
+      }
+
+      function applyCapabilityFilter() {
+        const query = capSearch.value.trim().toLowerCase();
+        const searching = query !== '';
+        let total = 0;
+
+        capGroups.forEach((group) => {
+          let visibleRows = 0;
+          group.querySelectorAll('.cap-row').forEach((row) => {
+            const match = !searching || row.dataset.search.includes(query);
+            row.hidden = !match;
+            if (match) visibleRows += 1;
+          });
+          total += visibleRows;
+          group.hidden = searching && visibleRows === 0;
+          if (searching) {
+            group.dataset.wasOpen ??= group.classList.contains('open') ? '1' : '0';
+            setGroupOpen(group, visibleRows > 0);
+          } else if (group.dataset.wasOpen !== undefined) {
+            setGroupOpen(group, group.dataset.wasOpen === '1');
+            delete group.dataset.wasOpen;
+          }
+        });
+
+        capMeta.hidden = !searching;
+        capClear.hidden = !searching;
+        capMatchCount.textContent = String(total);
+      }
+
+      capSearch.addEventListener('input', applyCapabilityFilter);
+      capClear.addEventListener('click', () => {
+        capSearch.value = '';
+        applyCapabilityFilter();
+        capSearch.focus();
+      });
+
+      document.querySelectorAll('#cap-groups .group-head').forEach((head) => {
+        head.addEventListener('click', () => {
+          const group = head.closest('.group');
+          setGroupOpen(group, !group.classList.contains('open'));
+        });
+      });
+
+      // 知识范围搜索：搜索时用扁平结果替换目录树，右侧已选范围不消失。
+      const scopeSearch = document.getElementById('scope-search');
+      const scopeClear = document.getElementById('scope-clear');
+      const scopeTree = document.getElementById('scope-tree');
+      const scopeResults = document.getElementById('scope-results');
+      const scopeEmpty = document.getElementById('scope-empty');
+      const scopeRows = [...scopeResults.querySelectorAll('.result-row')];
+
+      function applyScopeFilter() {
+        const query = scopeSearch.value.trim().toLowerCase();
+        const searching = query !== '';
+        scopeSearch.closest('.search').classList.toggle('active', searching);
+        scopeTree.hidden = searching;
+        scopeResults.hidden = !searching;
+        scopeClear.hidden = !searching;
+        if (!searching) return;
+
+        let visible = 0;
+        scopeRows.forEach((row) => {
+          const match = row.dataset.search.includes(query);
+          row.hidden = !match;
+          if (match) visible += 1;
+        });
+        scopeEmpty.hidden = visible !== 0;
+      }
+
+      scopeSearch.addEventListener('input', applyScopeFilter);
+      scopeClear.addEventListener('click', () => {
+        scopeSearch.value = '';
+        applyScopeFilter();
+        scopeSearch.focus();
+      });
+
+      applyCapabilityFilter();
+      applyScopeFilter();
+      document.querySelectorAll('.check input[data-partial]').forEach((input) => {
+        input.indeterminate = true;
+      });
+    </script>
+  </body>
+</html>
