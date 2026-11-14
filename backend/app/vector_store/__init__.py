@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Protocol, runtime_checkable
+from typing import NoReturn, Protocol, runtime_checkable
 
 from app.config import get_settings
 
@@ -52,26 +52,38 @@ class VectorStore(Protocol):
     async def ensure_ready(self, dim: int) -> None:
         """建表/校验实现可用性；启动时调用一次。"""
 
+    ...
+
     async def upsert_many(
         self, namespace: str, items: list[tuple[str, list[float]]]
     ) -> None:
         """批量写入或覆盖向量；items = [(ref_id, vector), ...]。"""
 
+    ...
+
     async def delete_refs(self, namespace: str, ref_ids: list[str]) -> None:
         """删除指定 ref_id 的向量；不存在的 ref 静默跳过。"""
+
+    ...
 
     async def search(
         self, namespace: str, query_vector: list[float], limit: int
     ) -> list[tuple[str, float]]:
         """按余弦相似度降序返回 (ref_id, similarity)；只搜指定 namespace。"""
 
+        raise NotImplementedError
+
     async def fetch_vectors(
         self, namespace: str, ref_ids: list[str]
     ) -> dict[str, list[float]]:
         """按 ref_id 批量取向量；缺失的 ref 不出现在结果里。"""
 
+        raise NotImplementedError
+
     async def list_vectors(self, namespace: str) -> dict[str, list[float]]:
         """返回 namespace 下全部向量（ref_id → vector）。"""
+
+        raise NotImplementedError
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -91,7 +103,7 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (math.sqrt(na) * math.sqrt(nb))
 
 
-def raise_vector_store_unavailable() -> None:
+def raise_vector_store_unavailable() -> NoReturn:
     """向量存储未启用时的统一显式失败入口。"""
 
     raise VectorStoreUnavailable(

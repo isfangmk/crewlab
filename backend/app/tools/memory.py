@@ -20,18 +20,25 @@ async def remember_memory(content: str, tool_context: Any = None) -> dict:
 
     session = getattr(tool_context, "session", None) if tool_context is not None else None
     session_id = getattr(session, "id", "") or ""
-    # 助理 id 从会话行取：stream_session_message 的会话已绑定 agent_id
+    # 助理 id 与归属人从会话行取：stream_session_message 的会话已绑定 agent_id
     agent_id = None
+    created_by = None
     if session_id:
         from app.models_orm.chat import ChatSession
 
         async with SessionLocal() as db:
             row = await db.get(ChatSession, session_id)
-            agent_id = row.agent_id if row else None
+            if row is not None:
+                agent_id = row.agent_id
+                created_by = row.owner_user_id
 
     async with SessionLocal() as db:
         item = await remember(
-            db, content=content, agent_id=agent_id, session_id=session_id or None
+            db,
+            content=content,
+            agent_id=agent_id,
+            session_id=session_id or None,
+            created_by=created_by,
         )
         return {
             "status": "saved",

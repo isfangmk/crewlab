@@ -10,10 +10,11 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models_orm.memory import MemoryItem
+from app.services import agent_service
 from app.vector_store import MEMORY_NAMESPACE, get_vector_store, raise_vector_store_unavailable
 from app.services.embedding_client import embed_text
 
@@ -23,6 +24,28 @@ logger = logging.getLogger(__name__)
 RECALL_LIMIT = 5
 # 单条记忆内容长度上限
 MEMORY_CONTENT_LIMIT = 2000
+# 管理列表单页上限；记录会持续增长，不能一次拉全表
+MAX_LIST_LIMIT = 200
+
+
+def _normalize_scope(agent_id: str | None) -> str | None:
+    if agent_id is None:
+        return None
+    scope = agent_id.strip()
+    return scope or None
+
+
+async def _validate_scope(db: AsyncSession, agent_id: str | None) -> str | None:
+    """作用域必须是已存在的助理；空作用域表示全局记忆。"""
+
+    scope = _normalize_scope(agent_id)
+    if scope is None:
+        return None
+    try:
+        await agent_service.get_agent(db, scope)
+    except LookupError as exc:
+        raise ValueError(f"作用域助理不存在: {scope}") from exc
+    return scope
 
 
 async def remember(
@@ -33,32 +56,46 @@ async def remember(
     session_id: str | None = None,
     created_by: int | None = None,
 ) -> MemoryItem:
-    """写一条记忆：业务行 + 向量（语义回忆用）。"""
+    """写一条记忆：业务行 + 向量（语义回忆用）。
+
+    先算向量、再 flush 业务行、最后 upsert 向量并提交：
+    任何一步失败都回滚业务行，避免出现「列表里有、但永远检索不到」的记忆。
+    """
 
     if not isinstance(content, str) or content.strip() == "":
         raise ValueError("记忆内容不能为空")
     if len(content) > MEMORY_CONTENT_LIMIT:
         raise ValueError(f"记忆内容过长（上限 {MEMORY_CONTENT_LIMIT} 字符）")
+    scope = await _validate_scope(db, agent_id)
     vs = get_vector_store()
     if vs is None:
         raise_vector_store_unavailable()
 
+    text = content.strip()
+    vector = await embed_text(text)
     item = MemoryItem(
         id=str(uuid.uuid4()),
-        content=content.strip(),
-        scope_agent_id=agent_id or None,
+        content=text,
+        scope_agent_id=scope,
         source_session_id=session_id or None,
         created_by=created_by,
     )
     db.add(item)
-    await db.commit()
+    await db.flush()
+    try:
+        await vs.upsert_many(MEMORY_NAMESPACE, [(str(item.id), vector)])
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        # 向量可能已经写入；尽力清掉，失败只留日志（业务行已回滚）
+        try:
+            await vs.delete_refs(MEMORY_NAMESPACE, [item.id])
+        except Exception:  # noqa: BLE001 — 清理失败不掩盖原始异常
+            logger.exception("记忆向量回滚失败 id=%s", item.id)
+        raise
     await db.refresh(item)
-    await vs.upsert_many(
-        MEMORY_NAMESPACE,
-        [(str(item.id), await embed_text(item.content))],
-    )
     logger.info(
-        "已保存记忆 id=%s agent=%s len=%s", item.id, agent_id, len(item.content)
+        "已保存记忆 id=%s agent=%s len=%s", item.id, scope, len(item.content)
     )
     return item
 
@@ -77,6 +114,8 @@ async def recall(
 
     if not isinstance(query, str) or query.strip() == "":
         raise ValueError("query 不能为空")
+    if limit < 1 or limit > MAX_LIST_LIMIT:
+        raise ValueError(f"limit 必须在 1..{MAX_LIST_LIMIT} 之间")
     vs = get_vector_store()
     if vs is None:
         raise_vector_store_unavailable()
@@ -100,6 +139,7 @@ async def recall(
             "id": row.id,
             "content": row.content,
             "agent_id": row.scope_agent_id,
+            "source_session_id": row.source_session_id,
             "similarity": similarity,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
@@ -108,7 +148,11 @@ async def recall(
 
 
 async def forget(db: AsyncSession, memory_id: str) -> None:
-    """删除一条记忆（业务行 + 向量）；向量存储未启用时只删业务行。"""
+    """删除一条记忆（业务行 + 向量）。
+
+    先删业务行：即使向量删除失败，回忆侧 join 不到行，也不会返回已删除内容；
+    残留向量只是孤儿，不影响语义。
+    """
 
     row = await db.get(MemoryItem, memory_id)
     if row is None:
@@ -117,17 +161,66 @@ async def forget(db: AsyncSession, memory_id: str) -> None:
     await db.commit()
     vs = get_vector_store()
     if vs is not None:
-        await vs.delete_refs(MEMORY_NAMESPACE, [memory_id])
+        try:
+            await vs.delete_refs(MEMORY_NAMESPACE, [memory_id])
+        except Exception:  # noqa: BLE001 — 业务行已删，向量清理失败只留日志
+            logger.exception("记忆向量删除失败 id=%s", memory_id)
     logger.info("已删除记忆 id=%s", memory_id)
 
 
-async def list_memories(
-    db: AsyncSession, *, agent_id: str | None = None, limit: int = 100
-) -> list[MemoryItem]:
-    """按作用域列记忆（管理页用）；agent_id 为 None 列全部。"""
+async def set_enabled(db: AsyncSession, memory_id: str, enabled: bool) -> MemoryItem:
+    """启用/停用记忆；停用后不再参与语义回忆，向量保留以便重新启用。"""
 
-    stmt = select(MemoryItem).order_by(MemoryItem.created_at.desc()).limit(limit)
-    if agent_id is not None:
-        stmt = stmt.where(MemoryItem.scope_agent_id == agent_id)
-    rows = await db.scalars(stmt)
-    return list(rows.all())
+    row = await db.get(MemoryItem, memory_id)
+    if row is None:
+        raise LookupError(f"记忆不存在: {memory_id}")
+    row.enabled = enabled
+    await db.commit()
+    await db.refresh(row)
+    logger.info("更新记忆启停 id=%s enabled=%s", memory_id, enabled)
+    return row
+
+
+async def list_memories(
+    db: AsyncSession,
+    *,
+    q: str | None = None,
+    agent_id: str | None = None,
+    enabled: bool | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[MemoryItem], int]:
+    """按作用域/关键字/启停状态列记忆（管理页用），返回当前页与筛选后总数。"""
+
+    if limit < 1 or limit > MAX_LIST_LIMIT:
+        raise ValueError(f"limit 必须在 1..{MAX_LIST_LIMIT} 之间")
+    if offset < 0:
+        raise ValueError("offset 不能为负")
+    conditions = []
+    scope = _normalize_scope(agent_id)
+    if scope is not None:
+        conditions.append(MemoryItem.scope_agent_id == scope)
+    if enabled is not None:
+        conditions.append(MemoryItem.enabled.is_(enabled))
+    if q is not None and q.strip() != "":
+        needle = f"%{q.strip()}%"
+        conditions.append(
+            or_(
+                MemoryItem.content.ilike(needle),
+                MemoryItem.scope_agent_id.ilike(needle),
+                MemoryItem.source_session_id.ilike(needle),
+            )
+        )
+    stmt = select(MemoryItem)
+    count_stmt = select(func.count()).select_from(MemoryItem)
+    if conditions:
+        stmt = stmt.where(*conditions)
+        count_stmt = count_stmt.where(*conditions)
+    stmt = (
+        stmt.order_by(MemoryItem.created_at.desc(), MemoryItem.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = list((await db.scalars(stmt)).all())
+    total = int(await db.scalar(count_stmt) or 0)
+    return rows, total

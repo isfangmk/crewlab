@@ -1,6 +1,7 @@
 // 跨会话记忆管理：列表 / 新增 / 删除（语义回忆由对话内 recall_memory 工具完成）。
 import { useCallback, useEffect, useState } from 'react';
 import { Brain, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import {
   Button,
   EmptyStateCard,
@@ -12,6 +13,7 @@ import {
   RowActionIcon,
   SearchInput,
   Select,
+  Switch,
   TableCard,
   TableHead,
   TablePager,
@@ -43,13 +45,20 @@ interface MemoryItem {
 const DEFAULT_PAGE_SIZE = 20;
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
-function listMemory(query: string) {
-  const qs = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
-  return request<{ items: MemoryItem[]; total: number }>('GET', `/memory${qs}`);
+function listMemory(params: { query: string; limit: number; offset: number }) {
+  const qs = new URLSearchParams();
+  if (params.query.trim()) qs.set('q', params.query.trim());
+  qs.set('limit', String(params.limit));
+  qs.set('offset', String(params.offset));
+  return request<{ items: MemoryItem[]; total: number }>('GET', `/memory?${qs.toString()}`);
 }
 
 function createMemory(content: string, agentId: string | null) {
   return request<MemoryItem>('POST', '/memory', { content, agent_id: agentId });
+}
+
+function updateMemory(id: string, enabled: boolean) {
+  return request<MemoryItem>('PATCH', `/memory/${id}`, { enabled });
 }
 
 function deleteMemory(id: string) {
@@ -60,11 +69,13 @@ export default function MemoryPage() {
   const { tr } = useI18n();
   const { canMutate } = usePermissions();
   const [items, setItems] = useState<MemoryItem[] | null>(null);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newContent, setNewContent] = useState('');
   const [scopeAgent, setScopeAgent] = useState('');
@@ -86,15 +97,20 @@ export default function MemoryPage() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const r = await listMemory(query);
+      const r = await listMemory({
+        query,
+        limit: pageSize,
+        offset: page * pageSize,
+      });
       setItems(r.items);
+      setTotal(r.total);
       setErr(null);
     } catch (e) {
       setErr(errorText(e));
     } finally {
       setLoading(false);
     }
-  }, [query]);
+  }, [query, page, pageSize]);
 
   useEffect(() => {
     const t = window.setTimeout(() => void load(true), 250);
@@ -108,10 +124,12 @@ export default function MemoryPage() {
       .catch((e: Error) => setFormErr(errorText(e)));
   }, [creating, agents]);
 
-  const filtered = items ?? [];
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const rows = items ?? [];
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const paged = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
 
   const save = async () => {
     setSaving(true);
@@ -121,12 +139,31 @@ export default function MemoryPage() {
       setNewContent('');
       setScopeAgent('');
       setCreating(false);
+      setPage(0);
       await load(true);
       flash('ok', tr('记忆已保存', 'Memory saved'));
     } catch (e) {
       setFormErr(errorText(e));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const toggleEnabled = async (item: MemoryItem, enabled: boolean) => {
+    setTogglingId(item.id);
+    try {
+      const updated = await updateMemory(item.id, enabled);
+      setItems((prev) =>
+        prev === null ? prev : prev.map((m) => (m.id === item.id ? updated : m)),
+      );
+      flash(
+        'ok',
+        enabled ? tr('记忆已启用', 'Memory enabled') : tr('记忆已停用', 'Memory disabled'),
+      );
+    } catch (e) {
+      flash('err', errorText(e));
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -178,7 +215,7 @@ export default function MemoryPage() {
           ariaLabel={tr('筛选记忆', 'Filter memory')}
         />
         <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
-          {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
+          {tr(`共 ${total} 条`, `${total} total`)}
         </span>
       </FilterBar>
 
@@ -191,7 +228,7 @@ export default function MemoryPage() {
             <Loader2 size={12} className="mr-2 animate-spin" />
             {tr('加载中…', 'Loading…')}
           </div>
-        ) : err !== null && filtered.length === 0 ? null : filtered.length === 0 ? (
+        ) : err !== null && rows.length === 0 ? null : total === 0 ? (
           <EmptyStateCard
             icon={Brain}
             title={
@@ -231,8 +268,8 @@ export default function MemoryPage() {
               <TablePager
                 page={safePage}
                 pageSize={pageSize}
-                total={filtered.length}
-                shown={paged.length}
+                total={total}
+                shown={rows.length}
                 onPageChange={setPage}
                 pageSizeOptions={PAGE_SIZE_OPTIONS}
                 onPageSizeChange={(size) => {
@@ -246,6 +283,8 @@ export default function MemoryPage() {
               <colgroup>
                 <col className={COL.main} />
                 <col className={COL.tag} />
+                <col className={COL.detail} />
+                <col className={COL.tag} />
                 <col className={COL.time} />
                 <col className={COL.actionsIcon} />
               </colgroup>
@@ -258,6 +297,12 @@ export default function MemoryPage() {
                     {tr('归属', 'Scope')}
                   </th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">
+                    {tr('来源会话', 'Source session')}
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">
+                    {tr('启用', 'Enabled')}
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">
                     {tr('创建时间', 'Created')}
                   </th>
                   <th scope="col" className="px-3 py-2 text-right font-medium">
@@ -266,7 +311,7 @@ export default function MemoryPage() {
                 </tr>
               </TableHead>
               <tbody className="divide-y divide-zinc-800/40">
-                {paged.map((m) => (
+                {rows.map((m) => (
                   <tr key={m.id} className="group transition-colors hover:bg-zinc-900/40">
                     <td className="px-3 py-2">
                       <span className="line-clamp-2 text-[12.5px] leading-5 text-zinc-200" title={m.content}>
@@ -280,6 +325,31 @@ export default function MemoryPage() {
                       >
                         {m.agent_id ?? tr('全局', 'Global')}
                       </span>
+                    </td>
+                    <td className="min-w-0 px-3 py-2">
+                      {m.source_session_id ? (
+                        <Link
+                          to={`/chat/${m.source_session_id}`}
+                          title={m.source_session_id}
+                          className="block truncate font-mono text-[11px] text-indigo-300 hover:underline"
+                        >
+                          {m.source_session_id.slice(0, 8)}
+                        </Link>
+                      ) : (
+                        <span className="text-[11px] text-zinc-600">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Switch
+                        checked={m.enabled}
+                        onCheckedChange={(checked) => void toggleEnabled(m, checked)}
+                        disabled={!canMutate || togglingId === m.id}
+                        aria-label={
+                          m.enabled
+                            ? tr(`停用记忆 ${m.id}`, `Disable memory ${m.id}`)
+                            : tr(`启用记忆 ${m.id}`, `Enable memory ${m.id}`)
+                        }
+                      />
                     </td>
                     <td className="px-3 py-2 text-[11px] text-zinc-500">
                       {m.created_at ? fullDateTime(m.created_at) : '—'}

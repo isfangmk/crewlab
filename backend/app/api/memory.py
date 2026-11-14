@@ -1,4 +1,4 @@
-"""跨会话记忆的管理 API（列表 / 新增 / 删除）。"""
+"""跨会话记忆的管理 API（列表 / 新增 / 启停 / 删除）。"""
 
 from __future__ import annotations
 
@@ -8,9 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_auth, require_not_viewer
+from app.api.deps import require_not_viewer
 from app.db import get_db
+from app.models_orm.memory import MemoryItem
 from app.services import memory_service
+from app.vector_store import VectorStoreUnavailable
 
 router = APIRouter(tags=["memory"])
 
@@ -20,29 +22,45 @@ class MemoryCreateRequest(BaseModel):
     agent_id: str | None = None
 
 
+class MemoryUpdateRequest(BaseModel):
+    enabled: bool
+
+
+def _memory_to_wire(row: MemoryItem) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "content": row.content,
+        "agent_id": row.scope_agent_id,
+        "enabled": row.enabled,
+        "source_session_id": row.source_session_id,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
 @router.get("/memory")
 async def list_memory(
+    q: str | None = None,
     agent_id: str | None = None,
+    enabled: bool | None = None,
+    limit: int = 20,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    _user: Any = Depends(require_not_viewer),
 ) -> dict:
-    """列记忆（管理页）；agent_id 缺省列全部。"""
+    """列记忆（管理页）；支持关键字、作用域、启停筛选与服务端分页。"""
 
-    rows = await memory_service.list_memories(db, agent_id=agent_id)
-    return {
-        "items": [
-            {
-                "id": r.id,
-                "content": r.content,
-                "agent_id": r.scope_agent_id,
-                "enabled": r.enabled,
-                "source_session_id": r.source_session_id,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-            for r in rows
-        ],
-        "total": len(rows),
-    }
+    try:
+        rows, total = await memory_service.list_memories(
+            db,
+            q=q,
+            agent_id=agent_id,
+            enabled=enabled,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"items": [_memory_to_wire(r) for r in rows], "total": total}
 
 
 @router.post("/memory")
@@ -58,23 +76,36 @@ async def create_memory(
             db,
             content=body.content,
             agent_id=body.agent_id,
-            created_by=None,
+            created_by=user.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {
-        "id": item.id,
-        "content": item.content,
-        "agent_id": item.scope_agent_id,
-        "created_at": item.created_at.isoformat() if item.created_at else None,
-    }
+    except VectorStoreUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _memory_to_wire(item)
+
+
+@router.patch("/memory/{memory_id}")
+async def update_memory(
+    memory_id: str,
+    body: MemoryUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: Any = Depends(require_not_viewer),
+) -> dict:
+    """启用/停用一条记忆；停用后不再参与语义回忆。"""
+
+    try:
+        item = await memory_service.set_enabled(db, memory_id, body.enabled)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _memory_to_wire(item)
 
 
 @router.delete("/memory/{memory_id}")
 async def delete_memory(
     memory_id: str,
     db: AsyncSession = Depends(get_db),
-    _admin: Any = Depends(require_not_viewer),
+    _user: Any = Depends(require_not_viewer),
 ) -> dict:
     try:
         await memory_service.forget(db, memory_id)
