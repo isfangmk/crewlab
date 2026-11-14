@@ -45,6 +45,7 @@ const catalog = {
   ],
   models: [{ provider: 'deepseek', model: 'deepseek-flash', title: 'deepseek · deepseek-flash' }],
   mcp_tools: [],
+  builtin_tools: [],
 };
 
 function summary(overrides: Partial<WorkflowSummary> & Pick<WorkflowSummary, 'id' | 'name'>): WorkflowSummary {

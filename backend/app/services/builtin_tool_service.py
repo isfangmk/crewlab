@@ -9,18 +9,15 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.web_search_service import deepseek_web_search, resolve_deepseek_search_cred
-from app.tools.catalog import BUILTIN_TOOL_SPECS, tool_impl, tool_param_specs
+from app.tools.catalog import (
+    BUILTIN_TOOL_GROUPS,
+    BUILTIN_TOOL_SPECS,
+    coerce_tool_params,
+    tool_impl,
+    tool_param_specs,
+)
 
 logger = logging.getLogger(__name__)
-
-# 目录分组由后端提供，前端只按 key 渲染；标题同时给中英文，跟随 UI 语言
-_BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
-    "code": {"title": "代码解释器", "title_en": "Code interpreter"},
-    "knowledge": {"title": "知识检索", "title_en": "Knowledge"},
-    "search": {"title": "联网搜索", "title_en": "Web search"},
-    "memory": {"title": "记忆", "title_en": "Memory"},
-    "workflow": {"title": "工作流", "title_en": "Workflow"},
-}
 
 
 def list_builtin_tools() -> list[dict]:
@@ -48,30 +45,12 @@ def list_builtin_tool_groups() -> list[dict[str, str]]:
         key = spec["group"]
         if key in seen:
             continue
-        meta = _BUILTIN_TOOL_GROUPS.get(key)
+        meta = BUILTIN_TOOL_GROUPS.get(key)
         if meta is None:
             raise RuntimeError(f"内置工具分组缺少标题: {key}")
         groups.append({"key": key, "title": meta["title"], "title_en": meta["title_en"]})
         seen.add(key)
     return groups
-
-
-def _validate_params(name: str, params: dict[str, Any]) -> dict[str, Any]:
-    specs = tool_param_specs(tool_impl(name))
-    allowed = {p["name"] for p in specs}
-    unknown = sorted(set(params) - allowed)
-    if unknown:
-        raise ValueError(f"工具 {name} 不接受参数: {','.join(unknown)}")
-
-    kwargs: dict[str, Any] = {}
-    for spec in specs:
-        pname = spec["name"]
-        if pname in params:
-            kwargs[pname] = params[pname]
-            continue
-        if spec.get("required"):
-            raise ValueError(f"工具 {name} 缺少必填参数: {pname}")
-    return kwargs
 
 
 async def run_builtin_tool(
@@ -84,8 +63,8 @@ async def run_builtin_tool(
     if name == "":
         raise ValueError("tool name 不能为空")
     tool = tool_impl(name)
-    kwargs = _validate_params(name, params)
-    logger.info("手动运行内置工具 name=%s params=%s", name, sorted(kwargs))
+    kwargs = coerce_tool_params(name, params)
+    logger.info("运行内置工具 name=%s params=%s", name, sorted(kwargs))
 
     if name == "web_search":
         base_url, api_key = await resolve_deepseek_search_cred(db)

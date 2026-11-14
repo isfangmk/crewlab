@@ -369,13 +369,16 @@ class SearchNode(CanvasNode):
         )
 
 
-class McpNode(CanvasNode):
-    """MCP 工具调用：按 server + tool 直接调，不等 LLM 决策。"""
+class ToolNode(CanvasNode):
+    """工具节点：按 tool_source 调用平台内置工具或外部 MCP 工具。"""
 
     def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
         node = self.node_def
         # 调用目标与参数从哪来，是这一步最该被看清的东西
-        inputs: dict[str, Any] = {"server": node.mcp_server, "tool": node.mcp_tool}
+        if node.tool_source == "builtin":
+            inputs: dict[str, Any] = {"tool": node.tool_name}
+        else:
+            inputs = {"server": node.mcp_server, "tool": node.mcp_tool}
         for template in node.arguments.values():
             inputs.update(template_values(template, state))
         return inputs
@@ -383,6 +386,41 @@ class McpNode(CanvasNode):
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         node = self.node_def
         args = workflow_vars.render_map(node.arguments, state)
+        if node.tool_source == "builtin":
+            return await self._run_builtin(node, args)
+        return await self._run_mcp(ctx, node, args)
+
+    async def _run_builtin(self, node: WorkflowNode, args: dict[str, Any]) -> Any:
+        """内置工具：直接按名字执行，不经过模型决策。"""
+
+        from app.services.builtin_tool_service import run_builtin_tool
+        from app.tools.catalog import BUILTIN_TOOL_SPECS
+
+        spec = next(
+            (item for item in BUILTIN_TOOL_SPECS if item["name"] == node.tool_name),
+            None,
+        )
+        if spec is None:
+            raise LookupError(f"内置工具不存在: {node.tool_name}")
+        # 画布节点无人值守执行，没有审批入口：需要人工确认的工具不能在这里跑
+        if spec["risk"] == "approval_required":
+            raise PermissionError(
+                f"内置工具需要人工确认，不能在画布节点中直接执行: {node.tool_name}"
+            )
+        logger.info(
+            "内置工具节点调用 node=%s tool=%s args=%s",
+            node.id,
+            node.tool_name,
+            serialize(args),
+        )
+        payload = await run_builtin_tool(self.run_ctx.db, node.tool_name, args)
+        return payload["result"]
+
+    async def _run_mcp(
+        self, ctx: Any, node: WorkflowNode, args: dict[str, Any]
+    ) -> Any:
+        """MCP 工具：按 server + tool 直接调，不等 LLM 决策。"""
+
         server = self._tools.get("mcp_servers", {}).get(node.mcp_server)
         if server is None:
             raise LookupError(f"MCP Server 不存在或未启用: {node.mcp_server}")
@@ -830,7 +868,7 @@ NODE_BUILDERS: dict[str, type[CanvasNode]] = {
     "join": JoinNodeImpl,
     "knowledge": KnowledgeNode,
     "search": SearchNode,
-    "mcp": McpNode,
+    "mcp": ToolNode,
     "http": HttpNode,
     "code": CodeNode,
     "assign": AssignNode,

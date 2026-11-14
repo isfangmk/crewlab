@@ -46,7 +46,12 @@ async def _load_tools(db: AsyncSession, definition: WorkflowDefinition) -> dict[
         base_url, api_key = await resolve_deepseek_search_cred(db)
         tools["web_search_base_url"] = base_url
         tools["web_search_api_key"] = api_key
-    if "mcp" in kinds:
+    mcp_nodes = [
+        n
+        for n in definition.nodes
+        if n.kind == "mcp" and n.tool_source == "mcp"
+    ]
+    if mcp_nodes:
         from app.services import mcp_service
 
         servers = await mcp_service.list_enabled_servers(db)
@@ -54,7 +59,7 @@ async def _load_tools(db: AsyncSession, definition: WorkflowDefinition) -> dict[
         logger.info(
             "工作流 MCP 节点可用 Server=%s 需要=%s",
             sorted(tools["mcp_servers"]),
-            sorted({n.mcp_server for n in definition.nodes if n.kind == "mcp"}),
+            sorted({n.mcp_server for n in mcp_nodes}),
         )
     if any(n.kind == "switch" and n.branch_mode == "model" for n in definition.nodes):
         tools["switch_llm"] = await _default_llm(db)

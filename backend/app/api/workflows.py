@@ -170,10 +170,11 @@ async def workflow_catalog(
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
-    """画布可用的节点类型、分组，以及模型与 MCP 工具。"""
+    """画布可用的节点类型、分组，以及模型、内置工具与 MCP 工具。"""
 
     from app.services import mcp_service
     from app.services.llm_config import list_enabled_providers, split_models
+    from app.tools.catalog import workflow_builtin_tools
 
     servers = await mcp_service.list_enabled_servers(db)
     mcp_tools: list[dict[str, str]] = []
@@ -202,6 +203,8 @@ async def workflow_catalog(
         "node_kinds": [node_kind_title(key) for key in NODE_KINDS],
         "models": models,
         "mcp_tools": mcp_tools,
+        # 工具节点的内置工具页签：参数定义随目录一起下发，画布按签名渲染表单
+        "builtin_tools": workflow_builtin_tools(),
     }
 
 

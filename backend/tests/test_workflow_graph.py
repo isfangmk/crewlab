@@ -91,6 +91,71 @@ def test_start_accepts_common_id() -> None:
     assert definition.require_start().id == "start"
 
 
+def test_tool_node_accepts_builtin_and_legacy_mcp() -> None:
+    """工具节点两种来源都能保存；老定义没有 tool_source 时按 MCP 兼容。"""
+
+    from app.schemas.workflow import WorkflowNode
+
+    builtin = WorkflowNode.model_validate(
+        {
+            "id": "tool",
+            "kind": "mcp",
+            "tool_source": "builtin",
+            "tool_name": "query_knowledge",
+            "arguments": {"query": "{{topic}}"},
+        }
+    )
+    assert builtin.tool_source == "builtin"
+    assert builtin.tool_name == "query_knowledge"
+
+    legacy = WorkflowNode.model_validate(
+        {"id": "tool", "kind": "mcp", "mcp_server": "ops", "mcp_tool": "restart"}
+    )
+    assert legacy.tool_source == "mcp"
+    assert legacy.tool_name == ""
+
+
+def test_tool_node_rejects_mixed_sources() -> None:
+    """内置与 MCP 两套字段不能混填，否则执行时不知道调用谁。"""
+
+    from app.schemas.workflow import WorkflowNode
+
+    with pytest.raises(ValidationError, match="内置工具"):
+        WorkflowNode.model_validate(
+            {"id": "tool", "kind": "mcp", "tool_source": "builtin"}
+        )
+    with pytest.raises(ValidationError, match="mcp_server"):
+        WorkflowNode.model_validate(
+            {
+                "id": "tool",
+                "kind": "mcp",
+                "tool_source": "builtin",
+                "tool_name": "query_knowledge",
+                "mcp_server": "ops",
+                "mcp_tool": "restart",
+            }
+        )
+    with pytest.raises(ValidationError, match="tool_name"):
+        WorkflowNode.model_validate(
+            {
+                "id": "tool",
+                "kind": "mcp",
+                "mcp_server": "ops",
+                "mcp_tool": "restart",
+                "tool_name": "query_knowledge",
+            }
+        )
+
+
+def test_non_tool_node_rejects_tool_fields() -> None:
+    from app.schemas.workflow import WorkflowNode
+
+    with pytest.raises(ValidationError, match="mcp"):
+        WorkflowNode.model_validate(
+            {"id": "end", "kind": "end", "tool_source": "builtin", "tool_name": "x"}
+        )
+
+
 def test_switch_requires_route_on_every_edge() -> None:
     payload = {
         "nodes": [
@@ -507,7 +572,47 @@ def test_node_input_is_what_the_node_reads() -> None:
         _node("mcp", "mcp", mcp_server="ops", mcp_tool="restart", arguments={"q": "{{topic}}"}),
         state,
     ) == {"server": "ops", "tool": "restart", "topic": "磁盘告警"}
+    assert _input_of(
+        _node(
+            "tool",
+            "mcp",
+            tool_source="builtin",
+            tool_name="list_workflows",
+            arguments={"keyword": "{{topic}}", "limit": "1"},
+        ),
+        state,
+    ) == {"tool": "list_workflows", "topic": "磁盘告警"}
     assert _input_of(_node("end", "end", output_key="score"), state) == {"score": 88}
+
+
+@pytest.mark.asyncio
+async def test_tool_node_executes_builtin_tool() -> None:
+    """内置工具节点直接执行工具，不经过模型决策。"""
+
+    payload = {
+        "nodes": [
+            _node("start", "start", variables=[{"name": "topic"}]),
+            _node(
+                "tool",
+                "mcp",
+                tool_source="builtin",
+                tool_name="list_workflows",
+                output_key="tool",
+                arguments={"limit": "1"},
+            ),
+            _node("end", "end", output_key="tool"),
+        ],
+        "edges": [
+            {"id": "e1", "source": "start", "target": "tool"},
+            {"id": "e2", "source": "tool", "target": "end"},
+        ],
+    }
+    definition = WorkflowDefinition.model_validate(payload)
+    built = _built_node({"id": "tool", "kind": "mcp"}, definition)
+    result = await built.execute(ctx=None, state={})  # type: ignore[attr-defined]
+    assert result["returned"] == len(result["workflows"])
+    assert result["returned"] <= 1
+    assert isinstance(result["total"], int)
 
 
 def test_join_node_input_is_predecessor_outputs() -> None:

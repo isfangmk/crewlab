@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from typing import Any
 
 from app.tools.code_interpreter import run_python
@@ -191,3 +192,123 @@ def tool_param_specs(func: Any) -> list[dict]:
                     break
         specs.append(spec)
     return specs
+
+
+# 内置 Tool 目录与画布工具节点共用同一份分组标题
+BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
+    "code": {"title": "代码解释器", "title_en": "Code interpreter"},
+    "knowledge": {"title": "知识检索", "title_en": "Knowledge"},
+    "search": {"title": "联网搜索", "title_en": "Web search"},
+    "memory": {"title": "记忆", "title_en": "Memory"},
+    "workflow": {"title": "工作流", "title_en": "Workflow"},
+}
+
+
+def workflow_builtin_tools() -> list[dict[str, Any]]:
+    """画布「工具」节点可选的内置工具（含参数定义）。
+
+    需要人工审批的工具（如 run_workflow）不在此列：画布节点在后台无人值守执行，
+    没有审批入口，放进去等于绕过风险闸门。
+    """
+
+    tools: list[dict[str, Any]] = []
+    for spec in BUILTIN_TOOL_SPECS:
+        if spec["risk"] == "approval_required":
+            continue
+        group = BUILTIN_TOOL_GROUPS.get(spec["group"])
+        if group is None:
+            raise RuntimeError(f"内置工具分组缺少标题: {spec['group']}")
+        tools.append(
+            {
+                "name": spec["name"],
+                "group": spec["group"],
+                "group_title": group["title"],
+                "group_title_en": group["title_en"],
+                "description": spec["description"],
+                "risk": spec["risk"],
+                "params": tool_param_specs(tool_impl(spec["name"])),
+            }
+        )
+    return tools
+
+
+# 字符串参数按声明类型解析：画布参数一律以文本录入，执行前必须转成工具签名要的类型。
+_INT_PATTERN = re.compile(r"^[+-]?\d+$")
+_FLOAT_PATTERN = re.compile(
+    r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$"
+)
+_TRUE_TEXT = {"true", "1", "yes"}
+_FALSE_TEXT = {"false", "0", "no"}
+
+
+def _coerce_value(tool: str, param: str, declared: str, value: Any) -> Any:
+    """把单个参数转成声明类型；不是字符串时也按值的实际类型校验。"""
+
+    if declared == "string":
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            return str(value)
+        raise ValueError(f"工具 {tool} 的参数 {param} 是文本类型，收到 {type(value).__name__}")
+
+    if declared == "int":
+        # bool 是 int 的子类，必须单独挡掉，否则 true 会变成 1
+        if isinstance(value, bool):
+            raise ValueError(f"工具 {tool} 的参数 {param} 需要整数，收到布尔值")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            if not value.is_integer():
+                raise ValueError(f"工具 {tool} 的参数 {param} 需要整数，收到 {value}")
+            return int(value)
+        if isinstance(value, str) and _INT_PATTERN.fullmatch(value.strip()):
+            return int(value.strip())
+        raise ValueError(f"工具 {tool} 的参数 {param} 需要整数，收到 {value!r}")
+
+    if declared == "float":
+        if isinstance(value, bool):
+            raise ValueError(f"工具 {tool} 的参数 {param} 需要数字，收到布尔值")
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str) and _FLOAT_PATTERN.fullmatch(value.strip()):
+            return float(value.strip())
+        raise ValueError(f"工具 {tool} 的参数 {param} 需要数字，收到 {value!r}")
+
+    if declared == "bool":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in _TRUE_TEXT:
+                return True
+            if text in _FALSE_TEXT:
+                return False
+        raise ValueError(f"工具 {tool} 的参数 {param} 需要 true/false，收到 {value!r}")
+
+    return value
+
+
+def coerce_tool_params(name: str, params: dict[str, Any]) -> dict[str, Any]:
+    """校验参数名与必填项，并按工具签名把文本值转成声明类型。
+
+    空字符串视为未填：交给签名默认值，避免把 number 参数的空格解析失败。
+    """
+
+    specs = tool_param_specs(tool_impl(name))
+    allowed = {spec["name"] for spec in specs}
+    unknown = sorted(set(params) - allowed)
+    if unknown:
+        raise ValueError(f"工具 {name} 不接受参数: {','.join(unknown)}")
+
+    kwargs: dict[str, Any] = {}
+    for spec in specs:
+        pname = spec["name"]
+        missing = pname not in params or params[pname] is None or params[pname] == ""
+        if missing:
+            if spec.get("required"):
+                raise ValueError(f"工具 {name} 缺少必填参数: {pname}")
+            continue
+        kwargs[pname] = _coerce_value(name, pname, spec["type"], params[pname])
+    return kwargs

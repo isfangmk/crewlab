@@ -51,6 +51,34 @@ async def test_run_query_knowledge(env: dict[str, str], api_base: str) -> None:
 
 
 @pytest.mark.asyncio
+async def test_workflow_catalog_lists_builtin_tools(
+    env: dict[str, str], api_base: str
+) -> None:
+    """画布「工具」节点能从目录拿到内置工具与参数定义。"""
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=60.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+        response = await client.get("/api/v1/workflows/catalog", headers=headers)
+        assert response.status_code == 200, response.text
+        body = response.json()
+
+        kinds = {item["key"]: item for item in body["node_kinds"]}
+        assert kinds["mcp"]["title"] == "工具"
+
+        tools = {item["name"]: item for item in body["builtin_tools"]}
+        # 无人值守节点没有审批入口，需要人工确认的工具不能出现在目录里
+        assert "run_workflow" not in tools
+        knowledge = tools["query_knowledge"]
+        assert knowledge["group_title"] == "知识检索"
+        params = {param["name"]: param for param in knowledge["params"]}
+        assert params["query"]["required"] is True
+        assert params["limit"]["type"] == "int"
+
+
+@pytest.mark.asyncio
 async def test_query_knowledge_returns_citation_locator(
     env: dict[str, str], api_base: str
 ) -> None:

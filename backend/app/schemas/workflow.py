@@ -66,7 +66,7 @@ NODE_KINDS: dict[str, tuple[str, str, str]] = {
     "agent": ("LLM 节点", "LLM node", "model"),
     "knowledge": ("知识检索", "Knowledge search", "action"),
     "search": ("联网搜索", "Web search", "action"),
-    "mcp": ("MCP 工具", "MCP tool", "action"),
+    "mcp": ("工具", "Tool", "action"),
     "http": ("HTTP 请求", "HTTP request", "action"),
     "code": ("代码", "Code", "action"),
     "assign": ("变量赋值", "Set variables", "action"),
@@ -158,10 +158,15 @@ class WorkflowNode(BaseModel):
     # knowledge：限定检索目录（空 = 全库）
     paths: list[str] = Field(default_factory=list)
 
-    # mcp：server 名与工具原名
+    # mcp（工具节点）：工具来源。builtin = 平台内置工具，mcp = 外部 MCP Server。
+    # 老定义没有这个字段，缺省按 mcp 解释，保证已保存的画布照常运行。
+    tool_source: Literal["builtin", "mcp"] = "mcp"
+    # mcp（工具节点）：内置工具名（tool_source=builtin 时必填）
+    tool_name: str = Field(default="", max_length=128)
+    # mcp（工具节点）：MCP Server 名与工具原名（tool_source=mcp 时必填）
     mcp_server: str = Field(default="", max_length=128)
     mcp_tool: str = Field(default="", max_length=256)
-    # mcp / http：参数表，值支持 {{变量}} 插值
+    # 工具 / http：参数表，值支持 {{变量}} 插值
     arguments: dict[str, str] = Field(default_factory=dict)
 
     # http
@@ -287,8 +292,20 @@ class WorkflowNode(BaseModel):
                 raise ValueError(f"联网搜索节点必须有 query: {self.id}")
             self._reject(kind, variables=True, agent=True, mcp=True, http=True, code=True, code_exec=True)
         elif kind == "mcp":
-            if self.mcp_server == "" or self.mcp_tool == "":
-                raise ValueError(f"MCP 节点必须指定 mcp_server 与 mcp_tool: {self.id}")
+            if self.tool_source == "builtin":
+                if self.tool_name == "":
+                    raise ValueError(f"工具节点必须选择内置工具: {self.id}")
+                if self.mcp_server != "" or self.mcp_tool != "":
+                    raise ValueError(
+                        f"内置工具节点不能设置 mcp_server / mcp_tool: {self.id}"
+                    )
+            else:
+                if self.mcp_server == "" or self.mcp_tool == "":
+                    raise ValueError(
+                        f"MCP 节点必须指定 mcp_server 与 mcp_tool: {self.id}"
+                    )
+                if self.tool_name != "":
+                    raise ValueError(f"MCP 工具节点不能设置 tool_name: {self.id}")
             self._reject(kind, variables=True, agent=True, query=True, http=True, code=True, code_exec=True)
         elif kind == "http":
             if self.url == "":
@@ -337,7 +354,14 @@ class WorkflowNode(BaseModel):
             "variables": self.variables,
             "agent": self.provider or self.model or self.instruction,
             "query": self.query or self.limit != 5 or self.paths,
-            "mcp": self.mcp_server or self.mcp_tool or self.arguments,
+            # 工具节点的来源与目标：老定义缺省 source=mcp、name 为空，不算填过
+            "mcp": (
+                self.tool_source != "mcp"
+                or self.tool_name
+                or self.mcp_server
+                or self.mcp_tool
+                or self.arguments
+            ),
             "http": (self.url or self.method != "GET" or self.headers or self.body),
             "code": self.code,
             # 代码节点的执行模式与依赖库：默认的 sandbox 对所有节点都成立

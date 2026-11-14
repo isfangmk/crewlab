@@ -26,10 +26,12 @@ import {
   getRun,
   listRuns,
   parseJsonText,
+  type BuiltinToolParam,
   type CatalogKind,
   type LiveNodeRun,
   type NodeProbeResult,
   type NodeRunStatus,
+  type ToolSource,
   type VariableType,
   type WorkflowCatalog,
   type WorkflowDefinition,
@@ -330,7 +332,7 @@ function KindFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catal
     case 'search':
       return <SearchFields node={node} onNodeChange={onNodeChange} />;
     case 'mcp':
-      return <McpFields node={node} catalog={catalog} onNodeChange={onNodeChange} />;
+      return <ToolFields node={node} catalog={catalog} onNodeChange={onNodeChange} />;
     case 'http':
       return <HttpFields node={node} onNodeChange={onNodeChange} />;
     case 'code':
@@ -410,8 +412,8 @@ function AgentFields({ node, catalog, onNodeChange }: { node: WorkflowNode; cata
       </Field>
       <InfoBox tone="muted">
         {tr(
-          '这个节点只做一次模型调用，不挂工具。需要检索或调用外部工具，就在它后面接知识检索 / 联网搜索 / MCP 节点。',
-          'This node is a single model call with no tools. Add a knowledge / search / MCP node after it when you need retrieval or tool calls.',
+          '这个节点只做一次模型调用，不挂工具。需要检索或调用外部工具，就在它后面接知识检索 / 联网搜索 / 工具节点。',
+          'This node is a single model call with no tools. Add a knowledge / search / tool node after it when you need retrieval or tool calls.',
         )}
       </InfoBox>
     </>
@@ -475,7 +477,124 @@ function SearchFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange
   );
 }
 
-function McpFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catalog: WorkflowCatalog | null; onNodeChange(patch: Partial<WorkflowNode>): void }) {
+function ToolFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catalog: WorkflowCatalog | null; onNodeChange(patch: Partial<WorkflowNode>): void }) {
+  const { tr, locale } = useI18n();
+  const source: ToolSource = node.tool_source === 'builtin' ? 'builtin' : 'mcp';
+  const builtinTools = useMemo(() => catalog?.builtin_tools ?? [], [catalog]);
+  const selected = builtinTools.find((tool) => tool.name === node.tool_name) ?? null;
+
+  const switchSource = (next: ToolSource) => {
+    if (next === source) return;
+    // 两套工具的参数名不通用：切换来源时清空目标与参数，避免把旧值带给新工具
+    onNodeChange({
+      tool_source: next,
+      tool_name: '',
+      mcp_server: '',
+      mcp_tool: '',
+      arguments: {},
+    });
+  };
+
+  const setArgument = (name: string, value: string) => {
+    onNodeChange({ arguments: { ...node.arguments, [name]: value } });
+  };
+
+  return (
+    <>
+      <div
+        role="tablist"
+        aria-label={tr('工具来源', 'Tool source')}
+        className="grid grid-cols-2 gap-0.5 rounded-lg border border-border/60 bg-bg/40 p-0.5"
+      >
+        <ToolSourceTab active={source === 'builtin'} onClick={() => switchSource('builtin')}>
+          {tr('内置工具', 'Built-in')}
+        </ToolSourceTab>
+        <ToolSourceTab active={source === 'mcp'} onClick={() => switchSource('mcp')}>
+          {tr('MCP 工具', 'MCP')}
+        </ToolSourceTab>
+      </div>
+
+      {source === 'builtin' ? (
+        <>
+          <Field
+            label={tr('工具', 'Tool')}
+            required
+            hint={builtinTools.length === 0 ? tr('没有可用的内置工具', 'No built-in tool is available') : undefined}
+          >
+            <Select
+              value={node.tool_name}
+              onValueChange={(value) => onNodeChange({ tool_name: value, arguments: {} })}
+              options={builtinTools.map((tool) => ({
+                value: tool.name,
+                label: `${locale === 'zh-CN' ? tool.group_title : tool.group_title_en} · ${tool.name}`,
+              }))}
+              aria-label={tr('内置工具', 'Built-in tool')}
+              searchable
+              className="h-8 w-full font-mono text-[11.5px]"
+            />
+          </Field>
+          {selected !== null && <InfoBox tone="muted">{selected.description}</InfoBox>}
+          {selected !== null &&
+            selected.params.map((param) => (
+              <BuiltinParamField
+                key={param.name}
+                param={param}
+                value={node.arguments[param.name] ?? ''}
+                onChange={(value) => setArgument(param.name, value)}
+              />
+            ))}
+          {selected !== null && selected.params.length === 0 && (
+            <InfoBox tone="muted">{tr('这个工具不需要参数', 'This tool takes no parameters')}</InfoBox>
+          )}
+        </>
+      ) : (
+        <McpToolFields node={node} catalog={catalog} onNodeChange={onNodeChange} />
+      )}
+    </>
+  );
+}
+
+/** 内置工具参数：按后端导出的函数签名渲染，值支持 {{变量}} 插值。 */
+function BuiltinParamField({ param, value, onChange }: { param: BuiltinToolParam; value: string; onChange(next: string): void }) {
+  const { tr } = useI18n();
+  const hint = param.desc !== undefined ? `${param.type} · ${param.desc}` : tr(`${param.type} 类型`, `${param.type} type`);
+  const placeholder = paramPlaceholder(param, tr);
+  return (
+    <Field label={<span className="font-mono">{param.name}</span>} required={param.required} hint={hint}>
+      {param.name === 'code' ? (
+        <Textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          rows={6}
+          spellCheck={false}
+          placeholder={placeholder}
+          aria-label={param.name}
+          className="font-mono text-[11px] leading-5"
+        />
+      ) : (
+        <Input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          aria-label={param.name}
+          inputMode={param.type === 'int' || param.type === 'float' ? 'decimal' : undefined}
+          className="h-8 w-full font-mono text-[11.5px]"
+        />
+      )}
+    </Field>
+  );
+}
+
+function paramPlaceholder(param: BuiltinToolParam, tr: (zh: string, en: string) => string): string {
+  if (param.name === 'code') return "print('hello')";
+  if (param.default !== undefined && param.default !== null) {
+    return typeof param.default === 'string' ? param.default : JSON.stringify(param.default);
+  }
+  if (param.type === 'bool') return 'true / false';
+  return tr('固定值或 {{变量}}', 'Literal or {{var}}');
+}
+
+function McpToolFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catalog: WorkflowCatalog | null; onNodeChange(patch: Partial<WorkflowNode>): void }) {
   const { tr } = useI18n();
   const tools = useMemo(() => catalog?.mcp_tools ?? [], [catalog]);
   const servers = useMemo(() => Array.from(new Set(tools.map((tool) => tool.server))), [tools]);
@@ -658,7 +777,7 @@ function PromptFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange
 // 通用编辑控件
 // ---------------------------------------------------------------------------
 
-function Field({ label, hint, required, children }: { label: string; hint?: ReactNode; required?: boolean; children: ReactNode }) {
+function Field({ label, hint, required, children }: { label: ReactNode; hint?: ReactNode; required?: boolean; children: ReactNode }) {
   return (
     <div className="space-y-1">
       <div className="flex items-baseline gap-1">
@@ -743,6 +862,23 @@ function PanelTab({ active, onClick, children }: { active: boolean; onClick(): v
     >
       {children}
       {active && <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-indigo-500" aria-hidden />}
+    </button>
+  );
+}
+
+function ToolSourceTab({ active, onClick, children }: { active: boolean; onClick(): void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        'h-7 rounded-md text-[11px] transition-colors',
+        active ? 'bg-card font-medium text-text shadow-sm' : 'text-text-faint hover:text-text-muted',
+      )}
+    >
+      {children}
     </button>
   );
 }
