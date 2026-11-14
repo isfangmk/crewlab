@@ -32,6 +32,7 @@ const ObservabilityPage = lazy(() => import('@/pages/Observability'));
 const AuditPage = lazy(() => import('@/pages/Audit'));
 const UsersPage = lazy(() => import('@/pages/Users'));
 const ShareViewPage = lazy(() => import('@/pages/ShareView'));
+const EvalShareViewPage = lazy(() => import('@/pages/EvalShareView'));
 const SettingsLayout = lazy(() => import('@/pages/SettingsLayout'));
 const SettingsLLM = lazy(() => import('@/pages/settings/LLM'));
 const SettingsPreferences = lazy(() => import('@/pages/settings/Preferences'));
@@ -74,6 +75,7 @@ export default function App() {
         }
       />
       <Route path="/share/:token" element={<ShareViewPage />} />
+      <Route path="/eval-share/:token" element={<EvalShareViewPage />} />
       <Route
         element={
           <RequireAuth>

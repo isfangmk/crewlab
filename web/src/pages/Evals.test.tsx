@@ -742,4 +742,39 @@ describe('评测页面', () => {
     await waitFor(() => expect(exportReqs).toHaveLength(1));
     expect(exportReqs[0].get('format')).toBe('csv');
   });
+
+  it('结果弹窗可生成只读分享链接', async () => {
+    mockJudgeConfig();
+    mockJudgeScores({ 'res-1': [], 'res-2': [] });
+    const posted: unknown[] = [];
+    server.use(
+      http.get('/api/v1/evals/runs/run-1', () =>
+        HttpResponse.json({ ...run, cases_snapshot: [], results: [resultOne, resultTwo] }),
+      ),
+      http.post('/api/v1/evals/runs/run-1/share', async ({ request }) => {
+        posted.push(await request.json());
+        return HttpResponse.json({
+          token: 'share-token-1',
+          expires_at: '2026-11-15T02:00:00Z',
+          run_uid: 'run-1',
+        });
+      }),
+    );
+    // jsdom 无 clipboard 实现，这里只验证链接生成与展示
+    Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } });
+
+    renderDetail();
+    await screen.findByText('命中关键词');
+    await userEvent.click(screen.getByRole('tab', { name: '运行记录' }));
+    await userEvent.click(screen.getByRole('button', { name: '查看结果' }));
+    const dialog = await screen.findByRole('dialog', { name: '评测结果' });
+    await userEvent.click(within(dialog).getByRole('button', { name: '分享' }));
+
+    const shareDialog = await screen.findByRole('dialog', { name: '分享评测报告' });
+    await userEvent.click(within(shareDialog).getByRole('button', { name: '生成并复制链接' }));
+    expect(
+      await within(shareDialog).findByDisplayValue(/\/eval-share\/share-token-1$/),
+    ).toBeInTheDocument();
+    expect(posted).toMatchObject([{ expires_in_hours: 24 }]);
+  });
 });

@@ -18,6 +18,7 @@ from app.models_orm.eval import (
     EvalJudgeScore,
     EvalRun,
 )
+from app.models_orm.eval_share import EvalShareToken
 from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.models_orm.knowledge_source import KnowledgeSource
 from app.models_orm.llm import AppSetting, LlmProvider
@@ -61,6 +62,7 @@ __all__ = [
     "EvalJudgeConfig",
     "EvalJudgeScore",
     "EvalAnnotation",
+    "EvalShareToken",
     "ObservationTurn",
     "ObservationToolCall",
     "SandboxExecution",

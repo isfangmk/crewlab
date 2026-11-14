@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   Download,
   GitCompare,
+  Link2,
   Loader2,
   MessageSquareText,
   Pencil,
@@ -44,6 +45,7 @@ import {
   tableLayout,
 } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { ShareEvalRunDialog } from '@/components/ShareEvalRunDialog';
 import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
@@ -1246,6 +1248,7 @@ function RunResultDialog({
   const [judgeConfig, setJudgeConfig] = useState<EvalJudgeConfig | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [annotate, setAnnotate] = useState<EvalCaseResult | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     if (run === null || run.status !== 'completed') return;
@@ -1336,6 +1339,9 @@ function RunResultDialog({
                   onClick={() => onExport(run.run_uid, 'json')}
                 >
                   {tr('导出 JSON', 'Export JSON')}
+                </RowAction>
+                <RowAction icon={Link2} onClick={() => setShareOpen(true)}>
+                  {tr('分享', 'Share')}
                 </RowAction>
               </>
             )}
@@ -1524,6 +1530,13 @@ function RunResultDialog({
           caseName={annotate.case_name}
           onClose={() => setAnnotate(null)}
           onSaved={() => setAnnotate(null)}
+        />
+      )}
+      {shareOpen && run !== null && (
+        <ShareEvalRunDialog
+          open
+          runUid={run.run_uid}
+          onClose={() => setShareOpen(false)}
         />
       )}
     </Modal>

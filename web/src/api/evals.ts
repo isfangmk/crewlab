@@ -345,3 +345,38 @@ export function seedRedteamCases(datasetId: number) {
     `/evals/datasets/${datasetId}/redteam/seed`,
   );
 }
+
+/** 创建运行只读分享的响应；明文 token 只此一次返回。 */
+export type EvalShareResp = {
+  token: string;
+  expires_at: string;
+  run_uid: string;
+};
+
+/** 免登录分享报告载荷：评分内嵌，附门禁结论与标注一致性。 */
+export type EvalShareReport = {
+  expires_at: string;
+  dataset: EvalDataset;
+  run: EvalRun;
+  cases_snapshot: EvalCaseSnapshot[];
+  results: Array<EvalCaseResult & { judge_scores: EvalJudgeScore[] }>;
+  gate: EvalGateResult | null;
+  consistency: EvalConsistency | null;
+};
+
+export function createEvalRunShare(runUid: string, hours: number): Promise<EvalShareResp> {
+  return request<EvalShareResp>(
+    'POST',
+    `/evals/runs/${encodeURIComponent(runUid)}/share`,
+    { expires_in_hours: hours },
+  );
+}
+
+/** 公开报告用原生 fetch：带 Authorization 的请求客户端会把匿名 401 当强制登出。 */
+export async function fetchEvalShare(token: string): Promise<EvalShareReport> {
+  const res = await fetch(`/api/v1/evals/shares/${encodeURIComponent(token)}`);
+  if (!res.ok) {
+    throw new Error(`status=${res.status}`);
+  }
+  return (await res.json()) as EvalShareReport;
+}

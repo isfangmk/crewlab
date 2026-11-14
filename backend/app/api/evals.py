@@ -24,6 +24,7 @@ from app.services import (
     eval_judge_service,
     eval_runner,
     eval_service,
+    eval_share_service,
     redteam_library,
 )
 from app.services.audit_service import write_audit
@@ -689,3 +690,83 @@ async def seed_redteam_cases(
         detail={"created": len(created)},
     )
     return {"created": len(created), "items": [eval_service.case_to_wire(row) for row in created]}
+
+
+class ShareCreateRequest(BaseModel):
+    expires_in_hours: int = Field(default=24, ge=1, le=720)
+
+
+@router.post("/evals/runs/{run_uid}/share")
+async def create_run_share(
+    run_uid: str,
+    body: ShareCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    """创建运行只读分享；明文 token 只此一次返回，库里存哈希。"""
+
+    try:
+        await eval_service.get_run(db, run_uid)
+        raw, row = await eval_share_service.create_eval_share(
+            db,
+            run_uid=run_uid,
+            created_by=user.id,
+            expires_in_hours=body.expires_in_hours,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="eval.share",
+        resource_type="eval_run",
+        resource_id=run_uid,
+        detail={"expires_in_hours": body.expires_in_hours},
+    )
+    return {
+        "token": raw,
+        "expires_at": row.expires_at.isoformat(),
+        "run_uid": run_uid,
+    }
+
+
+@router.get("/evals/shares/{token}")
+async def read_run_share(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """只读分享：无需登录；载荷整体脱敏后返回，含内嵌评分与门禁结论。"""
+
+    try:
+        share = await eval_share_service.resolve_eval_share(db, token)
+        detail = await eval_service.get_run_detail(db, share.run_uid)
+        dataset = await eval_service.get_dataset(db, detail["dataset_id"])
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # judge 分内嵌到结果行，公开页一次拿全，不必逐条再调接口
+    results: list[dict] = []
+    for item in detail["results"]:
+        scores = await eval_judge_service.list_judge_scores(db, item["id"])
+        results.append({**item, "judge_scores": scores})
+    # 门禁 / 标注一致性是可选块：没配基线或没标注就不给
+    try:
+        gate = await eval_gate_service.evaluate_gate(db, share.run_uid)
+    except (LookupError, ValueError):
+        gate = None
+    stats = await annotation_service.consistency(db, share.run_uid)
+    payload = {
+        "expires_at": share.expires_at.isoformat(),
+        "dataset": eval_service.dataset_to_wire(dataset),
+        "run": {
+            key: value
+            for key, value in detail.items()
+            if key not in ("results", "cases_snapshot")
+        },
+        "cases_snapshot": detail.get("cases_snapshot", []),
+        "results": results,
+        "gate": gate,
+        "consistency": stats,
+    }
+    return redact_value(payload)
