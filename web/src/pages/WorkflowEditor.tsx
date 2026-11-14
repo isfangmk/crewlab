@@ -9,7 +9,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   Background,
   BackgroundVariant,
-  MiniMap,
+  ConnectionLineType,
+  MarkerType,
   Panel,
   ReactFlow,
   ReactFlowProvider,
@@ -58,11 +59,15 @@ import { NodeRunDialog } from '@/components/workflow/NodeRunDialog';
 import { RunWorkflowDialog } from '@/components/workflow/RunWorkflowDialog';
 import { WorkflowInspector, type PanelTabKey, type WorkflowMeta } from '@/components/workflow/WorkflowInspector';
 import {
-  WorkflowNodeCard,
+  DOT_COLOR,
+  EDGE_ACTIVE_COLOR,
+  EDGE_COLOR,
+  EDGE_TYPES,
+  NODE_TYPES,
+  type CanvasFlowEdge,
   type CanvasFlowNode,
   type NodeExecutionStatus,
-} from '@/components/workflow/WorkflowNodeCard';
-import { WorkflowConnectionLine, WorkflowEdge, type CanvasFlowEdge } from '@/components/workflow/WorkflowEdge';
+} from '@/components/workflow/WorkflowCanvas';
 import { WorkflowPalette } from '@/components/workflow/WorkflowPalette';
 import {
   EmptyStateCard,
@@ -79,18 +84,19 @@ import {
   nextNodeId,
   nodeIssue,
   nodeSummary,
-  toneOf,
   withAutoOutputKeys,
 } from '@/lib/workflowMeta';
-import { AlertTriangle, ArrowLeft, Check, Clock, LayoutTemplate, Minus, Pencil, Play, Plus, RefreshCw, Rocket, Save, ShieldCheck, Square, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, Clock, LayoutTemplate, Minus, Pencil, Play, Plus, Redo2, RefreshCw, Rocket, Save, ShieldCheck, Square, Trash2, Undo2, X } from 'lucide-react';
 import { errorText } from '@/lib/errors';
 import { useTimeout } from '@/lib/useTimeout';
 
 const KIND_MIME = 'application/x-workflow-kind';
-const NODE_TYPES = { workflow: WorkflowNodeCard };
-const EDGE_TYPES = { workflow: WorkflowEdge };
 // 自动存草稿的静默间隔：停手 2 秒就落盘，边填表单边丢改动的概率很低。
 const AUTO_SAVE_DELAY_MS = 2000;
+// 撤销栈上限：够覆盖一轮连续编辑，又不至于每步都快照整份定义。
+const HISTORY_LIMIT = 50;
+// 连续编辑的合并窗口：属性面板里连续输入只算一步。
+const HISTORY_COALESCE_MS = 500;
 // 稳定空数组：catalog 未就绪时避免每次渲染都换新引用（会触发画布同步的 effect）。
 const EMPTY_KINDS: CatalogKind[] = [];
 const EMPTY_GROUPS: CatalogGroup[] = [];
@@ -138,6 +144,8 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
   const zh = locale === 'zh-CN';
   const navigate = useNavigate();
   const { resolved } = useThemeMode();
+  // 连线箭头用 React Flow 内置 marker；颜色跟连线共用同一份主题令牌。
+  const edgeMarkerColor = EDGE_COLOR[resolved];
   const { screenToFlowPosition, zoomIn, zoomOut, zoomTo, setViewport } = useReactFlow();
   const flowStore = useStoreApi();
   const { zoom } = useViewport();
@@ -191,6 +199,101 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
   // 面板据此在运行中就能看，不用等运行结束落库。
   const [liveRuns, setLiveRuns] = useState<Record<string, LiveNodeRun>>({});
 
+  // ---- 撤销 / 重做 ---------------------------------------------------------
+  // 只记录定义快照：选中态、面板和视口不进历史，撤销不会把用户正在看的节点切走。
+  const pastRef = useRef<WorkflowDefinition[]>([]);
+  const futureRef = useRef<WorkflowDefinition[]>([]);
+  // 合并窗口只对同一个节点的连续字段编辑生效，避免把两次结构操作并成一步。
+  const lastCommitRef = useRef<{ key: string | null; at: number }>({ key: null, at: 0 });
+  const [historyDepth, setHistoryDepth] = useState({ past: 0, future: 0 });
+  const syncHistoryDepth = useCallback(() => {
+    setHistoryDepth({ past: pastRef.current.length, future: futureRef.current.length });
+  }, []);
+
+  /** 所有用户编辑都从这里改定义：先留旧快照，再落新值。 */
+  const commitDefinition = useCallback(
+    (updater: (current: WorkflowDefinition) => WorkflowDefinition, coalesceKey?: string) => {
+      const current = definitionRef.current;
+      const next = updater(current);
+      if (next === current) return;
+      const now = Date.now();
+      const last = lastCommitRef.current;
+      const coalesce =
+        coalesceKey !== undefined && last.key === coalesceKey && now - last.at <= HISTORY_COALESCE_MS;
+      // 连续输入不重复压栈：撤销回到这串编辑开始之前。
+      if (!coalesce) {
+        pastRef.current = [...pastRef.current.slice(-(HISTORY_LIMIT - 1)), current];
+      }
+      lastCommitRef.current = { key: coalesceKey ?? null, at: now };
+      futureRef.current = [];
+      definitionRef.current = next;
+      setDefinition(next);
+      setDirty(true);
+      syncHistoryDepth();
+    },
+    [syncHistoryDepth],
+  );
+
+  const undo = useCallback(() => {
+    const previous = pastRef.current.pop();
+    if (previous === undefined) return;
+    futureRef.current.push(definitionRef.current);
+    definitionRef.current = previous;
+    setDefinition(previous);
+    setDirty(true);
+    lastCommitRef.current = { key: null, at: 0 };
+    syncHistoryDepth();
+  }, [syncHistoryDepth]);
+
+  const redo = useCallback(() => {
+    const next = futureRef.current.pop();
+    if (next === undefined) return;
+    pastRef.current.push(definitionRef.current);
+    definitionRef.current = next;
+    setDefinition(next);
+    setDirty(true);
+    lastCommitRef.current = { key: null, at: 0 };
+    syncHistoryDepth();
+  }, [syncHistoryDepth]);
+
+  /** 载入/切工作流时重置栈：上一份定义的快照不能拿来撤销当前画布。 */
+  const resetDefinition = useCallback(
+    (next: WorkflowDefinition) => {
+      pastRef.current = [];
+      futureRef.current = [];
+      lastCommitRef.current = { key: null, at: 0 };
+      definitionRef.current = next;
+      setDefinition(next);
+      syncHistoryDepth();
+    },
+    [syncHistoryDepth],
+  );
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      // 输入框里的 Ctrl+Z 是文本撤销，画布不能抢。
+      if (
+        target !== null &&
+        (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')
+      ) {
+        return;
+      }
+      if (!event.metaKey && !event.ctrlKey) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+      } else if (key === 'y') {
+        event.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [redo, undo]);
+
   // 快照 → 画布状态：执行过的节点按库里的结果上色；停在人工节点时，
   // 那个节点在库里是「已执行完」，但画布上必须显示「等待审批/填写」。
   const applySnapshot = useCallback((snapshot: LatestRunSnapshot | null) => {
@@ -233,7 +336,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       ]);
       setDetail(workflow);
       // 老定义里的 output_key 是空的，这里补成节点 ID，用户不用再自己起变量名。
-      setDefinition(withAutoOutputKeys(workflow.definition));
+      resetDefinition(withAutoOutputKeys(workflow.definition));
       setMeta({ name: workflow.name, description: workflow.description, status: workflow.status });
       setCatalog(catalogResult);
       // 上次运行的状态随首屏一起回来：不用等用户再点一次运行才看得到
@@ -244,7 +347,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
     } finally {
       setLoading(false);
     }
-  }, [applySnapshot, workflowId]);
+  }, [applySnapshot, resetDefinition, workflowId]);
 
   useEffect(() => {
     void load();
@@ -366,12 +469,14 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
 
   // ---- 定义更新 -----------------------------------------------------------
   const patchNode = useCallback((nodeId: string, patch: Partial<WorkflowNode>) => {
-    setDefinition((current) => ({
-      ...current,
-      nodes: current.nodes.map((node) => (node.id === nodeId ? { ...node, ...patch } : node)),
-    }));
-    setDirty(true);
-  }, []);
+    commitDefinition(
+      (current) => ({
+        ...current,
+        nodes: current.nodes.map((node) => (node.id === nodeId ? { ...node, ...patch } : node)),
+      }),
+      nodeId,
+    );
+  }, [commitDefinition]);
 
   // 单节点试跑：先收输入（开始节点声明的变量），再让后端真实执行到这一步。
   const startNodeRun = useCallback(async (nodeId: string) => {
@@ -414,12 +519,11 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       if (kind === 'start') {
         node.variables = [{ name: 'input', type: 'string', description: '', required: true, default: null }];
       }
-      setDefinition((current) => ({ ...current, nodes: [...current.nodes, node] }));
+      commitDefinition((current) => ({ ...current, nodes: [...current.nodes, node] }));
       setSelectedId(id);
       setPanel('node');
-      setDirty(true);
     },
-    [definition.nodes, flash, screenToFlowPosition, startNode, tr],
+    [commitDefinition, definition.nodes, flash, screenToFlowPosition, startNode, tr],
   );
 
   /** 复制节点：同类型、同配置，坐标错开一点，不带连线。 */
@@ -432,7 +536,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
         return;
       }
       const id = nextNodeId(source.kind, definition.nodes);
-      setDefinition((current) => ({
+      commitDefinition((current) => ({
         ...current,
         nodes: [
           ...current.nodes,
@@ -442,21 +546,19 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       }));
       setSelectedId(id);
       setPanel('node');
-      setDirty(true);
     },
-    [definition.nodes, flash, tr],
+    [commitDefinition, definition.nodes, flash, tr],
   );
 
   const removeNode = useCallback((nodeId: string) => {
-    setDefinition((current) => ({
+    commitDefinition((current) => ({
       nodes: current.nodes.filter((node) => node.id !== nodeId),
       edges: current.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
     }));
     setSelectedId((current) => (current === nodeId ? null : current));
     // 删掉的正是当前面板里的节点，面板一起收起，避免展示空壳。
     setPanel((current) => (current === 'node' && selectedId === nodeId ? null : current));
-    setDirty(true);
-  }, [selectedId]);
+  }, [commitDefinition, selectedId]);
 
   /** 连线中间插入节点：原连线拆成「上游 → 新节点 → 下游」，分支名留在上游那段。 */
   const insertOnEdge = useCallback(
@@ -473,19 +575,18 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
         y: Math.round((source.y + target.y) / 2),
       });
       const suffix = Math.random().toString(36).slice(2, 6);
-      setDefinition({
+      commitDefinition(() => ({
         nodes: [...definition.nodes, node],
         edges: [
           ...definition.edges.filter((item) => item.id !== edgeId),
           { id: `e_${source.id}_${id}_${suffix}`, source: source.id, target: id, route: edge.route },
           { id: `e_${id}_${target.id}_${suffix}`, source: id, target: target.id, route: '' },
         ],
-      });
+      }));
       setSelectedId(id);
       setPanel('node');
-      setDirty(true);
     },
-    [definition],
+    [commitDefinition, definition],
   );
 
   // 定义一改，之前的试跑结果就过期了，不能继续挂在面板上误导人。
@@ -533,25 +634,31 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
         source: edge.source,
         target: edge.target,
         type: 'workflow' as const,
+        markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor, width: 14, height: 14 },
         data: { route: edge.route, kinds: insertableKinds, onInsert: (kind: NodeKind) => insertOnEdge(edge.id, kind) },
       })),
     );
-  }, [definition, insertOnEdge, insertableKinds, setRfEdges]);
+  }, [definition, edgeMarkerColor, insertOnEdge, insertableKinds, setRfEdges]);
 
   const handleNodesChange: OnNodesChange<CanvasFlowNode> = useCallback(
     (changes: NodeChange<CanvasFlowNode>[]) => {
-      onNodesChange(changes);
-      const removed = changes.filter((change) => change.type === 'remove');
+      // 开始节点没有删除入口，键盘删除也要挡掉：图里没有第二个入口能补回来。
+      const startId = definition.nodes.find((node) => node.kind === 'start')?.id;
+      const effective =
+        startId === undefined
+          ? changes
+          : changes.filter((change) => !(change.type === 'remove' && change.id === startId));
+      onNodesChange(effective);
+      const removed = effective.filter((change) => change.type === 'remove');
       if (removed.length > 0) {
         const ids = new Set(removed.map((change) => change.id));
-        setDefinition((current) => ({
+        commitDefinition((current) => ({
           nodes: current.nodes.filter((node) => !ids.has(node.id)),
           edges: current.edges.filter((edge) => !ids.has(edge.source) && !ids.has(edge.target)),
         }));
-        setDirty(true);
       }
     },
-    [onNodesChange],
+    [commitDefinition, definition.nodes, onNodesChange],
   );
 
   const handleEdgesChange: OnEdgesChange<CanvasFlowEdge> = useCallback(
@@ -560,11 +667,10 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       const removed = changes.filter((change) => change.type === 'remove');
       if (removed.length > 0) {
         const ids = new Set(removed.map((change) => change.id));
-        setDefinition((current) => ({ ...current, edges: current.edges.filter((edge) => !ids.has(edge.id)) }));
-        setDirty(true);
+        commitDefinition((current) => ({ ...current, edges: current.edges.filter((edge) => !ids.has(edge.id)) }));
       }
     },
-    [onEdgesChange],
+    [commitDefinition, onEdgesChange],
   );
 
   const onConnect: OnConnect = useCallback(
@@ -610,10 +716,9 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
         return;
       }
       const id = `e_${source}_${target}_${route === '' ? 'any' : route}_${Math.random().toString(36).slice(2, 6)}`;
-      setDefinition((current) => ({ ...current, edges: [...current.edges, { id, source, target, route }] }));
-      setDirty(true);
+      commitDefinition((current) => ({ ...current, edges: [...current.edges, { id, source, target, route }] }));
     },
-    [definition.edges, definition.nodes, flash, tr],
+    [commitDefinition, definition.edges, definition.nodes, flash, tr],
   );
 
   // 适应画布：不走 useReactFlow().fitView()。
@@ -640,13 +745,12 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
 
   const autoLayout = useCallback(() => {
     const positions = layeredLayout(definition);
-    setDefinition((current) => ({
+    commitDefinition((current) => ({
       ...current,
       nodes: current.nodes.map((node) => ({ ...node, x: positions[node.id]?.x ?? node.x, y: positions[node.id]?.y ?? node.y })),
     }));
-    setDirty(true);
     window.setTimeout(fitAll, 30);
-  }, [definition, fitAll]);
+  }, [commitDefinition, definition, fitAll]);
 
   // ---- 校验 / 运行 ---------------------------------------------------------
   const check = useCallback(async () => {
@@ -863,7 +967,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
     return () => window.removeEventListener('keydown', handler);
   }, [save]);
 
-  const dotColor = resolved === 'light' ? '#cbd5e1' : '#27272a';
+  const dotColor = DOT_COLOR[resolved];
 
   if (loading) {
     return (
@@ -1007,7 +1111,9 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
             edges={rfEdges}
             nodeTypes={NODE_TYPES}
             edgeTypes={EDGE_TYPES}
-            connectionLineComponent={WorkflowConnectionLine}
+            // 拖线预览用 React Flow 内置连线，只改颜色与虚线样式。
+            connectionLineType={ConnectionLineType.Bezier}
+            connectionLineStyle={{ stroke: EDGE_ACTIVE_COLOR, strokeWidth: 2, strokeDasharray: '6 4' }}
             onNodesChange={handleNodesChange}
             onEdgesChange={handleEdgesChange}
             onConnect={onConnect}
@@ -1047,6 +1153,9 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
             proOptions={{ hideAttribution: false }}
             className="bg-bg"
             defaultEdgeOptions={{ type: 'workflow' }}
+            // 选中节点或连线后，Delete / Backspace 直接删除；开始节点在
+            // handleNodesChange 里单独拦掉，避免把唯一的入口删没。
+            deleteKeyCode={['Backspace', 'Delete']}
             // 左键拖动平移画布；框选改成按住 Shift 再拖，
             // 这样不需要记「右键拖」这种不直观的操作。
             panOnDrag
@@ -1062,22 +1171,16 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
               </Panel>
             )}
 
-            <MiniMap
-              pannable
-              zoomable
-              nodeStrokeWidth={0}
-              style={{ width: 132, height: 84 }}
-              className="!bottom-16 !left-auto !right-3 !m-0 !rounded-xl !border !border-border/70 !bg-card/90 !shadow-lg"
-              maskColor={resolved === 'light' ? 'rgba(244,245,248,0.72)' : 'rgba(11,11,17,0.72)'}
-              nodeColor={(node) => {
-                const kind = (node.data as { node?: WorkflowNode } | undefined)?.node?.kind;
-                return kind === undefined ? '#71717a' : toneOf(kind).dot;
-              }}
-            />
-
-            {/* 右下角：缩放 / 适应画布 / 整理布局 */}
+            {/* 右下角：撤销/重做、缩放 / 适应画布 / 整理布局 */}
             <Panel position="bottom-right" className="!m-3">
               <div className="flex items-center gap-0.5 rounded-xl border border-border/70 bg-card/95 px-1 py-0.5 shadow-lg backdrop-blur">
+                <IconButton label={tr('撤销', 'Undo')} disabled={historyDepth.past === 0} onClick={undo}>
+                  <Undo2 size={13} aria-hidden />
+                </IconButton>
+                <IconButton label={tr('重做', 'Redo')} disabled={historyDepth.future === 0} onClick={redo}>
+                  <Redo2 size={13} aria-hidden />
+                </IconButton>
+                <span className="mx-0.5 h-4 w-px bg-border/70" aria-hidden />
                 <IconButton label={tr('缩小', 'Zoom out')} onClick={() => void zoomOut({ duration: 120 })}>
                   <Minus size={13} aria-hidden />
                 </IconButton>
@@ -1232,14 +1335,28 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
   );
 }
 
-function IconButton({ label, onClick, children }: { label: string; onClick(): void; children: ReactNode }) {
+function IconButton({
+  label,
+  onClick,
+  disabled = false,
+  children,
+}: {
+  label: string;
+  onClick(): void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
   return (
     <Hint content={label}>
       <button
         type="button"
         aria-label={label}
         onClick={onClick}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800/70 hover:text-zinc-200"
+        disabled={disabled}
+        className={cn(
+          'inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-zinc-500/10 hover:text-text',
+          disabled && 'cursor-not-allowed opacity-35 hover:bg-transparent hover:text-text-muted',
+        )}
       >
         {children}
       </button>

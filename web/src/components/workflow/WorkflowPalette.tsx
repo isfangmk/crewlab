@@ -8,7 +8,7 @@ import { useMemo, useState, type DragEvent } from 'react';
 import { Plus, Search } from 'lucide-react';
 import type { CatalogGroup, CatalogKind, NodeKind } from '@/api/workflows';
 import { cn } from '@/lib/cn';
-import { iconOf, toneOf } from '@/lib/workflowMeta';
+import { filterKinds, iconOf, toneOf } from '@/lib/workflowMeta';
 import { useI18n } from '@/i18n/locale';
 
 type Props = {
@@ -25,14 +25,7 @@ export function WorkflowPalette({ groups, kinds, disabledKinds, onAdd, onDragSta
   const zh = locale === 'zh-CN';
   const [query, setQuery] = useState('');
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (q === '') return kinds;
-    return kinds.filter((kind) => {
-      const title = zh ? kind.title : kind.title_en;
-      return title.toLowerCase().includes(q) || kind.key.includes(q);
-    });
-  }, [kinds, query, zh]);
+  const filtered = useMemo(() => filterKinds(kinds, query, zh), [kinds, query, zh]);
 
   return (
     <aside className="flex w-[216px] shrink-0 flex-col border-r border-border/70 bg-card/30">

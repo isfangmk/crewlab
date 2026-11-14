@@ -9,8 +9,8 @@ import { emptyNode } from '@/lib/workflowMeta';
 export const NODE_TYPES = { workflow: WorkflowNodeCard };
 export const EDGE_TYPES = { workflow: WorkflowEdge };
 
-/** 画布点阵底色：跟随主题，浅色下不能还是深色网格。 */
-export const DOT_COLOR = { light: '#cbd5e1', dark: '#27272a' } as const;
+// 颜色只在 canvasTheme 里维护，这里转出给画布页面使用。
+export { DOT_COLOR, EDGE_ACTIVE_COLOR, EDGE_COLOR } from '@/components/workflow/canvasTheme';
 
 /**
  * 详情页只有节点 id / 类型 / 名称，节点卡片要求完整定义。

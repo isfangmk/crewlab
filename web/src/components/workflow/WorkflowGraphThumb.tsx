@@ -5,11 +5,12 @@
 // 节点不可拖动、不可连线，点节点用来定位到中栏详情。
 
 import { useCallback, useEffect, useMemo } from 'react';
-import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, useReactFlow, type Node } from '@xyflow/react';
+import { Background, BackgroundVariant, MarkerType, ReactFlow, ReactFlowProvider, useReactFlow, type Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { NodeRunStatus, WorkflowPreview } from '@/api/workflows';
 import {
   DOT_COLOR,
+  EDGE_COLOR,
   EDGE_TYPES,
   NODE_TYPES,
   previewNode,
@@ -131,9 +132,15 @@ function GraphCanvas({
         source: edge.source,
         target: edge.target,
         type: 'workflow' as const,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: EDGE_COLOR[resolved],
+          width: 14,
+          height: 14,
+        },
         data: { route: edge.route, kinds: [], onInsert: () => {} },
       })),
-    [graph.edges],
+    [graph.edges, resolved],
   );
 
   const onNodeClick = useCallback(

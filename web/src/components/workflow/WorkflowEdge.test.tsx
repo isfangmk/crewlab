@@ -11,7 +11,9 @@ import type { CatalogKind } from '@/api/workflows';
 import { setLocale } from '@/i18n/locale';
 
 vi.mock('@xyflow/react', () => ({
-  BaseEdge: () => null,
+  BaseEdge: ({ markerEnd }: { markerEnd?: string }) => (
+    <path data-testid="workflow-edge-line" data-marker-end={markerEnd} />
+  ),
   EdgeLabelRenderer: ({ children }: { children: ReactNode }) => <>{children}</>,
   getBezierPath: () => ['M0,0', 0, 0],
   useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
@@ -33,6 +35,7 @@ function renderEdge() {
     sourceY: 0,
     targetX: 120,
     targetY: 0,
+    markerEnd: 'url(#react-flow__arrowclosed-e1)',
   } as unknown as EdgeProps<CanvasFlowEdge>;
   return render(
     <svg>
@@ -51,6 +54,12 @@ describe('连线插入节点面板', () => {
     expect(panel).not.toBeNull();
     expect(panel?.parentElement).toBe(document.body);
     expect(screen.getByText('大模型')).toBeInTheDocument();
+  });
+
+  it('把 React Flow 的箭头 marker 透传给连线', () => {
+    renderEdge();
+    const line = screen.getByTestId('workflow-edge-line');
+    expect(line.getAttribute('data-marker-end')).toBe('url(#react-flow__arrowclosed-e1)');
   });
 });
 

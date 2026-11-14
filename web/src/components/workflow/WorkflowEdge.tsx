@@ -1,4 +1,4 @@
-// 画布连线：三阶贝塞尔（curvature 0.16、2px 灰线、无箭头）。
+// 画布连线：三阶贝塞尔（curvature 0.16、2px 灰线），末端带实心箭头。
 //
 // 交互上多做了一件事：鼠标悬到线上时中点浮出「+」，点开可以在两个节点之间
 // 直接插入一个节点，免得为了插一个步骤先删线再补两条。
@@ -18,7 +18,8 @@ import { Plus, Search } from 'lucide-react';
 import type { CatalogKind, NodeKind } from '@/api/workflows';
 import { cn } from '@/lib/cn';
 import { useThemeMode } from '@/store/mode';
-import { iconOf, toneOf } from '@/lib/workflowMeta';
+import { filterKinds, iconOf, toneOf } from '@/lib/workflowMeta';
+import { EDGE_ACTIVE_COLOR, EDGE_COLOR } from '@/components/workflow/canvasTheme';
 import { useI18n } from '@/i18n/locale';
 
 export type WorkflowEdgeData = {
@@ -66,6 +67,8 @@ export function placeEdgePopup(
 export function WorkflowEdge({
   id,
   data,
+  selected,
+  markerEnd,
   sourceX,
   sourceY,
   targetX,
@@ -82,29 +85,21 @@ export function WorkflowEdge({
   const popupRef = useRef<HTMLDivElement>(null);
   const [popupPos, setPopupPos] = useState<{ left: number; top: number } | null>(null);
 
-  // 锚点中心在卡片外侧 7px；锚点已隐藏，连线要画到卡片边缘，避免两端留缝。
-  const handleOffset = 7;
+  // 锚点盒的外缘就是卡片边缘，React Flow 直接取外缘作为端点；
+  // 箭头 marker 也由 React Flow 生成，这里不再做偏移。
   const [path, labelX, labelY] = getBezierPath({
-    sourceX: sourceX - handleOffset,
+    sourceX,
     sourceY,
     sourcePosition: Position.Right,
-    targetX: targetX + handleOffset,
+    targetX,
     targetY,
     targetPosition: Position.Left,
     curvature: 0.16,
   });
 
-  const active = hovered || open;
-  const stroke = active ? '#6366f1' : resolved === 'light' ? '#cbd5e1' : '#3f3f46';
-  const filtered = useMemo(() => {
-    const list = data?.kinds ?? [];
-    const q = query.trim().toLowerCase();
-    if (q === '') return list;
-    return list.filter((kind) => {
-      const title = zh ? kind.title : kind.title_en;
-      return title.toLowerCase().includes(q) || kind.key.includes(q);
-    });
-  }, [data, query, zh]);
+  const active = hovered || open || selected === true;
+  const stroke = active ? EDGE_ACTIVE_COLOR : EDGE_COLOR[resolved];
+  const filtered = useMemo(() => filterKinds(data?.kinds ?? [], query, zh), [data, query, zh]);
 
   // 画布平移/缩放会改变连线中点，弹窗跟着锚点重新定位。
   useLayoutEffect(() => {
@@ -191,6 +186,7 @@ export function WorkflowEdge({
       <BaseEdge
         id={id}
         path={path}
+        markerEnd={markerEnd}
         interactionWidth={24}
         style={{ stroke, strokeWidth: 2, strokeLinecap: 'round', transition: 'stroke 120ms' }}
       />
@@ -235,35 +231,6 @@ export function WorkflowEdge({
           </div>
         </EdgeLabelRenderer>
       )}
-    </g>
-  );
-}
-
-/** 拖线预览：和正式连线同一条贝塞尔，末端加一个小方块表示落点。 */
-export function WorkflowConnectionLine({
-  fromX,
-  fromY,
-  toX,
-  toY,
-}: {
-  fromX: number;
-  fromY: number;
-  toX: number;
-  toY: number;
-}) {
-  const [path] = getBezierPath({
-    sourceX: fromX,
-    sourceY: fromY,
-    sourcePosition: Position.Right,
-    targetX: toX,
-    targetY: toY,
-    targetPosition: Position.Left,
-    curvature: 0.16,
-  });
-  return (
-    <g>
-      <path fill="none" stroke="#6366f1" strokeWidth={2} strokeDasharray="6 4" d={path} />
-      <circle cx={toX} cy={toY} r={3} fill="#6366f1" />
     </g>
   );
 }

@@ -124,21 +124,24 @@ export function WorkflowNodeCard({ data, selected }: NodeProps<CanvasFlowNode>) 
         </div>
       )}
 
-      {/* 目标锚点在左、源锚点在右（top 20px，外扩 7px）。
-          开始节点没有入边、结束节点没有出边，只在能接线的一侧渲染锚点。
-          锚点只保留可拖拽的命中区，不再画圆点，画布上只留连线本身。 */}
+      {/* 目标锚点在左、源锚点在右，横向位置交给 React Flow 默认样式，这里只把
+          纵向抬到头行高度。React Flow 取锚点盒的外缘作为连线端点，所以横向
+          不能再做半宽位移，否则连线会停在卡片外几个像素。开始节点没有入边、
+          结束节点没有出边，只在能接线的一侧渲染；锚点本身不画圆点。 */}
       {node.kind !== 'start' && (
         <Handle
           type="target"
           position={Position.Left}
-          className="!left-[-7px] !top-[20px] !h-3 !w-3 !border-0 !bg-transparent opacity-0"
+          className="!top-[20px] !h-3 !w-3 !border-0 !bg-transparent opacity-0"
+          style={{ transform: 'translateY(-50%)' }}
         />
       )}
       {node.kind !== 'end' && (
         <Handle
           type="source"
           position={Position.Right}
-          className="!right-[-7px] !top-[20px] !h-3 !w-3 !border-0 !bg-transparent opacity-0"
+          className="!top-[20px] !h-3 !w-3 !border-0 !bg-transparent opacity-0"
+          style={{ transform: 'translateY(-50%)' }}
         />
       )}
 

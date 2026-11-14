@@ -17,6 +17,7 @@ vi.mock('@xyflow/react', () => ({
   Background: () => null,
   BackgroundVariant: { Dots: 'dots' },
   Handle: () => null,
+  MarkerType: { ArrowClosed: 'arrowclosed' },
   Position: { Left: 'left', Right: 'right' },
   ReactFlow: ({ nodes }: { nodes: { id: string; data: { status?: string } }[] }) => {
     captured.nodes = nodes;

@@ -1,12 +1,13 @@
 // 编排页画布交互测试：
 //   1. 画布必须「左键拖动平移」——不是右键拖，也不是左键框选；
 //   2. 框选退到 Shift+拖动，避免左键语义冲突；
-//   3. 页面能真实渲染出定义里的节点（证明上面两条断言取自真实挂载的画布）。
+//   3. 页面能真实渲染出定义里的节点（证明上面两条断言取自真实挂载的画布）；
+//   4. 删除键与撤销/重做只改定义，不绕过页面的校验与保存链路。
 //
 // React Flow 在 jsdom 里依赖布局能力（ResizeObserver / DOMMatrix），这里把
 // 画布组件换成会记录 props 的壳：断言的是「页面给画布传了什么交互配置」，
 // 也就是上面三条规则真正落到的位置。
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
@@ -32,7 +33,8 @@ vi.mock('@xyflow/react', () => {
     ReactFlowProvider: ({ children }: { children?: ReactNode }) => <>{children}</>,
     Background: () => null,
     BackgroundVariant: { Dots: 'dots' },
-    MiniMap: () => null,
+    ConnectionLineType: { Bezier: 'bezier' },
+    MarkerType: { ArrowClosed: 'arrowclosed' },
     Panel: ({ children }: { children?: ReactNode }) => <>{children}</>,
     // 画布内部状态：测试只需要渲染初始值，变更回调不重要
     useNodesState: (initial: unknown[]) => [initial, () => {}, () => {}],
@@ -203,6 +205,114 @@ describe('WorkflowEditor 运行状态恢复', () => {
     renderEditor();
     await screen.findByText('告警处置');
     expect(screen.queryByRole('button', { name: '去处理' })).not.toBeInTheDocument();
+  });
+});
+
+describe('WorkflowEditor 键盘删除', () => {
+  beforeEach(() => {
+    localStorage.setItem('ongrid-locale', 'zh-CN');
+    captured.props = null;
+    server.use(
+      http.get(detailURL, () => HttpResponse.json(detailPayload())),
+      http.get(catalogURL, () => HttpResponse.json(catalog)),
+      http.get(latestRunURL, () => HttpResponse.json({ run: null })),
+    );
+  });
+
+  function capturePuts() {
+    const puts: WorkflowDefinition[] = [];
+    server.use(
+      http.put(detailURL, async ({ request }) => {
+        const body = (await request.json()) as { name: string; definition: WorkflowDefinition };
+        puts.push(body.definition);
+        return HttpResponse.json({ ...detailPayload(), name: body.name, definition: body.definition });
+      }),
+    );
+    return puts;
+  }
+
+  it('Delete 键同时接管节点与连线删除', async () => {
+    renderEditor();
+    await screen.findByText('告警处置');
+    expect(canvasProps().deleteKeyCode).toEqual(['Backspace', 'Delete']);
+  });
+
+  it('删除连线后草稿里不再保留该连线', async () => {
+    const puts = capturePuts();
+    renderEditor();
+    await screen.findByText('告警处置');
+
+    act(() => {
+      (canvasProps().onEdgesChange as (changes: unknown[]) => void)([{ type: 'remove', id: 'e1' }]);
+    });
+
+    await waitFor(() => expect(puts.length).toBeGreaterThan(0), { timeout: 4000 });
+    expect(puts[0].edges.map((edge) => edge.id)).toEqual(['e2']);
+  });
+
+  it('删除节点会同时清掉挂在它上面的连线', async () => {
+    const puts = capturePuts();
+    renderEditor();
+    await screen.findByText('告警处置');
+
+    act(() => {
+      (canvasProps().onNodesChange as (changes: unknown[]) => void)([{ type: 'remove', id: 'prep' }]);
+    });
+
+    await waitFor(() => expect(puts.length).toBeGreaterThan(0), { timeout: 4000 });
+    expect(puts[0].nodes.map((node) => node.id)).toEqual(['start', 'end']);
+    expect(puts[0].edges).toEqual([]);
+  });
+});
+
+describe('WorkflowEditor 撤销与重做', () => {
+  beforeEach(() => {
+    localStorage.setItem('ongrid-locale', 'zh-CN');
+    captured.props = null;
+    server.use(
+      http.get(detailURL, () => HttpResponse.json(detailPayload())),
+      http.get(catalogURL, () => HttpResponse.json(catalog)),
+      http.get(latestRunURL, () => HttpResponse.json({ run: null })),
+    );
+  });
+
+  it('撤销恢复被删除的节点与连线，重做再次删除', async () => {
+    renderEditor();
+    await screen.findByText('3 节点 / 2 连线');
+
+    const undoButton = screen.getByRole('button', { name: '撤销' });
+    const redoButton = screen.getByRole('button', { name: '重做' });
+    expect(undoButton).toBeDisabled();
+    expect(redoButton).toBeDisabled();
+
+    act(() => {
+      (canvasProps().onNodesChange as (changes: unknown[]) => void)([{ type: 'remove', id: 'prep' }]);
+    });
+    await screen.findByText('2 节点 / 0 连线');
+    expect(screen.getByRole('button', { name: '撤销' })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole('button', { name: '撤销' }));
+    await screen.findByText('3 节点 / 2 连线');
+    expect(screen.getByRole('button', { name: '重做' })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole('button', { name: '重做' }));
+    await screen.findByText('2 节点 / 0 连线');
+  });
+
+  it('Ctrl+Z 撤销、Ctrl+Shift+Z 重做', async () => {
+    renderEditor();
+    await screen.findByText('3 节点 / 2 连线');
+
+    act(() => {
+      (canvasProps().onNodesChange as (changes: unknown[]) => void)([{ type: 'remove', id: 'prep' }]);
+    });
+    await screen.findByText('2 节点 / 0 连线');
+
+    await userEvent.keyboard('{Control>}z{/Control}');
+    await screen.findByText('3 节点 / 2 连线');
+
+    await userEvent.keyboard('{Control>}{Shift>}z{/Shift}{/Control}');
+    await screen.findByText('2 节点 / 0 连线');
   });
 });
 

@@ -140,6 +140,16 @@ export function kindTitle(kind: NodeKind, catalog?: CatalogKind[] | null, zh = t
   return zh ? fallback[0] : fallback[1];
 }
 
+/** 节点库与连线插入面板共用的搜索：匹配当前语言名称或 key。 */
+export function filterKinds(kinds: CatalogKind[], query: string, zh: boolean): CatalogKind[] {
+  const q = query.trim().toLowerCase();
+  if (q === '') return kinds;
+  return kinds.filter((kind) => {
+    const title = zh ? kind.title : kind.title_en;
+    return title.toLowerCase().includes(q) || kind.key.includes(q);
+  });
+}
+
 /** 会自动产出结果的节点：结果变量名直接取节点 ID，用户不需要自己起名。 */
 const OUTPUT_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([
   'agent',
