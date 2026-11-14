@@ -721,7 +721,7 @@ export default function ObservabilityPage() {
                           className="px-3 py-2 align-middle"
                           title={row.started_at ? fullDateTime(row.started_at) : undefined}
                         >
-                          <div className="truncate text-[12px] tabular-nums text-zinc-400">
+                          <div className="truncate text-[11px] tabular-nums text-zinc-400">
                             {row.started_at ? fullDateTime(row.started_at) : '—'}
                           </div>
                         </td>
@@ -764,7 +764,7 @@ export default function ObservabilityPage() {
                           <CallCounters tools={row.tool_call_count} skills={row.skill_call_count} />
                         </td>
                         <td
-                          className="px-3 py-2 text-right align-middle text-[12px] tabular-nums text-zinc-300"
+                          className="px-3 py-2 text-right align-middle text-[11px] tabular-nums text-zinc-300"
                           title={tokenHint}
                         >
                           {formatTokens(row.total_tokens)}
@@ -779,7 +779,7 @@ export default function ObservabilityPage() {
                             </span>
                             <span
                               className={cn(
-                                'w-14 shrink-0 text-right text-[12px] tabular-nums',
+                                'w-14 shrink-0 text-right text-[11px] tabular-nums',
                                 isError ? 'text-red-400' : 'text-zinc-200',
                               )}
                             >
@@ -813,7 +813,7 @@ export default function ObservabilityPage() {
 function CallCounters({ tools, skills }: { tools: number; skills: number }) {
   const { tr } = useI18n();
   if (tools === 0 && skills === 0) {
-    return <span className="block text-[12px] text-zinc-600">—</span>;
+    return <span className="block text-[11px] text-zinc-600">—</span>;
   }
   return (
     <span className="flex items-center gap-1">

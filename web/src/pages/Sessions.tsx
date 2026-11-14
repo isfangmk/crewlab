@@ -540,7 +540,7 @@ export default function SessionsPage() {
             .filter((item) => item !== '')
             .join(' · ');
           if (turnCount === 0 && calls === '') {
-            return <span className="text-[12px] text-zinc-600">—</span>;
+            return <span className="text-[11px] text-zinc-600">—</span>;
           }
           return (
             <div className="space-y-0.5 text-[10.5px] leading-4 tabular-nums">
@@ -560,7 +560,7 @@ export default function SessionsPage() {
         enableSorting: false,
         cell: ({ getValue }) => {
           const id = getValue();
-          return id ? <AgentBadge agentId={id} size="xs" /> : <span className="text-[12px] text-zinc-600">—</span>;
+          return id ? <AgentBadge agentId={id} size="xs" /> : <span className="text-[11px] text-zinc-600">—</span>;
         },
       }),
       columnHelper.accessor('model', {
@@ -596,7 +596,7 @@ export default function SessionsPage() {
           const status = session.last_turn_status ? TURN_STATUS[session.last_turn_status] : undefined;
           const pending = session.pending_approvals ?? 0;
           if (status === undefined && pending === 0) {
-            return <span className="text-[12px] text-zinc-600">—</span>;
+            return <span className="text-[11px] text-zinc-600">—</span>;
           }
           const pill =
             status === undefined ? null : (
@@ -634,7 +634,7 @@ export default function SessionsPage() {
           const raw =
             row.original.last_message_at ?? row.original.updated_at ?? row.original.created_at;
           if (!raw) {
-            return <span className="text-[12px] text-zinc-600">—</span>;
+            return <span className="text-[11px] text-zinc-600">—</span>;
           }
           // 一律显示完整日期时间：相对时间（「3 小时前」）无法用于核对与排序
           const label = row.original.last_message_at
@@ -642,7 +642,7 @@ export default function SessionsPage() {
             : tr('会话更新时间', 'Session updated');
           return (
             <span
-              className="whitespace-nowrap text-[12px] tabular-nums text-zinc-500"
+              className="whitespace-nowrap text-[11px] tabular-nums text-zinc-500"
               title={label}
             >
               {fullDateTime(raw)}

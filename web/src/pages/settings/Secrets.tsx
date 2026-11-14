@@ -315,7 +315,7 @@ export default function SecretsPage() {
       </SectionCard>
 
       <TableCard>
-        <table className="og-action-table w-full text-left text-[12px]">
+        <table className="og-action-table w-full text-left">
           <TableHead>
             <tr>
               <th className="px-3 py-1.5 font-medium">{tr('名称', 'Name')}</th>
@@ -343,7 +343,7 @@ export default function SecretsPage() {
                 const healthItem = health[s.id];
                 return (
                   <tr key={s.id} className="transition-colors hover:bg-zinc-800/30">
-                    <td className="px-3 py-2 font-mono text-[12px] text-zinc-200">
+                    <td className="px-3 py-2 font-mono text-[12.5px] text-zinc-100">
                       <span className="inline-flex items-center gap-1.5">
                         {s.name}
                         {healthItem !== undefined && !healthItem.ok ? (
@@ -353,7 +353,7 @@ export default function SecretsPage() {
                         ) : null}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-[12px] text-zinc-400">
+                    <td className="px-3 py-2 text-[11px] text-zinc-400">
                       {types.find((t) => t.name === s.type)?.label ?? s.type ?? CUSTOM}
                     </td>
                     <td className="px-3 py-2">

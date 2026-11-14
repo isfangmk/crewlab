@@ -501,12 +501,12 @@ export default function AuditPage() {
                     const actionMeta = ACTION_LABELS[row.action];
                     const resourceMeta = RESOURCE_LABELS[row.resource_type];
                     return (
-                      <tr key={row.id} className="transition-colors">
-                        <td className="whitespace-nowrap px-3 py-2 text-[12px] tabular-nums text-zinc-500">
+                      <tr key={row.id} className="transition-colors hover:bg-zinc-900/40">
+                        <td className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-zinc-500">
                           {fullDateTime(row.created_at)}
                         </td>
                         <td className="min-w-0 px-3 py-2">
-                          <span className="block truncate text-[12px] text-zinc-300" title={row.actor_email ?? ''}>
+                          <span className="block truncate text-[12.5px] text-zinc-300" title={row.actor_email ?? ''}>
                             {row.actor_email ?? '—'}
                           </span>
                         </td>
@@ -514,17 +514,21 @@ export default function AuditPage() {
                           <button
                             type="button"
                             onClick={() => setDetail(row)}
-                            className="block max-w-full truncate text-left text-[12px] text-zinc-200 transition-colors hover:text-indigo-300"
+                            className="block max-w-full truncate text-left text-[12.5px] font-medium text-zinc-200 transition-colors hover:text-indigo-300"
                             title={row.action}
                           >
                             {actionMeta ? tr(actionMeta.zh, actionMeta.en) : row.action}
                           </button>
                         </td>
                         <td className="min-w-0 px-3 py-2">
-                          <span className="block truncate text-[12px] text-zinc-400" title={row.resource_id}>
+                          <span className="block truncate text-[12.5px] text-zinc-400">
                             {resourceMeta ? tr(resourceMeta.zh, resourceMeta.en) : row.resource_type}
-                            {row.resource_id ? ` · ${row.resource_id}` : ''}
                           </span>
+                          {row.resource_id ? (
+                            <span className="mt-0.5 block truncate font-mono text-[10px] text-zinc-600" title={row.resource_id}>
+                              {row.resource_id}
+                            </span>
+                          ) : null}
                         </td>
                         <td className="min-w-0 px-3 py-2">
                           <span className="block truncate font-mono text-[11px] text-zinc-500" title={JSON.stringify(row.detail)}>

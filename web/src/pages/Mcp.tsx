@@ -546,7 +546,7 @@ function ToolRow({
           {open ? <ChevronDown size={13} className="shrink-0 text-zinc-400" /> : <ChevronRight size={13} className="shrink-0 text-zinc-400" />}
           <Wrench size={13} className="shrink-0 text-zinc-500" />
           <div className="min-w-0 flex-1">
-            <div className="font-mono text-[12px] leading-5 text-zinc-100">
+            <div className="font-mono text-[12.5px] leading-5 text-zinc-100">
               mcp__{serverName}__{tool.name}
             </div>
             {!open && tool.description && (

@@ -730,7 +730,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
                   return (
                     <li
                       key={m}
-                      className="flex items-center gap-2 py-2 text-[12px]"
+                      className="flex items-center gap-2 py-2 text-[12.5px]"
                     >
                       <code className="min-w-0 break-all font-mono text-zinc-100">{m}</code>
                       {isDefault && (

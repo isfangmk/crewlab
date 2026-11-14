@@ -468,7 +468,7 @@ export default function UsersPage() {
                           </span>
                         </td>
                         <td className="min-w-0 px-3 py-2">
-                          <span className="block truncate text-[12px] text-zinc-300" title={user.display_name}>
+                          <span className="block truncate text-[12.5px] text-zinc-300" title={user.display_name}>
                             {user.display_name}
                           </span>
                         </td>
