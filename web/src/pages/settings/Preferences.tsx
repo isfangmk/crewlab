@@ -1,5 +1,5 @@
 import { useAssistantPage } from '@/lib/assistantPage';
-import { Button, DetailSection, Label, SectionCard } from '@/components/ui';
+import { Button, DetailSection, ErrorBanner, Label, SectionCard } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
 import { useCallback, useEffect, useState } from 'react';
@@ -127,7 +127,7 @@ export default function SettingsPreferences() {
           </Button>
         ) : undefined}
       >
-        {tzErr && <div className="mb-3 text-[11px] text-red-400">{tzErr}</div>}
+        {tzErr && <ErrorBanner className="mb-3">{tzErr}</ErrorBanner>}
         {tzLoading ? (
           <div className="flex h-7 items-center text-[11px] text-zinc-500">
             <Loader2 size={12} className="mr-2 animate-spin" /> {tr('加载中…', 'Loading…')}
@@ -225,7 +225,7 @@ export default function SettingsPreferences() {
           })}
         </div>
         <DetailSection title={tr('预览', 'Preview')} className="mt-4">
-          <div className="flex flex-wrap items-center gap-3 rounded-md border border-zinc-800/60 bg-zinc-950/40 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-800/60 bg-zinc-950/60 px-3 py-2.5">
             <Button variant="primary" size="sm" type="button">
               {tr('主要按钮', 'Primary button')}
             </Button>

@@ -66,7 +66,7 @@ import { WorkflowConnectionLine, WorkflowEdge, type CanvasFlowEdge } from '@/com
 import { WorkflowPalette } from '@/components/workflow/WorkflowPalette';
 import {
   EmptyStateCard,
-  ErrorBanner, Button, PageHeader, RowAction, Toast, type ToastTone } from '@/components/ui';
+  ErrorBanner, Button, PageHeader, RowAction, StatusPill, Toast, type ToastTone } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
@@ -867,7 +867,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
 
   if (loading) {
     return (
-      <main className="flex flex-1 items-center justify-center text-[12px] text-zinc-500">{tr('加载工作流…', 'Loading workflow…')}</main>
+      <main className="flex flex-1 items-center justify-center text-[11.5px] text-zinc-500">{tr('加载工作流…', 'Loading workflow…')}</main>
     );
   }
 
@@ -912,9 +912,10 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
         }
         subtitle={
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className={cn('rounded-full border px-1.5 text-[10.5px] leading-4', meta.status === 'published' ? 'border-ok/30 bg-ok/10 text-ok' : 'border-zinc-700 bg-zinc-800/40 text-zinc-400')}>
-              {meta.status === 'published' ? tr('已发布', 'Published') : tr('草稿', 'Draft')}
-            </span>
+            <StatusPill
+              tone={meta.status === 'published' ? 'ok' : 'neutral'}
+              label={meta.status === 'published' ? tr('已发布', 'Published') : tr('草稿', 'Draft')}
+            />
             <span className="tabular-nums">v{detail.version}</span>
             <span className="text-zinc-700">·</span>
             <span className="tabular-nums">{tr(`${definition.nodes.length} 节点 / ${definition.edges.length} 连线`, `${definition.nodes.length} nodes / ${definition.edges.length} edges`)}</span>
@@ -967,9 +968,10 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
                 {tr('运行', 'Run')}
               </RowAction>
             )}
-            <RowAction icon={Trash2} tone="danger" onClick={() => setConfirmDelete(true)} disabled={saving}>
+            <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)} disabled={saving}>
+              <Trash2 size={12} aria-hidden />
               {tr('删除', 'Delete')}
-            </RowAction>
+            </Button>
             {/* 自动保存兜住日常改动，手动保存只作为「立刻落盘」的兜底入口。 */}
             <RowAction icon={Save} onClick={() => void save()} disabled={saving || !dirty}>
               {saving ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
@@ -977,7 +979,6 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
             <Button
               variant="primary"
               size="sm"
-              className="h-7 px-3 text-[11.5px]"
               onClick={() => void publish()}
               disabled={publishing || saving}
             >
@@ -1254,20 +1255,20 @@ function ValidationBanner({ result, onClose }: { result: ValidationResult; onClo
       role="status"
       className={cn(
         'w-full overflow-hidden rounded-xl border px-3 py-2.5 text-[11.5px] shadow-xl backdrop-blur',
-        ok ? 'border-emerald-500/30 bg-emerald-500/[0.07]' : 'border-red-500/40 bg-red-500/[0.07]',
+        ok ? 'border-ok/30 bg-ok/[0.07]' : 'border-danger/40 bg-danger/[0.07]',
       )}
     >
       <div className="flex items-start gap-2">
-        <span className={cn('mt-[1px]', ok ? 'text-emerald-400' : 'text-red-400')}>
+        <span className={cn('mt-[1px]', ok ? 'text-ok' : 'text-danger')}>
           {ok ? <Check size={13} aria-hidden /> : <AlertTriangle size={13} aria-hidden />}
         </span>
         <div className="min-w-0 flex-1">
-          <div className={cn('font-medium', ok ? 'text-emerald-200' : 'text-red-200')}>
+          <div className={cn('font-medium', ok ? 'text-ok' : 'text-danger')}>
             {ok ? tr('画布校验通过，可以运行', 'Canvas is valid and can run') : tr('画布校验不通过', 'Canvas validation failed')}
           </div>
-          {!ok && <div className="mt-1 break-words font-mono text-[11px] leading-5 text-red-300">{result.error}</div>}
+          {!ok && <div className="mt-1 break-words font-mono text-[11px] leading-5 text-danger">{result.error}</div>}
           {result.warnings.length > 0 && (
-            <ul className="mt-1.5 space-y-0.5 border-t border-zinc-700/40 pt-1.5 text-[10.5px] leading-4 text-amber-200/90">
+            <ul className="mt-1.5 space-y-0.5 border-t border-zinc-700/40 pt-1.5 text-[10.5px] leading-4 text-warn">
               {result.warnings.map((warning) => (
                 <li key={warning}>· {warning}</li>
               ))}

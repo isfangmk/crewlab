@@ -8,7 +8,7 @@ import { useState, type ReactNode } from 'react';
 import { errorText } from '@/lib/errors';
 
 import { Modal } from '@/components/Modal';
-import { Button } from '@/components/ui';
+import { Button, ErrorBanner } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
 
 type Props = {
@@ -86,9 +86,7 @@ export function ConfirmDialog({
     >
       <div className="text-xs leading-5 text-zinc-300">
         {err !== null && (
-          <div className="mb-3 rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-red-300">
-            {err}
-          </div>
+          <ErrorBanner className="mb-3">{err}</ErrorBanner>
         )}
         {description}
       </div>

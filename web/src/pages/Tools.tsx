@@ -15,12 +15,14 @@ import { ApiError } from '@/api/client';
 import { Modal } from '@/components/Modal';
 import {
   Button,
+  Chip,
   ChoiceChip,
   CodeBlock,
   COL,
   DetailSection,
   EmptyStateCard,
   FilterBar,
+  FilterChip,
   Input,
   Label,
   MetricCard,
@@ -162,13 +164,39 @@ export default function ToolsPage() {
       />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <FilterBar className="mx-6 mt-3">
+        <FilterBar
+          className="mx-6 mt-3"
+          footer={
+            risk !== '' ? (
+              <>
+                <FilterChip
+                  label={
+                    risk === 'safe'
+                      ? tr('风险：安全', 'Risk: Safe')
+                      : tr('风险：需审批', 'Risk: Approval required')
+                  }
+                  onClear={() => setRisk('')}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() => {
+                    setQuery('');
+                    setRisk('');
+                  }}
+                >
+                  {tr('清除全部', 'Clear all')}
+                </Button>
+              </>
+            ) : null
+          }
+        >
           <SearchInput
             value={query}
             onChange={setQuery}
             placeholder={tr('搜索 name / description', 'Search name / description')}
             ariaLabel={tr('搜索', 'Search')}
-            className="min-w-[16rem] flex-1"
           />
           <span className="pl-1 text-[11px] text-zinc-500">{tr('风险', 'Risk')}</span>
           <ChoiceChip
@@ -197,12 +225,14 @@ export default function ToolsPage() {
         </FilterBar>
 
         {/* 概览：把「多少工具需要审批」变成一屏可见，而不是靠筛选项去数 */}
-        <div className="mx-6 mt-3 grid shrink-0 grid-cols-3 gap-2">
+        <div className="mx-6 mt-3 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3">
           <MetricCard
             icon={Wrench}
             label={tr('工具总数', 'Tools')}
             value={String(counts.total)}
             hint={tr('平台内置能力', 'Built-in capabilities')}
+            active={risk === ''}
+            onClick={() => setRisk('')}
           />
           <MetricCard
             icon={ShieldCheck}
@@ -210,6 +240,8 @@ export default function ToolsPage() {
             label={tr('安全', 'Safe')}
             value={String(counts.safe)}
             hint={tr('无需审批，直接执行', 'Run without approval')}
+            active={risk === 'safe'}
+            onClick={() => setRisk('safe')}
           />
           <MetricCard
             icon={ShieldAlert}
@@ -222,6 +254,8 @@ export default function ToolsPage() {
                 : tr(`占比 ${Math.round((counts.approval / counts.total) * 100)}%`, `${Math.round((counts.approval / counts.total) * 100)}% of tools`)
             }
             bar={counts.total === 0 ? undefined : (counts.approval / counts.total) * 100}
+            active={risk === 'approval_required'}
+            onClick={() => setRisk('approval_required')}
           />
         </div>
 
@@ -233,7 +267,7 @@ export default function ToolsPage() {
             </ErrorBanner>
           )}
           {loading ? (
-            <div className="flex h-40 items-center justify-center text-sm text-zinc-500">
+            <div className="flex h-40 items-center justify-center text-[11px] text-zinc-500">
               {tr('加载中…', 'Loading…')}
             </div>
           ) : err && items.length === 0 ? null : filtered.length === 0 ? (
@@ -251,14 +285,14 @@ export default function ToolsPage() {
                   <col className={COL.main} />
                   <col className={COL.tag} />
                   <col className={COL.detail} />
-                  <col className={COL.actions} />
+                  <col className={COL.actionsNarrow} />
                 </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">
-                    <th className="px-3 py-2 text-left font-medium">{tr('工具 / 说明', 'Tool / description')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('风险', 'Risk')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('参数', 'Params')}</th>
-                    <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('工具 / 说明', 'Tool / description')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('风险', 'Risk')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('参数', 'Params')}</th>
+                    <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
                 </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
@@ -354,7 +388,8 @@ function ToolRow({
           <button
             type="button"
             onClick={onView}
-            className="shrink-0 font-mono text-[12.5px] font-medium text-zinc-100 transition-colors hover:text-indigo-300"
+            className="min-w-0 truncate text-left font-mono text-[12.5px] font-medium text-zinc-100 transition-colors hover:text-indigo-300"
+            title={tool.name}
           >
             {tool.name}
           </button>
@@ -407,9 +442,7 @@ function ToolDetailModal({
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <RiskBadge value={tool.risk} />
-          <span className="rounded-md border border-zinc-800 bg-zinc-950/40 px-1.5 py-0.5 text-[10px] text-zinc-400">
-            builtin
-          </span>
+          <Chip>builtin</Chip>
           <span className="ml-auto font-mono text-[11px] text-zinc-500">{tool.name}</span>
         </div>
 
@@ -427,10 +460,10 @@ function ToolDetailModal({
               <table className="og-action-table w-full text-[12px]">
                 <thead className="border-b border-zinc-800/60 text-[11px] text-zinc-500">
                   <tr className="whitespace-nowrap">
-                    <th className="px-3 py-2 text-left font-medium">{tr('名称', 'Name')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('类型', 'Type')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('必填', 'Required')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('默认值', 'Default')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('名称', 'Name')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('类型', 'Type')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('必填', 'Required')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('默认值', 'Default')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/60">
@@ -502,10 +535,10 @@ function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void })
       title={tr(`运行 ${tool.name}`, `Run ${tool.name}`)}
       footer={
         <>
-          <Button onClick={onClose} variant="ghost">
+          <Button onClick={onClose} variant="ghost" size="sm">
             {tr('关闭', 'Close')}
           </Button>
-          <Button variant="primary" disabled={busy} onClick={() => void onRun()}>
+          <Button variant="primary" size="sm" disabled={busy} onClick={() => void onRun()}>
             {busy ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
             {busy ? tr('运行中…', 'Running…') : tr('运行', 'Run')}
           </Button>
@@ -529,8 +562,8 @@ function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void })
             {params.map((p) => (
               <Label key={p.name} className="block min-w-0">
                 <span className="mb-0.5 flex items-center gap-1 text-[11px]">
-                  <span className="font-mono text-sky-300">{p.name}</span>
-                  {p.required ? <span className="text-amber-400">*</span> : null}
+                  <span className="font-mono text-info">{p.name}</span>
+                  {p.required ? <span className="text-warn">*</span> : null}
                   <span className="font-mono text-zinc-600">{p.type}</span>
                   {p.desc ? <span className="truncate text-zinc-500">{p.desc}</span> : null}
                 </span>
@@ -571,25 +604,17 @@ function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void })
           </div>
         )}
 
-        {runErr && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300">
-            {runErr}
-          </div>
-        )}
+        {runErr && <ErrorBanner>{runErr}</ErrorBanner>}
         {resultText != null && (
           <div>
             <div className="mb-1.5 flex items-center justify-between text-[11px] uppercase tracking-wide text-zinc-500">
               <span>{tr('运行结果', 'Result')}</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] normal-case"
+              <RowAction
+                icon={Copy}
                 onClick={() => void navigator.clipboard.writeText(resultText)}
               >
-                <Copy size={11} />
                 {tr('复制', 'Copy')}
-              </Button>
+              </RowAction>
             </div>
             <CodeBlock maxHeightClassName="max-h-72">{resultText}</CodeBlock>
           </div>
@@ -663,7 +688,7 @@ function EmptyState({ hasFilter, onClear }: { hasFilter: boolean; onClear: () =>
   return (
     <EmptyStateCard
       icon={Hammer}
-      action={hasFilter ? <Button onClick={onClear}>{tr('清除筛选', 'Clear filters')}</Button> : undefined}
+      action={hasFilter ? <Button size="sm" onClick={onClear}>{tr('清除筛选', 'Clear filters')}</Button> : undefined}
       title={hasFilter ? tr('没有匹配的工具', 'No matching tools') : tr('还没有内置 Tool', 'No built-in tools yet')}
       hint={
         hasFilter

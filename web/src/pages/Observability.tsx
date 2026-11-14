@@ -9,7 +9,6 @@ import {
   LoaderCircle,
   PlugZap,
   RefreshCw,
-  RotateCcw,
   Sparkles,
   SquareTerminal,
   Timer,
@@ -26,6 +25,7 @@ import {
 } from '@/api/observability';
 import {
   Button,
+  Chip,
   COL,
   DetailSection,
   DetailStat,
@@ -45,6 +45,7 @@ import {
   Select,
   StatusPill,
   TableCard,
+  TableHead,
   TablePager,
   tableLayout,
 } from '@/components/ui';
@@ -123,13 +124,13 @@ type CallKindStyle = {
   en: string;
   Icon: typeof SquareTerminal;
   bar: string;
-  chip: string;
+  tone: 'success' | 'accent' | 'info';
 };
 
 const KIND_STYLES: Record<string, CallKindStyle> = {
-  tool: { zh: '工具', en: 'Tool', Icon: SquareTerminal, bar: 'bg-ok', chip: 'border-ok/25 bg-ok/10 text-ok' },
-  skill: { zh: '技能', en: 'Skill', Icon: Sparkles, bar: 'bg-accent', chip: 'border-accent/25 bg-accent/10 text-accent' },
-  mcp: { zh: 'MCP', en: 'MCP', Icon: PlugZap, bar: 'bg-info', chip: 'border-info/25 bg-info/10 text-info' },
+  tool: { zh: '工具', en: 'Tool', Icon: SquareTerminal, bar: 'bg-ok', tone: 'success' },
+  skill: { zh: '技能', en: 'Skill', Icon: Sparkles, bar: 'bg-accent', tone: 'accent' },
+  mcp: { zh: 'MCP', en: 'MCP', Icon: PlugZap, bar: 'bg-info', tone: 'info' },
 };
 
 function kindStyle(kind: string): CallKindStyle {
@@ -445,9 +446,8 @@ export default function ObservabilityPage() {
                   size="sm"
                   type="button"
                   onClick={resetFilters}
-                  className="ml-auto inline-flex h-7 items-center gap-1 px-1.5 text-[11px] text-zinc-500"
+                  className="ml-auto"
                 >
-                  <RotateCcw size={11} />
                   {tr('清除全部', 'Clear all')}
                 </Button>
               ) : null}
@@ -499,7 +499,7 @@ export default function ObservabilityPage() {
               resetToFirstPage();
               setAgentId('');
             }}
-            width="w-[9rem]"
+            width="w-[10.5rem]"
           >
             <Select
               aria-label={tr('助理', 'Agent')}
@@ -520,7 +520,7 @@ export default function ObservabilityPage() {
               resetToFirstPage();
               setModel('');
             }}
-            width="w-[11rem]"
+            width="w-[11.5rem]"
           >
             <Select
               aria-label={tr('模型', 'Model')}
@@ -543,7 +543,7 @@ export default function ObservabilityPage() {
               setCustomFrom('');
               setCustomTo('');
             }}
-            width="w-[8.5rem]"
+            width="w-[9rem]"
           >
             <Select
               aria-label={tr('时间范围', 'Time range')}
@@ -649,11 +649,11 @@ export default function ObservabilityPage() {
           </ErrorBanner>
         ) : null}
         {loading && items.length === 0 ? (
-          <div className="flex h-40 items-center justify-center gap-2 text-[12px] text-zinc-500">
-            <LoaderCircle size={13} className="animate-spin" aria-hidden />
+          <div className="flex h-40 items-center justify-center gap-2 text-[11px] text-zinc-500">
+            <LoaderCircle size={12} className="animate-spin" aria-hidden />
             {tr('加载中…', 'Loading…')}
           </div>
-        ) : items.length === 0 ? (
+        ) : err !== null && items.length === 0 ? null : items.length === 0 ? (
           <EmptyStateCard
             icon={Activity}
             title={tr('没有匹配的观测记录', 'No matching observations')}
@@ -681,25 +681,25 @@ export default function ObservabilityPage() {
               />
             }
           >
-              <table {...tableLayout(50)}>
+              <table {...tableLayout(58)}>
                 <colgroup>
                   <col className={COL.time} />
                   <col className={COL.tag} />
                   <col className={COL.main} />
                   <col className={COL.detail} />
                   <col className={COL.tag} />
-                  <col className={COL.tag} />
+                  <col className={COL.detail} />
                 </colgroup>
-                <thead>
-                  <tr className="whitespace-nowrap border-b border-zinc-800/60 text-[11px] text-zinc-500">
-                    <th scope="col" className="sticky top-0 z-10 px-3 py-2 text-left font-medium">{tr('时间', 'Time')}</th>
-                    <th scope="col" className="sticky top-0 z-10 px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
-                    <th scope="col" className="sticky top-0 z-10 px-3 py-2 text-left font-medium">{tr('输入 / 错误', 'Input / error')}</th>
-                    <th scope="col" className="sticky top-0 z-10 px-3 py-2 text-left font-medium">{tr('工具 / 技能', 'Tools / skills')}</th>
-                    <th scope="col" className="sticky top-0 z-10 px-3 py-2 text-right font-medium">{tr('总计 tokens', 'Total tokens')}</th>
-                    <th scope="col" className="sticky top-0 z-10 px-3 py-2 text-right font-medium">{tr('耗时', 'Latency')}</th>
+                <TableHead>
+                  <tr className="whitespace-nowrap">
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('时间', 'Time')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('输入 / 错误', 'Input / error')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('工具 / 技能', 'Tools / skills')}</th>
+                    <th scope="col" className="px-3 py-2 text-right font-medium">{tr('总计 tokens', 'Total tokens')}</th>
+                    <th scope="col" className="px-3 py-2 text-right font-medium">{tr('耗时', 'Latency')}</th>
                   </tr>
-                </thead>
+                </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
                   {items.map((row) => {
                     const isError = row.status === 'error';
@@ -714,8 +714,8 @@ export default function ObservabilityPage() {
                     return (
                       <tr
                         key={row.trace_id}
+                        data-row-tone={isActive ? 'selected' : undefined}
                         className="group transition-colors"
-                        style={isActive ? { backgroundColor: 'rgb(99 102 241 / 0.08)' } : undefined}
                       >
                         <td
                           className="px-3 py-2 align-middle"
@@ -738,7 +738,7 @@ export default function ObservabilityPage() {
                             onClick={() => void openDetail(row.trace_id)}
                             className={cn(
                               'block max-w-full truncate text-left text-[12.5px] leading-5 transition-colors hover:text-indigo-300',
-                              isError ? 'text-red-300' : 'text-zinc-200',
+                              isError ? 'text-danger' : 'text-zinc-200',
                             )}
                             title={summary || undefined}
                           >
@@ -780,7 +780,7 @@ export default function ObservabilityPage() {
                             <span
                               className={cn(
                                 'w-14 shrink-0 text-right text-[11px] tabular-nums',
-                                isError ? 'text-red-400' : 'text-zinc-200',
+                                isError ? 'text-danger' : 'text-zinc-200',
                               )}
                             >
                               {formatDurationMs(row.duration_ms)}
@@ -818,22 +818,26 @@ function CallCounters({ tools, skills }: { tools: number; skills: number }) {
   return (
     <span className="flex items-center gap-1">
       {tools > 0 ? (
-        <span
-          className="inline-flex items-center gap-0.5 rounded border border-ok/25 bg-ok/10 px-1 text-[10px] tabular-nums text-ok"
+        <Chip
+          tone="success"
+          dense
+          className="gap-0.5 tabular-nums"
           title={tr(`${tools} 次工具调用`, `${tools} tool calls`)}
         >
           <SquareTerminal size={9} aria-hidden />
           {tools}
-        </span>
+        </Chip>
       ) : null}
       {skills > 0 ? (
-        <span
-          className="inline-flex items-center gap-0.5 rounded border border-accent/25 bg-accent/10 px-1 text-[10px] tabular-nums text-accent"
+        <Chip
+          tone="accent"
+          dense
+          className="gap-0.5 tabular-nums"
           title={tr(`${skills} 次技能调用`, `${skills} skill calls`)}
         >
           <Sparkles size={9} aria-hidden />
           {skills}
-        </span>
+        </Chip>
       ) : null}
     </span>
   );
@@ -993,10 +997,10 @@ function TraceTimeline({ turn }: { turn: ObservationTurnDetail }) {
           return (
             <div key={`${call.tool_call_id}-${call.name}`} className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
               <div className="flex w-full min-w-0 items-center gap-1.5 sm:w-[16rem] sm:shrink-0">
-                <span className={cn('inline-flex shrink-0 items-center rounded border px-1 py-0.5 text-[10px]', kind.chip)}>
-                  <Icon size={9} aria-hidden className="mr-0.5" />
+                <Chip dense tone={kind.tone} className="shrink-0 gap-0.5">
+                  <Icon size={9} aria-hidden />
                   {tr(kind.zh, kind.en)}
-                </span>
+                </Chip>
                 <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-300" title={call.name}>
                   {call.name}
                 </span>

@@ -1,9 +1,9 @@
 import { useAssistantPage } from '@/lib/assistantPage';
-import { Button, Chip, Input, Label, RowAction, RowActionIcon, SectionCard, TableCard, TableHead } from '@/components/ui';
+import { Button, Chip, EmptyState, ErrorBanner, Input, Label, RowAction, RowActionIcon, SectionCard, StatusPill, SuccessBanner, TableCard, TableHead } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, KeyRound, Lock, Plus, Trash2, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { Download, KeyRound, Lock, Plus, Trash2, RefreshCw, X } from 'lucide-react';
 import {
   listSecrets,
   listCredentialTypes,
@@ -16,6 +16,7 @@ import {
   type CredType,
 } from '@/api/secrets';
 import { SecretRotateDialog } from '@/components/SecretRotateDialog';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { saveBlob } from '@/lib/download';
 import { fullDateTime } from '@/lib/format';
 import { useI18n } from '@/i18n/locale';
@@ -37,6 +38,7 @@ export default function SecretsPage() {
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [rotating, setRotating] = useState<SecretView | null>(null);
+  const [deleting, setDeleting] = useState<SecretView | null>(null);
 
   // add-form state
   const [name, setName] = useState('');
@@ -109,16 +111,10 @@ export default function SecretsPage() {
     }
   };
 
-  const onDelete = async (id: number) => {
-    setBusy(true);
-    try {
-      await deleteSecret(id);
-      await load();
-    } catch (e) {
-      setErr(errorText(e));
-    } finally {
-      setBusy(false);
-    }
+  const runDelete = async () => {
+    if (deleting === null) throw new Error(tr('没有待删除的凭据', 'No credential selected'));
+    await deleteSecret(deleting.id);
+    await load();
   };
 
   const onExport = async () => {
@@ -167,7 +163,7 @@ export default function SecretsPage() {
           'Pick a type (Tencent Cloud / AWS / GitHub …) and it lists the right fields plus a built-in "which env vars to inject" rule; skills / external MCP that use this credential inject by that rule. Pick "Custom" to enter free-form fields injected as same-named env vars. Values are write-only and AES-encrypted at rest with the existing system secret.',
         )}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Hint content={tr('导出凭证清单（仅元数据，不含密钥）', 'Export credential inventory (metadata only)')}>
               <RowAction
                 icon={Download}
@@ -187,28 +183,21 @@ export default function SecretsPage() {
         }
       />
 
-      {err && (
-        <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] text-red-400">{err}</div>
-      )}
+      {err && <ErrorBanner>{err}</ErrorBanner>}
 
-      {note && (
-        <div className="rounded-md border border-ok/30 bg-ok/5 px-3 py-2 text-[11px] text-ok">{note}</div>
-      )}
+      {note && <SuccessBanner>{note}</SuccessBanner>}
 
       {brokenSecrets.length > 0 && (
-        <div className="flex items-start gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] text-red-400">
-          <ShieldAlert size={13} className="mt-[1px] shrink-0" aria-hidden />
-          <span>
-            {tr(
-              `${brokenSecrets.length} 条凭证无法用当前加密密钥解密（${brokenSecrets
-                .map((s) => s.name)
-                .join('、')}）。轮换并补全全部字段即可修复。`,
-              `${brokenSecrets.length} credential(s) cannot be decrypted with the current key (${brokenSecrets
-                .map((s) => s.name)
-                .join(', ')}). Rotate and fill every field to repair.`,
-            )}
-          </span>
-        </div>
+        <ErrorBanner>
+          {tr(
+            `${brokenSecrets.length} 条凭证无法用当前加密密钥解密（${brokenSecrets
+              .map((s) => s.name)
+              .join('、')}）。轮换并补全全部字段即可修复。`,
+            `${brokenSecrets.length} credential(s) cannot be decrypted with the current key (${brokenSecrets
+              .map((s) => s.name)
+              .join(', ')}). Rotate and fill every field to repair.`,
+          )}
+        </ErrorBanner>
       )}
 
       <SectionCard
@@ -318,24 +307,29 @@ export default function SecretsPage() {
         <table className="og-action-table w-full text-left">
           <TableHead>
             <tr>
-              <th className="px-3 py-1.5 font-medium">{tr('名称', 'Name')}</th>
-              <th className="px-3 py-1.5 font-medium">{tr('类型', 'Type')}</th>
-              <th className="px-3 py-1.5 font-medium">{tr('字段', 'Fields')}</th>
-              <th className="px-3 py-1.5 font-medium">{tr('最近更新', 'Updated')}</th>
-              <th className="px-3 py-1.5" />
+              <th scope="col" className="px-3 py-2 font-medium">{tr('名称', 'Name')}</th>
+              <th scope="col" className="px-3 py-2 font-medium">{tr('类型', 'Type')}</th>
+              <th scope="col" className="px-3 py-2 font-medium">{tr('字段', 'Fields')}</th>
+              <th scope="col" className="px-3 py-2 font-medium">{tr('最近更新', 'Updated')}</th>
+              <th scope="col" className="px-3 py-2" />
             </tr>
           </TableHead>
           <tbody className="divide-y divide-zinc-800/50">
             {loading ? (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-[12px] text-zinc-500">
+                <td colSpan={5} className="px-3 py-6 text-center text-[11px] text-zinc-500">
                   {tr('加载中…', 'Loading…')}
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-[12px] text-zinc-600">
-                  {tr('还没有凭据。', 'No credentials yet.')}
+                <td colSpan={5}>
+                  <EmptyState
+                    icon={KeyRound}
+                    title={tr('还没有凭据', 'No credentials yet')}
+                    hint={tr('在上方选择类型并保存第一个凭据。', 'Pick a type above and save your first credential.')}
+                    className="flex h-40 flex-col items-center justify-center gap-2 text-center"
+                  />
                 </td>
               </tr>
             ) : (
@@ -347,14 +341,12 @@ export default function SecretsPage() {
                       <span className="inline-flex items-center gap-1.5">
                         {s.name}
                         {healthItem !== undefined && !healthItem.ok ? (
-                          <Chip tone="danger" dense>
-                            {tr('不可解密', 'Undecryptable')}
-                          </Chip>
+                          <StatusPill tone="danger" label={tr('不可解密', 'Undecryptable')} />
                         ) : null}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-[11px] text-zinc-400">
-                      {types.find((t) => t.name === s.type)?.label ?? s.type ?? CUSTOM}
+                    <td className="px-3 py-2">
+                      <Chip>{types.find((t) => t.name === s.type)?.label ?? s.type ?? CUSTOM}</Chip>
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-1">
@@ -370,8 +362,8 @@ export default function SecretsPage() {
                     <td className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-zinc-500">
                       {fullDateTime(s.updated_at)}
                     </td>
-                    <td className="px-3 py-1 text-right">
-                      <div className="flex items-center justify-end gap-0.5">
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
                         <RowAction
                           icon={KeyRound}
                           disabled={busy}
@@ -388,7 +380,7 @@ export default function SecretsPage() {
                             label={tr('删除', 'Delete')}
                             tone="danger"
                             disabled={busy}
-                            onClick={() => void onDelete(s.id)}
+                            onClick={() => setDeleting(s)}
                           />
                         </Hint>
                       </div>
@@ -407,6 +399,17 @@ export default function SecretsPage() {
         health={rotating === null ? undefined : health[rotating.id]}
         onClose={() => setRotating(null)}
         onRotated={onRotated}
+      />
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title={deleting ? tr(`删除 ${deleting.name}?`, `Delete ${deleting.name}?`) : ''}
+        description={tr(
+          '删除后使用该凭据的服务会立即失效，且无法恢复。',
+          'Services using this credential stop working immediately; this cannot be undone.',
+        )}
+        onConfirm={runDelete}
+        onClose={() => setDeleting(null)}
       />
     </div>
   );

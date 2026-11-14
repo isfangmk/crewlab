@@ -2,11 +2,15 @@ import { useAssistantPage } from '@/lib/assistantPage';
 import {
   Button,
   Checkbox,
+  Chip,
   ChoiceChip,
+  CodeBlock,
   COL,
+  DetailSection,
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
+  FilterChip,
   FilterPill,
   Input,
   MetricCard,
@@ -329,7 +333,7 @@ export default function ApprovalsPage() {
               resetFiltersToFirstPage();
               setCustomFrom(e.target.value);
             }}
-            className="h-7 w-[11.5rem] text-[12px]"
+            className="h-8 w-[12.5rem] text-[12px]"
           />
           <span aria-hidden className="text-[11px] text-zinc-600">→</span>
           <Input
@@ -340,9 +344,39 @@ export default function ApprovalsPage() {
               resetFiltersToFirstPage();
               setCustomTo(e.target.value);
             }}
-            className="h-7 w-[11.5rem] text-[12px]"
+            className="h-8 w-[12.5rem] text-[12px]"
           />
         </span>
+      ) : null}
+      {timePreset !== 'all' ? (
+        <FilterChip
+          label={
+            timePreset === 'today'
+              ? tr('时间：今天', 'Time: Today')
+              : timePreset === '7d'
+                ? tr('时间：近 7 天', 'Time: Last 7 days')
+                : timePreset === '30d'
+                  ? tr('时间：近 30 天', 'Time: Last 30 days')
+                  : tr('时间：自定义', 'Time: Custom')
+          }
+          onClear={() => {
+            resetFiltersToFirstPage();
+            setTimePreset('all');
+            setCustomFrom('');
+            setCustomTo('');
+          }}
+        />
+      ) : null}
+      {filtered ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          onClick={clearFilters}
+          className={selected.size === 0 ? 'ml-auto' : undefined}
+        >
+          {tr('清除全部', 'Clear all')}
+        </Button>
       ) : null}
       {selected.size > 0 ? (
         <>
@@ -370,7 +404,7 @@ export default function ApprovalsPage() {
             size="sm"
             type="button"
             onClick={() => setSelected(new Set())}
-            className="ml-auto inline-flex h-7 items-center gap-1 px-1.5 text-[11px] text-zinc-500"
+            className="ml-auto"
           >
             {tr('清空选择', 'Clear selection')}
           </Button>
@@ -420,7 +454,7 @@ export default function ApprovalsPage() {
             }}
             placeholder={tr('搜索标题 / 摘要 / 工具 / 会话 ID', 'Search title / summary / tool / session ID')}
             ariaLabel={tr('搜索审批', 'Search approvals')}
-            className="min-w-[14rem] flex-1"
+            className="flex-1"
           />
           <FilterPill
             label={tr('时间', 'Time')}
@@ -483,7 +517,7 @@ export default function ApprovalsPage() {
 
         {/* 概览：统计与列表共用搜索/时间条件，点卡片即按状态过滤 */}
         {counts ? (
-          <div className="mx-6 mt-3 grid shrink-0 grid-cols-3 gap-2 lg:grid-cols-6">
+          <div className="mx-6 mt-3 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
             {APPROVAL_STATUSES.map((s) => {
               const meta = APPROVAL_STATUS_META[s];
               return (
@@ -517,7 +551,7 @@ export default function ApprovalsPage() {
             </ErrorBanner>
           )}
           {loading ? (
-            <div className="flex h-40 items-center justify-center text-sm text-zinc-500">
+            <div className="flex h-40 items-center justify-center text-[11px] text-zinc-500">
               {tr('加载中…', 'Loading…')}
             </div>
           ) : customIncomplete ? (
@@ -527,6 +561,7 @@ export default function ApprovalsPage() {
               action={
                 <Button
                   variant="ghost"
+                  size="sm"
                   onClick={() => {
                     resetFiltersToFirstPage();
                     setTimePreset('all');
@@ -538,7 +573,7 @@ export default function ApprovalsPage() {
                 </Button>
               }
             />
-          ) : items.length === 0 ? (
+          ) : err !== null && items.length === 0 ? null : items.length === 0 ? (
             <EmptyStateCard
               icon={ShieldCheck}
               title={
@@ -548,7 +583,7 @@ export default function ApprovalsPage() {
               }
               action={
                 filtered ? (
-                  <Button variant="ghost" onClick={clearFilters}>
+                  <Button variant="ghost" size="sm" onClick={clearFilters}>
                     {tr('清除筛选', 'Clear filters')}
                   </Button>
                 ) : undefined
@@ -577,7 +612,7 @@ export default function ApprovalsPage() {
             >
               <table {...tableLayout(60)}>
                 <colgroup>
-                  <col className={COL.handle} />
+                  <col className={COL.selectExpand} />
                   <col className={COL.main} />
                   <col className={COL.tag} />
                   <col className={COL.tag} />
@@ -681,11 +716,8 @@ function ApprovalRow({
   return (
     <>
       <tr
-        className={cn(
-          'transition-colors',
-          pending ? 'bg-warn/[0.03] hover:bg-warn/[0.06]' : 'hover:bg-zinc-900/40',
-          expanded && 'bg-zinc-900/40',
-        )}
+        data-row-tone={pending ? 'pending' : expanded ? 'expanded' : undefined}
+        className="transition-colors"
       >
         <td className="px-2 py-2">
           <div className="flex items-center gap-1">
@@ -722,9 +754,9 @@ function ApprovalRow({
             >
               {a.title}
             </button>
-            <span className="shrink-0 rounded border border-zinc-800 bg-zinc-950/40 px-1 py-px font-mono text-[10px] text-zinc-500">
+            <Chip dense className="shrink-0 font-mono">
               {a.kind}
-            </span>
+            </Chip>
           </div>
           {a.summary && a.summary !== a.title && (
             <div className="mt-0.5 line-clamp-1 whitespace-pre-wrap pl-[19px] text-[11px] text-zinc-500" title={a.summary}>
@@ -772,7 +804,7 @@ function ApprovalRow({
         </td>
       </tr>
       {expanded ? (
-        <tr className="bg-zinc-950/30">
+        <tr data-row-tone="detail">
           <td colSpan={6} className="px-3 pb-3 pt-0">
             <div className="ml-[3.625rem] space-y-2.5">
               <PayloadBlock title={tr('操作内容', 'Action payload')} body={prettify(a.payload)} />
@@ -794,24 +826,20 @@ function ApprovalRow({
 function PayloadBlock({ title, body }: { title: string; body: string }) {
   const { tr } = useI18n();
   return (
-    <div className="overflow-hidden rounded-lg border border-zinc-800/60 bg-zinc-950/60">
-      <div className="flex items-center justify-between gap-2 border-b border-zinc-800/60 px-2.5 py-1.5">
-        <span className="text-[10px] uppercase tracking-wider text-zinc-500">{title}</span>
-        <Button
-          variant="subtle"
-          size="sm"
-          type="button"
+    <DetailSection
+      title={title}
+      actions={
+        <RowAction
+          icon={Copy}
           aria-label={tr('复制内容', 'Copy content')}
           onClick={() => void navigator.clipboard.writeText(body)}
-          className="h-5 w-5 p-0 text-zinc-500"
         >
-          <Copy size={10} />
-        </Button>
-      </div>
-      <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-all px-2.5 py-2 text-[11px] leading-5 text-text-muted">
-        {body}
-      </pre>
-    </div>
+          {tr('复制', 'Copy')}
+        </RowAction>
+      }
+    >
+      <CodeBlock maxHeightClassName="max-h-56">{body}</CodeBlock>
+    </DetailSection>
   );
 }
 

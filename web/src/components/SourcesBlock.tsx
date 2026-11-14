@@ -120,7 +120,7 @@ export function SourcesSection({
               {s.href !== undefined ? (
                 <a
                   href={s.href}
-                  className="truncate text-[12px] text-sky-300 hover:underline"
+                  className="truncate text-[12px] text-info hover:underline"
                   target={s.href.startsWith('http') ? '_blank' : undefined}
                   rel={s.href.startsWith('http') ? 'noreferrer' : undefined}
                 >

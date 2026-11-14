@@ -9,7 +9,6 @@ import {
   ArrowDown,
   ArrowUp,
   History,
-  Pencil,
   Play,
   Plus,
   RefreshCw,
@@ -38,17 +37,22 @@ import { DraftTag, RunStatusPill, formatDuration } from '@/components/workflow/R
 import { RunWorkflowDialog } from '@/components/workflow/RunWorkflowDialog';
 import {
   Button,
+  Chip,
   ChoiceChip,
   COL,
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
+  FilterChip,
+  FilterPill,
   Input,
+  Label,
   PageHeader,
   RowAction,
   RowActionIcon,
   SearchInput,
   Select,
+  StatusPill,
   TableCard,
   TableHead,
   TablePager,
@@ -203,7 +207,7 @@ export default function WorkflowsPage() {
               </RowAction>
             )}
             {tab === 'canvas' && canMutate && (
-              <Button variant="primary" size="sm" className="h-7 px-3 text-[11.5px]" onClick={() => setCreating(true)}>
+              <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
                 <Plus size={12} aria-hidden />
                 {tr('新建工作流', 'New workflow')}
               </Button>
@@ -214,13 +218,42 @@ export default function WorkflowsPage() {
 
       {tab === 'canvas' ? (
         <>
-          <FilterBar className="mx-6 mt-3">
+          <FilterBar
+            className="mx-6 mt-3"
+            footer={
+              status !== '' ? (
+                <>
+                  <FilterChip
+                    label={
+                      status === 'published'
+                        ? tr('状态：已发布', 'Status: Published')
+                        : tr('状态：草稿', 'Status: Draft')
+                    }
+                    onClear={() => {
+                      setStatus('');
+                      setPage(0);
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto"
+                    onClick={() => {
+                      setQuery('');
+                      setStatus('');
+                    }}
+                  >
+                    {tr('清除全部', 'Clear all')}
+                  </Button>
+                </>
+              ) : null
+            }
+          >
             <SearchInput
               value={query}
               onChange={setQuery}
               placeholder={tr('搜索名称 / 描述', 'Search name / description')}
               ariaLabel={tr('搜索工作流', 'Search workflows')}
-              className="min-w-[16rem] flex-1"
             />
             <span className="pl-1 text-[11px] text-zinc-500">{tr('状态', 'Status')}</span>
             <ChoiceChip
@@ -255,8 +288,8 @@ export default function WorkflowsPage() {
           <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
             {error !== null && <ErrorBar message={error} />}
             {loading ? (
-              <div className="flex h-40 items-center justify-center text-[12px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
-            ) : total === 0 ? (
+              <div className="flex h-40 items-center justify-center text-[11px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
+            ) : error !== null && total === 0 ? null : total === 0 ? (
               <EmptyStateCard
                 icon={WorkflowIcon}
                 title={hasFilter ? tr('没有匹配的工作流', 'No matching workflows') : tr('还没有工作流', 'No workflows yet')}
@@ -270,7 +303,6 @@ export default function WorkflowsPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-7 px-3 text-[11.5px]"
                       onClick={() => {
                         setQuery('');
                         setStatus('');
@@ -279,7 +311,7 @@ export default function WorkflowsPage() {
                       {tr('清除筛选', 'Clear filters')}
                     </Button>
                   ) : canMutate ? (
-                    <Button variant="primary" size="sm" className="h-7 px-3 text-[11.5px]" onClick={() => setCreating(true)}>
+                    <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
                       <Plus size={12} aria-hidden />
                       {tr('新建工作流', 'New workflow')}
                     </Button>
@@ -305,24 +337,24 @@ export default function WorkflowsPage() {
                   />
                 }
               >
-                <table {...tableLayout(52)}>
+                <table {...tableLayout(70)}>
                   <colgroup>
                     <col className={COL.main} />
-                    <col className={COL.tag} />
+                    <col className={COL.detail} />
                     <col className={COL.tag} />
                     <col className={COL.detail} />
                     <col className={COL.tag} />
                     <col className={COL.time} />
-                    <col className={COL.actionsNarrow} />
+                    <col className={COL.actions} />
                   </colgroup>
                   <TableHead>
                     <tr className="whitespace-nowrap">
-                      <th className="px-3 py-2 text-left font-medium">{tr('工作流', 'Workflow')}</th>
-                      <th className="px-3 py-2 text-left font-medium">{tr('结构', 'Structure')}</th>
-                      <th className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
-                      <th className="px-3 py-2 text-left font-medium">{tr('运行状态', 'Run status')}</th>
-                      <th className="px-3 py-2 text-left font-medium">{tr('版本', 'Version')}</th>
-                      <th className="px-3 py-2 text-left font-medium" aria-sort={sortDir === 'desc' ? 'descending' : 'ascending'}>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('工作流', 'Workflow')}</th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('结构', 'Structure')}</th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('运行状态', 'Run status')}</th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('版本', 'Version')}</th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium" aria-sort={sortDir === 'desc' ? 'descending' : 'ascending'}>
                         <button
                           type="button"
                           onClick={() => {
@@ -335,7 +367,7 @@ export default function WorkflowsPage() {
                           {sortDir === 'desc' ? <ArrowDown size={11} aria-hidden /> : <ArrowUp size={11} aria-hidden />}
                         </button>
                       </th>
-                      <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
+                      <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                     </tr>
                   </TableHead>
                   <tbody className="divide-y divide-zinc-800/40">
@@ -346,11 +378,12 @@ export default function WorkflowsPage() {
                             <button
                               type="button"
                               onClick={() => navigate(`/workflows/${item.id}`)}
-                              className="block max-w-[32rem] truncate text-left text-[12.5px] font-medium text-zinc-200 hover:text-indigo-300"
+                              className="block max-w-full truncate text-left text-[12.5px] font-medium text-zinc-200 transition-colors hover:text-indigo-300"
+                              title={item.name}
                             >
                               {item.name}
                             </button>
-                            <div className="mt-0.5 line-clamp-1 max-w-[38rem] text-[10.5px] text-zinc-500">
+                            <div className="mt-0.5 line-clamp-1 text-[10.5px] text-zinc-500" title={item.description || undefined}>
                               {item.description || tr('没有描述', 'No description')}
                             </div>
                             {item.warnings.length > 0 && (
@@ -370,17 +403,10 @@ export default function WorkflowsPage() {
                           </div>
                         </td>
                         <td className="whitespace-nowrap px-3 py-2">
-                          <span
-                            className={cn(
-                              'inline-flex items-center gap-1 rounded-full border px-1.5 text-[10.5px] leading-4',
-                              item.status === 'published'
-                                ? 'border-ok/30 bg-ok/10 text-ok'
-                                : 'border-zinc-700 bg-zinc-800/40 text-zinc-400',
-                            )}
-                          >
-                            <span className={cn('h-1 w-1 rounded-full', item.status === 'published' ? 'bg-ok' : 'bg-zinc-500')} aria-hidden />
-                            {item.status === 'published' ? tr('已发布', 'Published') : tr('草稿', 'Draft')}
-                          </span>
+                          <StatusPill
+                            tone={item.status === 'published' ? 'ok' : 'neutral'}
+                            label={item.status === 'published' ? tr('已发布', 'Published') : tr('草稿', 'Draft')}
+                          />
                         </td>
                         <td className="whitespace-nowrap px-3 py-2">
                           <LastRunCell run={item.last_run} onOpen={(uid) => navigate(`/workflows/runs/${uid}`)} />
@@ -395,10 +421,7 @@ export default function WorkflowsPage() {
                                 {tr('运行', 'Run')}
                               </RowAction>
                             )}
-                            <RowAction icon={Pencil} onClick={() => navigate(`/workflows/${item.id}`)}>
-                              {tr('编排', 'Edit')}
-                            </RowAction>
-                            {/* 图标按钮在这里说不清点下去会发生什么，改成和「运行 / 编排」同款文字操作 */}
+                            {/* 图标按钮在这里说不清点下去会发生什么，改成和「运行」同款文字操作 */}
                             <RowAction
                               icon={History}
                               onClick={() => {
@@ -512,7 +535,12 @@ function LastRunCell({ run, onOpen }: { run: WorkflowLastRun | null; onOpen(uid:
     return <span className="text-[11px] text-zinc-600">{tr('未运行', 'Never run')}</span>;
   }
   return (
-    <button type="button" onClick={() => onOpen(run.run_uid)} title={run.run_uid}>
+    <button
+      type="button"
+      onClick={() => onOpen(run.run_uid)}
+      title={run.run_uid}
+      className="rounded-full transition-opacity hover:opacity-80"
+    >
       <RunStatusPill status={run.status} />
     </button>
   );
@@ -521,7 +549,7 @@ function LastRunCell({ run, onOpen }: { run: WorkflowLastRun | null; onOpen(uid:
 function ErrorBar({ message }: { message: string }) {
   const { tr } = useI18n();
   return (
-    <ErrorBanner>
+    <ErrorBanner className="mb-3">
       {tr('操作失败：', 'Operation failed: ')}
       {message}
     </ErrorBanner>
@@ -602,7 +630,48 @@ function RunsTab({
 
   return (
     <>
-      <FilterBar className="mx-6 mt-3">
+      <FilterBar
+        className="mx-6 mt-3"
+        footer={
+          hasFilter ? (
+            <>
+              {workflowId !== undefined ? (
+                <FilterChip
+                  label={tr(
+                    `工作流：${workflowOptions.find((o) => o.value === String(workflowId))?.label ?? workflowId}`,
+                    `Workflow: ${workflowOptions.find((o) => o.value === String(workflowId))?.label ?? workflowId}`,
+                  )}
+                  onClear={onClearFilter}
+                />
+              ) : null}
+              {status !== '' ? (
+                <FilterChip
+                  label={tr(
+                    `状态：${RUN_STATUS_FILTERS.find((item) => item.value === status)?.label(tr) ?? status}`,
+                    `Status: ${RUN_STATUS_FILTERS.find((item) => item.value === status)?.value ?? status}`,
+                  )}
+                  onClear={() => {
+                    setStatus('');
+                    setPage(0);
+                  }}
+                />
+              ) : null}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto"
+                onClick={() => {
+                  setQuery('');
+                  setStatus('');
+                  if (workflowId !== undefined) onClearFilter();
+                }}
+              >
+                {tr('清除全部', 'Clear all')}
+              </Button>
+            </>
+          ) : null
+        }
+      >
         <SearchInput
           value={query}
           onChange={(next) => {
@@ -611,18 +680,25 @@ function RunsTab({
           }}
           placeholder={tr('搜索工作流名 / run_id / 触发人', 'Search workflow / run_id / triggered by')}
           ariaLabel={tr('搜索运行记录', 'Search runs')}
-          className="min-w-[16rem] flex-1"
         />
-        <Select
-          value={workflowFilter}
-          onValueChange={(next) => {
-            onWorkflowFilterChange(next === '' ? null : Number(next));
-            setPage(0);
-          }}
-          options={[{ value: '', label: tr('全部工作流', 'All workflows') }, ...workflowOptions]}
-          aria-label={tr('按工作流筛选', 'Filter by workflow')}
-          className="w-[13rem]"
-        />
+        <FilterPill
+          label={tr('工作流', 'Workflow')}
+          active={workflowId !== undefined}
+          onClear={onClearFilter}
+          width="w-[13rem]"
+        >
+          <Select
+            value={workflowFilter}
+            onValueChange={(next) => {
+              onWorkflowFilterChange(next === '' ? null : Number(next));
+              setPage(0);
+            }}
+            options={[{ value: '', label: tr('全部工作流', 'All workflows') }, ...workflowOptions]}
+            aria-label={tr('按工作流筛选', 'Filter by workflow')}
+            variant="ghost"
+            className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+          />
+        </FilterPill>
         <span className="pl-1 text-[11px] text-zinc-500">{tr('状态', 'Status')}</span>
         {RUN_STATUS_FILTERS.map((item) => (
           <ChoiceChip
@@ -642,7 +718,7 @@ function RunsTab({
         {error !== null && <ErrorBar message={error} />}
         {failure !== null && <ErrorBar message={failure} />}
         {loading ? (
-          <div className="flex h-40 items-center justify-center text-[12px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
+          <div className="flex h-40 items-center justify-center text-[11px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
         ) : runs.length === 0 ? (
           <EmptyStateCard
             icon={History}
@@ -657,7 +733,6 @@ function RunsTab({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-7 px-3 text-[11.5px]"
                   onClick={() => {
                     setQuery('');
                     setStatus('');
@@ -667,7 +742,7 @@ function RunsTab({
                   {tr('清除筛选', 'Clear filters')}
                 </Button>
               ) : firstWorkflowId !== null ? (
-                <Button variant="outline" size="sm" className="h-7 px-3 text-[11.5px]" onClick={() => onOpenWorkflow(firstWorkflowId)}>
+                <Button variant="outline" size="sm" onClick={() => onOpenWorkflow(firstWorkflowId)}>
                   {tr('打开一个工作流', 'Open a workflow')}
                 </Button>
               ) : undefined
@@ -692,7 +767,7 @@ function RunsTab({
               />
             }
           >
-            <table {...tableLayout(56)}>
+            <table {...tableLayout(64)}>
               <colgroup>
                 <col className={COL.main} />
                 <col className={COL.tag} />
@@ -704,13 +779,13 @@ function RunsTab({
               </colgroup>
               <TableHead>
                 <tr className="whitespace-nowrap">
-                  <th className="px-3 py-2 text-left font-medium">{tr('运行', 'Run')}</th>
-                  <th className="px-3 py-2 text-left font-medium">{tr('版本', 'Version')}</th>
-                  <th className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
-                  <th className="px-3 py-2 text-left font-medium">{tr('触发人', 'Triggered by')}</th>
-                  <th className="px-3 py-2 text-left font-medium">{tr('开始时间', 'Started')}</th>
-                  <th className="px-3 py-2 text-left font-medium">{tr('耗时', 'Duration')}</th>
-                  <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('运行', 'Run')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('版本', 'Version')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('触发人', 'Triggered by')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('开始时间', 'Started')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('耗时', 'Duration')}</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                 </tr>
               </TableHead>
               <tbody className="divide-y divide-zinc-800/40">
@@ -721,16 +796,17 @@ function RunsTab({
                         <button
                           type="button"
                           onClick={() => onOpenRun(run.run_uid)}
-                          className="block max-w-[24rem] truncate text-left text-[12.5px] text-zinc-200 hover:text-indigo-300"
+                          className="block max-w-full truncate text-left text-[12.5px] text-zinc-200 transition-colors hover:text-indigo-300"
+                          title={run.workflow_name}
                         >
                           {run.workflow_name}
                         </button>
-                        <div className="mt-0.5 flex items-center gap-1 font-mono text-[10px] text-zinc-600">
-                          <span>{run.run_uid}</span>
+                        <div className="mt-0.5 flex min-w-0 items-center gap-1 font-mono text-[10px] text-zinc-600">
+                          <span className="truncate" title={run.run_uid}>{run.run_uid}</span>
                           {run.trigger === 'debug' && (
-                            <span className="ml-1 rounded-sm bg-zinc-700/40 px-1 font-sans text-[10px] text-zinc-400">
+                            <Chip dense className="ml-1 shrink-0 font-sans">
                               {tr('节点试跑', 'Node test')}
-                            </span>
+                            </Chip>
                           )}
                         </div>
                       </td>
@@ -826,10 +902,10 @@ function CreateWorkflowDialog({ onClose, onCreated }: { onClose(): void; onCreat
       size="md"
       footer={
         <>
-          <Button variant="outline" size="sm" className="h-7 px-3 text-[11.5px]" onClick={onClose} disabled={busy}>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
             {tr('取消', 'Cancel')}
           </Button>
-          <Button variant="primary" size="sm" className="h-7 px-3 text-[11.5px]" onClick={() => void submit()} disabled={busy}>
+          <Button variant="primary" size="sm" onClick={() => void submit()} disabled={busy}>
             {busy ? tr('创建中…', 'Creating…') : tr('创建并打开', 'Create & open')}
           </Button>
         </>
@@ -842,18 +918,18 @@ function CreateWorkflowDialog({ onClose, onCreated }: { onClose(): void; onCreat
           </ErrorBanner>
         )}
         <div className="space-y-1">
-          <div className="text-[10.5px] font-medium text-zinc-500">
+          <Label className="text-[11px] text-zinc-500">
             {tr('名称', 'Name')}
             <span className="ml-1 text-danger">*</span>
-          </div>
-          <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={tr('例如：工单巡检', 'e.g. Ticket triage')} className="h-8 text-[12px]" autoFocus />
+          </Label>
+          <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={tr('例如：工单巡检', 'e.g. Ticket triage')} autoFocus />
         </div>
         <div className="space-y-1">
-          <div className="text-[10.5px] font-medium text-zinc-500">{tr('描述', 'Description')}</div>
-          <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} className="text-[11.5px]" />
+          <Label className="text-[11px] text-zinc-500">{tr('描述', 'Description')}</Label>
+          <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} />
         </div>
         <div className="space-y-1">
-          <div className="text-[10.5px] font-medium text-zinc-500">{tr('起始模板', 'Template')}</div>
+          <Label className="text-[11px] text-zinc-500">{tr('起始模板', 'Template')}</Label>
           <div className="grid grid-cols-3 gap-2">
             {TEMPLATES.map((item) => (
               <button
@@ -874,7 +950,7 @@ function CreateWorkflowDialog({ onClose, onCreated }: { onClose(): void; onCreat
             ))}
           </div>
         </div>
-        <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 px-2.5 py-2 text-[10.5px] leading-4 text-zinc-500">
+        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-2.5 py-2 text-[10.5px] leading-4 text-zinc-500">
           {tr(
             '模板只预置结构，模型、检索范围等参数在编排页填写；保存时后端会做完整校验。',
             'Templates only preset structure; fill in models and retrieval scope in the editor. Saving validates everything.',
@@ -886,7 +962,7 @@ function CreateWorkflowDialog({ onClose, onCreated }: { onClose(): void; onCreat
           </div>
         )}
         {knowledgeNeedsModel && (
-          <div className="rounded-md border border-warn/30 bg-warn/5 px-2.5 py-2 text-[10.5px] leading-4 text-warn">
+          <div className="rounded-lg border border-warn/30 bg-warn/5 px-2.5 py-2 text-[10.5px] leading-4 text-warn">
             {tr(
               '还没有启用任何模型：模板只连「开始 → 检索 → 结束」，配置模型后再加 LLM 节点。',
               'No model is enabled: the template links Start → Retrieval → End; add an LLM node after configuring a model.',

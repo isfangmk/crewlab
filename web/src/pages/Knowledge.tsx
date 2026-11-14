@@ -552,32 +552,40 @@ export default function KnowledgePage() {
           >
             <SearchInput
               value={titleQuery}
-              onChange={setTitleQuery}
+              onChange={(value) => {
+                setTitleQuery(value);
+                setPage(0);
+              }}
               placeholder={tr('按文档标题筛选…', 'Filter by document title…')}
               ariaLabel={tr('按标题筛选', 'Filter by title')}
-                className="min-w-[16rem] flex-1"
-              />
-              {group === 'org' && (
-                <FilterPill
-                  label={tr('来源', 'Source')}
-                  active={sourceFilter !== ''}
-                  onClear={() => setSourceFilter('')}
-                  width="w-[8.5rem]"
-                >
-                  <Select
-                    aria-label={tr('来源', 'Source')}
-                    value={sourceFilter}
-                    onValueChange={(v) => setSourceFilter(v as DocSource | '')}
-                    options={sourceOptions}
-                    variant="ghost"
-                    className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
-                  />
-                </FilterPill>
-              )}
-              <span className="ml-auto shrink-0 pr-1 text-[11px] tabular-nums text-zinc-500">
-                {tr(`共 ${total} 篇`, `${total} docs`)}
-              </span>
-            </FilterBar>
+            />
+            {group === 'org' && (
+              <FilterPill
+                label={tr('来源', 'Source')}
+                active={sourceFilter !== ''}
+                onClear={() => {
+                  setSourceFilter('');
+                  setPage(0);
+                }}
+                width="w-[8.5rem]"
+              >
+                <Select
+                  aria-label={tr('来源', 'Source')}
+                  value={sourceFilter}
+                  onValueChange={(v) => {
+                    setSourceFilter(v as DocSource | '');
+                    setPage(0);
+                  }}
+                  options={sourceOptions}
+                  variant="ghost"
+                  className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+                />
+              </FilterPill>
+            )}
+            <span className="ml-auto shrink-0 pr-1 text-[11px] tabular-nums text-zinc-500">
+              {tr(`共 ${total} 篇`, `${total} docs`)}
+            </span>
+          </FilterBar>
 
             <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside className="hidden w-[15rem] shrink-0 flex-col overflow-y-auto border-r border-zinc-800/60 px-2 py-3 md:flex">
@@ -636,8 +644,8 @@ export default function KnowledgePage() {
           )}
 
           {loading ? (
-            <div className="flex h-40 items-center justify-center text-[11.5px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
-          ) : total === 0 ? (
+            <div className="flex h-40 items-center justify-center text-[11px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
+          ) : err !== null && total === 0 ? null : total === 0 ? (
             <EmptyStateCard
               icon={BookOpen}
               title={
@@ -707,7 +715,7 @@ export default function KnowledgePage() {
                     <col className={COL.time} />
                     <col className={COL.detail} />
                     <col className={COL.tag} />
-                    <col className={COL.actionsIcon} />
+                    <col className={COL.actionsIconWide} />
                   </colgroup>
                   <TableHead>
                     <tr className="whitespace-nowrap">
@@ -877,7 +885,7 @@ function SourceGroupSection({
           className={cn(
             'relative flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors',
             dragOver
-              ? 'bg-sky-500/10 ring-1 ring-inset ring-sky-400/70'
+              ? 'bg-info/10 ring-1 ring-inset ring-info/70'
               : rootActive
                 ? 'bg-indigo-500/10 text-zinc-100'
                 : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200',
@@ -966,7 +974,7 @@ function FolderNode({
         className={cn(
           'relative flex items-center gap-0.5 rounded-md pr-1 transition-colors',
           dragOver
-            ? 'bg-sky-500/10 ring-1 ring-inset ring-sky-400/70'
+            ? 'bg-info/10 ring-1 ring-inset ring-info/70'
             : isActive
               ? 'bg-indigo-500/10 text-zinc-100'
               : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200',
@@ -1087,14 +1095,14 @@ function DocRow({
           <span aria-hidden className="inline-block h-7 w-4" />
         )}
       </td>
-      <td className="px-3 py-[7px]">
+      <td className="px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <Chip
             dense
             tone={DOC_KIND_TONE[kind] ?? 'default'}
             aria-label={tr(`文档类型 ${kind}`, `Document type ${kind}`)}
             title={tr(`文档类型 ${kind}`, `Document type ${kind}`)}
-            className="inline-flex h-[18px] min-w-[24px] shrink-0 items-center justify-center font-mono text-[9px] font-medium tracking-tight"
+            className="inline-flex min-w-[24px] shrink-0 items-center justify-center font-mono"
           >
             {kind}
           </Chip>
@@ -1158,16 +1166,16 @@ function DocRow({
           )}
         </div>
       </td>
-      <td className="px-3 py-[7px]">
+      <td className="px-3 py-2">
         {/* 完整日期时间：相对时间无法核对与排序，列表里一律不用 */}
-        <span className="whitespace-nowrap text-[11.5px] tabular-nums text-zinc-500">
+        <span className="whitespace-nowrap text-[11px] tabular-nums text-zinc-500">
           {fullDateTime(doc.updated_at)}
         </span>
       </td>
-      <td className="px-3 py-[7px]">
+      <td className="px-3 py-2">
         {/* 索引可观测性：分块数 + 文件大小，异常（0 块）用状态色说话 */}
         <div
-          className="flex items-center gap-1.5 whitespace-nowrap text-[11.5px] tabular-nums text-zinc-400"
+          className="flex items-center gap-1.5 whitespace-nowrap text-[11px] tabular-nums text-zinc-400"
           title={[
             doc.content_chars === undefined
               ? ''
@@ -1204,7 +1212,7 @@ function DocRow({
           </div>
         )}
       </td>
-      <td className="px-3 py-[7px]">
+      <td className="px-3 py-2">
         {/* 状态用语义色说话，胶囊本身即开关，不再并排放一个裸 Switch */}
         <button
           type="button"
@@ -1222,7 +1230,7 @@ function DocRow({
           />
         </button>
       </td>
-      <td className="px-3 py-[7px]">
+      <td className="px-3 py-2">
         <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           {doc.source_type === 'upload' && doc.source_filename ? (
             <RowActionIcon
@@ -1260,14 +1268,19 @@ function SearchHitRow({ hit, rank, onOpen }: { hit: SearchHit; rank: number; onO
   const title = localizedDocTitle(hit.doc);
   return (
     <tr>
-      <td className="px-3 py-2.5 align-top font-mono text-[10.5px] tabular-nums text-zinc-600">
+      <td className="px-3 py-2 align-top font-mono text-[10.5px] tabular-nums text-zinc-600">
         {String(rank).padStart(2, '0')}
       </td>
-      <td className="px-3 py-2.5">
+      <td className="px-3 py-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="truncate text-[12.5px] font-medium text-zinc-100" title={title}>
+          <button
+            type="button"
+            onClick={onOpen}
+            className="min-w-0 truncate text-left text-[12.5px] font-medium text-zinc-100 transition-colors hover:text-indigo-300"
+            title={title}
+          >
             {title}
-          </span>
+          </button>
           {hit.doc.path && (
             <span className="max-w-[14rem] truncate text-[10px] text-zinc-500">
               {localizedPath(hit.doc.path)}
@@ -1275,11 +1288,11 @@ function SearchHitRow({ hit, rank, onOpen }: { hit: SearchHit; rank: number; onO
           )}
           <Chip dense>{tr(`命中块 ${hit.chunk_index + 1}`, `chunk ${hit.chunk_index + 1}`)}</Chip>
         </div>
-        <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-[11.5px] leading-5 text-zinc-400">
+        <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-zinc-400">
           {hit.excerpt}
         </p>
       </td>
-      <td className="whitespace-nowrap px-3 py-2.5 text-right align-top text-[10px] leading-4 text-zinc-500">
+      <td className="whitespace-nowrap px-3 py-2 text-right align-top text-[10px] leading-4 text-zinc-500">
         <span className="block">
           RRF <span className="font-mono text-zinc-300">{hit.score.toFixed(4)}</span>
         </span>
@@ -1293,15 +1306,6 @@ function SearchHitRow({ hit, rank, onOpen }: { hit: SearchHit; rank: number; onO
             {tr('关键词排名', 'keyword rank')} <span className="text-zinc-300">#{hit.keyword_rank}</span>
           </span>
         )}
-      </td>
-      <td className="px-3 py-2.5 text-right align-top">
-        <RowAction
-          icon={Search}
-          onClick={onOpen}
-          aria-label={tr(`打开并定位 ${title}`, `Open & locate ${title}`)}
-        >
-          {tr('打开并定位', 'Open & locate')}
-        </RowAction>
       </td>
     </tr>
   );
@@ -1385,19 +1389,17 @@ function SemanticSearchPanel({
         />
       ) : (
         <TableCard className="min-h-0 flex-1">
-          <table {...tableLayout(40)}>
+          <table {...tableLayout(32)}>
             <colgroup>
               <col className={COL.index} />
               <col className={COL.main} />
               <col className={COL.tag} />
-              <col className={COL.actionsNarrow} />
             </colgroup>
             <TableHead>
               <tr className="whitespace-nowrap">
                 <th scope="col" className="px-3 py-2 text-left font-medium">#</th>
                 <th scope="col" className="px-3 py-2 text-left font-medium">{tr('文档', 'Document')}</th>
                 <th scope="col" className="px-3 py-2 text-right font-medium">{tr('检索得分', 'Score')}</th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
               </tr>
             </TableHead>
             <tbody className="divide-y divide-zinc-800/40">

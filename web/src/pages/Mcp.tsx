@@ -41,7 +41,8 @@ import {
 } from '@/api/mcp';
 import { listSecrets, type SecretView } from '@/api/secrets';
 import { Modal } from '@/components/Modal';
-import { Button, Card, Chip, DetailSection, EmptyStateCard, PageHeader, RowAction, Toast } from '@/components/ui';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { Button, Card, Chip, CodeBlock, DetailSection, EmptyStateCard, ErrorBanner, PageHeader, RowAction, Toast } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
 import { errorText } from '@/lib/errors';
@@ -153,13 +154,10 @@ export default function McpPage() {
 
   const handleDelete = useCallback(
     async (s: McpServer) => {
-      try {
-        await deleteMcpServer(s.id);
-        setToast({ kind: 'ok', text: tr(`已删除 ${s.name}`, `Deleted ${s.name}`) });
-        await refresh();
-      } catch (e) {
-        setToast({ kind: 'err', text: errMsg(e) });
-      }
+      // 失败向上抛给 ConfirmDialog 行内展示，避免弹窗关闭后只剩一条 Toast
+      await deleteMcpServer(s.id);
+      setToast({ kind: 'ok', text: tr(`已删除 ${s.name}`, `Deleted ${s.name}`) });
+      await refresh();
     },
     [refresh, tr],
   );
@@ -203,7 +201,7 @@ export default function McpPage() {
               'Registered external MCP servers expose tools into the Agent / Workflow toolbag. Tool execution requires human approval by default; servers marked trusted run without approval (recommended for read-only servers only).',
             )}
             {!isAdmin && (
-              <span className="ml-1 text-amber-400">{tr('仅 admin 可增删改。', 'Only admins can add / edit / remove.')}</span>
+              <span className="ml-1 text-warn">{tr('仅 admin 可增删改。', 'Only admins can add / edit / remove.')}</span>
             )}
           </>
         }
@@ -233,7 +231,6 @@ export default function McpPage() {
             onChange={setSearch}
             placeholder={tr('搜索服务（名称 / 端点）…', 'Search servers (name / endpoint)…')}
             ariaLabel={tr('搜索服务', 'Search servers')}
-            className="min-w-[16rem] flex-1"
           />
           <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
             {tr(`${servers.length} 个 · 匹配 ${shownServers.length}`, `${servers.length} total · ${shownServers.length} matched`)}
@@ -243,19 +240,17 @@ export default function McpPage() {
 
       <div className="flex-1 space-y-4 overflow-auto px-6 py-4">
 
-      {err && (
-        <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-red-400">{err}</div>
-      )}
+      {err && <ErrorBanner>{err}</ErrorBanner>}
 
       {loading && servers.length === 0 ? (
-        <Card className="flex h-24 items-center justify-center text-sm text-zinc-500">
-          <Loader2 size={14} className="mr-2 animate-spin" /> {tr('加载中…', 'Loading…')}
+        <Card className="flex h-24 items-center justify-center text-[11px] text-zinc-500">
+          <Loader2 size={12} className="mr-2 animate-spin" /> {tr('加载中…', 'Loading…')}
         </Card>
       ) : err && servers.length === 0 ? null : servers.length === 0 ? (
         <EmptyStateCard
             icon={Server}
             title={tr('还没有注册任何 MCP 服务', 'No MCP servers registered yet')}
-            action={isAdmin && <Button variant="primary" onClick={() => setEditing({ id: null, input: emptyInput() })}><Plus size={12} />{tr('接入 MCP', 'Connect MCP')}</Button>}
+            action={isAdmin && <Button variant="primary" size="sm" onClick={() => setEditing({ id: null, input: emptyInput() })}><Plus size={12} />{tr('接入 MCP', 'Connect MCP')}</Button>}
             hint={
               isAdmin
                 ? tr('接入外部 MCP 服务，让助理使用更多工具。', 'Connect an external MCP server to give assistants more tools.')
@@ -265,7 +260,7 @@ export default function McpPage() {
       ) : (
         <div className="space-y-3">
           {shownServers.length === 0 ? (
-            <EmptyStateCard icon={Server} title={tr('无匹配的服务', 'No matching servers')} action={<Button onClick={() => setSearch('')}>{tr('清除筛选', 'Clear filters')}</Button>} />
+            <EmptyStateCard icon={Server} title={tr('无匹配的服务', 'No matching servers')} action={<Button size="sm" onClick={() => setSearch('')}>{tr('清除筛选', 'Clear filters')}</Button>} />
           ) : (
             shownServers.map((s) => (
               <ServerRow
@@ -294,34 +289,15 @@ export default function McpPage() {
         />
       )}
 
-      <Modal
+      <ConfirmDialog
         open={confirmDelete !== null}
-        onClose={() => setConfirmDelete(null)}
-        size="sm"
         title={confirmDelete ? tr(`删除 ${confirmDelete.name}?`, `Delete ${confirmDelete.name}?`) : ''}
-        footer={
-          <>
-            <Button onClick={() => setConfirmDelete(null)} variant="ghost">
-              {tr('取消', 'Cancel')}
-            </Button>
-            <Button
-              onClick={() => {
-                const s = confirmDelete;
-                setConfirmDelete(null);
-                if (s) void handleDelete(s);
-              }}
-              variant="danger"
-            >
-              <Trash2 size={12} />
-              {tr('确认删除', 'Delete')}
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-zinc-300">
-          {tr('删除后该服务的工具会从 Agent / Workflow 工具箱移除。', "The server's tools will be removed from the Agent / Workflow toolbag.")}
-        </p>
-      </Modal>
+        description={tr('删除后该服务的工具会从 Agent / Workflow 工具箱移除。', "The server's tools will be removed from the Agent / Workflow toolbag.")}
+        onConfirm={async () => {
+          if (confirmDelete) await handleDelete(confirmDelete);
+        }}
+        onClose={() => setConfirmDelete(null)}
+      />
 
       {toast && <Toast tone={toast.kind} text={toast.text} />}
       </div>
@@ -473,25 +449,22 @@ function ServerRow({
       </div>
 
       {server.status === 'error' && server.last_error && (
-        <div className="mx-4 mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
-          {server.last_error}
-        </div>
+        <ErrorBanner className="mx-4 mb-3">{server.last_error}</ErrorBanner>
       )}
 
-      {test?.error && (
-        <div className="mx-4 mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
-          {test.error}
-        </div>
-      )}
+      {test?.error && <ErrorBanner className="mx-4 mb-3">{test.error}</ErrorBanner>}
 
       {expanded && (
         <div className="border-t border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
           {loaded.error ? (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-300">
-              {tr(
-                `工具缓存缺少参数定义：${loaded.error}。请点击「测试连接」重新拉取。`,
-                `Tool cache missing schema: ${loaded.error}. Click Test to refresh.`,
-              )}
+            <div className="flex items-start gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[11.5px] leading-5 text-warn">
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+              <span>
+                {tr(
+                  `工具缓存缺少参数定义：${loaded.error}。请点击「测试连接」重新拉取。`,
+                  `Tool cache missing schema: ${loaded.error}. Click Test to refresh.`,
+                )}
+              </span>
             </div>
           ) : toolCount === 0 ? (
             <div className="text-[12px] text-zinc-500">
@@ -535,7 +508,7 @@ function ToolRow({
   const [runOpen, setRunOpen] = useState(false);
 
   return (
-    <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40">
+    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/40">
       <div className="flex items-center gap-2 px-3 py-2">
         <button
           type="button"
@@ -555,7 +528,7 @@ function ToolRow({
           </div>
         </button>
         <div className="flex h-7 shrink-0 items-center gap-1.5">
-          <Chip tone="info" dense className="h-7 inline-flex items-center">
+          <Chip tone="info" dense>
             {tr(`${fields.length} 个参数`, `${fields.length} parameter${fields.length === 1 ? '' : 's'}`)}
           </Chip>
           <RowAction
@@ -584,11 +557,11 @@ function ToolRow({
                 <table className="og-action-table w-full text-left text-[12px]">
                   <TableHead>
                     <tr>
-                      <th className="px-3 py-1.5 text-left font-medium">{tr('参数', 'Parameter')}</th>
-                      <th className="px-3 py-1.5 text-left font-medium">{tr('类型', 'Type')}</th>
-                      <th className="px-3 py-1.5 text-left font-medium">{tr('必填', 'Required')}</th>
-                      <th className="px-3 py-1.5 text-left font-medium">{tr('默认', 'Default')}</th>
-                      <th className="px-3 py-1.5 text-left font-medium">{tr('说明', 'Description')}</th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('参数', 'Parameter')}</th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('类型', 'Type')}</th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('必填', 'Required')}</th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('默认', 'Default')}</th>
+                      <th scope="col" className="px-3 py-2 text-left font-medium">{tr('说明', 'Description')}</th>
                     </tr>
                   </TableHead>
                   <tbody className="divide-y divide-zinc-800/50">
@@ -738,14 +711,8 @@ function ToolRunModal({
       title={tr(`运行 ${tool.name}`, `Run ${tool.name}`)}
       footer={
         <>
-          <Button onClick={onClose} variant="ghost">{tr('关闭', 'Close')}</Button>
-          {resultText != null && (
-            <Button variant="ghost" onClick={() => void onCopy()}>
-              <Copy size={12} />
-              {copied ? tr('已复制', 'Copied') : tr('复制结果', 'Copy result')}
-            </Button>
-          )}
-          <Button variant="primary" disabled={running} onClick={() => void onRun()}>
+          <Button size="sm" onClick={onClose} variant="ghost">{tr('关闭', 'Close')}</Button>
+          <Button size="sm" variant="primary" disabled={running} onClick={() => void onRun()}>
             {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
             {running ? tr('运行中…', 'Running…') : tr('运行', 'Run')}
           </Button>
@@ -753,7 +720,7 @@ function ToolRunModal({
       }
     >
       <div className="space-y-4">
-        <div className="rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+        <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/60 px-3 py-2">
           <div className="font-mono text-[11px] leading-4 text-zinc-100">
             mcp__{serverName}__{tool.name}
           </div>
@@ -774,8 +741,8 @@ function ToolRunModal({
                   className={cn('block min-w-0', wide && 'sm:col-span-2')}
                 >
                   <span className="mb-0.5 flex h-5 items-center gap-1 overflow-hidden">
-                    <span className="shrink-0 font-mono text-[11px] text-sky-300">{field.name}</span>
-                    {field.required ? <span className="shrink-0 text-[10px] text-amber-400">*</span> : null}
+                    <span className="shrink-0 font-mono text-[11px] text-info">{field.name}</span>
+                    {field.required ? <span className="shrink-0 text-[10px] text-warn">*</span> : null}
                     <span className="shrink-0 font-mono text-[10px] text-zinc-600">{field.type}</span>
                     {field.description ? (
                       <Hint content={field.description}>
@@ -788,7 +755,7 @@ function ToolRunModal({
                       label={field.name}
                       value={values[field.name] ?? ''}
                       onValueChange={(v) => setValues((cur) => ({ ...cur, [field.name]: v }))}
-                      className="h-8 w-full"
+                      className="w-full"
                     >
                       <option value="">{tr('（空）', '(empty)')}</option>
                       <option value="true">true</option>
@@ -807,7 +774,7 @@ function ToolRunModal({
                       type={field.type === 'number' || field.type === 'integer' ? 'number' : 'text'}
                       value={values[field.name] ?? ''}
                       onChange={(e) => setValues((cur) => ({ ...cur, [field.name]: e.target.value }))}
-                      className="h-8 w-full font-mono text-[12px]"
+                      className="w-full font-mono text-[12px]"
                     />
                   )}
                 </Label>
@@ -816,23 +783,20 @@ function ToolRunModal({
           </div>
         )}
 
-        {runErr && (
-          <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-red-300">{runErr}</div>
-        )}
+        {runErr && <ErrorBanner>{runErr}</ErrorBanner>}
         {resultText != null && (
-          <div>
-            <div className="mb-1.5 text-[11px] uppercase tracking-wide text-zinc-500">{tr('运行结果', 'Result')}</div>
-            <pre
-              className={cn(
-                'max-h-72 overflow-auto rounded-md border px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap',
-                resultIsError
-                  ? 'border-danger/30 bg-danger/10 text-red-200'
-                  : 'border-zinc-800 bg-zinc-950 text-zinc-200',
-              )}
-            >
+          <DetailSection
+            title={tr('运行结果', 'Result')}
+            actions={
+              <RowAction icon={Copy} onClick={() => void onCopy()}>
+                {copied ? tr('已复制', 'Copied') : tr('复制结果', 'Copy result')}
+              </RowAction>
+            }
+          >
+            <CodeBlock className={resultIsError ? 'border-danger/30 bg-danger/10 text-danger' : undefined}>
               {resultText}
-            </pre>
-          </div>
+            </CodeBlock>
+          </DetailSection>
         )}
       </div>
     </Modal>
@@ -890,10 +854,10 @@ function ServerEditor({
       title={id == null ? tr('新建 MCP 服务', 'New MCP server') : tr(`编辑 ${input.name}`, `Edit ${input.name}`)}
       footer={
         <>
-          <Button onClick={onClose} variant="ghost">
+          <Button size="sm" onClick={onClose} variant="ghost">
             {tr('取消', 'Cancel')}
           </Button>
-          <Button onClick={onSave} disabled={!canSave} variant="primary">
+          <Button size="sm" onClick={onSave} disabled={!canSave} variant="primary">
             {saving ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
             {saving ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
           </Button>
@@ -990,7 +954,7 @@ function ServerEditor({
           }
         />
         {input.trusted && (
-          <div className="flex items-start gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-[11px] text-amber-400">
+          <div className="flex items-start gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[11.5px] leading-5 text-warn">
             <AlertTriangle size={13} className="mt-0.5 shrink-0" />
             <span>{tr('免审直跑：仅建议给只读服务，跳过人工确认。', 'Runs without approval. Recommended for read-only servers only.')}</span>
           </div>
@@ -1036,6 +1000,6 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <Label className="flex w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm text-text"><span>{label}</span><Switch checked={checked} onCheckedChange={onChange} aria-label={label} /></Label>
+    <Label className="flex w-full items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-[11px] text-text"><span>{label}</span><Switch checked={checked} onCheckedChange={onChange} aria-label={label} /></Label>
   );
 }

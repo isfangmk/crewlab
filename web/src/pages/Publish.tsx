@@ -52,7 +52,8 @@ import {
   type PublishedChannel,
 } from '@/api/publish';
 
-const PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 20;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 function isExpired(channel: PublishedChannel): boolean {
   return (
@@ -68,6 +69,7 @@ export default function PublishPage() {
   const [err, setErr] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [creating, setCreating] = useState(false);
   const [revealed, setRevealed] = useState<{ name: string; key: string } | null>(null);
   const [rotating, setRotating] = useState<PublishedChannel | null>(null);
@@ -112,9 +114,9 @@ export default function PublishPage() {
       ),
     );
   }, [items, query]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const paged = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const paged = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
   const onToggle = async (channel: PublishedChannel) => {
     setBusyId(channel.id);
@@ -175,34 +177,31 @@ export default function PublishPage() {
         }
       />
 
-      {items !== null && items.length > 0 && (
-        <FilterBar className="mx-6 mt-3">
-          <SearchInput
-            value={query}
-            onChange={(v) => {
-              setQuery(v);
-              setPage(0);
-            }}
-            placeholder={tr('按名称 / 助理 / 模型搜索…', 'Search name, assistant or model…')}
-            ariaLabel={tr('搜索发布渠道', 'Search published channels')}
-            className="min-w-[16rem] flex-1"
-          />
-          <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
-            {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
-          </span>
-        </FilterBar>
-      )}
+      <FilterBar className="mx-6 mt-3">
+        <SearchInput
+          value={query}
+          onChange={(v) => {
+            setQuery(v);
+            setPage(0);
+          }}
+          placeholder={tr('按名称 / 助理 / 模型搜索…', 'Search name, assistant or model…')}
+          ariaLabel={tr('搜索发布渠道', 'Search published channels')}
+        />
+        <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
+          {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
+        </span>
+      </FilterBar>
 
       <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
         {err && (
           <ErrorBanner className="mb-3">{err}</ErrorBanner>
         )}
         {loading && items === null ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
-            <Loader2 size={14} className="mr-2 animate-spin" />
+          <div className="flex flex-1 items-center justify-center text-[11px] text-zinc-500">
+            <Loader2 size={12} className="mr-2 animate-spin" />
             {tr('加载中…', 'Loading…')}
           </div>
-        ) : items !== null && items.length === 0 ? (
+        ) : err !== null && items !== null && items.length === 0 ? null : items !== null && items.length === 0 ? (
           <EmptyStateCard
             icon={Globe}
             title={tr('还没有发布渠道', 'No published channels yet')}
@@ -214,7 +213,6 @@ export default function PublishPage() {
               <Button
                 variant="primary"
                 size="sm"
-                className="h-7 px-3 text-[11.5px]"
                 onClick={() => setCreating(true)}
               >
                 <Plus size={12} />
@@ -238,10 +236,15 @@ export default function PublishPage() {
             footer={
               <TablePager
                 page={safePage}
-                pageSize={PAGE_SIZE}
+                pageSize={pageSize}
                 total={filtered.length}
                 shown={paged.length}
                 onPageChange={setPage}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                onPageSizeChange={(size) => {
+                  setPage(0);
+                  setPageSize(size);
+                }}
               />
             }
           >
@@ -253,7 +256,7 @@ export default function PublishPage() {
                 <col className={COL.tag} />
                 <col className={COL.tag} />
                 <col className={COL.time} />
-                <col className={COL.actionsIcon} />
+                <col className={COL.actionsIconWide} />
               </colgroup>
               <TableHead>
                 <tr className="whitespace-nowrap">
@@ -310,7 +313,7 @@ export default function PublishPage() {
                       </td>
                       <td className="px-3 py-2">
                         {expired ? (
-                          <StatusPill tone="warn" label={tr('已过期', 'Expired')} />
+                          <StatusPill tone="neutral" label={tr('已过期', 'Expired')} />
                         ) : channel.enabled ? (
                           <StatusPill tone="ok" label={tr('启用中', 'Enabled')} />
                         ) : (
@@ -615,7 +618,7 @@ function KeyRevealModal({
       }
     >
       <div className="space-y-3 text-xs text-zinc-300">
-        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-300">
+        <p className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[12px] leading-relaxed text-warn">
           {tr(
             'Key 只显示这一次，关闭后无法再次查看；丢失请重新轮换。',
             'This key is shown only once and cannot be viewed again; rotate if lost.',

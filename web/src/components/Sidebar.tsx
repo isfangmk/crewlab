@@ -162,7 +162,7 @@ export function Sidebar() {
 
 
         onClick={handleLogout}
-        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-[13px] text-zinc-300 hover:bg-zinc-800 hover:text-red-400"
+        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-[13px] text-zinc-300 hover:bg-zinc-800 hover:text-danger"
       >
         <LogOut size={14} />
         <span>{tr('退出登录', 'Log out')}</span>
@@ -701,7 +701,7 @@ function SidebarNavItem({
       <span className="flex-1 truncate">{label}</span>
       {badge != null && badge > 0 && (
         <span
-          className="ml-auto inline-flex min-w-[18px] items-center justify-center rounded-full bg-red-500/90 px-1.5 text-[10px] font-medium text-white"
+          className="ml-auto inline-flex min-w-[18px] items-center justify-center rounded-full bg-danger/90 px-1.5 text-[10px] font-medium text-white"
           aria-label={tr(`${badge} 未确认`, `${badge} open`)}
         >
           {badge > 99 ? '99+' : badge}

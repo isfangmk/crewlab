@@ -21,28 +21,28 @@ describe('工具调用状态在实时结果和历史加载间保持一致', () =
       commands: [{ status: 'succeeded', exit_status: 0 }, { status: 'failed', exit_status: 127 }] } };
     const view = render(<MessageBubble message={{ id: 'live', role: 'tool', kind: 'tool_card',
       tool_call: { name: toolName, status: 'error', result } }} />);
-    expect(icon()).toHaveClass('text-red-400');
+    expect(icon()).toHaveClass('text-danger');
     view.rerender(<MessageBubble message={history(result)} />);
-    expect(icon()).toHaveClass('text-red-400');
+    expect(icon()).toHaveClass('text-danger');
     expect(screen.getByText('失败')).toBeInTheDocument();
   });
   it('调用成功返回业务失败也显示红色', () => {
     render(<MessageBubble message={{ id: 'live', role: 'tool', kind: 'tool_card',
       tool_call: { name: toolName, status: 'success', result: { ok: false } } }} />);
-    expect(icon()).toHaveClass('text-red-400');
+    expect(icon()).toHaveClass('text-danger');
   });
   it.each([{ error: 'connection refused' }, { isError: true }, { status: 'failed' },
     { status: 'timeout' }, { exit_code: 1 }, { exit_status: 127 }])('历史失败结果 %j', (result) => {
     render(<MessageBubble message={history(result)} />);
-    expect(icon()).toHaveClass('text-red-400');
+    expect(icon()).toHaveClass('text-danger');
   });
   it('成功结果中的业务告警不会被递归误判', () => {
     render(<MessageBubble message={history({ ok: true, data: { status: 'failed', error: 'alarm' } })} />);
-    expect(icon()).toHaveClass('text-emerald-400');
+    expect(icon()).toHaveClass('text-ok');
   });
   it.each(['plain output', '{invalid', {}, null])('状态不明的旧结果不显示绿勾 %j', (result) => {
     render(<MessageBubble message={history(result)} />);
-    expect(icon()).not.toHaveClass('text-emerald-400');
+    expect(icon()).not.toHaveClass('text-ok');
     expect(screen.getByText('状态未知')).toBeInTheDocument();
   });
   it('未完成的实时调用继续显示运行中', () => {
@@ -53,12 +53,12 @@ describe('工具调用状态在实时结果和历史加载间保持一致', () =
   it('显式错误优先于成功结果', () => {
     render(<MessageBubble message={{ id: 'live', role: 'tool', kind: 'tool_card',
       tool_call: { name: toolName, status: 'success', error: 'transport failed', result: { ok: true } } }} />);
-    expect(icon()).toHaveClass('text-red-400');
+    expect(icon()).toHaveClass('text-danger');
   });
 });
 
 it('历史工具消息使用执行表的状态，无需 kind 字段', () => {
  render(<MessageBubble message={{ id:'history',role:'tool',tool_name:toolName,content:'{"result":[]}',tool_call:{name:toolName,status:'success',result_raw:'{"result":[]}'}}} />);
- expect(icon()).toHaveClass('text-emerald-400');
+ expect(icon()).toHaveClass('text-ok');
  expect(screen.queryByText('状态未知')).not.toBeInTheDocument();
 });

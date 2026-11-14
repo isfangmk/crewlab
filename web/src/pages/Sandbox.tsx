@@ -384,10 +384,10 @@ export default function SandboxPage() {
         )}
 
         {loading ? (
-          <div className="flex h-40 items-center justify-center text-sm text-zinc-500">
+          <div className="flex h-40 items-center justify-center text-[11px] text-zinc-500">
             {tr('加载中…', 'Loading…')}
           </div>
-        ) : items.length === 0 ? (
+        ) : err !== null && items.length === 0 ? null : items.length === 0 ? (
           <EmptyStateCard
             icon={Terminal}
             title={hasFilter ? tr('没有匹配的执行记录', 'No executions match') : tr('还没有执行记录', 'No executions yet')}

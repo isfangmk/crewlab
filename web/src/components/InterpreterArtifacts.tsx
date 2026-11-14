@@ -59,7 +59,7 @@ function ArtifactFileButton({ artifact }: { artifact: InterpreterArtifact }) {
         <Download size={12} />
         {tr('下载', 'Download')}
       </button>
-      {err && <span className="text-[11px] text-red-400">{err}</span>}
+      {err && <span className="text-[11px] text-danger">{err}</span>}
     </div>
   );
 }

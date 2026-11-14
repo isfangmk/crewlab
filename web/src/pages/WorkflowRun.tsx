@@ -23,7 +23,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowLeft,
-  Copy,
   Play,
   RefreshCw,
   Square,
@@ -51,15 +50,15 @@ import { DraftTag } from '@/components/workflow/RunStatusPill';
 import {
   Button,
   EmptyStateCard,
+  ErrorBanner,
+  PageHeader,
   RowAction,
-  RowActionIcon,
   Tabs,
   TabsList,
   TabsTrigger,
   Toast,
   type ToastTone,
 } from '@/components/ui';
-import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
 import { errorText } from '@/lib/errors';
 
@@ -394,20 +393,23 @@ export default function WorkflowRunPage() {
     return (
       <main className="anim-fade flex flex-1 flex-col overflow-hidden">
         {loading ? (
-          <div className="flex flex-1 items-center justify-center text-[12px] text-zinc-500">
+          <div className="flex flex-1 items-center justify-center text-[11.5px] text-zinc-500">
             {tr('加载运行记录…', 'Loading run…')}
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-2 border-b border-zinc-800/60 px-6 py-3">
-              <Link
-                to="/workflows?tab=runs"
-                className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300"
-              >
-                <ArrowLeft size={12} aria-hidden />
-                {tr('返回运行记录', 'Back to runs')}
-              </Link>
-            </div>
+            <PageHeader
+              title={tr('运行记录', 'Run')}
+              leading={
+                <Link
+                  to="/workflows?tab=runs"
+                  className="inline-flex items-center gap-1 text-[11px] text-zinc-500 transition-colors hover:text-zinc-300"
+                >
+                  <ArrowLeft size={12} aria-hidden />
+                  {tr('返回运行记录', 'Back to runs')}
+                </Link>
+              }
+            />
             <div className="p-6">
               <EmptyStateCard
                 icon={AlertTriangle}
@@ -426,69 +428,76 @@ export default function WorkflowRunPage() {
 
   return (
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">
-      {/* 顶部条：只放身份与操作。状态、耗时、触发都在下面的信息带里，不在这里重复 */}
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-800/60 px-5 py-2.5">
-        {/* 返回运行记录列表：这里是分页列表的上级，不该跳去工作流画布 */}
-        <Link
-          to="/workflows?tab=runs"
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-500/10 hover:text-zinc-200"
-          aria-label={tr('返回运行记录', 'Back to runs')}
-          title={tr('返回运行记录', 'Back to runs')}
-        >
-          <ArrowLeft size={13} aria-hidden />
-        </Link>
-        <div className="min-w-0">
-          {/* 标题只是这次运行的归属工作流，不做进编辑器的入口：
-              要改画布请从工作流列表进去，那边才是编辑路径。 */}
-          <h1 className="truncate text-[14px] font-semibold leading-5 text-zinc-100">{title}</h1>
-          <div className="flex flex-wrap items-center gap-x-2 text-[10.5px] text-zinc-500">
-            <button
-              type="button"
-              onClick={() => void copyId()}
-              className="font-mono hover:text-zinc-300"
-              title={tr('点击复制', 'Click to copy')}
+      {/* Tabs 只包页头：视图切换与页头共用分隔线 */}
+      <Tabs value={view} onValueChange={(next) => setView(next as RunView)} className="contents">
+        <PageHeader
+          title={title}
+          leading={
+            <Link
+              to="/workflows?tab=runs"
+              className="inline-flex items-center gap-1 text-[11px] text-zinc-500 transition-colors hover:text-zinc-300"
             >
-              {run.run_uid}
-            </button>
-            <span className="text-zinc-700">·</span>
-            <span>v{run.workflow_version}</span>
-            {run.workflow_status === 'draft' && (
-              <>
-                <span className="text-zinc-700">·</span>
-                <DraftTag />
-              </>
-            )}
-          </div>
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <RowActionIcon icon={Copy} label={tr('复制 run_id', 'Copy run_id')} onClick={() => void copyId()} />
-          <RowActionIcon
-            icon={RefreshCw}
-            label={tr('刷新', 'Refresh')}
-            className={cn(refreshing && 'animate-spin')}
-            disabled={refreshing}
-            onClick={() => void load(true)}
-          />
-          {run.status === 'running' && (
-            <RowAction icon={Square} tone="danger" disabled={busy} onClick={() => void stop()}>
-              {tr('停止运行', 'Stop')}
-            </RowAction>
-          )}
-          {/* 未发布的画布没有可运行的正式版本，不给「再次运行」 */}
-          {run.has_published && (
-            <Button
-              variant="primary"
-              size="sm"
-              className="h-7 px-3 text-[11.5px]"
-              onClick={() => setRunOpen(true)}
-              disabled={waiting}
-            >
-              <Play size={12} aria-hidden />
-              {tr('再次运行', 'Run again')}
-            </Button>
-          )}
-        </div>
-      </header>
+              <ArrowLeft size={12} aria-hidden />
+              {tr('返回运行记录', 'Back to runs')}
+            </Link>
+          }
+          subtitle={
+            <span className="flex flex-wrap items-center gap-x-2">
+              <button
+                type="button"
+                onClick={() => void copyId()}
+                className="font-mono transition-colors hover:text-zinc-300"
+                title={tr('点击复制', 'Click to copy')}
+              >
+                {run.run_uid}
+              </button>
+              <span className="text-zinc-700">·</span>
+              <span>v{run.workflow_version}</span>
+              {run.workflow_status === 'draft' && (
+                <>
+                  <span className="text-zinc-700">·</span>
+                  <DraftTag />
+                </>
+              )}
+            </span>
+          }
+          navigation={
+            <TabsList aria-label={tr('运行详情视图', 'Run detail views')}>
+              <TabsTrigger value="nodes">{tr('执行明细', 'Execution')}</TabsTrigger>
+              <TabsTrigger value="canvas">{tr('画布', 'Canvas')}</TabsTrigger>
+            </TabsList>
+          }
+          actions={
+            <>
+              <RowAction
+                icon={RefreshCw}
+                iconClassName={refreshing ? 'animate-spin' : undefined}
+                disabled={refreshing}
+                onClick={() => void load(true)}
+              >
+                {tr('刷新', 'Refresh')}
+              </RowAction>
+              {run.status === 'running' && (
+                <RowAction icon={Square} tone="danger" disabled={busy} onClick={() => void stop()}>
+                  {tr('停止运行', 'Stop')}
+                </RowAction>
+              )}
+              {/* 未发布的画布没有可运行的正式版本，不给「再次运行」 */}
+              {run.has_published && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setRunOpen(true)}
+                  disabled={waiting}
+                >
+                  <Play size={12} aria-hidden />
+                  {tr('再次运行', 'Run again')}
+                </Button>
+              )}
+            </>
+          }
+        />
+      </Tabs>
 
       {/* 顶部信息带：四张摘要卡，只回答「现在什么情况」，明细点开再看 */}
       <RunOverviewCards
@@ -499,78 +508,63 @@ export default function WorkflowRunPage() {
       />
 
       {run.error !== '' && (
-        <div className="flex items-center gap-2 border-b border-danger/25 bg-danger/[0.06] px-5 py-1.5 text-[11.5px] text-danger">
-          <AlertTriangle size={12} aria-hidden />
-          <span className="truncate">{run.error}</span>
+        <div className="px-6 pt-3">
+          <ErrorBanner>{run.error}</ErrorBanner>
         </div>
       )}
 
-      {/* 页级 Tabs：三个视图互斥，每个视图只做一件事，不再一屏挤三栏 */}
-      <Tabs
-        value={view}
-        onValueChange={(next) => setView(next as RunView)}
-        className="flex min-h-0 flex-1 flex-col"
-      >
-        <div className="shrink-0 border-b border-zinc-800/60 px-5">
-          <TabsList aria-label={tr('运行详情视图', 'Run detail views')}>
-            <TabsTrigger value="nodes">{tr('执行明细', 'Execution')}</TabsTrigger>
-            <TabsTrigger value="canvas">{tr('画布', 'Canvas')}</TabsTrigger>
-          </TabsList>
-        </div>
-
-        {/* 执行明细：左栏节点导航 + 右侧选中节点详情 */}
-        {view === 'nodes' && (
-          <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[210px_minmax(0,1fr)]">
-            <RunNodeRail
-              items={railItems}
-              labelOf={(nodeId) => labelOfNode(run, nodeId)}
-              selectedId={selectedId}
-              gateId={gate?.gate ?? null}
-              runningIds={runningNodes}
-              onSelect={selectNode}
-            />
-
-            <section className="min-h-0 min-w-0 overflow-y-auto border-b border-zinc-800/60 lg:border-b-0">
-              {selectedId === null ? (
-                <div className="flex h-full items-center justify-center px-6 text-center text-[11.5px] text-text-faint">
-                  {tr('从左侧选一个节点查看输入输出', 'Pick a node on the left to inspect it')}
-                </div>
-              ) : (
-                <RunNodeDetail
-                  nodeId={selectedId}
-                  record={selectedRun}
-                  definition={selectedDef}
-                  running={runningNodes.has(selectedId)}
-                  gate={gate !== null && gate.gate === selectedId ? gate : null}
-                  gateNode={gateNode}
-                  runError={run.error}
-                  busy={busy}
-                  gateInput={gateInput}
-                  onGateInput={setGateInput}
-                  onApprove={() => void decide('approve')}
-                  onReject={() => void decide('reject')}
-                />
-              )}
-            </section>
-          </div>
-        )}
-
-        {/* 画布：整宽摊开，看全局结构 */}
-        {view === 'canvas' && (
-          <RunCanvasPanel
-            run={run}
-            statuses={buildStatuses(run, runningNodes)}
-            gate={gate}
+      {/* 执行明细：左栏节点导航 + 右侧选中节点详情 */}
+      {view === 'nodes' && (
+        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[210px_minmax(0,1fr)]">
+          <RunNodeRail
+            items={railItems}
+            labelOf={(nodeId) => labelOfNode(run, nodeId)}
             selectedId={selectedId}
-            onSelect={(nodeId) => {
-              selectNode(nodeId);
-              // 画布只是入口，看完节点得回到明细里读输入输出
-              setView('nodes');
-            }}
-            onEdit={() => navigate(`/workflows/${run.workflow_id}`)}
+            gateId={gate?.gate ?? null}
+            runningIds={runningNodes}
+            onSelect={selectNode}
           />
-        )}
-      </Tabs>
+
+          <section className="min-h-0 min-w-0 overflow-y-auto border-b border-zinc-800/60 lg:border-b-0">
+            {selectedId === null ? (
+              <div className="flex h-full items-center justify-center px-6 text-center text-[11.5px] text-text-faint">
+                {tr('从左侧选一个节点查看输入输出', 'Pick a node on the left to inspect it')}
+              </div>
+            ) : (
+              <RunNodeDetail
+                nodeId={selectedId}
+                record={selectedRun}
+                definition={selectedDef}
+                running={runningNodes.has(selectedId)}
+                gate={gate !== null && gate.gate === selectedId ? gate : null}
+                gateNode={gateNode}
+                runError={run.error}
+                busy={busy}
+                gateInput={gateInput}
+                onGateInput={setGateInput}
+                onApprove={() => void decide('approve')}
+                onReject={() => void decide('reject')}
+              />
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* 画布：整宽摊开，看全局结构 */}
+      {view === 'canvas' && (
+        <RunCanvasPanel
+          run={run}
+          statuses={buildStatuses(run, runningNodes)}
+          gate={gate}
+          selectedId={selectedId}
+          onSelect={(nodeId) => {
+            selectNode(nodeId);
+            // 画布只是入口，看完节点得回到明细里读输入输出
+            setView('nodes');
+          }}
+          onEdit={() => navigate(`/workflows/${run.workflow_id}`)}
+        />
+      )}
 
       {runOpen && (
         <RunWorkflowDialog

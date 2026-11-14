@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Database, Loader2, Save } from 'lucide-react';
-import { Button, Input, Label, SectionCard } from '@/components/ui';
+import { Button, DetailSection, ErrorBanner, Input, Label, SectionCard } from '@/components/ui';
 import { reindexKnowledge } from '@/api/knowledge';
 import { listSettings, setSetting } from '@/api/settings';
 import { useI18n } from '@/i18n/locale';
@@ -123,7 +123,7 @@ export default function SettingsKnowledge() {
         !loading ? (
           <>
             {savedText ? (
-              <span role="status" className="mr-auto text-[11px] text-emerald-400">
+              <span role="status" className="mr-auto text-[11px] text-ok">
                 {savedText}
               </span>
             ) : null}
@@ -135,25 +135,18 @@ export default function SettingsKnowledge() {
         ) : undefined
       }
     >
-      {err && (
-        <div role="alert" className="mb-3 text-[11px] text-red-400">
-          {err}
-        </div>
-      )}
+      {err && <ErrorBanner className="mb-3">{err}</ErrorBanner>}
       {loading ? (
         <div className="flex h-7 items-center text-[11px] text-zinc-500">
           <Loader2 size={12} className="mr-2 animate-spin" /> {tr('加载中…', 'Loading…')}
         </div>
       ) : (
         <div className="space-y-5">
-          <section className="space-y-3">
-            <div>
-              <h3 className="text-[11.5px] font-medium text-zinc-200">{tr('切块参数', 'Chunking')}</h3>
-              <p className="mt-0.5 text-[10.5px] leading-4 text-zinc-500">
-                {tr('改动后保存即自动重建索引', 'Changed values trigger a reindex on save')}
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+          <DetailSection title={tr('切块参数', 'Chunking')}>
+            <p className="text-[11px] leading-4 text-zinc-500">
+              {tr('改动后保存即自动重建索引', 'Changed values trigger a reindex on save')}
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <div>
                 <Label className="mb-1 block text-[11px] text-zinc-400" htmlFor="settings-chunk-size">
                   {tr('切块大小（字符）', 'Chunk size (chars)')}
@@ -179,33 +172,32 @@ export default function SettingsKnowledge() {
                 />
               </div>
             </div>
-            <p className="text-[10.5px] leading-4 text-zinc-500">
+            <p className="mt-2 text-[11px] leading-4 text-zinc-500">
               {tr('重叠必须小于切块大小。', 'Overlap must be smaller than the chunk size.')}
             </p>
-          </section>
+          </DetailSection>
 
-          <section className="space-y-3 border-t border-zinc-800/60 pt-4">
-            <div>
-              <h3 className="text-[11.5px] font-medium text-zinc-200">{tr('检索阈值', 'Retrieval threshold')}</h3>
-              <p className="mt-0.5 text-[10.5px] leading-4 text-zinc-500">
+          <section className="border-t border-zinc-800/60 pt-4">
+            <DetailSection title={tr('检索阈值', 'Retrieval threshold')}>
+              <p className="text-[11px] leading-4 text-zinc-500">
                 {tr('保存后立即生效', 'Applies immediately')}
               </p>
-            </div>
-            <div className="max-w-sm">
-              <Label className="mb-1 block text-[11px] text-zinc-400" htmlFor="settings-rrf-min-score">
-                {tr('最低 RRF 分（0 = 不过滤）', 'Minimum RRF score (0 = no filter)')}
-              </Label>
-              <Input
-                id="settings-rrf-min-score"
-                inputMode="decimal"
-                value={minScore}
-                onChange={(e) => edit(setMinScore)(e.target.value)}
-                className="font-mono text-[12px]"
-              />
-            </div>
-            <p className="text-[10.5px] leading-4 text-zinc-500">
-              {tr('低于该分数的命中直接丢弃。', 'Hits below this score are dropped.')}
-            </p>
+              <div className="mt-3 max-w-sm">
+                <Label className="mb-1 block text-[11px] text-zinc-400" htmlFor="settings-rrf-min-score">
+                  {tr('最低 RRF 分（0 = 不过滤）', 'Minimum RRF score (0 = no filter)')}
+                </Label>
+                <Input
+                  id="settings-rrf-min-score"
+                  inputMode="decimal"
+                  value={minScore}
+                  onChange={(e) => edit(setMinScore)(e.target.value)}
+                  className="font-mono text-[12px]"
+                />
+              </div>
+              <p className="mt-2 text-[11px] leading-4 text-zinc-500">
+                {tr('低于该分数的命中直接丢弃。', 'Hits below this score are dropped.')}
+              </p>
+            </DetailSection>
           </section>
         </div>
       )}

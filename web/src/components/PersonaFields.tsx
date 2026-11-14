@@ -114,7 +114,7 @@ export function PersonaFields({
 
       <div>
         <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
-          {tr('系统提示', 'System prompt')} <span className="text-red-400">*</span>
+          {tr('系统提示', 'System prompt')} <span className="text-danger">*</span>
         </div>
         <Textarea
           value={value.systemPrompt}
@@ -233,14 +233,14 @@ export function PersonaFields({
           </div>
         )}
         {exampleInvalid && (
-          <div className="mt-1 text-[11px] text-red-300">
+          <div className="mt-1 text-[11px] text-danger">
             {tr('示例的输入与输出都不能为空。', 'Both sides of every example are required.')}
           </div>
         )}
       </div>
 
       {error && (
-        <div className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-red-300">
+        <div className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-danger">
           {error}
         </div>
       )}

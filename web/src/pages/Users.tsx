@@ -1,5 +1,5 @@
 import { useAssistantPage } from '@/lib/assistantPage';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KeyRound, Plus, RefreshCw, Shield, Trash2, UserCheck, UserCog, UserX } from 'lucide-react';
 import {
   Button,
@@ -8,6 +8,7 @@ import {
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
+  FilterChip,
   FilterPill,
   Input,
   Label,
@@ -173,6 +174,29 @@ export default function UsersPage() {
     loading,
   });
 
+  const activeChips = useMemo(() => {
+    const chips: { key: string; label: string; clear: () => void }[] = [];
+    if (roleFilter !== '') {
+      const meta = roleMeta(roleFilter);
+      chips.push({
+        key: 'role',
+        label: tr(`角色：${meta.zh}`, `Role: ${meta.en}`),
+        clear: () => setRoleFilter(''),
+      });
+    }
+    if (statusFilter !== '') {
+      chips.push({
+        key: 'status',
+        label:
+          statusFilter === 'active'
+            ? tr('状态：启用', 'Status: Active')
+            : tr('状态：已禁用', 'Status: Disabled'),
+        clear: () => setStatusFilter(''),
+      });
+    }
+    return chips;
+  }, [roleFilter, statusFilter, tr]);
+
   const resetForm = () => {
     setEmail('');
     setDisplayName('');
@@ -329,13 +353,34 @@ export default function UsersPage() {
         }
       />
 
-      <FilterBar className="mx-6 mt-3">
+      <FilterBar
+        className="mx-6 mt-3"
+        footer={
+          activeChips.length > 0 ? (
+            <>
+              {activeChips.map((chip) => (
+                <FilterChip key={chip.key} label={chip.label} onClear={chip.clear} />
+              ))}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto"
+                onClick={() => {
+                  setRoleFilter('');
+                  setStatusFilter('');
+                }}
+              >
+                {tr('清除全部', 'Clear all')}
+              </Button>
+            </>
+          ) : null
+        }
+      >
         <SearchInput
           value={query}
           onChange={setQuery}
           placeholder={tr('搜索邮箱或显示名…', 'Search email or display name…')}
           ariaLabel={tr('搜索', 'Search')}
-          className="min-w-[16rem] flex-1"
         />
         <FilterPill
           label={tr('角色', 'Role')}
@@ -387,10 +432,10 @@ export default function UsersPage() {
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {loading ? (
-            <div className="flex h-40 items-center justify-center text-sm text-zinc-500">
+            <div className="flex h-40 items-center justify-center text-[11px] text-zinc-500">
               {tr('加载中…', 'Loading…')}
             </div>
-          ) : items.length === 0 ? (
+          ) : err !== null && items.length === 0 ? null : items.length === 0 ? (
             <EmptyStateCard
               icon={UserCheck}
               title={

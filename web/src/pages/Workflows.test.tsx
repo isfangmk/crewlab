@@ -413,8 +413,8 @@ describe('WorkflowsPage', () => {
     // 没发布过就没有可运行的正式版本，入口整个不出现（而不是灰按钮）
     const draftRow = rowOf('从未发布的');
     expect(within(draftRow).queryByRole('button', { name: '运行' })).toBeNull();
-    // 编排入口不受影响
-    expect(within(draftRow).getByRole('button', { name: '编排' })).toBeInTheDocument();
+    // 编排入口不受影响：工作流名称本身就是进画布的入口
+    expect(within(draftRow).getByRole('button', { name: '从未发布的' })).toBeInTheDocument();
 
     expect(within(rowOf('发布过的')).getByRole('button', { name: '运行' })).toBeInTheDocument();
   });

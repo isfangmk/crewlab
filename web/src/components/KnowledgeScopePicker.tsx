@@ -209,7 +209,7 @@ export function KnowledgeScopePicker({
         </Label>
       </div>
 
-      {loadError && <div className="text-[11px] text-red-300">{loadError}</div>}
+      {loadError && <div className="text-[11px] text-danger">{loadError}</div>}
 
       {value.mode === 'all' ? (
         <p className="text-[11px] text-zinc-500">
@@ -300,16 +300,16 @@ export function KnowledgeScopePicker({
 
           <div className="text-[11px]">
             {previewError !== null ? (
-              <span className="text-red-300">{tr('范围预览失败：', 'Scope preview failed: ')}{previewError}</span>
+              <span className="text-danger">{tr('范围预览失败：', 'Scope preview failed: ')}{previewError}</span>
             ) : incomplete ? (
-              <span className="text-amber-300">
+              <span className="text-warn">
                 {tr(
                   '至少选择一个目录或文档；留空等于「全部知识库」。',
                   'Pick at least one folder or document; empty means the whole knowledge base.',
                 )}
               </span>
             ) : preview !== null ? (
-              <span className={unknown || emptyScope ? 'text-red-300' : 'text-zinc-400'}>
+              <span className={unknown || emptyScope ? 'text-danger' : 'text-zinc-400'}>
                 {tr(`命中 ${preview.doc_count} 篇文档`, `${preview.doc_count} document(s) in scope`)}
                 {preview.matched_paths.length > 0 &&
                   ' · ' +
@@ -350,7 +350,7 @@ export function KnowledgeScopePicker({
                 <Search size={11} /> {trialBusy ? tr('检索中…', 'Searching…') : tr('试检索', 'Search')}
               </Button>
             </div>
-            {trialError !== null && <div className="text-[11px] text-red-300">{trialError}</div>}
+            {trialError !== null && <div className="text-[11px] text-danger">{trialError}</div>}
             {trialHits !== null && (
               <div className="mt-1 space-y-1 text-[11px] text-zinc-400">
                 {trialHits.length === 0 ? (

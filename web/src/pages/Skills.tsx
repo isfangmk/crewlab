@@ -35,7 +35,8 @@ import { mcpToolDisplayName } from '@/lib/mcpWire';
 import { Modal } from '@/components/Modal';
 import { useI18n } from '@/i18n/locale';
 import { orderedGroupKeys } from '@/lib/toolSkill';
-import { ChoiceChip, Chip, CodeBlock, DetailSection, FilterBar, PageHeader, RowAction, SearchInput, StatusPill, TableCard, Toast, type ToastTone } from '@/components/ui';
+import { ChoiceChip, Chip, CodeBlock, DetailSection, FilterBar, FilterChip, PageHeader, RowAction, SearchInput, StatusPill, TableCard, Toast, type ToastTone } from '@/components/ui';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import type { StatusTone } from '@/components/ui/StatusPill';
 import { SkillEditor, SkillImportDialog } from '@/components/SkillEditor';
 import { errorText } from '@/lib/errors';
@@ -56,10 +57,10 @@ export function skillOrigin(s: SkillSummary): SkillOrigin {
 }
 
 /** 来源类型的中文/英文名与胶囊色。 */
-const ORIGIN_META: Record<SkillOrigin, { zh: string; en: string; tone: StatusTone }> = {
+const ORIGIN_META: Record<SkillOrigin, { zh: string; en: string; tone: 'info' | 'success' | 'default' }> = {
   builtin: { zh: '内置', en: 'Built-in', tone: 'info' },
-  created: { zh: '新建', en: 'Created', tone: 'ok' },
-  imported: { zh: 'ZIP 导入', en: 'Imported', tone: 'neutral' },
+  created: { zh: '新建', en: 'Created', tone: 'success' },
+  imported: { zh: 'ZIP 导入', en: 'Imported', tone: 'default' },
 };
 
 /** 来源筛选胶囊的展示顺序。 */
@@ -141,16 +142,10 @@ function CatalogTab() {
   );
 
   const runDelete = useCallback(async () => {
-    if (deleting === null) return;
-    try {
-      await deleteSkill(deleting.key);
-      flash('ok', tr(`已删除技能 ${deleting.key}`, `Deleted skill ${deleting.key}`));
-      setDeleting(null);
-      await fetchSkills(true);
-    } catch (e) {
-      setErr(errorText(e));
-      setDeleting(null);
-    }
+    if (deleting === null) throw new Error(tr('没有待删除的技能', 'No skill selected'));
+    await deleteSkill(deleting.key);
+    flash('ok', tr(`已删除技能 ${deleting.key}`, `Deleted skill ${deleting.key}`));
+    await fetchSkills(true);
   }, [deleting, fetchSkills, flash, tr]);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -187,6 +182,8 @@ function CatalogTab() {
     group, visible_skills: filtered.length, selected_skill: viewing?.name, loading,
   });
 
+  const groupMeta = group === '' ? undefined : chips.find((g) => g.key === group);
+
   return (
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">
       <PageHeader
@@ -202,9 +199,10 @@ function CatalogTab() {
                 <RowAction icon={FilePlus2} disabled={loading || refreshing} onClick={() => setImporting(true)}>
                   {tr('导入 ZIP', 'Import ZIP')}
                 </RowAction>
-                <RowAction icon={Plus} disabled={loading || refreshing} onClick={() => setEditor({ mode: 'create' })}>
+                <Button variant="primary" size="sm" disabled={loading || refreshing} onClick={() => setEditor({ mode: 'create' })}>
+                  <Plus size={12} aria-hidden />
                   {tr('新建技能', 'New skill')}
-                </RowAction>
+                </Button>
               </>
             )}
             <RowAction
@@ -227,13 +225,47 @@ function CatalogTab() {
         }
       />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <FilterBar className="mx-6 mt-3">
+        <FilterBar
+          className="mx-6 mt-3"
+          footer={
+            group !== '' || origin !== '' ? (
+              <>
+                {group !== '' ? (
+                  <FilterChip
+                    label={tr(
+                      `分组：${groupMeta?.title ?? group}`,
+                      `Group: ${groupMeta?.title_en ?? group}`,
+                    )}
+                    onClear={() => setGroup('')}
+                  />
+                ) : null}
+                {origin !== '' ? (
+                  <FilterChip
+                    label={tr(`来源：${ORIGIN_META[origin].zh}`, `Origin: ${ORIGIN_META[origin].en}`)}
+                    onClear={() => setOrigin('')}
+                  />
+                ) : null}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() => {
+                    setQuery('');
+                    setGroup('');
+                    setOrigin('');
+                  }}
+                >
+                  {tr('清除全部', 'Clear all')}
+                </Button>
+              </>
+            ) : null
+          }
+        >
           <SearchInput
             value={query}
             onChange={setQuery}
             placeholder={tr('搜索 name / key / description', 'Search name / key / description')}
             ariaLabel={tr('搜索', 'Search')}
-            className="min-w-[16rem] flex-1"
           />
           {chips.length > 0 && (
             <>
@@ -279,7 +311,7 @@ function CatalogTab() {
             </ErrorBanner>
           )}
           {loading ? (
-            <div className="flex h-40 items-center justify-center text-sm text-zinc-500">{tr('加载中…', 'Loading…')}</div>
+            <div className="flex h-40 items-center justify-center text-[11px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
           ) : err && items.length === 0 ? null : filtered.length === 0 ? (
             <EmptyState
               hasItems={!!(query.trim() || group || origin)}
@@ -301,11 +333,11 @@ function CatalogTab() {
                 </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">
-                    <th className="px-3 py-2 text-left font-medium">{tr('名称', 'Name')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('类别', 'Class')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('来源', 'Origin')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('描述', 'Description')}</th>
-                    <th className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('名称', 'Name')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('类别', 'Class')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('来源', 'Origin')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('描述', 'Description')}</th>
+                    <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
                 </TableHead>
                 {orderedGroupKeys(filtered.map(skillKey)).map((gk) => {
@@ -401,28 +433,20 @@ function CatalogTab() {
           />
         )}
         {deleting && (
-          <Modal
+          <ConfirmDialog
             open
-            onClose={() => setDeleting(null)}
             title={tr('删除技能', 'Delete skill')}
-            footer={
-              <>
-                <Button variant="ghost" onClick={() => setDeleting(null)}>
-                  {tr('取消', 'Cancel')}
-                </Button>
-                <Button variant="danger" onClick={() => void runDelete()}>
-                  {tr('删除', 'Delete')}
-                </Button>
-              </>
+            description={
+              <p className="text-[12px] leading-relaxed text-zinc-300">
+                {tr(
+                  `确定删除技能 ${deleting.key}？已装配该技能的助理会退化为「不装配该技能」，需要重新保存助理配置。`,
+                  `Delete skill ${deleting.key}? Assistants that mounted it will read as missing until you re-save them.`,
+                )}
+              </p>
             }
-          >
-            <p className="text-[12px] leading-relaxed text-zinc-300">
-              {tr(
-                `确定删除技能 ${deleting.key}？已装配该技能的助理会退化为「不装配该技能」，需要重新保存助理配置。`,
-                `Delete skill ${deleting.key}? Assistants that mounted it will read as missing until you re-save them.`,
-              )}
-            </p>
-          </Modal>
+            onConfirm={runDelete}
+            onClose={() => setDeleting(null)}
+          />
         )}
       </div>
       {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
@@ -458,7 +482,8 @@ function SkillRow({
         <button
           type="button"
           onClick={onView}
-          className="text-[12.5px] text-zinc-200 transition-colors hover:text-indigo-300"
+          className="block max-w-full truncate text-left text-[12.5px] text-zinc-200 transition-colors hover:text-indigo-300"
+          title={displayName ?? skill.name}
         >
           {displayName ?? skill.name}
         </button>
@@ -492,7 +517,7 @@ function SkillRow({
         </div>
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-right">
-        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
           <RowAction icon={Download} onClick={onExport}>
             {tr('导出', 'Export')}
           </RowAction>
@@ -524,11 +549,11 @@ export function ClassBadge({ value }: { value: SkillClass }) {
   return <StatusPill tone={meta.tone} label={tr(meta.zh, meta.en)} />;
 }
 
-/** 来源胶囊：内置 / 新建 / ZIP 导入。 */
+/** 来源胶囊：内置 / 新建 / ZIP 导入。来源是分类信息，用 Chip 而不是状态胶囊。 */
 export function OriginBadge({ value }: { value: SkillOrigin }) {
   const { tr } = useI18n();
   const meta = ORIGIN_META[value];
-  return <StatusPill tone={meta.tone} label={tr(meta.zh, meta.en)} />;
+  return <Chip tone={meta.tone}>{tr(meta.zh, meta.en)}</Chip>;
 }
 
 // SkillDetailModal — 技能包详情：frontmatter 字段 + 完整体检 + 三类资源清单。
@@ -569,10 +594,10 @@ function SkillDetailModal({
                 ? tr('ZIP 导入技能：存于数据库，可编辑', 'Imported skill: stored in the database, editable')
                 : tr('新建技能：存于数据库，可编辑', 'Created skill: stored in the database, editable')}
           </span>
-          <Button variant="ghost" onClick={onExport}>
+          <Button variant="ghost" size="sm" onClick={onExport}>
             {tr('导出 ZIP', 'Export ZIP')}
           </Button>
-          {editable && <Button onClick={onEdit}>{tr('编辑', 'Edit')}</Button>}
+          {editable && <Button size="sm" onClick={onEdit}>{tr('编辑', 'Edit')}</Button>}
         </>
       }
     >
@@ -652,11 +677,11 @@ function SkillDetailModal({
               <table className="og-action-table w-full text-[12px]">
                 <thead className="border-b border-zinc-800/60 text-[11px] text-zinc-500">
                   <tr className="whitespace-nowrap">
-                    <th className="px-3 py-2 text-left font-medium">{tr('参数', 'Param')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('类型', 'Type')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('必填', 'Required')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('默认值', 'Default')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('说明', 'Description')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('参数', 'Param')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('类型', 'Type')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('必填', 'Required')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('默认值', 'Default')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('说明', 'Description')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/60">
@@ -702,7 +727,7 @@ function SkillDetailModal({
               'Skills are loaded on demand in chat; scripts need a sandbox to run.',
             )}
           </span>
-          <span>{tr('仅 AI 调用', 'AI only')}</span>
+          <Chip tone="info">{tr('仅 AI 调用', 'AI only')}</Chip>
         </div>
       </div>
     </Modal>
@@ -713,7 +738,7 @@ function EmptyState({ hasItems, onClear }: { hasItems: boolean; onClear: () => v
   const { tr } = useI18n();
   return (
     <EmptyStateCard icon={Wrench}
-      action={hasItems && <Button onClick={onClear}>{tr('清除筛选', 'Clear filters')}</Button>}
+      action={hasItems && <Button size="sm" onClick={onClear}>{tr('清除筛选', 'Clear filters')}</Button>}
       title={hasItems ? tr('没有匹配的技能', 'No matching skills') : tr('还没有技能', 'No skills yet')}
       hint={hasItems ? tr('换个关键字或清除分类筛选', 'Try a different keyword or clear filters') : tr('点右上角「新建技能」或「导入 ZIP」开始', 'Use "New skill" or "Import ZIP" in the header to start')}
     />

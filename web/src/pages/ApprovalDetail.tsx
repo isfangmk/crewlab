@@ -10,6 +10,7 @@ import {
   DetailStat,
   DetailStatGrid,
   EmptyStateCard,
+  ErrorBanner,
   PageHeader,
   RowAction,
   StatusPill,
@@ -151,20 +152,13 @@ export default function ApprovalDetailPage() {
             />
           ) : (
             <>
-              {error && (
-                <div
-                  role="alert"
-                  className="break-words rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] leading-5 text-red-300"
-                >
-                  {error}
-                </div>
-              )}
+              {error && <ErrorBanner>{error}</ErrorBanner>}
               {loading ? (
                 <p className="text-[12px] text-zinc-500">{tr('加载中…', 'Loading…')}</p>
               ) : item ? (
                 <>
                   <header className="min-w-0 space-y-1">
-                    <h2 className="break-words text-[16px] font-semibold leading-6 text-zinc-100">{item.title}</h2>
+                    <h2 className="break-words text-[15px] font-semibold leading-6 text-zinc-100">{item.title}</h2>
                     {item.summary && item.summary !== item.title ? (
                       <p className="whitespace-pre-wrap break-words text-[12px] leading-5 text-zinc-400">{item.summary}</p>
                     ) : null}
@@ -199,7 +193,7 @@ export default function ApprovalDetailPage() {
                   ) : null}
 
                   {item.status === 'approved' ? (
-                    <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-300">
+                    <p className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[11.5px] leading-5 text-warn">
                       {tr('批准不代表执行完成；结果未确认前请勿重新发起相同操作。', 'Approval does not mean completion. Do not repeat the operation while its result is unconfirmed.')}
                     </p>
                   ) : null}

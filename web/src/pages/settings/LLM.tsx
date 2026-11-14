@@ -12,7 +12,7 @@ import {
   type LLMConfigurationProbeResult,
   type SystemSetting,
 } from '@/api/settings';
-import { Button, Card, Chip, RowAction, RowActionIcon, SectionCard } from '@/components/ui';
+import { Button, Card, Checkbox, Chip, DetailSection, ErrorBanner, RowAction, RowActionIcon, SectionCard, StatusPill } from '@/components/ui';
 import { ProviderIcon } from '@/components/icons/Provider';
 import { SettingsProviderPicker } from '@/components/SettingsProviderPicker';
 import { cn } from '@/lib/cn';
@@ -300,7 +300,7 @@ export default function SettingsLLM() {
         }
       />
       {loadError ? (
-        <Card className="px-4 py-3 text-[11px] text-red-300">{loadError}</Card>
+        <ErrorBanner>{loadError}</ErrorBanner>
       ) : settings === null ? (
         <Card className="flex h-24 items-center justify-center text-[11px] text-zinc-500">
           <Loader2 size={13} className="mr-2 animate-spin" /> {tr('加载模型配置…', 'Loading model configuration…')}
@@ -606,7 +606,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
       testId={`llm-provider-${meta.id}`}
       title={<span className="inline-flex items-center gap-2"><ProviderIcon provider={meta.id} size={14} />{tr(meta.label, meta.labelEn ?? meta.label)}</span>}
       description={tr(meta.hintZh, meta.hintEn)}
-      actions={configured ? <Chip dense tone="success">{tr('已配置', 'Configured')}</Chip> : <Chip dense>{tr('未配置', 'Not configured')}</Chip>}
+      actions={<StatusPill tone={configured ? 'ok' : 'neutral'} label={configured ? tr('已配置', 'Configured') : tr('未配置', 'Not configured')} />}
       footer={!loading ? (
         <>
           <span className="mr-auto text-[11px] text-zinc-500">
@@ -616,7 +616,6 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
                 ? tr(`当前默认模型: ${draft.default_model || '(未设)'}`, `Current default model: ${draft.default_model || '(unset)'}`)
                 : ''}
           </span>
-          {err && <span className="break-all text-[11px] text-red-400">{err}</span>}
           <Button size="sm"
             onClick={() => void testDraft()}
             disabled={fetchingModels || saving || probe.kind === 'testing' || draft.api_key.trim() === ''}
@@ -639,6 +638,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
         </div>
       ) : (
         <div className="space-y-3">
+          {err && <ErrorBanner>{err}</ErrorBanner>}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <FieldRow
               label="API Key"
@@ -665,7 +665,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
             )}
           </div>
 
-          <details className="rounded-md border border-zinc-800/60 bg-zinc-950/30 px-3 py-2">
+          <details className="rounded-lg border border-zinc-800/60 bg-zinc-950/60 px-3 py-2">
             <summary className="cursor-pointer select-none text-[11px] text-zinc-500 hover:text-zinc-300">
               {tr('高级 · 模型前缀 / 厂商请求体', 'Advanced · Model prefix / vendor body')}
             </summary>
@@ -691,7 +691,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
             // Named providers ship a working default endpoint, so Base URL is
             // an advanced override (proxy / gateway / Azure) — tuck it away so
             // first-time users just paste a key and go.
-            <details className="rounded-md border border-zinc-800/60 bg-zinc-950/30 px-3 py-2">
+            <details className="rounded-lg border border-zinc-800/60 bg-zinc-950/60 px-3 py-2">
               <summary className="cursor-pointer select-none text-[11px] text-zinc-500 hover:text-zinc-300">
                 {tr('高级 · Base URL', 'Advanced · Base URL')}
               </summary>
@@ -707,9 +707,9 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
             </details>
           )}
 
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-[11px] uppercase tracking-wide text-zinc-500">{tr('模型列表', 'Models')}</span>
+          <DetailSection
+            title={tr('模型列表', 'Models')}
+            actions={
               <Button size="sm"
                 onClick={() => void loadModels()}
                 disabled={fetchingModels || saving || probe.kind === 'testing' || draft.api_key.trim() === '' || (meta.custom && draft.base_url.trim() === '')}
@@ -717,10 +717,11 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
                 {fetchingModels ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
                 {fetchingModels ? tr('获取中…', 'Fetching…') : tr('获取模型', 'Fetch models')}
               </Button>
-            </div>
-            {modelFetchMessage && <p role="status" className="mb-2 text-xs text-zinc-400">{modelFetchMessage}</p>}
+            }
+          >
+            {modelFetchMessage && <p role="status" className="mb-2 text-[11px] text-zinc-400">{modelFetchMessage}</p>}
             {draft.models.length === 0 ? (
-              <p className="rounded border border-dashed border-zinc-800 bg-zinc-950/40 px-3 py-2 text-[11px] text-zinc-600">
+              <p className="rounded-lg border border-dashed border-zinc-800/60 bg-zinc-950/60 px-3 py-2 text-[11px] text-zinc-600">
                 {tr(`还没添加模型 — 在下面输入框里加一个，例 ${meta.modelPlaceholder}`, `No models yet — add one in the input below, e.g. ${meta.modelPlaceholder}`)}
               </p>
             ) : (
@@ -738,7 +739,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
                           <Star size={9} /> {tr('默认', 'Default')}
                         </Chip>
                       )}
-                      <span className="ml-auto flex shrink-0 items-center gap-1">
+                      <span className="ml-auto flex shrink-0 items-center gap-1.5">
                         {!isDefault && (
                           <RowAction
                             icon={Check}
@@ -782,22 +783,21 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
                 {tr('添加', 'Add')}
               </Button>
             </div>
-          </div>
+          </DetailSection>
         </div>
       )}
 
       {meta.custom && !loading && (
         <div className="mt-4 space-y-1">
-          <label className="flex items-center gap-2 text-[11px] text-zinc-400">
-            <input
-              type="checkbox"
+          <Label className="flex items-center gap-2 text-[11px] text-zinc-400">
+            <Checkbox
               checked={draft.tls_insecure}
-              onChange={(event) => update('tls_insecure', event.target.checked)}
+              onCheckedChange={(checked) => update('tls_insecure', checked === true)}
             />
             {tr('跳过 TLS 校验（自签证书时勾选）', 'Skip TLS verification (for self-signed certificates)')}
-          </label>
+          </Label>
           {draft.tls_insecure && (
-            <p className="text-[11px] text-amber-500">
+            <p className="text-[11px] text-warn">
               {tr('将不验证服务端证书，仅用于可信内网。获取模型、测试和保存后的对话均生效。', 'Server certificates will not be verified. Use only on trusted networks; applies to model discovery, testing and saved chats.')}
             </p>
           )}
@@ -814,7 +814,7 @@ function LLMProbeLine({ probe }: { probe: LLMProbeState }) {
   if (probe.kind === 'idle' || probe.kind === 'testing') return null;
   if (probe.kind === 'ok') {
     return (
-      <p className="mt-3 text-[11px] text-emerald-500">
+      <p className="mt-3 text-[11px] text-ok">
         {tr('✓ 配置可用', '✓ Configuration works')}
         {probe.result.model ? ` · ${probe.result.model}` : ''}
         {probe.result.latency_ms > 0 ? ` · ${probe.result.latency_ms} ms` : ''}
@@ -825,9 +825,9 @@ function LLMProbeLine({ probe }: { probe: LLMProbeState }) {
   const copy = llmProbeFailureCopy(probe.result.code);
   return (
     <div className="mt-3 space-y-1 text-[11px]">
-      <p className="text-red-500">
+      <p className="text-danger">
         ✗ {tr(copy.titleZh, copy.titleEn)}
-        {probe.result.detail ? <span className="break-all text-red-400"> · {probe.result.detail}</span> : null}
+        {probe.result.detail ? <span className="break-all"> · {probe.result.detail}</span> : null}
       </p>
       <p className="text-zinc-500">{tr(copy.hintZh, copy.hintEn)}</p>
     </div>
@@ -907,7 +907,7 @@ function FieldRow({
             onClick={onToggleReveal}
             tabIndex={-1}
             aria-label={revealed ? 'Hide' : 'Show'}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1"
+            className="absolute right-1.5 top-1/2 h-7 w-7 -translate-y-1/2 p-0"
           >
             {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
           </Button>

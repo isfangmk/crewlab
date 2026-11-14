@@ -2010,7 +2010,7 @@ export default function ChatThreadPage() {
 
                 role="status"
 
-                className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
+                className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-1.5 text-[11px] text-warn"
 
               >
 

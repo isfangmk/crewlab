@@ -209,7 +209,7 @@ export function CapabilityBinding({
             )}
           </span>
         </div>
-        <ul className="mt-1.5 space-y-0.5 text-[11px] leading-5 text-amber-300">
+        <ul className="mt-1.5 space-y-0.5 text-[11px] leading-5 text-warn">
           {preview.whitelistActive && !preview.whitelistHasMcp && catalog.mcpServers.length > 0 && (
             <li>{tr('白名单不含任何 MCP 工具，所有 MCP Server 都不会挂载', 'The whitelist has no MCP tool, so no MCP server is mounted')}</li>
           )}

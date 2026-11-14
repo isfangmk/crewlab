@@ -30,8 +30,14 @@ export const COL = {
   actionsNarrow: 'w-[8rem]',
   /** 操作列：纯图标按钮。 */
   actionsIcon: 'w-[5.5rem]',
+  /** 操作列：三到四个纯图标按钮。 */
+  actionsIconWide: 'w-[9.5rem]',
   /** 序号列。 */
   index: 'w-[3rem]',
+  /** 勾选列。 */
+  select: 'w-[2.5rem]',
+  /** 勾选 + 展开箭头列。 */
+  selectExpand: 'w-[5rem]',
   /** 拖拽把手列。 */
   handle: 'w-[1.5rem]',
 } as const;

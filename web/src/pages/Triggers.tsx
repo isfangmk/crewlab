@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CalendarClock, Check, Copy, Loader2, Plus, Power, RefreshCw, Trash2 } from 'lucide-react';
 import {
   Button,
+  Chip,
   CodeBlock,
   EmptyStateCard,
   ErrorBanner,
@@ -45,7 +46,8 @@ import {
 } from '@/api/triggers';
 import { listAgents, type AgentSummary } from '@/api/agents';
 
-const PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 20;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 const RUN_STATUS_LABELS: Record<
   TriggerRunItem['status'],
@@ -65,6 +67,7 @@ export default function TriggersPage() {
   const [err, setErr] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [editor, setEditor] = useState<null | { mode: 'create' }>(null);
   const [deleting, setDeleting] = useState<TriggerRuleItem | null>(null);
   const [runsFor, setRunsFor] = useState<TriggerRuleItem | null>(null);
@@ -120,9 +123,9 @@ export default function TriggersPage() {
     if (!q) return true;
     return t.name.toLowerCase().includes(q);
   });
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const paged = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const paged = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
   const refreshRuns = useCallback(async (rule: TriggerRuleItem) => {
     const r = await listTriggerRuns(rule.id);
@@ -183,34 +186,31 @@ export default function TriggersPage() {
           </>
         }
       />
-      {items !== null && items.length > 0 && (
-        <FilterBar className="mx-6 mt-3">
-          <SearchInput
-            value={query}
-            onChange={(v) => {
-              setQuery(v);
-              setPage(0);
-            }}
-            placeholder={tr('按名称搜索…', 'Search by name…')}
-            ariaLabel={tr('搜索触发器', 'Search triggers')}
-            className="min-w-[16rem] flex-1"
-          />
-          <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
-            {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
-          </span>
-        </FilterBar>
-      )}
+      <FilterBar className="mx-6 mt-3">
+        <SearchInput
+          value={query}
+          onChange={(v) => {
+            setQuery(v);
+            setPage(0);
+          }}
+          placeholder={tr('按名称搜索…', 'Search by name…')}
+          ariaLabel={tr('搜索触发器', 'Search triggers')}
+        />
+        <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
+          {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
+        </span>
+      </FilterBar>
 
       <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
         {err && (
           <ErrorBanner className="mb-3">{err}</ErrorBanner>
         )}
         {loading && items === null ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
-            <Loader2 size={14} className="mr-2 animate-spin" />
+          <div className="flex flex-1 items-center justify-center text-[11px] text-zinc-500">
+            <Loader2 size={12} className="mr-2 animate-spin" />
             {tr('加载中…', 'Loading…')}
           </div>
-        ) : items !== null && items.length === 0 ? (
+        ) : err !== null && items !== null && items.length === 0 ? null : items !== null && items.length === 0 ? (
           <EmptyStateCard
             icon={CalendarClock}
             title={tr('还没有任何触发器', 'No triggers yet')}
@@ -223,7 +223,6 @@ export default function TriggersPage() {
                 <Button
                   variant="primary"
                   size="sm"
-                  className="h-7 px-3 text-[11.5px]"
                   onClick={() => setEditor({ mode: 'create' })}
                 >
                   <Plus size={12} />
@@ -237,7 +236,7 @@ export default function TriggersPage() {
             icon={CalendarClock}
             title={tr('没有匹配的触发器', 'No matching triggers')}
             action={
-              <Button onClick={() => setQuery('')}>{tr('清除筛选', 'Clear filters')}</Button>
+              <Button variant="outline" size="sm" onClick={() => setQuery('')}>{tr('清除筛选', 'Clear filters')}</Button>
             }
           />
         ) : (
@@ -246,10 +245,15 @@ export default function TriggersPage() {
             footer={
               <TablePager
                 page={safePage}
-                pageSize={PAGE_SIZE}
+                pageSize={pageSize}
                 total={filtered.length}
                 shown={paged.length}
                 onPageChange={setPage}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                onPageSizeChange={(size) => {
+                  setPage(0);
+                  setPageSize(size);
+                }}
               />
             }
           >
@@ -294,10 +298,8 @@ export default function TriggersPage() {
                         {t.kind === 'cron' ? `cron · ${t.cron_expr}` : 'webhook'}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-[11px] text-zinc-300">
-                      {t.target_kind === 'workflow'
-                        ? tr('工作流', 'Workflow')
-                        : tr('助理', 'Assistant')}
+                    <td className="px-3 py-2">
+                      <Chip>{t.target_kind === 'workflow' ? tr('工作流', 'Workflow') : tr('助理', 'Assistant')}</Chip>
                     </td>
                     <td className="px-3 py-2 text-[11px] text-zinc-300">
                       {t.target_kind === 'workflow' ? (
@@ -326,7 +328,7 @@ export default function TriggersPage() {
                       {t.next_fire_at ? fullDateTime(t.next_fire_at) : '—'}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
+                      <div className="flex items-center justify-end gap-1.5 opacity-60 transition-opacity group-hover:opacity-100">
                         <RowAction
                           icon={busyId === t.id ? Loader2 : RefreshCw}
                           iconClassName={busyId === t.id ? 'animate-spin' : undefined}
@@ -395,12 +397,12 @@ export default function TriggersPage() {
           size="md"
         >
           {runs === null ? (
-            <div className="flex h-24 items-center justify-center text-sm text-zinc-500">
-              <Loader2 size={14} className="mr-2 animate-spin" />
+            <div className="flex h-24 items-center justify-center text-[11px] text-zinc-500">
+              <Loader2 size={12} className="mr-2 animate-spin" />
               {tr('加载中…', 'Loading…')}
             </div>
           ) : runs.length === 0 ? (
-            <p className="py-6 text-center text-sm text-zinc-500">
+            <p className="py-6 text-center text-[11.5px] text-zinc-500">
               {tr('还没有触发记录', 'No runs yet')}
             </p>
           ) : (
@@ -424,7 +426,7 @@ export default function TriggersPage() {
                       {r.ref_id ? ` · ${r.ref_id}` : ''}
                     </div>
                     {r.error && (
-                      <div className="mt-1 line-clamp-2 text-[10px] text-red-400">{r.error}</div>
+                      <div className="mt-1 line-clamp-2 text-[10px] text-danger">{r.error}</div>
                     )}
                   </div>
                 </li>
@@ -688,7 +690,7 @@ function WebhookRevealModal({
       }
     >
       <div className="space-y-3 text-xs text-zinc-300">
-        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-300">
+        <p className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[12px] leading-relaxed text-warn">
           {tr(
             '地址只显示这一次，关闭后无法再次查看；丢失请重新创建触发器。',
             'This URL is shown only once and cannot be viewed again; recreate the trigger if lost.',

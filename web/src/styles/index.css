@@ -235,6 +235,25 @@ html.light .og-action-table tbody tr,
 html.light .og-action-table tbody tr > td.sticky {
   background-color: rgb(var(--action-row-bg));
 }
+/* 行级语义底色：未分层规则会压过 Tailwind 的 bg-*，统一走 data-row-tone 接住 */
+.og-action-table tbody tr[data-row-tone="pending"] {
+  background-color: rgb(var(--warn) / .04);
+}
+.og-action-table tbody tr[data-row-tone="pending"]:hover {
+  background-color: rgb(var(--warn) / .07);
+}
+.og-action-table tbody tr[data-row-tone="expanded"],
+.og-action-table tbody tr[data-row-tone="expanded"]:hover {
+  background-color: rgb(var(--action-hover-bg));
+}
+.og-action-table tbody tr[data-row-tone="detail"],
+.og-action-table tbody tr[data-row-tone="detail"]:hover {
+  background-color: rgb(var(--bg) / .3);
+}
+.og-action-table tbody tr[data-row-tone="selected"],
+.og-action-table tbody tr[data-row-tone="selected"]:hover {
+  background-color: rgb(var(--accent) / .08);
+}
 .og-action-table tbody tr:hover,
 .og-action-table tbody tr:hover > td.sticky,
 html.light .og-action-table tbody tr:hover,

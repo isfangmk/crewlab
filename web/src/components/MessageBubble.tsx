@@ -167,7 +167,7 @@ function CopyButton({ text }: { text: string }) {
       {state !== 'idle' && (
         <span
           role="status"
-          className={cn('text-[10px]', state === 'error' ? 'text-red-400' : 'text-zinc-500')}
+          className={cn('text-[10px]', state === 'error' ? 'text-danger' : 'text-zinc-500')}
         >
           {state === 'error' ? tr('复制失败', 'Copy failed') : tr('已复制', 'Copied')}
         </span>
@@ -323,7 +323,6 @@ function compactUserContent(
 }
 
 function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
-  const { tr } = useI18n();
   // Codex-style: no rounded card around assistant prose. Render markdown
   // flush against the column so headings/lists/code blocks read like a
   // document. Tool calls (when attached) appear as their own rows inside
@@ -453,7 +452,7 @@ function ToolCallSummaryBlock({
     <div
       className={cn(
         'w-full overflow-hidden rounded-lg border bg-zinc-900/40 text-xs',
-        isError ? 'border-red-500/30' : 'border-zinc-800/60',
+        isError ? 'border-danger/30' : 'border-zinc-800/60',
       )}
     >
       <button
@@ -514,7 +513,7 @@ function ToolCallSummaryBlock({
             </div>
           )}
           {call.error && (
-            <div className="mt-1 text-[11px] text-red-400">{call.error}</div>
+            <div className="mt-1 text-[11px] text-danger">{call.error}</div>
           )}
           {!call.error && call.result === undefined && isPending && (
             <div className="text-[11px] text-zinc-500">{tr('等待结果…', 'Waiting for result…')}</div>
@@ -565,7 +564,7 @@ function ConfigDraftCard({
           {payload && <div className="text-[11px] leading-5 text-zinc-400">{payload}</div>}
           {preview && <div className="text-[11px] leading-5 text-zinc-400">{preview}</div>}
           {warnings.length > 0 && (
-            <div className="space-y-1 text-[11px] leading-5 text-amber-300">
+            <div className="space-y-1 text-[11px] leading-5 text-warn">
               {warnings.slice(0, 3).map((w, i) => (
                 <div key={`${w}-${i}`}>{w}</div>
               ))}
@@ -682,12 +681,12 @@ function payloadSummary(payload: unknown): string {
 
 function StatusIcon({ status }: { status?: string }) {
   if (status === 'pending') {
-    return <Loader2 size={13} className="animate-spin text-blue-400" />;
+    return <Loader2 size={13} className="animate-spin text-info" />;
   }
   if (status === 'error' || status === 'timeout') {
-    return <AlertCircle size={13} className="text-red-400" />;
+    return <AlertCircle size={13} className="text-danger" />;
   }
-  if (status === 'success') return <CheckCircle2 size={13} className="text-emerald-400" />;
+  if (status === 'success') return <CheckCircle2 size={13} className="text-ok" />;
   return <AlertCircle size={13} className="text-zinc-500" />;
 }
 
@@ -926,7 +925,7 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
   return (
     <div className="w-full overflow-hidden rounded-lg border border-zinc-800/60 bg-zinc-900/40 text-xs">
       <div className="flex items-center gap-2 border-b border-zinc-800/60 px-3 py-2">
-        <ShieldAlert size={13} className="text-amber-500/90" />
+        <ShieldAlert size={13} className="text-warn" />
         <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-zinc-200">
           {isHostBash
             ? tr('需要你确认才能在边端主机执行', 'Needs your approval to run on the edge host')
@@ -979,7 +978,7 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
         )}
         {state === 'busy' && <div className="flex items-center gap-1.5 text-zinc-400"><Loader2 size={12} className="animate-spin" />{tr('执行中…', 'Running…')}</div>}
         {state === 'rejected' && <div className="text-zinc-500">{tr('已拒绝，未执行', 'Rejected — not run')}</div>}
-        {state === 'error' && <div className="break-all text-red-400">{errText}</div>}
+        {state === 'error' && <div className="break-all text-danger">{errText}</div>}
         {state === 'done' && (
           <CodeBlock maxHeightClassName="max-h-56">{prettyResult(resultText)}</CodeBlock>
         )}

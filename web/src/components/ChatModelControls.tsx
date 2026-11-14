@@ -79,7 +79,7 @@ export function WebSearchToggle({
       className={cn(
         'w-7 p-0',
         enabled
-          ? 'bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/40 hover:bg-emerald-500/20 dark:text-emerald-400'
+          ? 'bg-ok/10 text-ok ring-1 ring-ok/40 hover:bg-ok/20'
           : 'text-text-muted hover:bg-muted',
       )}
     >

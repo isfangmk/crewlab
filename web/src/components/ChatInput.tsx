@@ -424,7 +424,7 @@ export function ChatInput({
             ))}
           </div>
         )}
-        {attachmentError && <p role="alert" className="px-4 pt-2 text-xs text-red-500">{attachmentError}</p>}
+        {attachmentError && <p role="alert" className="px-4 pt-2 text-xs text-danger">{attachmentError}</p>}
         <Label htmlFor="chat-input" className="sr-only">
           {tr('消息输入框', 'Message input')}
         </Label>

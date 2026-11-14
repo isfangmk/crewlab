@@ -224,7 +224,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
         </div>
 
         {err ? (
-          <div className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">
+          <div className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-[11px] text-danger">
             {err}
           </div>
         ) : null}
@@ -263,7 +263,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
             </dl>
 
             {broken ? (
-              <div className="flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">
+              <div className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-[11px] text-danger">
                 <AlertTriangle size={13} className="mt-[1px] shrink-0" aria-hidden />
                 <span>
                   {tr(
@@ -363,7 +363,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
               </Label>
             ))}
             {broken && missingWhenBroken.length > 0 ? (
-              <div className="text-[11px] text-amber-400">
+              <div className="text-[11px] text-warn">
                 {tr(
                   `还需填写：${missingWhenBroken.join('、')}`,
                   `Still required: ${missingWhenBroken.join(', ')}`,
@@ -468,7 +468,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
                             ) : item.ok ? (
                               <StatusPill tone="ok" label={tr('连接成功', 'Connected')} />
                             ) : (
-                              <span className="text-[11px] text-red-300" title={item.error ?? ''}>
+                              <span className="text-[11px] text-danger" title={item.error ?? ''}>
                                 {item.error}
                               </span>
                             )}

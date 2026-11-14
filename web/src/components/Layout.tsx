@@ -35,7 +35,7 @@ export function Layout() {
       <Sidebar />
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {tzError !== null ? (
-          <main className="flex flex-1 items-center justify-center px-6 text-sm text-red-400">
+          <main className="flex flex-1 items-center justify-center px-6 text-[11.5px] text-danger">
             {trInline('系统时区加载失败：', 'Failed to load system timezone: ')}
             {tzError}
           </main>

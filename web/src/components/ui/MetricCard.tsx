@@ -6,7 +6,7 @@ export type MetricTone = 'default' | 'danger' | 'ok' | 'warn' | 'accent' | 'info
 
 const METRIC_TONES: Record<MetricTone, { box: string; icon: string; bar: string }> = {
   default: { box: 'bg-zinc-800/60', icon: 'text-zinc-400', bar: 'bg-zinc-400/70' },
-  danger: { box: 'bg-red-500/10', icon: 'text-red-400', bar: 'bg-red-500/70' },
+  danger: { box: 'bg-danger/10', icon: 'text-danger', bar: 'bg-danger/70' },
   ok: { box: 'bg-ok/10', icon: 'text-ok', bar: 'bg-ok/70' },
   warn: { box: 'bg-warn/10', icon: 'text-warn', bar: 'bg-warn/70' },
   accent: { box: 'bg-accent/10', icon: 'text-accent', bar: 'bg-accent/70' },

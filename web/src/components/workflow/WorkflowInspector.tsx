@@ -118,7 +118,7 @@ export function WorkflowInspector(props: Props) {
       ref={panelRef}
       aria-label={props.node === null ? tr('工作流信息', 'Workflow info') : tr('节点面板', 'Node panel')}
       style={{ width }}
-      className="relative z-20 my-2 ml-2 mr-2 flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-[0_20px_60px_-24px_rgba(0,0,0,0.55)]"
+      className="relative z-20 my-2 ml-2 mr-2 flex shrink-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-[0_20px_60px_-24px_rgba(0,0,0,0.55)]"
     >
       <div
         role="separator"

@@ -43,6 +43,7 @@ import {
 import { cn } from '@/lib/cn';
 import { mcpToolWireName } from '@/lib/mcpWire';
 import { Modal } from '@/components/Modal';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Button, Card, Checkbox, Chip, CodeBlock, DetailSection, EmptyStateCard,
   ErrorBanner, FilterBar, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Textarea } from '@/components/ui';
 import {
@@ -204,7 +205,6 @@ export default function AgentsPage() {
           onChange={setQuery}
           placeholder={tr('搜索 name / description', 'Search name / description')}
           ariaLabel={tr('搜索', 'Search')}
-          className="min-w-[16rem] flex-1"
         />
         <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
           {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
@@ -218,11 +218,11 @@ export default function AgentsPage() {
           </ErrorBanner>
         )}
         {loading ? (
-          <div className="flex h-40 items-center justify-center text-sm text-zinc-500">{tr('加载中…', 'Loading…')}</div>
+          <div className="flex h-40 items-center justify-center text-[11px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
         ) : err && items.length === 0 ? null : filtered.length === 0 ? (
           <AgentsEmpty canCreate={canMutate} hasItems={!!query.trim()} onClear={() => setQuery('')} onCreate={() => setEditing({ mode: 'create' })} />
         ) : (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
             {filtered.map((a) => (
               <AgentCard
                 key={a.name}
@@ -232,6 +232,16 @@ export default function AgentsPage() {
                 onDelete={() => setDeleting(a)}
               />
             ))}
+            {canMutate && (
+              <button
+                type="button"
+                onClick={() => setEditing({ mode: 'create' })}
+                className="flex min-h-52 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-800/70 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
+              >
+                <Plus size={18} aria-hidden />
+                <span className="text-[12.5px]">{tr('新建自定义助理', 'New custom assistant')}</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -457,7 +467,7 @@ function AgentCard({
 
       {/* 关键提醒是运行时真正注入的约束，卡片上直接露出来，不用点进详情才知道。 */}
       {agent.critical_reminder && (
-        <div className="mt-2.5 rounded-md border-l-2 border-amber-500/50 bg-amber-500/[0.06] py-1.5 pl-2 pr-2">
+        <div className="mt-2.5 rounded-md border-l-2 border-warn/50 bg-warn/[0.06] py-1.5 pl-2 pr-2">
           <p className="line-clamp-2 text-[11px] leading-snug text-zinc-400" title={agent.critical_reminder}>
             {agent.critical_reminder}
           </p>
@@ -499,14 +509,14 @@ function AgentCard({
               void onUse();
             }}
             disabled={busy}
-            className="gap-1 border border-indigo-500/40 bg-indigo-500/10 px-2.5 text-[11px] font-medium text-indigo-300 hover:border-indigo-500/60 hover:bg-indigo-500/20 hover:text-indigo-200"
+            className="gap-1 border border-indigo-500/40 bg-indigo-500/10 px-2 text-[11px] font-medium text-indigo-300 hover:border-indigo-500/60 hover:bg-indigo-500/20 hover:text-indigo-200"
           >
             <MessageSquarePlus size={12} />
             {busy ? tr('创建中…', 'Creating…') : tr('使用此助理', 'Use this')}
           </Button>
         </Hint>
       </div>
-      {err && <div className="mt-2 text-[11px] text-red-300">{err}</div>}
+      {err && <ErrorBanner className="mt-2">{err}</ErrorBanner>}
     </Card>
   );
 }
@@ -628,7 +638,7 @@ function AgentDetailModal({
           </span>
         </div>
 
-        {err && <div className="text-[11px] text-red-300">{err}</div>}
+        {err && <ErrorBanner>{err}</ErrorBanner>}
 
         <DetailSection title={tr('描述', 'Description')}>
           <p className="text-[12px] leading-relaxed text-zinc-300">{agent.description || '—'}</p>
@@ -650,10 +660,8 @@ function AgentDetailModal({
 
         {agent.critical_reminder && (
           <DetailSection title={tr('关键提醒', 'Critical reminder')}>
-            {/* 用不带透明度的 text-amber-300：light 主题有 amber-300→amber-700
-                的覆盖（index.css），透明度变体 /80 不在覆盖内、浅色下会发灰看不清。
-                配一层 amber 描边底色，强化「提醒」语义又保证两主题都够对比度。 */}
-            <p className="whitespace-pre-wrap rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-[12px] leading-relaxed text-amber-300">
+            {/* 提醒条走 warn 语义色，深浅主题自动切换 */}
+            <p className="whitespace-pre-wrap rounded-lg border border-warn/30 bg-warn/10 p-3 text-[12px] leading-relaxed text-warn">
               {agent.critical_reminder}
             </p>
           </DetailSection>
@@ -665,14 +673,14 @@ function AgentDetailModal({
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {agent.knowledge_scope.paths.map((p) => (
-                <span key={p} className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                <Chip key={p} dense>
                   {localizedPath(p) || tr('（根目录）', '(root)')}
-                </span>
+                </Chip>
               ))}
               {agent.knowledge_scope.doc_ids.length > 0 && (
-                <span className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                <Chip dense>
                   {tr(`${agent.knowledge_scope.doc_ids.length} 篇指定文档`, `${agent.knowledge_scope.doc_ids.length} pinned doc(s)`)}
-                </span>
+                </Chip>
               )}
             </div>
           )}
@@ -682,12 +690,9 @@ function AgentDetailModal({
           <DetailSection title={tr('子助理委托', 'Sub-assistant delegation')}>
             <div className="flex flex-wrap gap-1.5">
               {agent.sub_agents.map((name) => (
-                <span
-                  key={name}
-                  className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400"
-                >
+                <Chip key={name} dense className="font-mono">
                   {name}
-                </span>
+                </Chip>
               ))}
             </div>
           </DetailSection>
@@ -716,9 +721,9 @@ function AgentDetailModal({
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {agent.tools.map((t) => (
-                <span key={t} className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                <Chip key={t} dense className="font-mono">
                   {t}
-                </span>
+                </Chip>
               ))}
             </div>
           )}
@@ -747,8 +752,8 @@ function AgentsEmpty({ hasItems, onCreate, onClear, canCreate }: { canCreate: bo
       title={hasItems ? tr('没有匹配的助理', 'No matching assistants') : tr('还没有助理注册', 'No assistants registered yet')}
       hint={!hasItems && !canCreate ? tr('请联系管理员创建助理。', 'Ask an admin to create an assistant.') : undefined}
       action={
-        hasItems ? <Button onClick={onClear}>{tr('清除筛选', 'Clear filters')}</Button> : canCreate && (
-          <Button variant="primary" onClick={onCreate}>
+        hasItems ? <Button size="sm" onClick={onClear}>{tr('清除筛选', 'Clear filters')}</Button> : canCreate && (
+          <Button variant="primary" size="sm" onClick={onCreate}>
             <Plus size={12} /> {tr('新建助理', 'New assistant')}
           </Button>
         )
@@ -1112,7 +1117,7 @@ function Field({
     <Label className="block">
       <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
         {label}
-        {required && <span className="ml-0.5 text-red-400">*</span>}
+        {required && <span className="ml-0.5 text-danger">*</span>}
       </div>
       {children}
     </Label>
@@ -1134,7 +1139,7 @@ function FieldGroup({
     <div>
       <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
         {label}
-        {required && <span className="ml-0.5 text-red-400">*</span>}
+        {required && <span className="ml-0.5 text-danger">*</span>}
       </div>
       {children}
     </div>
@@ -1151,63 +1156,30 @@ function DeleteAgentDialog({
   onDone: () => void;
 }) {
   const { tr } = useI18n();
-  const [submitting, setSubmitting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const submit = async () => {
-    setSubmitting(true);
-    setErr(null);
-    try {
-      await deleteAgent(agent.name);
-      onDone();
-    } catch (e) {
-      setErr(errorText(e));
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   return (
-    <Modal
+    <ConfirmDialog
       open
-      onClose={onClose}
       title={tr(`删除助理 ${agent.name}`, `Delete assistant ${agent.name}`)}
-      footer={
+      description={
         <>
-          <Button variant="outline" size="sm"
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5"
-          >
-            {tr('取消', 'Cancel')}
-          </Button>
-          <Button variant="danger" size="sm"
-            type="button"
-            onClick={() => void submit()}
-            disabled={submitting}
-            className="px-3 py-1.5 font-medium"
-          >
-            {submitting ? tr('删除中…', 'Deleting…') : tr('删除', 'Delete')}
-          </Button>
+          <p>
+            {tr('确定删除自定义助理 ', 'Delete custom assistant ')}
+            <span className="font-mono text-zinc-100">{agent.name}</span>?
+          </p>
+          <p className="mt-2 text-zinc-500">
+            {tr(
+              '已经用此助理建过的会话不会被删除——它们会回退到默认 coordinator 继续运行。',
+              'Sessions already created with this assistant are kept — they fall back to the default coordinator.',
+            )}
+          </p>
         </>
       }
-    >
-      <div className="text-xs text-zinc-300">
-        {err && (
-          <ErrorBanner>
-            {err}
-          </ErrorBanner>
-        )}
-        <p>
-          {tr('确定删除自定义助理 ', 'Delete custom assistant ')}<span className="font-mono text-zinc-100">{agent.name}</span>?
-        </p>
-        <p className="mt-2 text-zinc-500">
-          {tr(
-            '已经用此助理建过的会话不会被删除——它们会回退到默认 coordinator 继续运行。',
-            "Sessions already created with this assistant are kept — they fall back to the default coordinator.",
-          )}
-        </p>
-      </div>
-    </Modal>
+      onConfirm={async () => {
+        await deleteAgent(agent.name);
+        onDone();
+      }}
+      onClose={onClose}
+    />
   );
 }

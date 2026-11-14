@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Modal } from '@/components/Modal';
-import { Button, Label, Textarea } from '@/components/ui';
+import { Button, ErrorBanner, Label, Textarea } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
 
 /** 拒绝工具审批：必填原因。 */
@@ -101,11 +101,7 @@ export function RejectApprovalDialog({
             className="w-full resize-y"
           />
         </Label>
-        {err ? (
-          <div className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-sm text-red-300">
-            {err}
-          </div>
-        ) : null}
+        {err ? <ErrorBanner>{err}</ErrorBanner> : null}
       </div>
     </Modal>
   );

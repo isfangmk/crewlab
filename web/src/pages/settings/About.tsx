@@ -78,7 +78,7 @@ export default function About() {
 
 function Row({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-2 text-[12px] text-zinc-200">
+    <div className="flex items-center justify-between gap-3 py-2 text-[11px] text-zinc-200">
       <span className="flex items-center gap-2 text-[11px] text-zinc-500">
         {icon} {label}
       </span>

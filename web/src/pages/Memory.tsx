@@ -40,7 +40,8 @@ interface MemoryItem {
   created_at: string | null;
 }
 
-const PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 20;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 function listMemory(query: string) {
   const qs = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
@@ -63,6 +64,7 @@ export default function MemoryPage() {
   const [err, setErr] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [creating, setCreating] = useState(false);
   const [newContent, setNewContent] = useState('');
   const [scopeAgent, setScopeAgent] = useState('');
@@ -107,9 +109,9 @@ export default function MemoryPage() {
   }, [creating, agents]);
 
   const filtered = items ?? [];
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const paged = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const paged = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
   const save = async () => {
     setSaving(true);
@@ -174,7 +176,6 @@ export default function MemoryPage() {
           }}
           placeholder={tr('按内容筛选…', 'Filter by content…')}
           ariaLabel={tr('筛选记忆', 'Filter memory')}
-          className="min-w-[16rem] flex-1"
         />
         <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
           {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
@@ -186,11 +187,11 @@ export default function MemoryPage() {
           <ErrorBanner className="mb-3">{err}</ErrorBanner>
         )}
         {loading && items === null ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
-            <Loader2 size={14} className="mr-2 animate-spin" />
+          <div className="flex flex-1 items-center justify-center text-[11px] text-zinc-500">
+            <Loader2 size={12} className="mr-2 animate-spin" />
             {tr('加载中…', 'Loading…')}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : err !== null && filtered.length === 0 ? null : filtered.length === 0 ? (
           <EmptyStateCard
             icon={Brain}
             title={
@@ -215,7 +216,6 @@ export default function MemoryPage() {
                 <Button
                   variant="primary"
                   size="sm"
-                  className="h-7 px-3 text-[11.5px]"
                   onClick={openCreate}
                 >
                   <Plus size={12} />
@@ -230,10 +230,15 @@ export default function MemoryPage() {
             footer={
               <TablePager
                 page={safePage}
-                pageSize={PAGE_SIZE}
+                pageSize={pageSize}
                 total={filtered.length}
                 shown={paged.length}
                 onPageChange={setPage}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                onPageSizeChange={(size) => {
+                  setPage(0);
+                  setPageSize(size);
+                }}
               />
             }
           >
@@ -242,7 +247,7 @@ export default function MemoryPage() {
                 <col className={COL.main} />
                 <col className={COL.tag} />
                 <col className={COL.time} />
-                <col className={COL.actionsNarrow} />
+                <col className={COL.actionsIcon} />
               </colgroup>
               <TableHead>
                 <tr className="whitespace-nowrap">
@@ -268,8 +273,13 @@ export default function MemoryPage() {
                         {m.content}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-[11px] text-zinc-400">
-                      {m.agent_id ?? tr('全局', 'Global')}
+                    <td className="min-w-0 px-3 py-2">
+                      <span
+                        className="block truncate text-[11px] text-zinc-400"
+                        title={m.agent_id ?? undefined}
+                      >
+                        {m.agent_id ?? tr('全局', 'Global')}
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-[11px] text-zinc-500">
                       {m.created_at ? fullDateTime(m.created_at) : '—'}
@@ -321,7 +331,7 @@ export default function MemoryPage() {
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="memory-content">
-                {tr('内容', 'Content')} <span className="text-red-400">*</span>
+                {tr('内容', 'Content')} <span className="text-danger">*</span>
               </Label>
               <Textarea
                 id="memory-content"
@@ -356,7 +366,7 @@ export default function MemoryPage() {
                 )}
               </p>
             </div>
-            {formErr && <p className="text-[11px] text-red-400">{formErr}</p>}
+            {formErr && <ErrorBanner>{formErr}</ErrorBanner>}
           </div>
         </Modal>
       )}

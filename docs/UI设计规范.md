@@ -75,8 +75,12 @@ TablePager            分页（客户端分页时才需要）
 | `COL.time` | `11rem` | 完整日期时间 |
 | `COL.detail` | `12rem` | 路径、URL、动作名 |
 | `COL.actions` | `13rem` | 带文字的行内操作 |
-| `COL.actionsIcon` | `5.5rem` | 纯图标行内操作 |
+| `COL.actionsNarrow` | `8rem` | 一到两个短文字操作 |
+| `COL.actionsIcon` | `5.5rem` | 一到两个纯图标操作 |
+| `COL.actionsIconWide` | `9.5rem` | 三到四个纯图标操作 |
 | `COL.index` | `3rem` | 序号列 |
+| `COL.select` | `2.5rem` | 勾选列 |
+| `COL.selectExpand` | `5rem` | 勾选 + 展开箭头列 |
 | `COL.handle` | `1.5rem` | 拖拽把手、展开箭头列 |
 
 - 主内容列必须配 `table-fixed` 才吃满剩余宽度；单元格内文字用 `truncate` + `title` 兜底，不允许把列撑开。
@@ -130,6 +134,7 @@ TablePager            分页（客户端分页时才需要）
 | 圆角 | 页面卡片 12px；胶囊 8px；状态胶囊全圆角 |
 | 图标 | 列表内 11–13px，操作按钮 13px，不使用多色图标 |
 | 强调色 | indigo（选中 / 链接 / 可清除态） |
+| 行级底色 | `og-action-table` 的行底色由未分层 CSS 接管，页面不写 `bg-*`；需要时用 `data-row-tone="pending\|expanded\|detail\|selected"` |
 
 ### 状态语义
 

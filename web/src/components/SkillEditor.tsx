@@ -11,6 +11,7 @@ import {
   Button,
   Chip,
   DetailSection,
+  ErrorBanner,
   Input,
   Label,
   Select,
@@ -345,9 +346,7 @@ export function SkillEditor({
       }
     >
       <div className="space-y-4 text-xs text-zinc-300">
-        {err && (
-          <div className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-red-300">{err}</div>
-        )}
+        {err && <ErrorBanner>{err}</ErrorBanner>}
         {loading ? (
           <div className="py-10 text-center text-[12px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
         ) : (
@@ -618,7 +617,7 @@ function Field({
     <label className="block">
       <span className="mb-1 flex items-center gap-1 text-[11px] text-zinc-400">
         {label}
-        {required && <span className="text-red-400">*</span>}
+        {required && <span className="text-danger">*</span>}
       </span>
       {children}
     </label>
@@ -701,7 +700,7 @@ export function SkillImportDialog({ onClose, onImported }: { onClose(): void; on
             'The ZIP must contain SKILL.md (a single wrapping folder is fine), plus optional references/ assets/ scripts/; limits are 2000 files and 32MB uncompressed.',
           )}
         </div>
-        {err && <div className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-red-300">{err}</div>}
+        {err && <ErrorBanner>{err}</ErrorBanner>}
 
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" type="button" onClick={() => fileRef.current?.click()} disabled={busy}>

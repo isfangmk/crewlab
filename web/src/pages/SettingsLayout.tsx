@@ -113,8 +113,8 @@ function RailLink({ item }: { item: RailItem }) {
 
 function SettingsLoading() {
   return (
-    <div className="flex items-center gap-2 text-sm text-zinc-500">
-      <Loader2 className="animate-spin" size={16} />
+    <div className="flex items-center gap-2 text-[11.5px] text-zinc-500">
+      <Loader2 className="animate-spin" size={14} />
       Loading…
     </div>
   );

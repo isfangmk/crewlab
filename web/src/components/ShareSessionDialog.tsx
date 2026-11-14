@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, Copy, Link2, Loader2 } from 'lucide-react';
 import { createSessionShare } from '@/api/chat';
 import { Modal } from '@/components/Modal';
-import { Button, Input, Label } from '@/components/ui';
+import { Button, ErrorBanner, Input, Label } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
 import { fullDateTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
@@ -176,11 +176,7 @@ export function ShareSessionDialog({
           </div>
         )}
 
-        {err ? (
-          <div className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-sm text-red-300">
-            {err}
-          </div>
-        ) : null}
+        {err ? <ErrorBanner>{err}</ErrorBanner> : null}
       </div>
     </Modal>
   );

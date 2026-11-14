@@ -40,13 +40,14 @@ import { AgentBadge } from '@/components/AgentBadge';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Button,
+  ChoiceChip,
   COL,
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
+  FilterChip,
   FilterPill,
   Input,
-  Label,
   PageHeader,
   RowAction,
   RowActionIcon,
@@ -69,13 +70,21 @@ import { formatNumber, fullDateTime } from '@/lib/format';
 import { invalidateChatSessions } from '@/store/chatSessions';
 import { errorText } from '@/lib/errors';
 
-const PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 20;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 // 超过这个条数的会话，列表里的摘要默认折叠成一行，需要手动展开。
 // 阈值定在 40：低于它时摘要一行就是全部，折叠按钮只会增加噪声。
 const LONG_SESSION_MESSAGES = 40;
 
 type TimePreset = 'all' | 'today' | '7d' | '30d' | 'custom';
+
+const TIME_PRESET_LABELS: Record<Exclude<TimePreset, 'all'>, { zh: string; en: string }> = {
+  today: { zh: '今天', en: 'Today' },
+  '7d': { zh: '近 7 天', en: 'Last 7 days' },
+  '30d': { zh: '近 30 天', en: 'Last 30 days' },
+  custom: { zh: '自定义时间', en: 'Custom time' },
+};
 
 /** 分页列表只开放时间列排序；其他列保持服务端默认顺序。 */
 const SORTABLE_IDS = new Set<SessionSortBy>(['updated_at', 'last_message_at']);
@@ -211,6 +220,7 @@ export default function SessionsPage() {
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [loading, setLoading] = useState(true);
@@ -315,8 +325,8 @@ export default function SessionsPage() {
         updated_from: updatedFrom,
         updated_to: updatedTo,
         ...sort,
-        limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
+        limit: pageSize,
+        offset: page * pageSize,
       });
       if (reqSeq.isStale(current)) return;
       if (!Array.isArray(res.items)) {
@@ -345,7 +355,7 @@ export default function SessionsPage() {
         setRefreshing(false);
       }
     }
-  }, [query, includeArchived, agentId, modelFilter, timePreset, customFrom, customTo, page, sorting, reqSeq]);
+  }, [query, includeArchived, agentId, modelFilter, timePreset, customFrom, customTo, page, pageSize, sorting, reqSeq]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -460,9 +470,9 @@ export default function SessionsPage() {
                 <Link
                   to={`/chat/${session.id}`}
                   title={title}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 text-[12.5px] font-medium text-zinc-100 hover:underline"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-[12.5px] font-medium text-zinc-100 transition-colors hover:text-indigo-300"
                 >
-                  {session.pinned ? <Pin size={12} className="shrink-0 text-amber-400" aria-hidden /> : null}
+                  {session.pinned ? <Pin size={12} className="shrink-0 text-info" aria-hidden /> : null}
                   <span className="truncate">{title}</span>
                 </Link>
                 {session.shared ? (
@@ -657,7 +667,7 @@ export default function SessionsPage() {
         cell: ({ row }) => {
           const session = row.original;
           const state: { tone: StatusTone; zh: string; en: string } = session.archived
-            ? { tone: 'warn', zh: '已归档', en: 'Archived' }
+            ? { tone: 'neutral', zh: '已归档', en: 'Archived' }
             : session.pinned
               ? { tone: 'info', zh: '已置顶', en: 'Pinned' }
               : { tone: 'ok', zh: '普通', en: 'Normal' };
@@ -767,6 +777,44 @@ export default function SessionsPage() {
     [models, tr],
   );
 
+  const activeChips = useMemo(() => {
+    const chips: { key: string; label: string; clear: () => void }[] = [];
+    if (agentId !== '') {
+      chips.push({
+        key: 'agent',
+        label: tr(`助理：${agentId}`, `Assistant: ${agentId}`),
+        clear: () => {
+          resetFiltersToFirstPage();
+          setAgentId('');
+        },
+      });
+    }
+    if (modelFilter !== '') {
+      chips.push({
+        key: 'model',
+        label: tr(`模型：${modelFilter}`, `Model: ${modelFilter}`),
+        clear: () => {
+          resetFiltersToFirstPage();
+          setModelFilter('');
+        },
+      });
+    }
+    if (timePreset !== 'all') {
+      const meta = TIME_PRESET_LABELS[timePreset];
+      chips.push({
+        key: 'time',
+        label: tr(`时间：${meta.zh}`, `Time: ${meta.en}`),
+        clear: () => {
+          resetFiltersToFirstPage();
+          setTimePreset('all');
+          setCustomFrom('');
+          setCustomTo('');
+        },
+      });
+    }
+    return chips;
+  }, [agentId, modelFilter, timePreset, tr]);
+
   useAssistantPage('会话管理', 'Sessions', {
     count: total,
     page,
@@ -825,7 +873,60 @@ export default function SessionsPage() {
         }
       />
 
-      <FilterBar className="mx-6 mt-3">
+      <FilterBar
+        className="mx-6 mt-3"
+        footer={
+          timePreset === 'custom' || activeChips.length > 0 ? (
+            <>
+              {timePreset === 'custom' ? (
+                <>
+                  <Input
+                    type="datetime-local"
+                    aria-label={tr('开始时间', 'Start')}
+                    value={customFrom}
+                    onChange={(e) => {
+                      resetFiltersToFirstPage();
+                      setCustomFrom(e.target.value);
+                    }}
+                    className="h-8 w-[12.5rem] text-[12px]"
+                  />
+                  <span aria-hidden className="text-[11px] text-zinc-600">→</span>
+                  <Input
+                    type="datetime-local"
+                    aria-label={tr('结束时间', 'End')}
+                    value={customTo}
+                    onChange={(e) => {
+                      resetFiltersToFirstPage();
+                      setCustomTo(e.target.value);
+                    }}
+                    className="h-8 w-[12.5rem] text-[12px]"
+                  />
+                </>
+              ) : null}
+              {activeChips.map((chip) => (
+                <FilterChip key={chip.key} label={chip.label} onClear={chip.clear} />
+              ))}
+              {activeChips.length > 0 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() => {
+                    resetFiltersToFirstPage();
+                    setAgentId('');
+                    setModelFilter('');
+                    setTimePreset('all');
+                    setCustomFrom('');
+                    setCustomTo('');
+                  }}
+                >
+                  {tr('清除全部', 'Clear all')}
+                </Button>
+              ) : null}
+            </>
+          ) : null
+        }
+      >
         <SearchInput
           value={query}
           onChange={(v) => {
@@ -834,7 +935,6 @@ export default function SessionsPage() {
           }}
           placeholder={tr('搜索标题或模型…', 'Search title or model…')}
           ariaLabel={tr('搜索', 'Search')}
-          className="min-w-[16rem] flex-1"
         />
         <FilterPill
           label={tr('助理', 'Assistant')}
@@ -907,41 +1007,14 @@ export default function SessionsPage() {
             className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
           />
         </FilterPill>
-        {timePreset === 'custom' ? (
-          <>
-            <Input
-              type="datetime-local"
-              aria-label={tr('开始时间', 'Start')}
-              value={customFrom}
-              onChange={(e) => {
-                resetFiltersToFirstPage();
-                setCustomFrom(e.target.value);
-              }}
-              className="h-8 w-[12.5rem] text-[12px]"
-            />
-            <span aria-hidden className="text-[11px] text-zinc-600">→</span>
-            <Input
-              type="datetime-local"
-              aria-label={tr('结束时间', 'End')}
-              value={customTo}
-              onChange={(e) => {
-                resetFiltersToFirstPage();
-                setCustomTo(e.target.value);
-              }}
-              className="h-8 w-[12.5rem] text-[12px]"
-            />
-          </>
-        ) : null}
-        <Label className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-2 text-[11px] text-zinc-400">
-          <Checkbox
-            checked={includeArchived}
-            onCheckedChange={(v) => {
-              resetFiltersToFirstPage();
-              setIncludeArchived(v === true);
-            }}
-          />
-          {tr('含归档', 'Include archived')}
-        </Label>
+        <ChoiceChip
+          active={includeArchived}
+          label={tr('含归档', 'Include archived')}
+          onClick={() => {
+            resetFiltersToFirstPage();
+            setIncludeArchived((v) => !v);
+          }}
+        />
         <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
           {tr(`共 ${total} 个`, `${total} total`)}
         </span>
@@ -955,10 +1028,10 @@ export default function SessionsPage() {
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {loading ? (
-            <div className="flex h-40 items-center justify-center text-sm text-zinc-500">
+            <div className="flex h-40 items-center justify-center text-[11px] text-zinc-500">
               {tr('加载中…', 'Loading…')}
             </div>
-          ) : items.length === 0 ? (
+          ) : err !== null && items.length === 0 ? null : items.length === 0 ? (
             <EmptyStateCard
               icon={MessageSquare}
               title={
@@ -967,7 +1040,7 @@ export default function SessionsPage() {
                   : tr('还没有会话', 'No sessions yet')
               }
               action={
-                <Button variant="primary" onClick={() => navigate('/')}>
+                <Button variant="primary" size="sm" onClick={() => navigate('/')}>
                   <SquarePen size={12} /> {tr('去首页新建', 'New chat on Home')}
                 </Button>
               }
@@ -978,17 +1051,22 @@ export default function SessionsPage() {
               footer={
                 <TablePager
                   page={page}
-                  pageSize={PAGE_SIZE}
+                  pageSize={pageSize}
                   total={total}
                   shown={items.length}
                   loading={loading || refreshing || batchBusy}
                   onPageChange={setPage}
+                  pageSizeOptions={PAGE_SIZE_OPTIONS}
+                  onPageSizeChange={(size) => {
+                    setPage(0);
+                    setPageSize(size);
+                  }}
                 />
               }
             >
                 <table {...tableLayout(86)}>
                   <colgroup>
-                    <col className={COL.handle} />
+                    <col className={COL.select} />
                     <col className={COL.main} />
                     <col className={COL.id} />
                     <col className={COL.tag} />
@@ -997,7 +1075,7 @@ export default function SessionsPage() {
                     <col className={COL.tag} />
                     <col className={COL.time} />
                     <col className={COL.tag} />
-                    <col className={COL.actionsIcon} />
+                    <col className={COL.actionsIconWide} />
                   </colgroup>
                   <TableHead>
                     {table.getHeaderGroups().map((hg) => (
@@ -1007,7 +1085,7 @@ export default function SessionsPage() {
                           const sorted = header.column.getIsSorted();
                           // sticky：纵向滚动时表头钉在滚动容器顶部
                           return (
-                            <th key={header.id} className="px-3 py-2 text-left font-medium">
+                            <th key={header.id} scope="col" className="px-3 py-2 text-left font-medium">
                               {header.isPlaceholder ? null : canSort ? (
                                 <button
                                   type="button"

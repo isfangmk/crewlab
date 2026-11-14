@@ -2,14 +2,15 @@ import { useAssistantPage } from '@/lib/assistantPage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, Download, RefreshCw, ScrollText, Settings2, Shield } from 'lucide-react';
 import {
+  Button,
   CodeBlock,
   COL,
   EmptyStateCard,
   ErrorBanner,
   FilterBar,
+  FilterChip,
   FilterPill,
   Input,
-  Label,
   PageHeader,
   RowAction,
   TableCard,
@@ -30,7 +31,8 @@ import { parseLocalDateTime, rangeForPreset, type TimePreset } from '@/lib/timeR
 import { usePermissions } from '@/store/me';
 import { errorText } from '@/lib/errors';
 
-const PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 20;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 const ACTION_LABELS: Record<string, { zh: string; en: string }> = {
   'user.create': { zh: '创建用户', en: 'Create user' },
@@ -97,6 +99,13 @@ const RESOURCE_LABELS: Record<string, { zh: string; en: string }> = {
   audit: { zh: '审计', en: 'Audit' },
 };
 
+const TIME_PRESET_LABELS: Record<Exclude<TimePreset, 'all'>, { zh: string; en: string }> = {
+  today: { zh: '今天', en: 'Today' },
+  '7d': { zh: '近 7 天', en: 'Last 7 days' },
+  '30d': { zh: '近 30 天', en: 'Last 30 days' },
+  custom: { zh: '自定义时间', en: 'Custom time' },
+};
+
 function summary(text: string, limit = 96): string {
   const flat = text.replace(/\s+/g, ' ').trim();
   return flat.length <= limit ? flat : `${flat.slice(0, limit)}…`;
@@ -118,6 +127,7 @@ export default function AuditPage() {
   const [customTo, setCustomTo] = useState('');
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -144,8 +154,8 @@ export default function AuditPage() {
           created_from: createdFrom,
           created_to: createdTo,
           sort_dir: sortDir,
-          limit: PAGE_SIZE,
-          offset: page * PAGE_SIZE,
+          limit: pageSize,
+          offset: page * pageSize,
         });
         if (reqSeq.isStale(current)) return;
         setItems(res.items);
@@ -163,7 +173,7 @@ export default function AuditPage() {
         }
       }
     },
-    [action, resourceType, actorId, timePreset, customFrom, customTo, sortDir, page, reqSeq],
+    [action, resourceType, actorId, timePreset, customFrom, customTo, sortDir, page, pageSize, reqSeq],
   );
 
   useEffect(() => {
@@ -254,6 +264,68 @@ export default function AuditPage() {
     [users, tr],
   );
 
+  // 第二行只放「已生效条件」：筛选一改就能看到当前收窄到什么范围，并可单独撤销。
+  const activeChips = useMemo(() => {
+    const chips: { key: string; label: string; clear: () => void }[] = [];
+    if (action !== '') {
+      const meta = ACTION_LABELS[action];
+      chips.push({
+        key: 'action',
+        label: tr(`动作：${meta ? meta.zh : action}`, `Action: ${meta ? meta.en : action}`),
+        clear: () => {
+          resetFiltersToFirstPage();
+          setAction('');
+        },
+      });
+    }
+    if (resourceType !== '') {
+      const meta = RESOURCE_LABELS[resourceType];
+      chips.push({
+        key: 'resource',
+        label: tr(`资源：${meta ? meta.zh : resourceType}`, `Resource: ${meta ? meta.en : resourceType}`),
+        clear: () => {
+          resetFiltersToFirstPage();
+          setResourceType('');
+        },
+      });
+    }
+    if (actorId !== '') {
+      const actor = users.find((u) => u.id === actorId);
+      chips.push({
+        key: 'actor',
+        label: tr(`操作者：${actor?.email ?? actorId}`, `Actor: ${actor?.email ?? actorId}`),
+        clear: () => {
+          resetFiltersToFirstPage();
+          setActorId('');
+        },
+      });
+    }
+    if (timePreset !== 'all') {
+      const meta = TIME_PRESET_LABELS[timePreset];
+      chips.push({
+        key: 'time',
+        label: tr(`时间：${meta.zh}`, `Time: ${meta.en}`),
+        clear: () => {
+          resetFiltersToFirstPage();
+          setTimePreset('all');
+          setCustomFrom('');
+          setCustomTo('');
+        },
+      });
+    }
+    return chips;
+  }, [action, resourceType, actorId, timePreset, users, tr]);
+
+  const clearFilters = () => {
+    resetFiltersToFirstPage();
+    setAction('');
+    setResourceType('');
+    setActorId('');
+    setTimePreset('all');
+    setCustomFrom('');
+    setCustomTo('');
+  };
+
   if (!isAdmin) {
     return (
       <main className="anim-fade flex flex-1 flex-col overflow-hidden">
@@ -305,7 +377,48 @@ export default function AuditPage() {
         }
       />
 
-      <FilterBar className="mx-6 mt-3">
+      <FilterBar
+        className="mx-6 mt-3"
+        footer={
+          timePreset === 'custom' || activeChips.length > 0 ? (
+            <>
+              {timePreset === 'custom' ? (
+                <>
+                  <Input
+                    type="datetime-local"
+                    aria-label={tr('开始时间', 'Start')}
+                    value={customFrom}
+                    onChange={(e) => {
+                      resetFiltersToFirstPage();
+                      setCustomFrom(e.target.value);
+                    }}
+                    className="h-8 w-[12.5rem] text-[12px]"
+                  />
+                  <span aria-hidden className="text-[11px] text-zinc-600">→</span>
+                  <Input
+                    type="datetime-local"
+                    aria-label={tr('结束时间', 'End')}
+                    value={customTo}
+                    onChange={(e) => {
+                      resetFiltersToFirstPage();
+                      setCustomTo(e.target.value);
+                    }}
+                    className="h-8 w-[12.5rem] text-[12px]"
+                  />
+                </>
+              ) : null}
+              {activeChips.map((chip) => (
+                <FilterChip key={chip.key} label={chip.label} onClear={chip.clear} />
+              ))}
+              {activeChips.length > 0 ? (
+                <Button variant="ghost" size="sm" className="ml-auto" onClick={clearFilters}>
+                  {tr('清除全部', 'Clear all')}
+                </Button>
+              ) : null}
+            </>
+          ) : null
+        }
+      >
         <FilterPill
           label={tr('动作', 'Action')}
           active={action !== ''}
@@ -398,35 +511,9 @@ export default function AuditPage() {
             className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
           />
         </FilterPill>
-        {timePreset === 'custom' ? (
-          <>
-            <Input
-              type="datetime-local"
-              aria-label={tr('开始时间', 'Start')}
-              value={customFrom}
-              onChange={(e) => {
-                resetFiltersToFirstPage();
-                setCustomFrom(e.target.value);
-              }}
-              className="h-8 w-[12.5rem] text-[12px]"
-            />
-            <span aria-hidden className="text-[11px] text-zinc-600">→</span>
-            <Input
-              type="datetime-local"
-              aria-label={tr('结束时间', 'End')}
-              value={customTo}
-              onChange={(e) => {
-                resetFiltersToFirstPage();
-                setCustomTo(e.target.value);
-              }}
-              className="h-8 w-[12.5rem] text-[12px]"
-            />
-          </>
-        ) : null}
-        <Label className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-2 text-[11px] text-zinc-400">
-          <ScrollText size={12} aria-hidden />
+        <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
           {tr(`共 ${total} 条`, `${total} total`)}
-        </Label>
+        </span>
       </FilterBar>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-4">
@@ -437,10 +524,10 @@ export default function AuditPage() {
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {loading ? (
-            <div className="flex h-40 items-center justify-center text-sm text-zinc-500">
+            <div className="flex h-40 items-center justify-center text-[11px] text-zinc-500">
               {tr('加载中…', 'Loading…')}
             </div>
-          ) : items.length === 0 ? (
+          ) : err !== null && items.length === 0 ? null : items.length === 0 ? (
             <EmptyStateCard
               icon={ScrollText}
               title={
@@ -455,11 +542,16 @@ export default function AuditPage() {
               footer={
                 <TablePager
                   page={page}
-                  pageSize={PAGE_SIZE}
+                  pageSize={pageSize}
                   total={total}
                   shown={items.length}
                   loading={loading || refreshing}
                   onPageChange={setPage}
+                  pageSizeOptions={PAGE_SIZE_OPTIONS}
+                  onPageSizeChange={(size) => {
+                    setPage(0);
+                    setPageSize(size);
+                  }}
                 />
               }
             >
@@ -473,7 +565,7 @@ export default function AuditPage() {
                 </colgroup>
                 <TableHead>
                   <tr className="whitespace-nowrap">
-                    <th className="px-3 py-2 text-left font-medium" aria-sort={sortDir === 'asc' ? 'ascending' : 'descending'}>
+                    <th scope="col" className="px-3 py-2 text-left font-medium" aria-sort={sortDir === 'asc' ? 'ascending' : 'descending'}>
                       <button
                         type="button"
                         className="inline-flex items-center gap-1 hover:text-zinc-200"
@@ -490,10 +582,10 @@ export default function AuditPage() {
                         )}
                       </button>
                     </th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('操作者', 'Actor')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('动作', 'Action')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('资源', 'Resource')}</th>
-                    <th className="px-3 py-2 text-left font-medium">{tr('详情', 'Detail')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('操作者', 'Actor')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('动作', 'Action')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('资源', 'Resource')}</th>
+                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('详情', 'Detail')}</th>
                   </tr>
                 </TableHead>
                 <tbody className="divide-y divide-zinc-800/40">
