@@ -1,4 +1,4 @@
-"""子 Agent 委托：保存校验（自引用/不存在/防环）+ 真实委托回合（消耗一轮对话）。"""
+"""子 Agent 委托：保存校验（自引用/不存在/重复/撞名/防环/深度）+ 真实委托回合。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import uuid
 import httpx
 import pytest
 
+from app.adk_runtime.naming import adk_identifier, root_adk_name
+from app.adk_runtime.sub_agents import _delegation_description
 from tests.conftest import login_access_token
 
 
@@ -48,6 +50,127 @@ async def _create_agent(
         headers=headers,
         json=_agent_body(name=name, description=description, sub_agents=sub_agents),
     )
+
+
+def test_adk_names_are_legal_and_unique() -> None:
+    """业务名里的连字符/数字开头/保留名都要净化成 ADK 可接受的标识符。"""
+
+    assert adk_identifier("ops-agent") == "ops_agent"
+    assert adk_identifier("2nd-line") == "agent_2nd_line"
+    # user 是 ADK 保留名，不能直接作为 Agent 名
+    assert adk_identifier("user") == "agent_user"
+    assert root_adk_name("default") == "workbench_chat"
+    assert root_adk_name("ops-agent") == "agent_ops_agent"
+
+
+def test_delegation_description_contains_when_to_use() -> None:
+    """ADK 用 description 生成转交说明，必须带上「何时使用」。"""
+
+    text = _delegation_description("运维文档专员", "问题涉及部署与排障时")
+    assert "运维文档专员" in text
+    assert "何时使用：问题涉及部署与排障时" in text
+    # 未填写时退回纯描述，不产生空段落
+    assert _delegation_description("只写描述", "") == "只写描述"
+
+
+async def test_sub_agent_validation_rejects_duplicate_and_sanitized_collision(
+    env, api_base
+) -> None:
+    """重复勾选、以及净化后撞名的两个子助理都要显式 400。"""
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=60.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+        suffix = uuid.uuid4().hex[:8]
+        parent = f"dup-parent-{suffix}"
+        child_a = f"dup-a-{suffix}"
+        child_b = f"dup_a_{suffix}"
+        try:
+            assert (
+                await _create_agent(client, headers, name=child_a, description="A")
+            ).status_code == 200
+            assert (
+                await _create_agent(client, headers, name=child_b, description="B")
+            ).status_code == 200
+
+            r = await _create_agent(
+                client,
+                headers,
+                name=parent,
+                description="父",
+                sub_agents=[child_a, child_a],
+            )
+            assert r.status_code == 400, r.text
+            assert "不能重复" in r.text
+
+            r = await _create_agent(
+                client,
+                headers,
+                name=parent,
+                description="父",
+                sub_agents=[child_a, child_b],
+            )
+            assert r.status_code == 400, r.text
+            assert "撞名" in r.text
+        finally:
+            for name in (parent, child_a, child_b):
+                await client.delete(f"/api/v1/agents/custom/{name}", headers=headers)
+
+
+async def test_sub_agent_depth_limit_rejects_ancestor_overflow(env, api_base) -> None:
+    """给链尾再加一层会让祖先超过 3 层，必须显式 400。"""
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=60.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+        suffix = uuid.uuid4().hex[:8]
+        parent = f"depth-p-{suffix}"
+        a = f"depth-a-{suffix}"
+        b = f"depth-b-{suffix}"
+        c = f"depth-c-{suffix}"
+        d = f"depth-d-{suffix}"
+        try:
+            assert (
+                await _create_agent(client, headers, name=d, description="D")
+            ).status_code == 200
+            assert (
+                await _create_agent(client, headers, name=c, description="C")
+            ).status_code == 200
+            assert (
+                await _create_agent(
+                    client, headers, name=b, description="B", sub_agents=[c]
+                )
+            ).status_code == 200
+            assert (
+                await _create_agent(
+                    client, headers, name=a, description="A", sub_agents=[b]
+                )
+            ).status_code == 200
+            # 父 → A → B → C 正好 3 层
+            assert (
+                await _create_agent(
+                    client,
+                    headers,
+                    name=parent,
+                    description="父",
+                    sub_agents=[a],
+                )
+            ).status_code == 200
+            # C 再委托 D：父链变成 4 层，必须拒绝
+            r = await client.patch(
+                f"/api/v1/agents/custom/{c}",
+                headers=headers,
+                json=_agent_body(name=c, description="C", sub_agents=[d]),
+            )
+            assert r.status_code == 400, r.text
+            assert "最多 3 层" in r.text
+        finally:
+            for name in (parent, a, b, c, d):
+                await client.delete(f"/api/v1/agents/custom/{name}", headers=headers)
 
 
 async def test_sub_agent_validation_rejects_self_and_missing(env, api_base) -> None:

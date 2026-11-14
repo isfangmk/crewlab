@@ -1054,7 +1054,9 @@ function AgentEditor({
                     />
                     <div className="min-w-0">
                       <div className="truncate font-mono text-[11px] text-zinc-200">{item.name}</div>
-                      <div className="truncate text-[10px] text-zinc-500">{item.description}</div>
+                      <div className="truncate text-[10px] text-zinc-500">
+                        {item.when_to_use || item.description}
+                      </div>
                     </div>
                   </div>
                 );

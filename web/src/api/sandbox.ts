@@ -1,7 +1,7 @@
 import { request } from './client';
 
-/** 沙盒执行来源：技能脚本 / 工作流代码节点 / 手动试跑。 */
-export type SandboxSource = 'skill' | 'workflow' | 'manual';
+/** 沙盒执行来源：技能脚本 / 工作流代码节点 / 手动试跑 / 对话解释器。 */
+export type SandboxSource = 'skill' | 'workflow' | 'manual' | 'chat';
 
 /** 执行结果：成功 / 失败 / 超时。 */
 export type SandboxStatus = 'succeeded' | 'failed' | 'timeout';

@@ -15,7 +15,8 @@ from app.adk_runtime.sub_agents import build_sub_agents_for_agent
 from app.adk_runtime.stream_bridge import SseFrame, stream_adk_confirmation
 from app.models_orm.approval import Approval
 from app.models_orm.chat import ChatSession
-from app.services import agent_service, chat_service, mcp_service, skills_service
+from app.services import agent_service, chat_service
+from app.services.agent_tool_service import build_agent_tool_bundle
 from app.services.llm_config import resolve_model
 
 logger = logging.getLogger(__name__)
@@ -363,34 +364,19 @@ async def stream_decide(
         raise TypeError(f"turn_context.provider_extra_body 必须是 dict: {row.id}")
     llm = await resolve_model(db, provider_id, model)
 
-    # 助理勾选的技能：审批恢复回合必须与发起时装配同一套 SKILL.md
-    runtime_skills = await skills_service.resolve_skills(db, resolved_agent.skills)
-    allowed_tools = agent_service.effective_allowed_tools(resolved_agent, runtime_skills)
-    mcp_servers = await mcp_service.list_enabled_servers(db)
-    mcp_servers = agent_service.filter_mcp_servers_by_tools(mcp_servers, allowed_tools)
-    from app.services.tool_search_index import warm_vector_cache_from_db
-
-    await warm_vector_cache_from_db(db)
-    extra_tools = await mcp_service.build_searchable_mcp_toolsets(
+    # 审批恢复回合必须与发起时装配同一套技能、MCP 白名单与审批约束
+    web_search_enabled = turn_ctx.get("web_search_enabled", False)
+    if not isinstance(web_search_enabled, bool):
+        raise TypeError(f"turn_context.web_search_enabled 必须是 bool: {row.id}")
+    tool_bundle = await build_agent_tool_bundle(
         db,
-        mcp_servers,
-        # 审批恢复回合沿用同一套白名单口径：MCP 工具一律靠 search/load
-        allowed_tools=allowed_tools,
+        resolved_agent,
+        web_search_enabled=web_search_enabled,
     )
-    confirm_tool_names = mcp_service.confirm_tool_names_for_servers(mcp_servers)
-    # 助理级禁用名单与只读模式：恢复回合必须沿用发起时的助理约束
-    disallowed_tool_names = agent_service.agent_disallowed_tool_names(resolved_agent)
-    drift = disallowed_tool_names & skills_service.declared_tools_of_skills(runtime_skills)
-    if drift:
-        logger.warning(
-            "技能声明的工具被助理禁用名单拦截 agent=%s tools=%s",
-            resolved_agent.name,
-            sorted(drift),
-        )
-    if resolved_agent.permission_mode == "read-only":
-        confirm_tool_names = confirm_tool_names | set(
-            mcp_service.all_business_tool_names_for_servers(mcp_servers)
-        )
+    runtime_skills = tool_bundle.runtime_skills
+    extra_tools = tool_bundle.extra_tools
+    confirm_tool_names = tool_bundle.confirm_tool_names
+    disallowed_tool_names = tool_bundle.disallowed_tool_names
 
     # 决策落库走原子认领：两个并发决策都通过检查时，只有第一个改到状态
     if not await _claim_pending_approval(
@@ -456,10 +442,11 @@ async def stream_decide(
                 provider_id=provider_id,
                 model=model,
                 base_url=base_url,
-                api_key=api_key,
+                api_key=llm.api_key,
                 model_prefix=model_prefix,
                 provider_extra_body=provider_extra_body,
                 thinking_enabled=thinking_enabled,
+                web_search_enabled=web_search_enabled,
             ),
         ):
             frame = await persister.persist(frame)

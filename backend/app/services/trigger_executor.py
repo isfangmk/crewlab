@@ -18,15 +18,17 @@ logger = logging.getLogger(__name__)
 
 
 def trigger_payload(rule: TriggerRule) -> dict[str, object]:
-    """workflow 触发的输入值：values_json 解析失败按空输入处理，失败会留痕在 TriggerRun。"""
+    """workflow 触发的输入值；JSON 不合法时显式失败并记进 TriggerRun。"""
 
     import json
 
     try:
         parsed = json.loads(rule.values_json or "{}")
-    except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"values_json 不是合法 JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("values_json 必须是 JSON 对象")
+    return parsed
 
 
 def _finish(run: TriggerRun, *, status: str, error: str = "", ref_id: str | None = None) -> None:
@@ -37,7 +39,13 @@ def _finish(run: TriggerRun, *, status: str, error: str = "", ref_id: str | None
     run.finished_at = datetime.now(timezone.utc)
 
 
-async def fire_rule(db: AsyncSession, rule: TriggerRule, *, attempt: int = 1) -> TriggerRun:
+async def fire_rule(
+    db: AsyncSession,
+    rule: TriggerRule,
+    *,
+    attempt: int = 1,
+    actor_user_id: int | None = None,
+) -> TriggerRun:
     """执行一次触发：按目标类型分发；无论成败都写 TriggerRun。"""
 
     run = TriggerRun(trigger_id=rule.id, attempt=attempt, status="running")
@@ -54,37 +62,39 @@ async def fire_rule(db: AsyncSession, rule: TriggerRule, *, attempt: int = 1) ->
     )
     error = ""
     ref_id = ""
+    status = "succeeded"
     if rule.target_kind == "workflow":
         if rule.workflow_id is None:
             error = "触发器缺少 workflow_id"
+            status = "failed"
         else:
             try:
                 ref_id = await workflow_runner.start_run(
                     workflow_id=rule.workflow_id,
                     payload=trigger_payload(rule),
-                    triggered_by=f"trigger:{rule.name}",
+                    # 稳定标识：名称可以改，运行溯源不能跟着变
+                    triggered_by=f"trigger:{rule.id}",
                     source="published",
                 )
             except Exception as exc:  # noqa: BLE001 — 触发失败要进留痕而不是打断调度循环
                 error = f"{type(exc).__name__}: {exc}"
+                status = "failed"
     else:
         try:
-            ref_id, error = await _run_agent_turn(db, rule)
+            ref_id, error, status = await _run_agent_turn(db, rule)
         except Exception as exc:  # noqa: BLE001 — 同上，留痕优先
             error = f"{type(exc).__name__}: {exc}"
+            status = "failed"
 
     if rule.target_kind == "workflow" and ref_id and error == "":
         # 工作流执行是后台任务：TriggerRun 记录发起成功，最终状态由运行记录承载
-        _finish(run, status="succeeded", ref_id=ref_id)
-    elif error:
-        _finish(run, status="failed", error=error, ref_id=ref_id)
-    else:
-        _finish(run, status="succeeded", ref_id=ref_id)
+        status = "succeeded"
+    _finish(run, status=status, error=error, ref_id=ref_id)
 
     rule.last_fired_at = datetime.now(timezone.utc)
     await db.commit()
     await write_audit(
-        actor_user_id=None,
+        actor_user_id=actor_user_id,
         action="trigger.fire",
         resource_type="trigger",
         resource_id=str(rule.id),
@@ -107,8 +117,14 @@ async def fire_rule(db: AsyncSession, rule: TriggerRule, *, attempt: int = 1) ->
     return run
 
 
-async def _run_agent_turn(db: AsyncSession, rule: TriggerRule) -> tuple[str, str]:
-    """以目标助理发起一轮真实对话（进程内消费全部帧），返回 (session_id, error)。"""
+async def _run_agent_turn(
+    db: AsyncSession, rule: TriggerRule
+) -> tuple[str, str, str]:
+    """以目标助理发起一轮真实对话，返回 (session_id, error, status)。
+
+    停在人工审批时立即停止消费，把运行标成 waiting：无人值守触发器没有
+    审批入口，继续跑只会留下挂起的审批和重复会话。
+    """
 
     from app.request_context import set_request_id
     from app.services import chat_service
@@ -116,7 +132,7 @@ async def _run_agent_turn(db: AsyncSession, rule: TriggerRule) -> tuple[str, str
 
     providers = await list_enabled_providers(db)
     if not providers:
-        return "", "没有启用的模型 provider，无法发起触发式会话"
+        return "", "没有启用的模型 provider，无法发起触发式会话", "failed"
     provider = providers[0]
 
     set_request_id(f"trigger-{rule.id}-{datetime.now(timezone.utc).timestamp()}")
@@ -127,11 +143,13 @@ async def _run_agent_turn(db: AsyncSession, rule: TriggerRule) -> tuple[str, str
         model=provider.default_model,
         agent_id=rule.agent_id or "default",
         user_id=f"trigger:{rule.id}",
+        owner_user_id=rule.created_by,
     )
     await db.commit()
 
     frames = 0
     error = ""
+    status = "succeeded"
     async for frame in chat_service.stream_session_message(
         db,
         session_id=session.id,
@@ -148,10 +166,20 @@ async def _run_agent_turn(db: AsyncSession, rule: TriggerRule) -> tuple[str, str
         frames += 1
         if frame.event == "approval_pending":
             error = "回合等待人工审批后中止；无人值守触发器建议绑定只读工具的助理"
-        elif frame.event == "error":
+            status = "waiting"
+            break
+        if frame.event == "error":
             payload = frame.data if isinstance(frame.data, dict) else {}
             error = str(payload.get("error", "回合失败"))
+            status = "failed"
     if error:
-        return session.id, error
+        logger.info(
+            "触发式会话中止 trigger_id=%s session=%s status=%s error=%s",
+            rule.id,
+            session.id,
+            status,
+            error[:120],
+        )
+        return session.id, error, status
     logger.info("触发式会话完成 trigger_id=%s session=%s frames=%s", rule.id, session.id, frames)
-    return session.id, ""
+    return session.id, "", status

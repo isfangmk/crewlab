@@ -1,48 +1,44 @@
 """子 Agent 运行时装配：把父助理委托的子助理递归装配成 ADK LlmAgent。
 
-v1 口径：
+口径：
   - 子助理继承父回合的 provider/model（换模型留待后续）；
-  - 子助理拥有自己的人设（compose_persona）与知识范围（query_knowledge 收口），
-    技能按子助理自身勾选装配；不挂 MCP（v1 边界）；
-  - 内置工具只由根 Agent 挂载：委托后父子工具会进同一 ADK 注册表，
-    重复同名工具会被上游以「Tool names must be unique」拒绝；
-  - ADK agent 名由业务名净化成合法 Python 标识符（委托工具名由它派生），
-    撞名时追加序号；委托链已在保存时防环，运行期按树递归安全。
+  - 子助理拥有自己的人设、知识范围、技能、内置工具与 MCP 白名单，
+    禁用名单 / 只读审批同样独立生效；
+  - ADK agent 名由业务名净化成合法标识符，并在整棵委托树内去重；
+  - `when_to_use` 写进 ADK 的 description，作为父助理判断何时转交的依据；
+  - 委托链已在保存时校验防环与深度，运行期按树递归安全。
 """
 
 from __future__ import annotations
 
-import re
-
 from google.adk.agents import LlmAgent
 
+from app.adk_runtime.naming import (
+    adk_identifier,
+    dedupe_identifiers,
+    root_adk_name,
+    unique_identifier,
+)
 from app.services.agent_service import compose_persona, get_agent
+from app.services.agent_tool_service import build_agent_tool_bundle
 from app.services.knowledge_scope import KnowledgeScope
 
-
-def adk_identifier(name: str) -> str:
-    """业务名 → 合法 Python 标识符（ADK 委托工具名由它派生）。"""
-
-    cleaned = re.sub(r"[^0-9a-zA-Z_]", "_", name)
-    if cleaned == "" or cleaned[0].isdigit():
-        cleaned = f"agent_{cleaned}"
-    return cleaned
+__all__ = [
+    "adk_identifier",
+    "dedupe_identifiers",
+    "build_sub_agents_for_agent",
+]
 
 
-def dedupe_identifiers(names: list[str]) -> list[str]:
-    """净化后撞名时追加序号，保证 ADK agent 树内唯一。"""
+def _delegation_description(description: str, when_to_use: str) -> str:
+    """ADK 用 description 生成 transfer 工具说明，必须带上「何时使用」。"""
 
-    used: dict[str, int] = {}
-    out: list[str] = []
-    for name in names:
-        final = name
-        if final in used:
-            used[name] = used.get(name, 0) + 1
-            final = f"{name}_{used[name]}"
-        else:
-            used[name] = 0
-        out.append(final)
-    return out
+    when = when_to_use.strip()
+    if when == "":
+        return description
+    if description.strip() == "":
+        return f"何时使用：{when}"
+    return f"{description}\n\n何时使用：{when}"
 
 
 async def build_sub_agents_for_agent(
@@ -56,24 +52,29 @@ async def build_sub_agents_for_agent(
     model_prefix: str = "",
     provider_extra_body: dict | None = None,
     thinking_enabled: bool = False,
+    web_search_enabled: bool = False,
     depth: int = 0,
+    used_names: set[str] | None = None,
 ) -> list[LlmAgent]:
     """装配父助理委托的子 Agent 列表（递归，深度上限 3）。"""
 
     if depth >= 3 or len(parent.sub_agents) == 0:
         return []
+    if used_names is None:
+        # 根 Agent 也占一个 ADK 名；子 Agent 不能与它撞名
+        used_names = {root_adk_name(parent.name)}
 
     from app.adk_runtime.agent_factory import build_chat_agent
-    from app.services.skills_service import resolve_skills
-
-    raw_names = [adk_identifier(name) for name in parent.sub_agents]
-    adk_names = dedupe_identifiers(raw_names)
 
     agents: list[LlmAgent] = []
-    for sub_name, adk_name in zip(parent.sub_agents, adk_names, strict=True):
+    for sub_name in parent.sub_agents:
         sub = await get_agent(db, sub_name)
-        sub_skills = await resolve_skills(db, sub.skills)
-        sub_persona = compose_persona(sub)
+        bundle = await build_agent_tool_bundle(
+            db,
+            sub,
+            web_search_enabled=web_search_enabled,
+        )
+        adk_name = unique_identifier(adk_identifier(sub_name), used_names)
         agents.append(
             build_chat_agent(
                 provider_id=provider_id,
@@ -81,8 +82,10 @@ async def build_sub_agents_for_agent(
                 base_url=base_url,
                 api_key=api_key,
                 agent_name=sub_name,
-                agent_description=sub.description,
-                persona_instruction=sub_persona,
+                agent_description=_delegation_description(
+                    sub.description, sub.when_to_use
+                ),
+                persona_instruction=compose_persona(sub),
                 thinking_enabled=thinking_enabled,
                 model_prefix=model_prefix,
                 provider_extra_body=provider_extra_body,
@@ -93,10 +96,11 @@ async def build_sub_agents_for_agent(
                     if isinstance(sub.knowledge_scope, KnowledgeScope)
                     else None
                 ),
-                extra_tools=None,
-                skills=sub_skills,
-                include_builtin_tools=False,
-                # MCP toolset 只在父回合按父助理白名单装配，子助理不挂（v1 边界）
+                extra_tools=bundle.extra_tools,
+                confirm_tool_names=bundle.confirm_tool_names,
+                disallowed_tool_names=bundle.disallowed_tool_names,
+                skills=bundle.runtime_skills,
+                include_builtin_tools=True,
                 sub_agents=await build_sub_agents_for_agent(
                     db,
                     sub,
@@ -107,7 +111,9 @@ async def build_sub_agents_for_agent(
                     model_prefix=model_prefix,
                     provider_extra_body=provider_extra_body,
                     thinking_enabled=thinking_enabled,
+                    web_search_enabled=web_search_enabled,
                     depth=depth + 1,
+                    used_names=used_names,
                 ),
             )
         )

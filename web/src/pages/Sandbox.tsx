@@ -53,6 +53,7 @@ const SOURCE_META: Record<SandboxSource, { zh: string; en: string; tone: 'info' 
   skill: { zh: '技能脚本', en: 'Skill script', tone: 'info' },
   workflow: { zh: '工作流节点', en: 'Workflow node', tone: 'accent' },
   manual: { zh: '手动试跑', en: 'Manual run', tone: 'default' },
+  chat: { zh: '对话解释器', en: 'Chat interpreter', tone: 'info' },
 };
 
 const STATUS_META: Record<SandboxStatus, { zh: string; en: string; tone: 'ok' | 'danger' | 'warn' }> = {
@@ -61,7 +62,7 @@ const STATUS_META: Record<SandboxStatus, { zh: string; en: string; tone: 'ok' | 
   timeout: { zh: '超时', en: 'Timeout', tone: 'warn' },
 };
 
-const SOURCE_FILTERS: (SandboxSource | '')[] = ['', 'skill', 'workflow', 'manual'];
+const SOURCE_FILTERS: (SandboxSource | '')[] = ['', 'skill', 'workflow', 'manual', 'chat'];
 const STATUS_FILTERS: (SandboxStatus | '')[] = ['', 'succeeded', 'failed', 'timeout'];
 
 /** 耗时按量级换单位；执行多在秒级，毫秒级只在极快脚本上出现。单位用中性写法，两种语言都成立。 */

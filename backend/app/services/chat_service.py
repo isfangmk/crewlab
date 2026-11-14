@@ -15,9 +15,9 @@ from google.genai import types
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.adk_runtime.naming import root_adk_name
 from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.stream_bridge import APP_NAME, SseFrame, stream_adk_turn
-from app.adk_runtime.web_search_tool import build_web_search_tool
 from app.models_orm.approval import Approval
 from app.models_orm.attachment import ChatAttachment
 from app.models_orm.chat import ChatMessage, ChatSession
@@ -30,14 +30,12 @@ from app.services import (
     app_settings_service,
     artifact_service,
     llm_config,
-    mcp_service,
     observation_service,
-    skills_service,
 )
+from app.services.agent_tool_service import build_agent_tool_bundle
 from app.services.llm_config import resolve_model
 from app.services import turn_control
 from app.adk_runtime.sub_agents import build_sub_agents_for_agent
-from app.services.web_search_service import resolve_deepseek_search_cred
 
 logger = logging.getLogger(__name__)
 
@@ -796,7 +794,13 @@ async def _replay_adk_events(
         await adk.append_event(
             session=adk_session,
             event=Event(
-                author="user" if is_user else "workbench_chat",
+                author=(
+                    "user"
+                    if is_user
+                    else root_adk_name(
+                        getattr(session, "agent_id", None) or "default"
+                    )
+                ),
                 timestamp=base_ts + index * 1e-6,
                 content=types.Content(
                     role="user" if is_user else "model",
@@ -1472,49 +1476,17 @@ async def stream_session_message(
         )
         persona = page_hint if persona == "" else f"{persona}\n\n{page_hint}"
 
-    # 助理勾选的技能：None = 继承全部；勾选集合决定装配哪些 SKILL.md。
-    # 先解析技能，再按「白名单 + 技能声明的工具」筛选 MCP Server：技能可以先建后改，
-    # 只依赖保存助理时并入的那份白名单会漏掉后来新增的 MCP 工具。
-    runtime_skills = await skills_service.resolve_skills(db, resolved_agent.skills)
-    allowed_tools = agent_service.effective_allowed_tools(resolved_agent, runtime_skills)
-    mcp_servers = await mcp_service.list_enabled_servers(db)
-    mcp_servers = agent_service.filter_mcp_servers_by_tools(mcp_servers, allowed_tools)
-    from app.services.tool_search_index import warm_vector_cache_from_db
-
-    await warm_vector_cache_from_db(db)
-    extra_tools: list = list(
-        await mcp_service.build_searchable_mcp_toolsets(
-            db,
-            mcp_servers,
-            # 白名单是唯一口径：没勾选的工具不进检索目录，勾选的也仍需 search/load
-            allowed_tools=allowed_tools,
-        )
+    # 助理能力装配：技能、MCP 白名单、禁用名单、只读审批与联网搜索。
+    # 子助理与审批续跑复用同一套口径。
+    tool_bundle = await build_agent_tool_bundle(
+        db,
+        resolved_agent,
+        web_search_enabled=web_search_enabled,
     )
-    confirm_tool_names = mcp_service.confirm_tool_names_for_servers(mcp_servers)
-    # 助理级禁用名单：命中的工具直接拒绝执行
-    disallowed_tool_names = agent_service.agent_disallowed_tool_names(resolved_agent)
-    # 技能要靠声明的工具工作，配置漂移（技能后加声明、助理已屏蔽）必须留痕
-    drift = disallowed_tool_names & skills_service.declared_tools_of_skills(runtime_skills)
-    if drift:
-        logger.warning(
-            "技能声明的工具被助理禁用名单拦截 agent=%s tools=%s",
-            resolved_agent.name,
-            sorted(drift),
-        )
-    # 助理级只读模式：该助理用到的 MCP 工具一律要人工确认
-    if resolved_agent.permission_mode == "read-only":
-        confirm_tool_names = confirm_tool_names | set(
-            mcp_service.all_business_tool_names_for_servers(mcp_servers)
-        )
-        logger.info(
-            "助理为只读模式，所有 MCP 工具需确认 agent=%s tools=%s",
-            resolved_agent.name,
-            len(confirm_tool_names),
-        )
-    if web_search_enabled:
-        search_base, search_key = await resolve_deepseek_search_cred(db)
-        extra_tools.append(build_web_search_tool(base_url=search_base, api_key=search_key))
-        logger.info("本回合已挂载 web_search（DeepSeek） session_id=%s", session_id)
+    runtime_skills = tool_bundle.runtime_skills
+    extra_tools = tool_bundle.extra_tools
+    confirm_tool_names = tool_bundle.confirm_tool_names
+    disallowed_tool_names = tool_bundle.disallowed_tool_names
 
     # 观测回合必须先建立：persister 要把工具/技能调用挂到该 trace 上
     turn_control.begin_turn(session_id)
@@ -1538,6 +1510,7 @@ async def stream_session_message(
             "base_url": llm.base_url,
             "llm_timeout_seconds": int(runtime["llm_timeout_seconds"]),
             "thinking_enabled": thinking_enabled,
+            "web_search_enabled": web_search_enabled,
             "model_prefix": llm.model_prefix,
             "provider_extra_body": llm_config.provider_extra_body(llm),
             "trace_id": obs.trace_id,
@@ -1594,6 +1567,7 @@ async def stream_session_message(
                 model_prefix=llm.model_prefix,
                 provider_extra_body=llm_config.provider_extra_body(llm),
                 thinking_enabled=thinking_enabled,
+                web_search_enabled=web_search_enabled,
             ),
         ):
             if turn_control.is_stopped(session_id):

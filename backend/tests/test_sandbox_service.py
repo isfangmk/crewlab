@@ -162,6 +162,7 @@ async def test_list_filters_by_source_and_status() -> None:
             await _clear(db, "exec-test-%")
             await _make_record(db, id="exec-test-a", source="workflow", status="succeeded")
             await _make_record(db, id="exec-test-b", source="skill", status="failed")
+            await _make_record(db, id="exec-test-c", source="chat", status="succeeded")
             try:
                 rows, total = await sandbox_query_service.list_executions(
                     db, source="skill", session_id="sandbox-test-session",
@@ -169,6 +170,13 @@ async def test_list_filters_by_source_and_status() -> None:
                 )
                 assert total == 1
                 assert rows[0].source == "skill"
+
+                rows, total = await sandbox_query_service.list_executions(
+                    db, source="chat", session_id="sandbox-test-session",
+                    limit=50, offset=0,
+                )
+                assert total == 1
+                assert rows[0].source == "chat"
 
                 rows, total = await sandbox_query_service.list_executions(
                     db, status="failed", session_id="sandbox-test-session",

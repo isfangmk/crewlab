@@ -89,8 +89,15 @@ async def _validate_target(
     if target_kind == "workflow":
         if workflow_id is None:
             raise HTTPException(status_code=400, detail="工作流触发器必须指定 workflow_id")
-        if await db.get(Workflow, workflow_id) is None:
+        workflow = await db.get(Workflow, workflow_id)
+        if workflow is None:
             raise HTTPException(status_code=400, detail=f"工作流不存在: {workflow_id}")
+        # 触发器固定跑已发布快照：没发布过的流程创建时就拦住，而不是到点才发现。
+        if workflow.published_definition_json == "":
+            raise HTTPException(
+                status_code=400,
+                detail=f"工作流尚未发布，不能作为触发器目标: {workflow.name}",
+            )
     else:
         try:
             await agent_service.get_agent(db, agent_id or "")
@@ -127,7 +134,7 @@ async def create_trigger(
             prompt=body.prompt,
             enabled=body.enabled,
             max_retries=body.max_retries,
-            created_by=None,
+            created_by=user.id,
         )
     except trigger_service.TriggerValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -180,7 +187,7 @@ async def update_trigger(
 async def delete_trigger(
     trigger_id: int,
     db: AsyncSession = Depends(get_db),
-    _admin: str = Depends(require_admin),
+    user: Any = Depends(require_admin),
 ) -> dict:
     try:
         rule = await trigger_service.get_rule(db, trigger_id)
@@ -188,7 +195,7 @@ async def delete_trigger(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     await trigger_service.delete_rule(db, trigger_id)
     await write_audit(
-        actor_user_id=None,
+        actor_user_id=user.id,
         action="trigger.delete",
         resource_type="trigger",
         resource_id=str(trigger_id),
@@ -197,12 +204,29 @@ async def delete_trigger(
     return {"ok": True}
 
 
+@router.get("/triggers/{trigger_id}")
+async def get_trigger(
+    trigger_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: str = Depends(require_auth),
+) -> dict:
+    try:
+        rule = await trigger_service.get_rule(db, trigger_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return rule_to_wire(rule)
+
+
 @router.get("/triggers/{trigger_id}/runs")
 async def list_trigger_runs(
     trigger_id: int,
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    try:
+        await trigger_service.get_rule(db, trigger_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     rows = await trigger_service.list_runs(db, trigger_id)
     return {"items": [run_to_wire(r) for r in rows], "total": len(rows)}
 
@@ -219,14 +243,8 @@ async def fire_trigger(
         rule = await trigger_service.get_rule(db, trigger_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    run = await trigger_executor.fire_rule(db, rule)
-    await write_audit(
-        actor_user_id=user.id,
-        action="trigger.fire",
-        resource_type="trigger",
-        resource_id=str(rule.id),
-        detail={"name": rule.name, "manual": True, "status": run.status},
-    )
+    # fire_rule 内部统一写 trigger.fire 审计，端点不再重复记一条。
+    run = await trigger_executor.fire_rule(db, rule, actor_user_id=user.id)
     return run_to_wire(run)
 
 
@@ -244,11 +262,4 @@ async def fire_webhook(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     run = await trigger_executor.fire_rule(db, rule)
-    await write_audit(
-        actor_user_id=None,
-        action="trigger.fire",
-        resource_type="trigger",
-        resource_id=str(rule.id),
-        detail={"name": rule.name, "via": "webhook", "status": run.status},
-    )
     return run_to_wire(run)

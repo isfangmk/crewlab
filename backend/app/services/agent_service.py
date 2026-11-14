@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.adk_runtime.naming import adk_identifier, root_adk_name
 from app.models_orm.agent import UserAgent
 from app.models_orm.mcp import McpServer
 from app.services.knowledge_scope import (
@@ -24,6 +25,9 @@ logger = logging.getLogger(__name__)
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 DEFAULT_AGENT_NAME = "default"
+
+# 子助理委托链最大层数：根助理 → 子 → 孙 → 曾孙，运行期装配同口径截断
+MAX_DELEGATION_DEPTH = 3
 
 # 允许的权限模式：
 # "" = 不限（默认）
@@ -224,7 +228,7 @@ def _row_to_resolved(row: UserAgent) -> ResolvedAgent:
         knowledge_scope=_parse_scope_json(row.knowledge_scope_json),
         skills=_parse_skills_json(row.skills_json),
         sub_agents=(
-            _parse_str_list(row.sub_agents_json, "sub_agents_json")
+            tuple(_parse_str_list(row.sub_agents_json, "sub_agents_json"))
             if row.sub_agents_json
             else ()
         ),
@@ -253,26 +257,97 @@ async def validate_sub_agents(
     parent_name: str,
     sub_names: tuple[str, ...],
 ) -> None:
-    """子助理委托校验：存在、不自引用、沿委托链无环。"""
+    """子助理委托校验：存在、不自引用、不重复、ADK 名不撞车、无环、深度不超限。
 
+    新增一条委托边不只影响被编辑助理自己的链：它的祖先链也会变长，
+    所以还要沿反向引用检查所有祖先的委托深度。
+    """
+
+    if len(set(sub_names)) != len(sub_names):
+        duplicates = sorted({name for name in sub_names if sub_names.count(name) > 1})
+        raise ValueError(f"子助理不能重复: {duplicates}")
+
+    sanitized: dict[str, str] = {}
     for name in sub_names:
         if name == parent_name:
             raise ValueError(f"不能把助理委托给自己: {name}")
         try:
-            agent = await get_agent(db, name)
+            await get_agent(db, name)
         except LookupError as exc:
             raise ValueError(f"子助理不存在: {name}") from exc
-        stack = list(agent.sub_agents)
-        seen: set[str] = set()
-        while stack:
-            cur = stack.pop()
-            if cur == parent_name:
-                raise ValueError(f"子助理委托成环: {name} 的委托链回到了 {parent_name}")
-            if cur in seen:
-                continue
-            seen.add(cur)
-            sub = await get_agent(db, cur)
-            stack.extend(sub.sub_agents)
+        cleaned = adk_identifier(name)
+        if cleaned in sanitized:
+            raise ValueError(
+                f"子助理名称净化后撞名: {sanitized[cleaned]} 与 {name} 都是 {cleaned}"
+            )
+        sanitized[cleaned] = name
+    root_ident = root_adk_name(parent_name)
+    for cleaned, name in sanitized.items():
+        if cleaned == root_ident:
+            raise ValueError(f"子助理 {name} 的 ADK 名称与父助理冲突: {cleaned}")
+
+    # 新增边只存在于 parent_name 之下；其余节点沿用已保存的委托列表
+    proposed: dict[str, tuple[str, ...]] = {parent_name: tuple(sub_names)}
+    agent_cache: dict[str, ResolvedAgent] = {}
+
+    async def children_of(name: str) -> tuple[str, ...]:
+        if name in proposed:
+            return proposed[name]
+        if name not in agent_cache:
+            try:
+                agent_cache[name] = await get_agent(db, name)
+            except LookupError as exc:
+                raise ValueError(f"子助理不存在: {name}") from exc
+        return agent_cache[name].sub_agents
+
+    memo: dict[str, int] = {}
+
+    async def depth_of(node: str, path: set[str]) -> int:
+        if node in path:
+            raise ValueError(f"子助理委托成环: {node} 的委托链回到了自己")
+        if node in memo:
+            return memo[node]
+        kids = await children_of(node)
+        if len(kids) == 0:
+            memo[node] = 0
+            return 0
+        value = 1 + max([await depth_of(kid, path | {node}) for kid in kids])
+        memo[node] = value
+        return value
+
+    parent_depth = await depth_of(parent_name, set())
+    if parent_depth > MAX_DELEGATION_DEPTH:
+        raise ValueError(
+            f"子助理委托链最多 {MAX_DELEGATION_DEPTH} 层，"
+            f"{parent_name} 当前为 {parent_depth} 层"
+        )
+
+    # 反向引用：谁（递归）委托了 parent_name
+    rows = (await db.scalars(select(UserAgent))).all()
+    parents_by_child: dict[str, list[str]] = {}
+    for row in rows:
+        children = (
+            _parse_str_list(row.sub_agents_json, "sub_agents_json")
+            if row.sub_agents_json
+            else []
+        )
+        for child in children:
+            parents_by_child.setdefault(child, []).append(row.name)
+    ancestors: set[str] = set()
+    stack = list(parents_by_child.get(parent_name, []))
+    while stack:
+        cur = stack.pop()
+        if cur in ancestors or cur == parent_name:
+            continue
+        ancestors.add(cur)
+        stack.extend(parents_by_child.get(cur, []))
+    for root in ancestors:
+        depth = await depth_of(root, set())
+        if depth > MAX_DELEGATION_DEPTH:
+            raise ValueError(
+                f"子助理委托链最多 {MAX_DELEGATION_DEPTH} 层，"
+                f"{root} 将变为 {depth} 层"
+            )
 
 
 def agent_disallowed_tool_names(agent: ResolvedAgent) -> set[str]:

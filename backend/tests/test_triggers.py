@@ -27,13 +27,36 @@ def test_compute_next_fire_advances() -> None:
     assert n2 > n1
 
 
+def test_compute_next_fire_uses_system_timezone() -> None:
+    """0 9 * * * 表示系统时区的 9 点，而不是 UTC 9 点。"""
+
+    from datetime import datetime, timedelta, timezone
+
+    base = datetime(2026, 11, 14, 0, 0, 0, tzinfo=timezone.utc)
+    shanghai = timezone(timedelta(hours=8))
+    nxt = compute_next_fire("0 9 * * *", base, shanghai)
+    assert nxt == datetime(2026, 11, 14, 1, 0, 0, tzinfo=timezone.utc)
+
+
+def test_scheduler_uses_service_compute_next_fire_and_exponential_backoff() -> None:
+    """调度器必须能解析到 compute_next_fire；重试按指数退避。"""
+
+    from app.services import trigger_scheduler
+
+    assert trigger_scheduler.compute_next_fire is compute_next_fire
+    assert trigger_scheduler._retry_delay_seconds(1) == 60
+    assert trigger_scheduler._retry_delay_seconds(2) == 120
+    assert trigger_scheduler._retry_delay_seconds(3) == 240
+
+
 def test_validate_rule_rejects_bad_cron_and_missing_target() -> None:
     """非法 cron / 缺目标 / 空 prompt 显式失败。"""
 
     with pytest.raises(TriggerValidationError, match="cron 表达式非法"):
         validate_rule(
+            name="bad-cron",
             kind="cron",
-            cron_expr="not a cron",
+            cron_expr="61 * * * *",
             target_kind="workflow",
             workflow_id=1,
             agent_id=None,
@@ -41,6 +64,7 @@ def test_validate_rule_rejects_bad_cron_and_missing_target() -> None:
         )
     with pytest.raises(TriggerValidationError, match="workflow_id"):
         validate_rule(
+            name="no-target",
             kind="cron",
             cron_expr="* * * * *",
             target_kind="workflow",
@@ -50,6 +74,7 @@ def test_validate_rule_rejects_bad_cron_and_missing_target() -> None:
         )
     with pytest.raises(TriggerValidationError, match="prompt"):
         validate_rule(
+            name="no-prompt",
             kind="cron",
             cron_expr="* * * * *",
             target_kind="agent",
@@ -59,8 +84,40 @@ def test_validate_rule_rejects_bad_cron_and_missing_target() -> None:
         )
     with pytest.raises(TriggerValidationError, match="类型非法"):
         validate_rule(
+            name="bad-kind",
             kind="hourly",
             cron_expr="* * * * *",
+            target_kind="workflow",
+            workflow_id=1,
+            agent_id=None,
+            prompt="",
+        )
+    with pytest.raises(TriggerValidationError, match="5 段"):
+        validate_rule(
+            name="six-fields",
+            kind="cron",
+            cron_expr="* * * * * *",
+            target_kind="workflow",
+            workflow_id=1,
+            agent_id=None,
+            prompt="",
+        )
+    with pytest.raises(TriggerValidationError, match="values_json"):
+        validate_rule(
+            name="bad-values",
+            kind="webhook",
+            cron_expr="",
+            target_kind="workflow",
+            workflow_id=1,
+            agent_id=None,
+            prompt="",
+            values_json="{oops",
+        )
+    with pytest.raises(TriggerValidationError, match="名称"):
+        validate_rule(
+            name="   ",
+            kind="webhook",
+            cron_expr="",
             target_kind="workflow",
             workflow_id=1,
             agent_id=None,

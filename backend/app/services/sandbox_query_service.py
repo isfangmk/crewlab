@@ -18,7 +18,7 @@ from app.models_orm.sandbox import SandboxExecution
 logger = logging.getLogger(__name__)
 
 # 允许筛选的来源与状态；传别的值直接报错，不静默返回空列表
-SOURCES = ("skill", "workflow", "manual")
+SOURCES = ("skill", "workflow", "manual", "chat")
 STATUSES = ("succeeded", "failed", "timeout")
 
 MAX_LIMIT = 200

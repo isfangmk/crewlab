@@ -8,6 +8,7 @@ from typing import Any
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 
+from app.adk_runtime.naming import root_adk_name
 from app.adk_runtime.toolset import build_builtin_tools
 from app.adk_runtime.tool_approval import build_before_tool_callback
 from app.models_orm.llm import LlmProvider
@@ -52,13 +53,12 @@ def build_chat_agent(
     knowledge_scope: KnowledgeScope | None = None,
     skills: list[Any] | None = None,
     sub_agents: list[Any] | None = None,
-    adk_name: str = "workbench_chat",
+    adk_name: str | None = None,
     include_builtin_tools: bool = True,
 ) -> LlmAgent:
     """按配置-模型与助理人设装配 LlmAgent；extra_tools 挂 MCP SearchableToolset 等。
 
-    include_builtin_tools=False 供子 Agent 使用：委托后父子工具会进同一注册表，
-    两边挂同名工具会让上游以「Tool names must be unique」拒绝请求。
+    adk_name 缺省时按业务助理名派生根 Agent 名；子 Agent 由委托装配显式传入。
     模型名前缀与厂商专属请求体由 provider 配置决定：
     不能对所有 provider 强加 openai/ 前缀或 DeepSeek 的 thinking 字段。
     max_turns 在此校验并记入装配日志；实际限轮由 Runner 的 RunConfig.max_llm_calls 生效。
@@ -68,6 +68,8 @@ def build_chat_agent(
         raise ValueError("llm_timeout_seconds 范围是 30..900")
     if max_turns < 0:
         raise ValueError("max_turns 不能为负数")
+    if adk_name is None:
+        adk_name = root_adk_name(agent_name)
     confirm_names = set() if confirm_tool_names is None else confirm_tool_names
 
     litellm_model = compose_litellm_model(
