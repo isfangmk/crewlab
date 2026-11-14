@@ -34,8 +34,8 @@ router = APIRouter(tags=["knowledge"])
 
 _ALLOWED_UPLOAD_SUFFIX = (".md", ".txt", ".pdf", ".docx")
 
-# 检索可按来源收口；与文档入库时的 source_type 取值集合一致
-DOC_SOURCE_TYPES = frozenset({"manual", "upload", "vault", "repo"})
+# 检索与列表可按来源收口；覆盖入库与外部同步产生的全部 source_type
+DOC_SOURCE_TYPES = frozenset({"manual", "upload", "vault", "repo", "url", "git"})
 
 
 async def _record_search_hits_async(doc_ids: list[str]) -> None:
@@ -63,6 +63,8 @@ async def list_docs(
     sort_dir: str = Query("desc"),
     limit: int | None = Query(None, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    # 外部源详情：只看某个来源同步出的文档
+    external_source_id: str | None = Query(None, max_length=36),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
@@ -87,6 +89,7 @@ async def list_docs(
         sort_dir=sort_dir,
         limit=limit,
         offset=offset,
+        external_source_id=external_source_id,
     )
     stats = await knowledge_service.doc_list_stats(db, [d.id for d in items])
     return {

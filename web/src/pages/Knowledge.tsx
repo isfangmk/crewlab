@@ -136,6 +136,8 @@ function buildTree(rows: PathRow[]): TreeNode {
 // 行首类型标签：来源类型优先，上传文档按文件名后缀细分。
 // 用 Chip 的语义色区分文件格式，不用多色图标；来源胶囊仍保持中性。
 function docKindLabel(doc: KnowledgeDoc): string {
+  if (doc.source_type === 'url') return 'URL';
+  if (doc.source_type === 'git') return 'GIT';
   if (doc.source_type === 'repo') return 'REPO';
   // 只有上传文档带原件名；手动 / 内置文档的正文本身就是 markdown
   const fileName = doc.source_filename;
@@ -149,13 +151,15 @@ function docKindLabel(doc: KnowledgeDoc): string {
   return 'FILE';
 }
 
-// 常见格式各占一个语义色；repo / 未知格式属于来源或兜底，保持中性
+// 常见格式各占一个语义色；外部源 / 未知格式属于来源或兜底，保持中性
 const DOC_KIND_TONE: Record<string, 'accent' | 'info' | 'warning' | 'success' | 'default'> = {
   MD: 'accent',
   TXT: 'info',
   PDF: 'warning',
   DOC: 'success',
   REPO: 'default',
+  URL: 'default',
+  GIT: 'default',
   FILE: 'default',
 };
 
@@ -170,6 +174,8 @@ function formatDocBytes(bytes: number | undefined): string {
 function sourceLabel(doc: KnowledgeDoc, tr: (zh: string, en: string) => string): string {
   if (doc.source_type === 'vault') return tr('内置', 'built-in');
   if (doc.source_type === 'upload') return tr('上传', 'upload');
+  // URL / Git 文档同属外部同步；类型已由行首 GIT / URL 标签表达，这里不重复
+  if (doc.source_type === 'url' || doc.source_type === 'git') return tr('外部源', 'external');
   if (doc.source_type === 'repo') return 'repo';
   return tr('手动', 'manual');
 }
@@ -460,12 +466,14 @@ export default function KnowledgePage() {
       ? tr('内置知识库', 'built-in knowledge base')
       : tr('组织知识库', 'organization knowledge');
 
-  // 来源筛选：组织文档里 manual / upload / repo 混在一起，检索与列表都要能按来源收口；
+  // 来源筛选：组织文档里 manual / upload / URL / Git 混在一起，检索与列表都要能按来源收口；
   // 内置组只有 vault，给筛选反而制造「选了也一样」的假控件，因此不显示。
   const sourceOptions = [
     { value: '', label: tr('全部来源', 'All sources') },
     { value: 'manual', label: tr('手动', 'Manual') },
     { value: 'upload', label: tr('上传', 'Uploaded') },
+    { value: 'url', label: 'URL' },
+    { value: 'git', label: 'Git' },
     { value: 'repo', label: 'repo' },
   ];
 
@@ -1497,13 +1505,17 @@ function DocEditor({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const locatedRef = useRef(false);
 
-  // 内置（vault）与 repo 文档随同步刷新，就地修改会被覆盖（后端 PATCH 也会拒绝）；
-  // 只读查看 + 「复制为组织文档」是受支持的自定义方式。
-  const sourceReadOnly = existing?.source_type === 'repo' || existing?.source_type === 'vault';
+  // 内置（vault）与外部源（url / git / repo）文档随同步刷新，就地修改会被覆盖
+  //（后端 PATCH 也会拒绝）；只读查看 + 「复制为组织文档」是受支持的自定义方式。
+  const sourceReadOnly =
+    existing?.source_type === 'repo' ||
+    existing?.source_type === 'url' ||
+    existing?.source_type === 'git' ||
+    existing?.source_type === 'vault';
   const [forked, setForked] = useState(false);
   // 「查看」模式进来后可以就地切到编辑表单，不必关掉弹窗再点一次编辑。
   const [toEditor, setToEditor] = useState(false);
-  // 走查看器的三种情况：显式查看模式；或编辑内置/repo 文档（内容不可改）。
+  // 走查看器的三种情况：显式查看模式；或编辑外部同步文档（内容不可改）。
   // 复制成组织文档后进入编辑表单，不再停在只读查看器。
   const viewer =
     !forked && !toEditor && (mode === 'view' || (mode === 'edit' && sourceReadOnly));
@@ -1583,7 +1595,6 @@ function DocEditor({
 
   // 只读查看器：渲染 markdown 正文 + 顶部元信息条
   if (viewer && !toEditor) {
-    const isVault = existing?.source_type === 'vault';
     return (
       <Modal
         open
@@ -1597,7 +1608,7 @@ function DocEditor({
             <Button variant="outline" size="sm" onClick={onClose}>
               {tr('关闭', 'Close')}
             </Button>
-            {/* 可编辑的文档给「编辑」入口；内置/repo 文档只能复制成组织文档后改。 */}
+            {/* 可编辑的文档给「编辑」入口；外部同步文档只能复制成组织文档后改。 */}
             {mode === 'view' && !sourceReadOnly ? (
               <Button variant="primary" size="sm" onClick={() => setToEditor(true)}>
                 <Pencil size={11} />
@@ -1605,23 +1616,16 @@ function DocEditor({
               </Button>
             ) : (
               <Hint
-                content={
-                  isVault
-                    ? tr(
-                        '内置文档随同步更新、不可直接修改；复制一份到组织知识库后即可编辑',
-                        'Built-in docs are refreshed on sync and not directly editable; copy into the org knowledge base to edit',
-                      )
-                    : tr(
-                        'repo 文档随同步更新、不可直接修改；复制一份到组织知识库后即可编辑',
-                        'Repo docs are refreshed on sync and not directly editable; copy into the org knowledge base to edit',
-                      )
-                }
+                content={tr(
+                  '外部同步文档随来源更新、不可直接修改；复制一份到组织知识库后即可编辑',
+                  'Synced docs are refreshed from their source and not directly editable; copy into the org knowledge base to edit',
+                )}
               >
                 <Button
                   variant="primary"
                   size="sm"
                   onClick={() => {
-                    // 副本是新组织文档，不带内置/repo 的来源地址
+                    // 副本是新组织文档，不带外部源的来源地址
                     setUrl('');
                     setForked(true);
                   }}
@@ -1638,7 +1642,7 @@ function DocEditor({
         <div className="space-y-3">
           <LocateBanner locate={locate} readOnly />
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-            <Chip>{isVault ? tr('内置', 'built-in') : 'repo'}</Chip>
+            <Chip>{existing ? sourceLabel(existing, tr) : ''}</Chip>
             {existing?.path && <Chip>{localizedPath(existing.path)}</Chip>}
             {(existing?.tags ?? []).map((tag) => (
               <Chip key={tag}>{tag}</Chip>

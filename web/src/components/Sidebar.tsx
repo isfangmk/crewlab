@@ -387,7 +387,7 @@ export function Sidebar() {
           defaultOpen
           items={[
             { key: 'knowledge', to: '/knowledge', icon: BookOpen, label: tr('知识库', 'Knowledge') },
-            { key: 'knowledge-sources', icon: FolderGit2, label: tr('外部源', 'External sources'), planned: true },
+            { key: 'knowledge-sources', to: '/knowledge/sources', icon: FolderGit2, label: tr('外部源', 'External sources') },
             { key: 'knowledge-playground', icon: SearchCheck, label: tr('检索试跑', 'Retrieval playground'), planned: true },
           ]}
         />

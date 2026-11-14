@@ -10,6 +10,7 @@ from app.models_orm.chat import ChatMessage, ChatSession
 from app.models_orm.channel import PublishedChannel
 from app.models_orm.eval import EvalCase, EvalCaseResult, EvalDataset, EvalRun
 from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
+from app.models_orm.knowledge_source import KnowledgeSource
 from app.models_orm.llm import AppSetting, LlmProvider
 from app.models_orm.mcp import McpServer, McpToolEmbedding
 from app.models_orm.observation import ObservationToolCall, ObservationTurn
@@ -36,6 +37,7 @@ __all__ = [
     "UserAgent",
     "KnowledgeDoc",
     "KnowledgeChunk",
+    "KnowledgeSource",
     "SecretCredential",
     "User",
     "ApiToken",

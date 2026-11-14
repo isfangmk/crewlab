@@ -19,6 +19,9 @@ _REQUIRED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("observation_turns", "channel", "VARCHAR(128) NOT NULL DEFAULT ''"),
     ("artifacts", "message_id", "VARCHAR(128) NOT NULL DEFAULT ''"),
     ("artifacts", "seq", "INTEGER NOT NULL DEFAULT 0"),
+    ("knowledge_docs", "external_source_id", "VARCHAR(36)"),
+    ("knowledge_docs", "external_key", "VARCHAR(1024)"),
+    ("knowledge_docs", "external_hash", "VARCHAR(64)"),
 )
 
 

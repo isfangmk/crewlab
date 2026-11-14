@@ -28,6 +28,7 @@ from app.api import (
     health,
     integrations_llm,
     knowledge,
+    knowledge_sources,
     mcp,
     memory,
     mentions,
@@ -141,6 +142,12 @@ async def lifespan(_app: FastAPI):
 
     await ensure_schema(engine)
 
+    # 上次进程退出时可能留下 syncing 状态；启动后统一标为可重试的失败
+    from app.services.knowledge_source_service import recover_interrupted_syncs
+
+    async with SessionLocal() as db:
+        await recover_interrupted_syncs(db)
+
     # 向量存储与业务库分离：未启用时显式记录，向量依赖操作在调用点显式失败
     from app.vector_store import get_vector_store
 
@@ -212,6 +219,7 @@ def create_app() -> FastAPI:
     app.include_router(tools.router, prefix="/api/v1")
     app.include_router(skills.router, prefix="/api/v1")
     app.include_router(knowledge.router, prefix="/api/v1")
+    app.include_router(knowledge_sources.router, prefix="/api/v1")
     app.include_router(mentions.router, prefix="/api/v1")
     app.include_router(secrets.router, prefix="/api/v1")
     app.include_router(system_settings.router, prefix="/api/v1")

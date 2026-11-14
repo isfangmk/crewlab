@@ -7,12 +7,16 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models_orm.base import AwareDateTime, Base
+
+if TYPE_CHECKING:
+    from app.models_orm.knowledge_source import KnowledgeSource
 
 # PG 用 JSONB 支持 containment 过滤；SQLite 用 JSON 文本（过滤走 json_each）
 TagsJSON = JSON().with_variant(JSONB(), "postgresql")
@@ -42,6 +46,15 @@ class KnowledgeDoc(Base):
         Integer, nullable=False, default=0, server_default=text("0")
     )
     last_hit_at: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True)
+    # 外部源同步归属：手工 / 上传文档为空；external_key 在来源内唯一标识原文，
+    # external_hash 用于增量同步时跳过未变化的文档
+    external_source_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_sources.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    external_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    external_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         AwareDateTime(), server_default=func.now(), nullable=False
     )
@@ -56,6 +69,9 @@ class KnowledgeDoc(Base):
         back_populates="doc",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+    external_source: Mapped[KnowledgeSource | None] = relationship(
+        back_populates="docs"
     )
 
 

@@ -48,7 +48,7 @@ describe('Sidebar workbench nav', () => {
     expect(screen.getByRole('link', { name: '记忆' })).toHaveAttribute('href', '/memory');
     expect(screen.getByLabelText('插件包（规划中）')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '沙箱' })).toHaveAttribute('href', '/sandbox');
-    expect(screen.getByLabelText('外部源（规划中）')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '外部源' })).toHaveAttribute('href', '/knowledge/sources');
     expect(screen.getByLabelText('检索试跑（规划中）')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '触发器' })).toHaveAttribute('href', '/triggers');
     expect(screen.getByLabelText('IM 渠道（规划中）')).toBeInTheDocument();

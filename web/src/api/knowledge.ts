@@ -3,8 +3,8 @@ import { getToken } from '@/store/auth';
 import { tr as trInline } from '@/i18n/locale';
 
 // 知识库文档 API。id 为 UUID 字符串。
-// source_type：创建只收 manual / upload / vault；repo 是同步侧入库，列表筛选支持全部四种。
-export type DocSource = 'manual' | 'repo' | 'vault' | 'upload';
+// source_type：创建只收 manual / upload；url / git 由外部源同步入库，repo 为历史同步来源。
+export type DocSource = 'git' | 'manual' | 'repo' | 'upload' | 'url' | 'vault';
 
 export type KnowledgeDoc = {
   id: string;
@@ -31,6 +31,9 @@ export type KnowledgeDoc = {
   source_bytes?: number | null;
   hit_count?: number;
   last_hit_at?: string | null;
+  /** 外部知识源归属；手工 / 上传 / 内置文档为空 */
+  external_source_id?: string | null;
+  external_key?: string | null;
 };
 
 export type SearchHit = {
@@ -61,9 +64,14 @@ export function listDocs(params?: {
   sort_dir?: 'asc' | 'desc';
   limit?: number;
   offset?: number;
+  /** 只看某个外部知识源同步出的文档 */
+  external_source_id?: string;
 }) {
   const q = new URLSearchParams();
   if (params?.source_type) q.set('source_type', params.source_type);
+  if (params?.external_source_id) {
+    q.set('external_source_id', params.external_source_id);
+  }
   if (params?.path) q.set('path', params.path);
   if (params?.path_prefix) q.set('path_prefix', params.path_prefix);
   if (params?.tag) q.set('tag', params.tag);

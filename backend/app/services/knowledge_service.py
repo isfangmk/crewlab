@@ -42,6 +42,9 @@ _DEFAULT_CHUNK_SIZE = 800
 _DEFAULT_CHUNK_OVERLAP = 100
 _RRF_K = 60
 
+# 由外部源同步维护的文档：内容随同步刷新，不开放站内编辑/移动
+EXTERNAL_SOURCE_TYPES = frozenset({"repo", "url", "git"})
+
 
 @dataclass(frozen=True)
 class KnowledgeHit:
@@ -148,6 +151,9 @@ def doc_to_wire(doc: KnowledgeDoc, *, include_content: bool) -> dict:
         "source_bytes": doc.source_bytes,
         "hit_count": doc.hit_count,
         "last_hit_at": doc.last_hit_at.isoformat() if doc.last_hit_at is not None else None,
+        # 外部源归属；手工 / 上传 / 内置文档为 None
+        "external_source_id": doc.external_source_id,
+        "external_key": doc.external_key,
     }
     if doc.title_en is not None:
         out["title_en"] = doc.title_en
@@ -215,6 +221,7 @@ async def list_docs(
     sort_dir: str = "desc",
     limit: int | None = None,
     offset: int = 0,
+    external_source_id: str | None = None,
 ) -> tuple[list[KnowledgeDoc], int]:
     """按筛选条件分页返回文档列表与命中总数。
 
@@ -225,6 +232,8 @@ async def list_docs(
     filters = []
     if source_type is not None:
         filters.append(KnowledgeDoc.source_type == source_type)
+    if external_source_id is not None:
+        filters.append(KnowledgeDoc.external_source_id == external_source_id)
     if path is not None:
         filters.append(KnowledgeDoc.path == path)
     if path_prefix is not None:
@@ -416,6 +425,8 @@ async def update_doc(
     doc = await get_doc(db, doc_id)
     if doc.source_type == "vault":
         raise PermissionError("内置知识库文档只读，禁止修改")
+    if doc.source_type in EXTERNAL_SOURCE_TYPES:
+        raise PermissionError("外部源文档随同步刷新，禁止直接修改")
     doc.title = title
     doc.title_en = title_en
     doc.content = content
@@ -427,6 +438,108 @@ async def update_doc(
     await db.refresh(doc)
     logger.info("更新文档 doc_id=%s chunks=%s", doc.id, n)
     return doc
+
+
+async def upsert_external_doc(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    source_type: str,
+    external_key: str,
+    external_hash: str,
+    title: str,
+    content: str,
+    url: str | None,
+    path: str,
+    enabled: bool = True,
+) -> tuple[KnowledgeDoc, bool]:
+    """同步写入一篇外部文档；返回 (文档, 是否有变化)。
+
+    正文哈希未变时只更新标题/路径等元信息，不重复切块嵌入；
+    这是增量同步的主要成本控制点。enabled 只作用于新建文档，
+    既有文档的检索开关由来源启停或用户单独切换维护。
+    """
+
+    if source_type not in EXTERNAL_SOURCE_TYPES:
+        raise ValueError(f"不支持的外部文档 source_type: {source_type}")
+    key = external_key.strip()
+    if key == "":
+        raise ValueError("external_key 不能为空")
+    doc = await db.scalar(
+        select(KnowledgeDoc).where(
+            KnowledgeDoc.external_source_id == source_id,
+            KnowledgeDoc.external_key == key,
+        )
+    )
+    target_title = title.strip() or key.rsplit("/", 1)[-1]
+    target_path = _resolve_path(path)
+    if doc is None:
+        doc = KnowledgeDoc(
+            id=str(uuid.uuid4()),
+            source_type=source_type,
+            title=target_title,
+            content=content,
+            path=target_path,
+            url=url,
+            tags=[],
+            enabled=enabled,
+            external_source_id=source_id,
+            external_key=key,
+            external_hash=external_hash,
+        )
+        db.add(doc)
+        await db.flush()
+        n = await _replace_chunks(db, doc)
+        await db.commit()
+        await db.refresh(doc)
+        logger.info(
+            "外部文档首次入库 doc_id=%s source=%s key=%s chunks=%s",
+            doc.id,
+            source_id,
+            key,
+            n,
+        )
+        return doc, True
+
+    if doc.external_hash == external_hash and doc.content == content:
+        # 内容未变：只同步可能被来源配置改过的归属目录与标题
+        changed = False
+        if doc.title != target_title:
+            doc.title = target_title
+            changed = True
+        if doc.path != target_path:
+            doc.path = target_path
+            changed = True
+        if doc.url != url:
+            doc.url = url
+            changed = True
+        if doc.external_hash != external_hash:
+            doc.external_hash = external_hash
+            changed = True
+        if changed:
+            doc.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+            await db.refresh(doc)
+        return doc, changed
+
+    doc.source_type = source_type
+    doc.title = target_title
+    doc.content = content
+    doc.path = target_path
+    doc.url = url
+    doc.external_hash = external_hash
+    doc.updated_at = datetime.now(timezone.utc)
+    n = await _replace_chunks(db, doc)
+    await db.commit()
+    await db.refresh(doc)
+    logger.info(
+        "外部文档更新 doc_id=%s source=%s key=%s chunks=%s",
+        doc.id,
+        source_id,
+        key,
+        n,
+    )
+    return doc, True
 
 
 async def set_doc_enabled(db: AsyncSession, doc_id: str, enabled: bool) -> KnowledgeDoc:
@@ -445,6 +558,8 @@ async def move_doc(db: AsyncSession, doc_id: str, path: str) -> KnowledgeDoc:
     doc = await get_doc(db, doc_id)
     if doc.source_type == "vault":
         raise PermissionError("内置知识库文档只读，禁止移动")
+    if doc.source_type in EXTERNAL_SOURCE_TYPES:
+        raise PermissionError("外部源文档随同步刷新，禁止移动")
     doc.path = path
     doc.updated_at = datetime.now(timezone.utc)
     await db.commit()
