@@ -616,3 +616,26 @@ describe('MessageBubble 用户澄清卡', () => {
     unmount();
   });
 });
+
+describe('MessageBubble 图表流式渲染', () => {
+  it('流式消息的图表围栏从半截 JSON 渐进渲染，不闪原始 JSON', () => {
+    render(<MessageBubble message={{
+      id: 'm-chart',
+      role: 'assistant',
+      content: '```echarts\n{"chart": "line", "title": "气温", "option": {"series": [{"type": "line", "data": [1, 2',
+      pending: true,
+    }} />);
+    expect(screen.getByText('气温')).toBeInTheDocument();
+    expect(screen.queryByText(/"series"/)).not.toBeInTheDocument();
+  });
+
+  it('已完成消息的非法图表围栏仍退回代码块', () => {
+    render(<MessageBubble message={{
+      id: 'm-chart-2',
+      role: 'assistant',
+      content: '```echarts\n{ broken\n```',
+    }} />);
+    expect(screen.getByText(/broken/)).toBeInTheDocument();
+    expect(screen.queryByText('图表生成中…')).not.toBeInTheDocument();
+  });
+});

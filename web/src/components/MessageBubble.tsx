@@ -336,7 +336,8 @@ function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
     <div className="flex flex-col items-stretch gap-2">
       {body !== '' && (
         <div className="md-body text-zinc-100">
-          <ChartMarkdown content={body} />
+          {/* 流式中渐进渲染图表（半截 JSON 修好就画），不再等整段输出完 */}
+          <ChartMarkdown content={body} streaming={message.pending === true} />
         </div>
       )}
       {message.tool_calls?.map((tc, i) => (

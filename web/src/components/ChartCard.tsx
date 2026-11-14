@@ -18,7 +18,7 @@ type EChartsModule = {
   init: (dom: HTMLElement, theme?: string) => EChartsInstance;
 };
 
-const CHART_HEIGHT_CLASS = 'h-[18rem]';
+export const CHART_HEIGHT_CLASS = 'h-[18rem]';
 
 let echartsPromise: Promise<EChartsModule> | null = null;
 
@@ -30,6 +30,9 @@ async function loadECharts(): Promise<EChartsModule> {
   return echartsPromise;
 }
 
+// option 更新的节流间隔：流式逐 token 出 JSON 时不能每个字都打到 echarts
+const OPTION_UPDATE_MS = 250;
+
 export function ChartCanvas({
   option,
   className,
@@ -39,26 +42,39 @@ export function ChartCanvas({
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<EChartsInstance | null>(null);
+  const optionRef = useRef(option);
 
+  // 卸载时销毁；实例本身跨 option 更新复用，避免流式时反复销毁重建
   useEffect(() => {
-    let cancelled = false;
-    const host = hostRef.current;
-    if (host === null) return;
-
-    void loadECharts().then((echarts) => {
-      if (cancelled || hostRef.current === null) return;
-      // 容器宽高此时为 0（隐藏态）时初始化会得到空画布，先跳过
-      if (host.clientWidth === 0 || host.clientHeight === 0) return;
-      const chart = echarts.init(host, undefined);
-      chartRef.current = chart;
-      chart.setOption(option, true);
-    });
-
     return () => {
-      cancelled = true;
       chartRef.current?.dispose();
       chartRef.current = null;
     };
+  }, []);
+
+  useEffect(() => {
+    optionRef.current = option;
+    const host = hostRef.current;
+    if (host === null) return;
+
+    if (chartRef.current === null) {
+      // 首帧立即初始化；隐藏态（宽高为 0）拿不到画布，等下次 option 变更再试
+      if (host.clientWidth === 0 || host.clientHeight === 0) return;
+      void loadECharts().then((echarts) => {
+        // 卸载（ref 归 null）或已初始化过则跳过
+        if (hostRef.current === null || chartRef.current !== null) return;
+        const chart = echarts.init(host, undefined);
+        chartRef.current = chart;
+        chart.setOption(optionRef.current, true);
+      });
+      return;
+    }
+
+    // 已有实例：节流合并成最后一次 setOption（notMerge 全量替换）
+    const timer = window.setTimeout(() => {
+      chartRef.current?.setOption(option, true);
+    }, OPTION_UPDATE_MS);
+    return () => window.clearTimeout(timer);
   }, [option]);
 
   // 容器尺寸变化（侧栏展开 / 窗口缩放）时重画

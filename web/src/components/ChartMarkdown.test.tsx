@@ -37,4 +37,25 @@ describe('ChartMarkdown', () => {
     // 内容没被吞掉：仍然能在页面上找到这段文本
     expect(screen.getByText(/broken/)).toBeInTheDocument();
   });
+
+  it('流式中从半截 JSON 渐进渲染图表，不闪原始 JSON', () => {
+    const partial =
+      '{"chart": "line", "title": "气温趋势", "option": {"series": [{"type": "line", "data": [16.0, 18.0';
+    render(<ChartMarkdown content={`\`\`\`echarts\n${partial}`} streaming />);
+    expect(screen.getByText('气温趋势')).toBeInTheDocument();
+    // 半截 JSON 不以代码块形式出现在正文里
+    expect(screen.queryByText(/"series"/)).not.toBeInTheDocument();
+  });
+
+  it('流式中还解析不出图表形状时显示骨架，而不是原始 JSON', () => {
+    render(<ChartMarkdown content={'```echarts\n{"chart": "line", "titl'} streaming />);
+    expect(screen.getByText('图表生成中…')).toBeInTheDocument();
+    expect(screen.queryByText(/"chart"/)).not.toBeInTheDocument();
+  });
+
+  it('流式结束后解析失败仍退回代码块', () => {
+    render(<ChartMarkdown content={'```echarts\n{ broken\n```'} streaming={false} />);
+    expect(screen.getByText(/broken/)).toBeInTheDocument();
+    expect(screen.queryByText('图表生成中…')).not.toBeInTheDocument();
+  });
 });
