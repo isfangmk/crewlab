@@ -1,5 +1,7 @@
 import { request } from './client';
 import { tr as trInline } from '@/i18n/locale';
+import { getToken } from '@/store/auth';
+import { consumeSseResponse, type StreamCallbacks } from './chat';
 
 export type AgentSource = 'builtin' | 'disk' | 'user';
 
@@ -37,6 +39,9 @@ export type AgentSummary = {
   /** 可委托的子助理 name 列表；空 = 不委托 */
   sub_agents: string[];
   source: AgentSource;
+  /** 当前配置版本号；内置助理或未快照时为 0 */
+  version: number;
+  updated_at: string | null;
 };
 
 /** 创建/更新用户自定义助理的请求体。 */
@@ -59,6 +64,8 @@ export type UserAgentInput = {
   skills: string[] | null;
   /** 子助理委托：name 列表；空数组 = 不委托 */
   sub_agents: string[];
+  /** 本次保存的变更摘要，只进版本快照，不进助理配置本身 */
+  change_summary?: string;
 };
 
 export type AgentListResp = { items: AgentSummary[]; total: number };
@@ -119,4 +126,80 @@ export function deleteUserAgent(name: string) {
 
 export function deleteAgent(name: string) {
   return request<void>('DELETE', `/agents/${encodeURIComponent(name)}`);
+}
+
+/** 版本列表项（不含快照正文）。 */
+export type AgentVersionMeta = {
+  version: number;
+  change_summary: string;
+  created_by: number | null;
+  created_at: string | null;
+  restored_from_version: number | null;
+};
+
+/** 版本详情（含完整配置快照）。 */
+export type AgentVersionDetail = AgentVersionMeta & {
+  snapshot: UserAgentInput;
+};
+
+export function listAgentVersions(name: string) {
+  return request<{ items: AgentVersionMeta[]; total: number }>(
+    'GET',
+    `/agents/custom/${encodeURIComponent(name)}/versions`,
+  );
+}
+
+export function getAgentVersion(name: string, version: number) {
+  return request<AgentVersionDetail>(
+    'GET',
+    `/agents/custom/${encodeURIComponent(name)}/versions/${version}`,
+  );
+}
+
+export function rollbackAgent(name: string, version: number, changeSummary = '') {
+  return request<AgentSummary>(
+    'POST',
+    `/agents/custom/${encodeURIComponent(name)}/rollback`,
+    { version, change_summary: changeSummary },
+  );
+}
+
+/** Playground 试跑入参：草稿助理 + 一轮输入 + 运行开关。 */
+export type PlaygroundRunInput = {
+  agent: UserAgentInput;
+  content: string;
+  provider?: string;
+  model?: string;
+  thinkingEnabled?: boolean;
+  webSearchEnabled?: boolean;
+  locale?: string;
+};
+
+/** 草稿助理试跑：不落会话、不落观测，SSE 帧与正式会话同构。 */
+export async function playgroundStream(
+  input: PlaygroundRunInput,
+  cbs: StreamCallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
+  const headers: Record<string, string> = {
+    Accept: 'text/event-stream',
+    'Content-Type': 'application/json',
+  };
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch('/api/v1/agents/playground/stream', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      agent: input.agent,
+      content: input.content,
+      provider: input.provider ?? '',
+      model: input.model ?? '',
+      thinking_enabled: input.thinkingEnabled ?? false,
+      web_search_enabled: input.webSearchEnabled ?? false,
+      locale: input.locale ?? null,
+    }),
+    signal,
+  });
+  await consumeSseResponse(res, cbs);
 }

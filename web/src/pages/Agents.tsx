@@ -31,6 +31,8 @@ import {
   Check,
   ChevronRight,
   Copy,
+  FlaskConical,
+  History,
   ListChecks,
   MessageSquarePlus,
   Pencil,
@@ -67,6 +69,8 @@ import { useModelSelection } from '@/store/modelSelection';
 import { CapabilityBinding } from '@/components/CapabilityBinding';
 import { KnowledgeScopePicker, scopeSelectionFromWire, scopeSelectionIsIncomplete, scopeSelectionToWire, type ScopeSelection } from '@/components/KnowledgeScopePicker';
 import { PersonaFields, OUTPUT_FORMAT_LABELS, examplesInvalid } from '@/components/PersonaFields';
+import { AgentPlaygroundPanel } from '@/components/AgentPlaygroundPanel';
+import { AgentVersionHistoryModal } from '@/components/AgentVersionHistory';
 import type { CapabilityCatalog } from '@/lib/capabilityPreview';
 import type { ScopePreview } from '@/api/knowledge';
 import type { AgentExample, OutputFormat } from '@/api/agents';
@@ -855,6 +859,9 @@ function AgentEditor({
   const [err, setErr] = useState<string | null>(null);
   // 配置项按用途分区，避免单页纵向滚动过长；切换分区不丢草稿。
   const [section, setSection] = useState<EditorSection>('basic');
+  // 试跑面板与版本历史：均用当前草稿，不需先保存
+  const [showPlayground, setShowPlayground] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1014,27 +1021,33 @@ function AgentEditor({
     </>
   );
 
+  // 把当前草稿组装成 UserAgentInput；提交与试跑共用，避免两处字段漂移
+  const buildDraft = (): UserAgentInput => ({
+    name: mode === 'create' ? name.trim() : existing?.name ?? name.trim(),
+    display_name: displayName.trim(),
+    description: description.trim(),
+    when_to_use: whenToUse.trim(),
+    system_prompt: systemPrompt.trim(),
+    critical_reminder: criticalReminder.trim(),
+    allowed_tools: allowedTools,
+    disallowed_tools: disallowedTools,
+    permission_mode: permissionMode,
+    model: model.trim(),
+    max_turns: maxTurns,
+    output_format: outputFormat,
+    examples: examples.map((item) => ({ input: item.input, output: item.output })),
+    knowledge_scope: scopeSelectionToWire(scope),
+    skills: selectedSkills,
+    sub_agents: subAgents,
+  });
+
   const submit = async () => {
     setErr(null);
     setSubmitting(true);
     try {
       const input: UserAgentInput = {
+        ...buildDraft(),
         name: mode === 'create' ? name.trim() : undefined,
-        display_name: displayName.trim(),
-        description: description.trim(),
-        when_to_use: whenToUse.trim(),
-        system_prompt: systemPrompt.trim(),
-        critical_reminder: criticalReminder.trim(),
-        allowed_tools: allowedTools,
-        disallowed_tools: disallowedTools,
-        permission_mode: permissionMode,
-        model: model.trim(),
-        max_turns: maxTurns,
-        output_format: outputFormat,
-        examples: examples.map((item) => ({ input: item.input, output: item.output })),
-        knowledge_scope: scopeSelectionToWire(scope),
-        skills: selectedSkills,
-        sub_agents: subAgents,
       };
       if (mode === 'create') {
         await createUserAgent(input);
@@ -1053,6 +1066,7 @@ function AgentEditor({
   };
 
   return (
+    <>
     <Modal
       open
       onClose={onClose}
@@ -1115,14 +1129,34 @@ function AgentEditor({
               )}
             </>
           ) : (
-            <Button variant="primary" size="sm"
-              type="button"
-              onClick={() => void submit()}
-              disabled={saveDisabled}
-              className="px-3 py-1.5 font-medium text-accent-fg"
-            >
-              {submitting ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
-            </Button>
+            <>
+              <Button variant="outline" size="sm"
+                type="button"
+                onClick={() => setShowVersions(true)}
+                title={tr('版本历史', 'Version history')}
+                className="px-3 py-1.5"
+              >
+                <History size={13} aria-hidden />
+                {tr('版本', 'Versions')}
+              </Button>
+              <Button variant="outline" size="sm"
+                type="button"
+                onClick={() => setShowPlayground(true)}
+                title={tr('用当前草稿试跑', 'Try this draft')}
+                className="px-3 py-1.5"
+              >
+                <FlaskConical size={13} aria-hidden />
+                {tr('试跑', 'Try it')}
+              </Button>
+              <Button variant="primary" size="sm"
+                type="button"
+                onClick={() => void submit()}
+                disabled={saveDisabled}
+                className="px-3 py-1.5 font-medium text-accent-fg"
+              >
+                {submitting ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
+              </Button>
+            </>
           )}
         </>
       }
@@ -1387,6 +1421,21 @@ function AgentEditor({
         </Tabs>
       </div>
     </Modal>
+
+    {showPlayground && (
+      <div className="fixed inset-y-0 right-0 z-[70] w-[24rem] max-w-full p-3">
+        <AgentPlaygroundPanel agent={buildDraft()} onClose={() => setShowPlayground(false)} />
+      </div>
+    )}
+
+    {showVersions && existing !== null && (
+      <AgentVersionHistoryModal
+        name={existing.name}
+        onClose={() => setShowVersions(false)}
+        onRolledBack={onSaved}
+      />
+    )}
+    </>
   );
 }
 

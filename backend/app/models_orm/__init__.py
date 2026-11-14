@@ -1,6 +1,7 @@
 """ORM 模型导出。"""
 
 from app.models_orm.agent import UserAgent
+from app.models_orm.agent_version import UserAgentVersion
 from app.models_orm.approval import Approval
 from app.models_orm.artifact import Artifact
 from app.models_orm.attachment import ChatAttachment
@@ -35,6 +36,7 @@ __all__ = [
     "McpServer",
     "McpToolEmbedding",
     "UserAgent",
+    "UserAgentVersion",
     "KnowledgeDoc",
     "KnowledgeChunk",
     "KnowledgeSource",

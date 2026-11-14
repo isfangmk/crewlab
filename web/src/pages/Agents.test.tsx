@@ -1,6 +1,6 @@
 // Agents 页面测试 — 覆盖「点击助理卡片查看定义详情」链路，并验证
 // 按 source 区分的编辑路径（user 直接编辑 / 内置预置 fork 成自定义）。
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
@@ -81,6 +81,10 @@ describe('AgentsPage', () => {
       http.get(listURL, () => HttpResponse.json({ items: [], total: 0 })),
       http.get(mcpListURL, () => HttpResponse.json({ items: [], total: 0 })),
       http.get('/api/v1/tools/builtin', () => HttpResponse.json({ items: [], total: 0 })),
+      // 试跑面板拉模型目录
+      http.get('/api/v1/aiops/models', () =>
+        HttpResponse.json({ providers: [], default: { provider: '', model: '' } }),
+      ),
       // 知识范围选择器：目录 / 文档 / 命中预览
       http.get('/api/v1/knowledge/paths', () =>
         HttpResponse.json({ items: [{ path: '数据库', count: 2 }], total: 1 }),
@@ -560,5 +564,58 @@ describe('AgentsPage', () => {
     expect(within(dialog).getByText('数据库')).toBeInTheDocument();
     expect(within(dialog).getByText('清单')).toBeInTheDocument();
     expect(within(dialog).getByText('输出格式与示例')).toBeInTheDocument();
+  });
+
+  it('编辑器 footer 有版本历史入口，可回滚到旧版本', async () => {
+    const rolled: number[] = [];
+    server.use(
+      http.get('/api/v1/agents/custom/my_db_helper/versions', () =>
+        HttpResponse.json({
+          items: [
+            { version: 2, change_summary: '改提示', created_by: 1, created_at: '2026-11-10T00:00:00Z', restored_from_version: null },
+            { version: 1, change_summary: '初版', created_by: 1, created_at: '2026-11-09T00:00:00Z', restored_from_version: null },
+          ],
+          total: 2,
+        }),
+      ),
+      http.post('/api/v1/agents/custom/my_db_helper/rollback', async ({ request }) => {
+        const body = (await request.json()) as { version: number };
+        rolled.push(body.version);
+        return HttpResponse.json({ ...userAgent, version: 3 });
+      }),
+    );
+
+    render(
+      <MemoryRouter>
+        <AgentsPage />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: '数据库专家' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /编辑/ }));
+
+    await userEvent.click(await screen.findByRole('button', { name: '版本' }));
+    expect(await screen.findByText('版本历史')).toBeInTheDocument();
+    expect(await screen.findByText('v2')).toBeInTheDocument();
+    expect(screen.getByText('v1')).toBeInTheDocument();
+
+    // 列表按新→旧排列：第二个「回滚」按钮对应 v1
+    const rollbackButtons = screen.getAllByRole('button', { name: '回滚' });
+    await userEvent.click(rollbackButtons[1]);
+    const confirmDialog = await screen.findByRole('dialog', { name: /回滚到版本 1/ });
+    await userEvent.click(within(confirmDialog).getByRole('button', { name: /^回滚$/ }));
+    await waitFor(() => expect(rolled).toContain(1));
+  });
+
+  it('编辑器 footer 的试跑按钮打开草稿试跑面板', async () => {
+    render(
+      <MemoryRouter>
+        <AgentsPage />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: '数据库专家' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /编辑/ }));
+
+    await userEvent.click(await screen.findByRole('button', { name: '试跑' }));
+    expect(await screen.findByText('试跑不落会话、不影响正式对话')).toBeInTheDocument();
   });
 });

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.adk_runtime.naming import adk_identifier, root_adk_name
 from app.models_orm.agent import UserAgent
 from app.models_orm.mcp import McpServer
+from app.services import agent_version_service
 from app.services.knowledge_scope import (
     KnowledgeScope,
     empty_scope,
@@ -172,8 +173,13 @@ def compose_persona(agent: ResolvedAgent) -> str:
     return "\n\n".join(parts)
 
 
-def agent_to_wire(agent: ResolvedAgent) -> dict:
-    """把解析后的助理转成列表/详情响应字段。"""
+def agent_to_wire(
+    agent: ResolvedAgent, *, version: int = 0, updated_at: str | None = None
+) -> dict:
+    """把解析后的助理转成列表/详情响应字段。
+
+    version / updated_at 来自版本快照表，由调用方按需注入（列表可批量取）。
+    """
 
     return {
         "name": agent.name,
@@ -193,6 +199,34 @@ def agent_to_wire(agent: ResolvedAgent) -> dict:
         "skills": None if agent.skills is None else list(agent.skills),
         "sub_agents": list(agent.sub_agents),
         "source": agent.source,
+        "version": version,
+        "updated_at": updated_at,
+    }
+
+
+def agent_to_snapshot(agent: ResolvedAgent) -> dict:
+    """把解析后的助理转成可回放的配置快照（与 UserAgentInput 同形）。"""
+
+    return {
+        "name": agent.name,
+        "display_name": agent.display_name,
+        "description": agent.description,
+        "when_to_use": agent.when_to_use,
+        "system_prompt": agent.system_prompt,
+        "critical_reminder": agent.critical_reminder,
+        "allowed_tools": list(agent.tools),
+        "disallowed_tools": list(agent.disallowed_tools),
+        "permission_mode": agent.permission_mode,
+        "model": agent.model,
+        "max_turns": agent.max_turns,
+        "output_format": agent.output_format,
+        "examples": [dict(item) for item in agent.examples],
+        "knowledge_scope": {
+            "paths": list(agent.knowledge_scope.paths),
+            "doc_ids": list(agent.knowledge_scope.doc_ids),
+        },
+        "skills": None if agent.skills is None else list(agent.skills),
+        "sub_agents": list(agent.sub_agents),
     }
 
 
@@ -490,6 +524,8 @@ async def create_user_agent(
     knowledge_scope: KnowledgeScope = empty_scope(),
     skills: list[str] | None = None,
     sub_agents: tuple[str, ...] = (),
+    created_by: int | None = None,
+    change_summary: str = "",
 ) -> ResolvedAgent:
     validate_agent_name(name)
     clean_display_name = validate_display_name(display_name)
@@ -529,6 +565,14 @@ async def create_user_agent(
     db.add(row)
     await db.commit()
     await db.refresh(row)
+    # 创建即落第一版快照，后续每次更新都追加一版，回滚时可回到任一历史点
+    await agent_version_service.snapshot_agent_version(
+        db,
+        name,
+        agent_to_snapshot(_row_to_resolved(row)),
+        created_by=created_by,
+        change_summary=change_summary,
+    )
     logger.info(
         "创建用户助理 name=%s tools=%s sub_agents=%s",
         name,
@@ -557,6 +601,9 @@ async def update_user_agent(
     knowledge_scope: KnowledgeScope = empty_scope(),
     skills: list[str] | None = None,
     sub_agents: tuple[str, ...] = (),
+    created_by: int | None = None,
+    change_summary: str = "",
+    restored_from_version: int | None = None,
 ) -> ResolvedAgent:
     row = await db.get(UserAgent, name)
     if row is None:
@@ -591,8 +638,115 @@ async def update_user_agent(
     )
     await db.commit()
     await db.refresh(row)
+    # 每次更新追加一版快照；回滚时记录来源版本，回滚本身也可回滚
+    await agent_version_service.snapshot_agent_version(
+        db,
+        name,
+        agent_to_snapshot(_row_to_resolved(row)),
+        created_by=created_by,
+        change_summary=change_summary,
+        restored_from_version=restored_from_version,
+    )
     logger.info("更新用户助理 name=%s", name)
     return _row_to_resolved(row)
+
+
+async def rollback_user_agent(
+    db: AsyncSession,
+    name: str,
+    version: int,
+    *,
+    actor_user_id: int | None = None,
+    change_summary: str = "",
+) -> ResolvedAgent:
+    """回滚到指定版本：读旧快照覆盖当前配置，再落一版记录来源。"""
+
+    detail = await agent_version_service.get_version(db, name, version)
+    snapshot = detail["snapshot"]
+    # 快照里的 name 必须与目标助理一致，避免跨助理误覆盖
+    if snapshot.get("name") != name:
+        raise ValueError(f"快照归属不一致: {snapshot.get('name')!r} != {name!r}")
+    return await update_user_agent(
+        db,
+        name,
+        display_name=snapshot.get("display_name", ""),
+        description=snapshot.get("description", ""),
+        when_to_use=snapshot.get("when_to_use", ""),
+        system_prompt=snapshot.get("system_prompt", ""),
+        critical_reminder=snapshot.get("critical_reminder", ""),
+        allowed_tools=list(snapshot.get("allowed_tools", [])),
+        disallowed_tools=list(snapshot.get("disallowed_tools", [])),
+        permission_mode=snapshot.get("permission_mode", ""),
+        model=snapshot.get("model", ""),
+        max_turns=int(snapshot.get("max_turns", 0)),
+        output_format=snapshot.get("output_format", "free"),
+        examples=tuple(dict(item) for item in snapshot.get("examples", [])),
+        knowledge_scope=parse_scope(snapshot.get("knowledge_scope", {})),
+        skills=snapshot.get("skills"),
+        sub_agents=tuple(snapshot.get("sub_agents", [])),
+        created_by=actor_user_id,
+        change_summary=change_summary or f"回滚到版本 {version}",
+        restored_from_version=version,
+    )
+
+
+async def resolve_draft_agent(
+    db: AsyncSession,
+    *,
+    name: str,
+    display_name: str,
+    description: str,
+    when_to_use: str,
+    system_prompt: str,
+    critical_reminder: str,
+    allowed_tools: list[str],
+    disallowed_tools: list[str],
+    permission_mode: str,
+    model: str,
+    max_turns: int,
+    output_format: str = "free",
+    examples: tuple[dict[str, str], ...] = (),
+    knowledge_scope: KnowledgeScope = empty_scope(),
+    skills: list[str] | None = None,
+    sub_agents: tuple[str, ...] = (),
+) -> ResolvedAgent:
+    """把未保存的草稿解析成可运行的助理配置（不落库）。
+
+    与 create_user_agent 走同一套校验口径，只是不插入 user_agents，
+    供 Playground 试跑草稿时使用。
+    """
+
+    validate_agent_name(name)
+    clean_display_name = validate_display_name(display_name)
+    await validate_sub_agents(db, name, sub_agents)
+    if description == "":
+        raise ValueError("description 不能为空")
+    if system_prompt == "":
+        raise ValueError("system_prompt 不能为空")
+    if max_turns < 0:
+        raise ValueError("max_turns 不能为负数")
+    validate_permission_mode(permission_mode)
+    validate_output_format(output_format)
+    scope = parse_scope(knowledge_scope)
+    return ResolvedAgent(
+        name=name,
+        display_name=clean_display_name,
+        description=description,
+        when_to_use=when_to_use,
+        system_prompt=system_prompt,
+        critical_reminder=critical_reminder,
+        tools=allowed_tools,
+        disallowed_tools=disallowed_tools,
+        permission_mode=permission_mode,
+        model=model,
+        max_turns=max_turns,
+        source="user",
+        output_format=output_format,
+        examples=examples,
+        knowledge_scope=scope,
+        skills=skills,
+        sub_agents=sub_agents,
+    )
 
 
 async def delete_user_agent(db: AsyncSession, name: str) -> None:
