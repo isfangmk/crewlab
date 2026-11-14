@@ -13,10 +13,12 @@ import {
   TableCard,
   TableHead,
   TablePager,
+  Textarea,
   tableLayout,
   COL,
 } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { Modal } from '@/components/Modal';
 import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
 import { useI18n } from '@/i18n/locale';
@@ -58,6 +60,7 @@ export default function MemoryPage() {
   const [creating, setCreating] = useState(false);
   const [newContent, setNewContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [formErr, setFormErr] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<MemoryItem | null>(null);
 
   const load = useCallback(async (silent = false) => {
@@ -85,15 +88,23 @@ export default function MemoryPage() {
 
   const save = async () => {
     setSaving(true);
+    setFormErr(null);
     try {
       await createMemory(newContent, null);
       setNewContent('');
       setCreating(false);
       await load(true);
     } catch (e) {
-      setErr(errorText(e));
+      setFormErr(errorText(e));
+    } finally {
       setSaving(false);
     }
+  };
+
+  const openCreate = () => {
+    setNewContent('');
+    setFormErr(null);
+    setCreating(true);
   };
 
   return (
@@ -110,7 +121,7 @@ export default function MemoryPage() {
               {tr('刷新', 'Refresh')}
             </RowAction>
             {canMutate && (
-              <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+              <Button variant="primary" size="sm" onClick={openCreate}>
                 <Plus size={12} />
                 {tr('新增记忆', 'New memory')}
               </Button>
@@ -138,31 +149,6 @@ export default function MemoryPage() {
         {err && (
           <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300">
             {err}
-          </div>
-        )}
-        {creating && (
-          <div className="mb-3 rounded-lg border border-zinc-800/60 bg-zinc-900/40 p-3">
-            <textarea
-              value={newContent}
-              onChange={(e) => setNewContent(e.target.value)}
-              maxLength={2000}
-              placeholder={tr('一条记忆描述一个事实或偏好…', 'One fact or preference per memory…')}
-              className="min-h-16 w-full rounded-md border border-zinc-700 bg-zinc-950/60 px-2.5 py-2 text-[12px] text-zinc-200 outline-none focus:border-indigo-500/60"
-            />
-            <div className="mt-2 flex items-center justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setCreating(false)}>
-                {tr('取消', 'Cancel')}
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={saving || newContent.trim() === ''}
-                onClick={() => void save()}
-              >
-                {saving && <Loader2 size={12} className="animate-spin" />}
-                {tr('保存', 'Save')}
-              </Button>
-            </div>
           </div>
         )}
         {loading && items === null ? (
@@ -250,6 +236,48 @@ export default function MemoryPage() {
         )}
       </div>
 
+      {creating && (
+        <Modal
+          open
+          onClose={() => setCreating(false)}
+          title={tr('新增记忆', 'New memory')}
+          size="md"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setCreating(false)}>
+                {tr('取消', 'Cancel')}
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={saving || newContent.trim() === ''}
+                onClick={() => void save()}
+              >
+                {saving && <Loader2 size={12} className="animate-spin" />}
+                {tr('保存', 'Save')}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-2">
+            <Textarea
+              value={newContent}
+              onChange={(e) => setNewContent(e.target.value)}
+              maxLength={2000}
+              placeholder={tr('一条记忆描述一个事实或偏好…', 'One fact or preference per memory…')}
+              className="h-32 w-full resize-y"
+              autoFocus
+            />
+            <div className="text-[11px] text-zinc-500">
+              {tr(
+                '保存后可按语义回忆；一条记忆只描述一个事实。',
+                'Recalled semantically after saving; one fact per memory.',
+              )}
+            </div>
+            {formErr && <p className="text-[11px] text-red-400">{formErr}</p>}
+          </div>
+        </Modal>
+      )}
       {deleting && (
         <ConfirmDialog
           open
