@@ -1,4 +1,4 @@
-// 画布节点卡片：实色图标块 + 名称 + 一行摘要 + 输出变量。
+// 画布节点卡片：实色图标块 + 名称 + 一行摘要。
 //
 // 版式：240px 定宽、15px 圆角、浅描边 + 很轻的投影，
 // 连线锚点固定在头部上下方 20px 处，这样多条分支从同一侧出发时
@@ -190,19 +190,12 @@ export function WorkflowNodeCard({ data, selected }: NodeProps<CanvasFlowNode>) 
 
         <div className="line-clamp-2 min-h-[18px] px-3 pb-2 text-[11px] leading-[15px] text-text-muted">{summary}</div>
 
-        {(node.output_key !== '' || issue !== null) && (
+        {issue !== null && (
           <div className="flex items-center gap-1 px-3 pb-2">
-            {node.output_key !== '' && (
-              <span className="inline-flex items-center rounded border border-border/70 bg-bg/60 px-1 py-[1px] font-mono text-[9.5px] leading-3 text-text-faint">
-                → {node.output_key}
-              </span>
-            )}
-            {issue !== null && (
-              <span className="inline-flex items-center gap-0.5 rounded border border-warn/30 bg-warn/10 px-1 py-[1px] text-[9.5px] leading-3 text-warn">
-                <AlertTriangle size={9} aria-hidden />
-                {issue}
-              </span>
-            )}
+            <span className="inline-flex items-center gap-0.5 rounded border border-warn/30 bg-warn/10 px-1 py-[1px] text-[9.5px] leading-3 text-warn">
+              <AlertTriangle size={9} aria-hidden />
+              {issue}
+            </span>
           </div>
         )}
 

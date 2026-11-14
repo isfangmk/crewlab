@@ -18,9 +18,11 @@ vi.mock('@xyflow/react', () => ({
 function renderCard(options: {
   status?: 'running' | 'succeeded' | 'failed' | 'waiting';
   waitingKind?: 'approval' | 'input';
+  outputKey?: string;
 }) {
   const node = emptyNode('approval', 'gate', { x: 0, y: 0 });
   node.label = '值班确认';
+  if (options.outputKey !== undefined) node.output_key = options.outputKey;
   const props = {
     id: node.id,
     data: {
@@ -72,5 +74,16 @@ describe('WorkflowNodeCard 状态标识', () => {
     expect(screen.getByText('失败')).toBeInTheDocument();
     expect(screen.queryByText('待审批')).not.toBeInTheDocument();
     expect(screen.queryByText(/运行已暂停/)).not.toBeInTheDocument();
+  });
+});
+
+describe('WorkflowNodeCard 结果变量', () => {
+  beforeEach(() => {
+    localStorage.setItem('ongrid-locale', 'zh-CN');
+  });
+
+  it('所有卡片都不展示结果变量徽标', () => {
+    renderCard({ outputKey: 'result' });
+    expect(screen.queryByText(/→\s*result/)).not.toBeInTheDocument();
   });
 });
