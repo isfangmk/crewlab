@@ -11,6 +11,8 @@ import {
 
   MessageBubble,
 
+  askDisplayFromArgs,
+
   type ConfigDraftResult,
 
 } from '@/components/MessageBubble';
@@ -1331,29 +1333,32 @@ export default function ChatThreadPage() {
 
             if (activeSessionRef.current !== turnSessionID) return;
 
-            // 工具等待人工确认：把 pending_approval 写回对应 tool_call_id 的流式卡片。
+            // 工具等待人工确认/澄清提问：把 pending 信封写回对应 tool_call_id 的流式卡片。
 
 
 
 
 
-            const blob = {
+            const ask = a.kind === 'user_input' ? askDisplayFromArgs(a.arguments) : null;
 
-              status: 'pending_approval',
+            const blob = ask
+              ? {
+                  status: 'pending_input',
+                  approval_id: a.approval_id,
+                  kind: 'user_input',
+                  tool_name: a.tool_name,
+                  ...ask,
+                }
+              : {
+                  status: 'pending_approval',
+                  approval_id: a.approval_id,
+                  kind: a.kind ?? 'cloud_bash',
+                  tool_name: a.tool_name,
+                  command: a.command,
+                  credentials: a.credentials,
+                };
 
-              approval_id: a.approval_id,
-
-              kind: a.kind ?? 'cloud_bash',
-
-              tool_name: a.tool_name,
-
-              command: a.command,
-
-              credentials: a.credentials,
-
-            };
-
-            const args = a.command ? { command: a.command } : undefined;
+            const args = a.arguments ?? (a.command ? { command: a.command } : undefined);
 
             const toolName = a.tool_name ?? a.kind ?? 'cloud_bash';
 

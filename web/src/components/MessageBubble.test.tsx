@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MessageBubble, type ConfigDraftResult } from './MessageBubble';
 import type { ChatMessage, ToolCallSummary } from '@/api/chat';
-import { getApproval } from '@/api/approvals';
+import { getApproval, rejectApproval, streamApproveApproval, type Approval } from '@/api/approvals';
 import { setLocale } from '@/i18n/locale';
 import * as chatApi from '@/api/chat';
 
@@ -444,5 +444,175 @@ describe('MessageBubble message actions', () => {
 
     expect(screen.getByRole('button', { name: '重新生成' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '从这条消息分叉' })).toBeDisabled();
+  });
+});
+
+function askCardMessage(result: Record<string, unknown>): ChatMessage {
+  return {
+    id: 'tool-card-ask',
+    role: 'tool',
+    kind: 'tool_card',
+    tool_call: {
+      id: 'call-ask',
+      name: 'ask_user',
+      status: 'pending',
+      arguments: { question: '你想预订周几？', options: ['周一', '周三', '周五'] },
+      result,
+    },
+  };
+}
+
+function pendingAskApproval(payloadExtra?: Record<string, unknown>): Approval {
+  return {
+    id: 'approval-ask',
+    kind: 'user_input',
+    title: '需要你的输入',
+    summary: '需要你的输入',
+    payload: JSON.stringify({
+      tool_name: 'ask_user',
+      arguments: { question: '你想预订周几？', options: ['周一', '周三', '周五'] },
+      ...payloadExtra,
+    }),
+    source: 'chat',
+    session_id: 'session-1',
+    status: 'pending',
+    proposed_by: 1,
+    created_at: new Date().toISOString(),
+  };
+}
+
+describe('MessageBubble 用户澄清卡', () => {
+  it('渲染提问与候选，提交时把回答交给审批续跑', async () => {
+    vi.mocked(getApproval).mockResolvedValue(pendingAskApproval());
+    vi.mocked(streamApproveApproval).mockResolvedValue({
+      ...pendingAskApproval({ answer: { selected: '周三', values: {}, text: '' } }),
+      status: 'executed',
+      result: '{"selected":"周三","values":{},"text":""}',
+    });
+
+    render(<MessageBubble message={askCardMessage({
+      status: 'pending_input',
+      approval_id: 'approval-ask',
+      kind: 'user_input',
+      tool_name: 'ask_user',
+      question: '你想预订周几？',
+      options: ['周一', '周三', '周五'],
+      fields: [],
+    })} />);
+
+    expect(await screen.findByText('你想预订周几？')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '周三' }));
+    await userEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    expect(streamApproveApproval).toHaveBeenCalledWith(
+      'approval-ask',
+      '',
+      expect.any(Object),
+      { selected: '周三', values: {}, text: '' },
+    );
+    expect(await screen.findByText('你的回答')).toBeInTheDocument();
+    expect(screen.getByText('选择：周三')).toBeInTheDocument();
+  });
+
+  it('未选候选、必填字段为空时不提交', async () => {
+    vi.mocked(getApproval).mockResolvedValue({
+      ...pendingAskApproval(),
+      payload: JSON.stringify({
+        tool_name: 'ask_user',
+        arguments: {
+          question: '填写会议信息',
+          fields: [{ key: 'title', label: '会议主题', required: true }],
+        },
+      }),
+    });
+
+    render(<MessageBubble message={askCardMessage({
+      status: 'pending_input',
+      approval_id: 'approval-ask',
+      kind: 'user_input',
+      tool_name: 'ask_user',
+      question: '填写会议信息',
+      options: [],
+      fields: [{ key: 'title', label: '会议主题', required: true }],
+    })} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: '提交' }));
+    expect(await screen.findByText('请填写「会议主题」')).toBeInTheDocument();
+    expect(streamApproveApproval).not.toHaveBeenCalled();
+  });
+
+  it('纯文本模式必填且回传 text', async () => {
+    vi.mocked(getApproval).mockResolvedValue({
+      ...pendingAskApproval(),
+      payload: JSON.stringify({
+        tool_name: 'ask_user',
+        arguments: { question: '还有什么要补充？' },
+      }),
+    });
+    vi.mocked(streamApproveApproval).mockResolvedValue({
+      ...pendingAskApproval({ answer: { selected: null, values: {}, text: '加一份沙拉' } }),
+      status: 'executed',
+    });
+
+    render(<MessageBubble message={askCardMessage({
+      status: 'pending_input',
+      approval_id: 'approval-ask',
+      kind: 'user_input',
+      tool_name: 'ask_user',
+      question: '还有什么要补充？',
+      options: [],
+      fields: [],
+    })} />);
+
+    const box = await screen.findByPlaceholderText('输入你的回答…');
+    await userEvent.click(screen.getByRole('button', { name: '提交' }));
+    expect(await screen.findByText('请填写回答')).toBeInTheDocument();
+
+    await userEvent.type(box, '加一份沙拉');
+    await userEvent.click(screen.getByRole('button', { name: '提交' }));
+    expect(streamApproveApproval).toHaveBeenCalledWith(
+      'approval-ask',
+      '',
+      expect.any(Object),
+      { selected: null, values: {}, text: '加一份沙拉' },
+    );
+  });
+
+  it('跳过走拒绝通道，已答态回显历史回答', async () => {
+    vi.mocked(getApproval).mockResolvedValue({
+      ...pendingAskApproval({ answer: { selected: '周一', values: {}, text: '' } }),
+      status: 'executed',
+      result: '{"selected":"周一","values":{},"text":""}',
+    });
+
+    render(<MessageBubble message={askCardMessage({
+      status: 'pending_input',
+      approval_id: 'approval-ask',
+      kind: 'user_input',
+      tool_name: 'ask_user',
+      question: '你想预订周几？',
+      options: ['周一', '周三', '周五'],
+      fields: [],
+    })} />);
+
+    // 已答态：只读回显，不再有提交按钮
+    expect(await screen.findByText('你的回答')).toBeInTheDocument();
+    expect(screen.getByText('选择：周一')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '提交' })).not.toBeInTheDocument();
+
+    vi.mocked(getApproval).mockResolvedValue(pendingAskApproval());
+    vi.mocked(rejectApproval).mockResolvedValue({ ok: true });
+    const { unmount } = render(<MessageBubble message={askCardMessage({
+      status: 'pending_input',
+      approval_id: 'approval-ask',
+      kind: 'user_input',
+      tool_name: 'ask_user',
+      question: '你想预订周几？',
+      options: ['周一', '周三', '周五'],
+      fields: [],
+    })} />);
+    await userEvent.click(await screen.findByRole('button', { name: '跳过' }));
+    await waitFor(() => expect(rejectApproval).toHaveBeenCalledWith('approval-ask', '用户跳过该问题'));
+    unmount();
   });
 });

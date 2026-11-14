@@ -399,7 +399,7 @@ export type ToolStreamEvent = {
 };
 
 // 工具等待人工审批时的 SSE 帧；前端据此渲染行内批准/拒绝卡。
-// tool_call_id 用于挂到同一条工具调用卡片上。
+// tool_call_id 用于挂到同一条工具调用卡片上；kind=user_input 是澄清提问卡。
 export type ApprovalPendingStreamEvent = {
   approval_id: string;
   tool_call_id?: string;
@@ -407,6 +407,8 @@ export type ApprovalPendingStreamEvent = {
   tool_name?: string;
   command?: string;
   credentials?: string[];
+  /** 工具实参原文：澄清提问卡的 question/options/fields 从这里取。 */
+  arguments?: Record<string, unknown>;
 };
 
 // Only a rejection before runtime dispatch guarantees that resubmission is safe.

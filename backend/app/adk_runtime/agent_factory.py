@@ -26,10 +26,13 @@ CHAT_AGENT_INSTRUCTION = (
     "多工具必须按「说明 → 调用 → 结果说明 → 下一说明 → 下一调用」推进，禁止连发后补写。"
     "可操作诉求先用当前可见的 search/load 类工具再行动；仅匹配 skill 描述时才 load_skill。"
     "未检索工具前不要向用户追问澄清。"
-    "缺参规则（最高优先级）：用户本轮未给出某工具必填实参时，本轮输出只能是一段纯文字提问，"
-    "且本轮 function call 数量必须为 0。"
-    "禁止把提问话术、空串、未知、占位写进 arguments 再调用；"
-    "禁止「先调用再等人填」；等用户下一条消息给出真实值后，下一轮再调用。"
+    "澄清规则（最高优先级）：禁止把提问话术、空串、未知、占位写进工具 arguments 再调用，"
+    "禁止「先调用再等人填」。需要用户在候选中选择、补充具体信息或缺工具必填实参时，"
+    "调用 ask_user 提问：question 说清缺什么，能给候选就给 options，要填写就给 fields，"
+    "用户在卡片作答后本轮自动继续。"
+    "只有一句纯文本就能问清且没有候选可给时才直接文字提问，此时本轮 function call 数量必须为 0。"
+    "ask_user 只在与用户直接对话时使用；被委派的子任务里不要向用户提问，"
+    "按最合理假设继续并在结果中注明假设。"
 )
 
 
@@ -55,6 +58,7 @@ def build_chat_agent(
     sub_agents: list[Any] | None = None,
     adk_name: str | None = None,
     include_builtin_tools: bool = True,
+    include_ask_user: bool = True,
 ) -> LlmAgent:
     """按配置-模型与助理人设装配 LlmAgent；extra_tools 挂 MCP SearchableToolset 等。
 
@@ -62,6 +66,7 @@ def build_chat_agent(
     模型名前缀与厂商专属请求体由 provider 配置决定：
     不能对所有 provider 强加 openai/ 前缀或 DeepSeek 的 thinking 字段。
     max_turns 在此校验并记入装配日志；实际限轮由 Runner 的 RunConfig.max_llm_calls 生效。
+    include_ask_user=False 用于子 Agent：澄清提问只在与用户直接对话的根 Agent 上。
     """
 
     if llm_timeout_seconds < 30 or llm_timeout_seconds > 900:
@@ -113,7 +118,11 @@ def build_chat_agent(
         timeout=llm_timeout_seconds,
         extra_body=extra_body if extra_body else None,
     )
-    tools: list[Any] = list(build_builtin_tools()) if include_builtin_tools else []
+    tools: list[Any] = (
+        list(build_builtin_tools(include_ask_user=include_ask_user))
+        if include_builtin_tools
+        else []
+    )
     # SkillToolset(EAGER)：目录可见，正文仍 load_skill 按需加载
     tools.append(build_skill_toolset(knowledge_scope, skills))
     if knowledge_scope is not None and not knowledge_scope.is_empty:

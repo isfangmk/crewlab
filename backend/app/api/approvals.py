@@ -28,6 +28,8 @@ class RejectBody(BaseModel):
 class ApproveBody(BaseModel):
     # 批准允许空说明
     reason: str = ""
+    # 澄清提问（kind=user_input）的用户回答 {selected, values, text}；普通审批不带
+    answer: dict | None = None
 
 
 class BatchDecideBody(BaseModel):
@@ -105,7 +107,9 @@ async def approve(
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     try:
-        row = await approval_service.approve(db, approval_id, reason=body.reason)
+        row = await approval_service.approve(
+            db, approval_id, reason=body.reason, answer=body.answer
+        )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -164,6 +168,7 @@ async def approve_stream(
                 approval_id=approval_id,
                 confirmed=True,
                 reason=body.reason,
+                answer=body.answer,
             ):
                 yield {
                     "event": frame.event,

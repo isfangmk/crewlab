@@ -10,6 +10,7 @@ import {
   Copy,
   GitBranch,
   Loader2,
+  MessageSquare,
   Pencil,
   RefreshCw,
   ShieldAlert,
@@ -18,13 +19,13 @@ import {
   XCircle,
 } from 'lucide-react';
 import { loadChatAttachment, type ChatMessage, type ImageAttachment, type ToolCallSummary } from '@/api/chat';
-import { streamApproveApproval, rejectApproval, getApproval } from '@/api/approvals';
+import { streamApproveApproval, rejectApproval, getApproval, type UserInputAnswer } from '@/api/approvals';
 import { emitChatLive } from '@/lib/chatLiveBus';
 import { cn } from '@/lib/cn';
 import { isConfigDraftConfirmationMessage } from '@/lib/configDraftConfirmation';
 import { useI18n } from '@/i18n/locale';
 import { useTimeout } from '@/lib/useTimeout';
-import { Button, Chip, CodeBlock, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
+import { Button, Chip, ChoiceChip, CodeBlock, Input, Label, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
 import { Modal } from '@/components/Modal';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
@@ -435,6 +436,11 @@ function ToolCallSummaryBlock({
   const isPending = status === 'pending';
   const isError = status === 'error' || status === 'timeout' || !!call.error;
   const hint = argSummary(call.arguments);
+  // 工具结果 status=pending_input 时，在会话内渲染澄清提问卡。
+  const input = pendingInput(call.result);
+  if (input) {
+    return <UserInputCard approvalID={input.id} question={input.question} options={input.options} fields={input.fields} />;
+  }
   // 工具结果 status=pending_approval 时，在会话内渲染批准/拒绝卡。
   const approval = pendingApproval(call.result);
   if (approval) {
@@ -725,6 +731,50 @@ function pendingApproval(result: unknown): { id: string; kind: string; toolName:
   return null;
 }
 
+// --- 澄清提问卡 ---
+
+/** ask_user 的表单项：key 用于回传，label/placeholder 展示给用户。 */
+export type AskField = { key: string; label: string; placeholder?: string; required?: boolean };
+
+export type AskDisplay = { question: string; options: string[]; fields: AskField[] };
+
+/** 从 ask_user 实参/信封里整理提问规格；模型实参不可信，防御式清洗。 */
+export function askDisplayFromArgs(raw: unknown): AskDisplay {
+  const r = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const question = typeof r.question === 'string' ? r.question : '';
+  const options = Array.isArray(r.options)
+    ? r.options.filter((o): o is string => typeof o === 'string' && o !== '')
+    : [];
+  const fields: AskField[] = [];
+  if (Array.isArray(r.fields)) {
+    for (const f of r.fields) {
+      if (f === null || typeof f !== 'object' || Array.isArray(f)) continue;
+      const row = f as Record<string, unknown>;
+      if (typeof row.key !== 'string' || row.key === '') continue;
+      const field: AskField = {
+        key: row.key,
+        label: typeof row.label === 'string' && row.label !== '' ? row.label : row.key,
+      };
+      if (typeof row.placeholder === 'string' && row.placeholder !== '') field.placeholder = row.placeholder;
+      if (row.required === true) field.required = true;
+      fields.push(field);
+    }
+  }
+  return { question, options, fields };
+}
+
+// pendingInput returns the ask metadata when a tool result is the
+// ask_user "pending_input" envelope, else null.
+function pendingInput(result: unknown): (AskDisplay & { id: string }) | null {
+  if (result && typeof result === 'object') {
+    const r = result as Record<string, unknown>;
+    if (r.status === 'pending_input' && typeof r.approval_id === 'string') {
+      return { id: r.approval_id, ...askDisplayFromArgs(r) };
+    }
+  }
+  return null;
+}
+
 function argCommandText(args: unknown): string {
   if (args && typeof args === 'object') {
     const c = (args as Record<string, unknown>).command;
@@ -977,6 +1027,316 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
         onClose={() => setRejectOpen(false)}
         onConfirm={rejectWithReason}
       />
+    </div>
+  );
+}
+
+// UserInputCard — 澄清提问卡：让用户选择选项或填写信息，
+// 提交后答案随审批续跑回流智能体（ToolConfirmation.payload 通道）。
+function UserInputCard({
+  approvalID,
+  question,
+  options,
+  fields,
+}: {
+  approvalID: string;
+  question: string;
+  options: string[];
+  fields: AskField[];
+}) {
+  const { tr } = useI18n();
+  const [state, setState] = useState<'loading' | 'idle' | 'busy' | 'done' | 'rejected' | 'error' | 'stale'>('loading');
+  const [ask, setAsk] = useState<AskDisplay>({ question, options, fields });
+  const [answered, setAnswered] = useState<UserInputAnswer | null>(null);
+  const [errText, setErrText] = useState('');
+  const [selected, setSelected] = useState<string | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [text, setText] = useState('');
+
+  // 与审批页权威状态对齐：mount 拉一次；idle 时短轮询，跨页提交后能切到已答态。
+  useEffect(() => {
+    let alive = true;
+    let pollTimer: number | undefined;
+
+    const applyPayload = (a: Awaited<ReturnType<typeof getApproval>>) => {
+      const p = JSON.parse(a.payload) as { arguments?: unknown; answer?: unknown };
+      if (p.arguments !== undefined && typeof p.arguments === 'object') {
+        setAsk(askDisplayFromArgs(p.arguments));
+      }
+      if (p.answer && typeof p.answer === 'object' && !Array.isArray(p.answer)) {
+        const ans = p.answer as Record<string, unknown>;
+        setAnswered({
+          selected: typeof ans.selected === 'string' ? ans.selected : null,
+          values:
+            ans.values && typeof ans.values === 'object' && !Array.isArray(ans.values)
+              ? (ans.values as Record<string, string>)
+              : {},
+          text: typeof ans.text === 'string' ? ans.text : '',
+        });
+      }
+    };
+
+    const applyStatus = (a: Awaited<ReturnType<typeof getApproval>>, notify: boolean) => {
+      if (a.status === 'executed') {
+        setState('done');
+        if (notify) requestChatRefetch();
+        return 'terminal';
+      }
+      if (a.status === 'rejected') {
+        setState('rejected');
+        if (notify) requestChatRefetch();
+        return 'terminal';
+      }
+      if (a.status === 'failed') {
+        setState('error');
+        setErrText(a.result ?? 'failed');
+        if (notify) requestChatRefetch();
+        return 'terminal';
+      }
+      if (a.status === 'approved') {
+        setState('busy');
+        return 'busy';
+      }
+      setState('idle');
+      return 'idle';
+    };
+
+    const sync = (notifyOnTerminal: boolean) => {
+      getApproval(approvalID)
+        .then((a) => {
+          if (!alive) return;
+          applyPayload(a);
+          const phase = applyStatus(a, notifyOnTerminal);
+          if (phase === 'idle' || phase === 'busy') {
+            schedulePoll();
+          }
+        })
+        .catch(() => {
+          // 404 或不可达：不再展示死按钮
+          if (alive) setState('stale');
+        });
+    };
+
+    const schedulePoll = () => {
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(() => {
+        if (!alive) return;
+        if (document.visibilityState !== 'visible') {
+          schedulePoll();
+          return;
+        }
+        sync(true);
+      }, 2000);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') sync(true);
+    };
+
+    sync(false);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      alive = false;
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approvalID]);
+
+  // 提交回答直接续跑，不再二次确认弹窗。
+  const submit = async () => {
+    // 必填校验：候选必选、必填字段非空、纯文本模式必填
+    if (ask.options.length > 0 && selected === null) {
+      setErrText(tr('请选择一个选项', 'Pick one option'));
+      return;
+    }
+    for (const f of ask.fields) {
+      if (f.required === true && (values[f.key] ?? '').trim() === '') {
+        setErrText(tr(`请填写「${f.label}」`, `Fill in "${f.label}"`));
+        return;
+      }
+    }
+    if (ask.options.length === 0 && ask.fields.length === 0 && text.trim() === '') {
+      setErrText(tr('请填写回答', 'Type your answer'));
+      return;
+    }
+    setState('busy');
+    setErrText('');
+    emitChatLive({ type: 'approval_decided', approvalId: approvalID });
+    emitChatLive({ type: 'busy', busy: true });
+    const answer: UserInputAnswer = {
+      selected: ask.options.length > 0 ? selected : null,
+      values,
+      text: text.trim(),
+    };
+    try {
+      // 走 SSE 续跑：正文/思考增量交给 ChatThread 打字机渲染
+      const a = await streamApproveApproval(
+        approvalID,
+        '',
+        {
+          onThinkingDelta: (event) => emitChatLive({ type: 'thinking_delta', event }),
+          onAssistantDelta: (event) => emitChatLive({ type: 'assistant_delta', event }),
+          onToolStart: (event) => emitChatLive({ type: 'tool_start', event }),
+          onToolEnd: (event) => emitChatLive({ type: 'tool_end', event }),
+          onApprovalPending: (event) => emitChatLive({ type: 'approval_pending', event }),
+        },
+        answer,
+      );
+      if (a === null) {
+        throw new Error('审批流未返回 approval_done');
+      }
+      setAnswered(answer);
+      if (a.status === 'failed') {
+        setState('error');
+        setErrText(a.result ?? 'failed');
+      } else {
+        setState('done');
+      }
+      requestChatRefetch();
+    } catch (e) {
+      setState('error');
+      setErrText((e as Error).message);
+    } finally {
+      emitChatLive({ type: 'busy', busy: false });
+    }
+  };
+
+  const skip = async () => {
+    setState('busy');
+    emitChatLive({ type: 'approval_decided', approvalId: approvalID });
+    try {
+      await rejectApproval(approvalID, tr('用户跳过该问题', 'User skipped the question'));
+      setState('rejected');
+      requestChatRefetch();
+    } catch (e) {
+      setState('idle');
+      setErrText((e as Error).message);
+    }
+  };
+
+  const pill: { tone: 'warn' | 'info' | 'ok' | 'danger' | 'neutral'; label: string; pulse?: boolean } =
+    state === 'done'
+      ? { tone: 'ok', label: tr('已提交', 'Submitted') }
+      : state === 'rejected'
+        ? { tone: 'neutral', label: tr('已跳过', 'Skipped') }
+        : state === 'error'
+          ? { tone: 'danger', label: tr('提交失败', 'Failed') }
+          : state === 'busy'
+            ? { tone: 'info', label: tr('提交中', 'Submitting'), pulse: true }
+            : state === 'stale'
+              ? { tone: 'neutral', label: tr('已失效', 'Expired') }
+              : state === 'loading'
+                ? { tone: 'neutral', label: tr('加载中', 'Loading') }
+                : { tone: 'warn', label: tr('待回答', 'Awaiting answer') };
+
+  return (
+    <div className="w-full overflow-hidden rounded-lg border border-zinc-800/60 bg-zinc-900/40 text-xs">
+      <div className="flex items-center gap-2 border-b border-zinc-800/60 px-3 py-2">
+        <MessageSquare size={13} className="text-info" />
+        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-zinc-200">
+          {tr('需要你补充信息', 'Needs your input')}
+        </span>
+        <StatusPill tone={pill.tone} label={pill.label} pulse={pill.pulse} className="shrink-0" />
+      </div>
+      <div className="px-3 pb-2.5 pt-2">
+        <p className="mb-2 text-[12.5px] leading-relaxed text-zinc-100">
+          {ask.question || tr('(智能体向你提问)', '(the agent has a question)')}
+        </p>
+        {state === 'loading' && (
+          <div className="flex items-center gap-1.5 text-zinc-500">
+            <Loader2 size={12} className="animate-spin" />
+            {tr('加载提问状态…', 'Loading…')}
+          </div>
+        )}
+        {state === 'stale' && (
+          <div className="text-zinc-500">
+            {tr('该提问已失效或已处理，请前往「待确认」页查看。', 'This prompt is gone or already handled — see the Approvals page.')}
+          </div>
+        )}
+        {state === 'idle' && (
+          <div className="space-y-2">
+            {ask.options.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {ask.options.map((o) => (
+                  <ChoiceChip
+                    key={o}
+                    active={selected === o}
+                    label={o}
+                    onClick={() => {
+                      setSelected(o);
+                      setErrText('');
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            {ask.fields.map((f) => (
+              <div key={f.key} className="space-y-1">
+                <Label className="text-[11px] text-zinc-400">
+                  {f.label}
+                  {f.required === true && <span className="text-warn"> *</span>}
+                </Label>
+                <Input
+                  value={values[f.key] ?? ''}
+                  placeholder={f.placeholder ?? ''}
+                  onChange={(e) => {
+                    setValues((prev) => ({ ...prev, [f.key]: e.target.value }));
+                    setErrText('');
+                  }}
+                />
+              </div>
+            ))}
+            {ask.options.length === 0 && ask.fields.length === 0 && (
+              <Textarea
+                value={text}
+                placeholder={tr('输入你的回答…', 'Type your answer…')}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  setErrText('');
+                }}
+              />
+            )}
+            {errText !== '' && <div className="break-all text-danger">{errText}</div>}
+            <div className="flex gap-2">
+              <Button variant="primary" size="sm" type="button" onClick={() => void submit()}>
+                <Check size={12} />
+                {tr('提交', 'Submit')}
+              </Button>
+              <Button variant="dangerGhost" size="sm" type="button" onClick={() => void skip()}>
+                <X size={12} />
+                {tr('跳过', 'Skip')}
+              </Button>
+            </div>
+          </div>
+        )}
+        {state === 'busy' && (
+          <div className="flex items-center gap-1.5 text-zinc-400">
+            <Loader2 size={12} className="animate-spin" />
+            {tr('提交中…', 'Submitting…')}
+          </div>
+        )}
+        {state === 'rejected' && (
+          <div className="text-zinc-500">{tr('已跳过，智能体会继续但没有你的回答', 'Skipped — the agent continues without your answer')}</div>
+        )}
+        {state === 'error' && <div className="break-all text-danger">{errText}</div>}
+        {state === 'done' && (
+          <div className="space-y-1 text-zinc-300">
+            <div className="text-[11px] text-zinc-500">{tr('你的回答', 'Your answer')}</div>
+            {answered === null ? (
+              <div className="text-zinc-500">{tr('已提交', 'Submitted')}</div>
+            ) : (
+              <>
+                {answered.selected !== null && <div>{tr('选择：', 'Picked: ')}{answered.selected}</div>}
+                {Object.entries(answered.values).map(([k, v]) => (
+                  <div key={k}>{k}：{v}</div>
+                ))}
+                {answered.text !== '' && <div>{answered.text}</div>}
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -22,6 +22,7 @@ from google.genai import types
 
 from app.adk_runtime.agent_factory import build_chat_agent
 from app.services.knowledge_scope import KnowledgeScope
+from app.tools.user_input import ASK_USER_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -462,7 +463,12 @@ async def _iter_runner_events(
                             "confirmation_fc_id": call_id,
                             "tool_call_id": tool_call_id,
                             "tool_name": tool_name,
-                            "kind": "tool_confirmation",
+                            # ask_user 的暂停是澄清提问，卡片形态与审批确认不同
+                            "kind": (
+                                "user_input"
+                                if tool_name == ASK_USER_TOOL_NAME
+                                else "tool_confirmation"
+                            ),
                             "command": command_text,
                             "arguments": tool_args,
                         },
@@ -698,8 +704,13 @@ async def stream_adk_confirmation(
     knowledge_scope: KnowledgeScope | None = None,
     skills: list[Any] | None = None,
     sub_agents: list[Any] | None = None,
+    answer: dict[str, Any] | None = None,
 ) -> AsyncIterator[SseFrame]:
-    """用 ADK FunctionResponse 恢复被确认闸门拦住的回合。"""
+    """用 ADK FunctionResponse 恢复被确认闸门拦住的回合。
+
+    answer 是澄清提问（ask_user）的用户回答，经 ToolConfirmation.payload
+    回流给工具本体；普通审批不带 answer。
+    """
 
     if tool_call_id == "":
         raise ValueError("tool_call_id 不能为空")
@@ -730,6 +741,11 @@ async def stream_adk_confirmation(
     if existing is None:
         raise LookupError(f"ADK session 不存在: {session_id}")
 
+    # ToolConfirmation 只接受 confirmed/payload 等声明字段（extra=forbid），
+    # 用户回答放 payload——ADK 原生的「继续流程所需数据」通道
+    response: dict[str, Any] = {"confirmed": confirmed}
+    if answer is not None:
+        response["payload"] = answer
     message = types.Content(
         role="user",
         parts=[
@@ -737,17 +753,18 @@ async def stream_adk_confirmation(
                 function_response=types.FunctionResponse(
                     id=confirmation_fc_id,
                     name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    response={"confirmed": confirmed},
+                    response=response,
                 )
             )
         ],
     )
     logger.info(
-        "恢复审批 session_id=%s confirmation_fc_id=%s tool_call_id=%s confirmed=%s",
+        "恢复审批 session_id=%s confirmation_fc_id=%s tool_call_id=%s confirmed=%s has_answer=%s",
         session_id,
         confirmation_fc_id,
         tool_call_id,
         confirmed,
+        answer is not None,
     )
     try:
         async for frame in _iter_runner_events(

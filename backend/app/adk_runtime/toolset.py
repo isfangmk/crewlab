@@ -18,6 +18,7 @@ from app.tools.catalog import (
     workflow_tool_names,
 )
 from app.tools.knowledge import query_knowledge, scoped_query_knowledge
+from app.tools.user_input import ASK_USER_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +47,16 @@ def build_knowledge_tools(scope: KnowledgeScope | None = None) -> list[FunctionT
     return [FunctionTool(scoped_query_knowledge(scope))]
 
 
-def build_builtin_tools() -> list[FunctionTool]:
-    """始终装配的内置工具组：代码解释器、记忆与工作流。
+def build_builtin_tools(*, include_ask_user: bool = True) -> list[FunctionTool]:
+    """始终装配的内置工具组：代码解释器、记忆、工作流与澄清交互。
 
     ADK 的 SkillToolset.additional_tools 只有在技能声明后才注入；这些能力
     不依赖外部凭证且对话随时可用，所以直接作为 Agent 工具挂载。
+    include_ask_user=False 用于子 Agent：被委派的子任务无人值守，
+    澄清提问只能出现在与用户直接对话的根 Agent 上。
     """
 
-    return [
-        FunctionTool(tool_impl(name))
-        for name in builtin_group_names("workflow", "code", "memory")
-    ]
+    names = builtin_group_names("workflow", "code", "memory", "interaction")
+    if not include_ask_user:
+        names = [name for name in names if name != ASK_USER_TOOL_NAME]
+    return [FunctionTool(tool_impl(name)) for name in names]

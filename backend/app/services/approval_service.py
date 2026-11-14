@@ -18,6 +18,11 @@ from app.models_orm.chat import ChatSession
 from app.services import agent_service, chat_service
 from app.services.agent_tool_service import build_agent_tool_bundle
 from app.services.llm_config import resolve_model
+from app.tools.user_input import (
+    coerce_ask_display,
+    normalize_user_answer,
+    validate_answer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,7 @@ async def create_pending_approval(
     arguments: dict,
     trace_id: str,
     turn_context: dict | None = None,
+    kind: str = "tool_confirmation",
 ) -> Approval:
     existing = await db.scalar(
         select(Approval).where(Approval.confirmation_fc_id == confirmation_fc_id)
@@ -61,7 +67,10 @@ async def create_pending_approval(
     if existing is not None:
         return existing
 
-    title = f"确认执行 {tool_name}"
+    # kind 决定前端卡片形态：审批确认 vs 澄清提问
+    if kind not in ("tool_confirmation", "user_input"):
+        raise ValueError(f"审批 kind 非法: {kind}")
+    title = "需要你的输入" if kind == "user_input" else f"确认执行 {tool_name}"
     payload = {
         "tool_name": tool_name,
         "tool_call_id": tool_call_id,
@@ -82,7 +91,7 @@ async def create_pending_approval(
         confirmation_fc_id=confirmation_fc_id,
         tool_call_id=tool_call_id,
         tool_name=tool_name,
-        kind="tool_confirmation",
+        kind=kind,
         title=title,
         summary=title,
         payload=json.dumps(payload, ensure_ascii=False),
@@ -320,14 +329,31 @@ async def _trace_id_from_approval(row: Approval) -> str:
     return trace_id
 
 
+def _validate_answer_for_ask(row: Approval, answer: dict) -> None:
+    """按提问规格校验用户回答；规格缺失时只做形状校验。"""
+
+    raw = json.loads(row.payload)
+    options: list[str] = []
+    fields: list[dict] = []
+    if isinstance(raw, dict) and isinstance(raw.get("arguments"), dict):
+        ask = coerce_ask_display(raw["arguments"])
+        options = ask["options"]
+        fields = ask["fields"]
+    validate_answer(answer, options, fields)
+
+
 async def stream_decide(
     db: AsyncSession,
     *,
     approval_id: str,
     confirmed: bool,
     reason: str,
+    answer: dict | None = None,
 ) -> AsyncIterator[SseFrame]:
-    """审批后续跑：边执行边产出与聊天流同构的 SSE 帧（含 assistant_delta）。"""
+    """审批后续跑：边执行边产出与聊天流同构的 SSE 帧（含 assistant_delta）。
+
+    answer 是澄清提问（kind=user_input）的用户回答；普通审批不带 answer。
+    """
 
     # 拒绝必须写原因；批准允许空说明
     if not confirmed and reason == "":
@@ -335,6 +361,13 @@ async def stream_decide(
     row = await get_approval(db, approval_id)
     if row.status != "pending":
         raise ValueError(f"审批状态不可决策: status={row.status}")
+    if answer is not None:
+        if row.kind != "user_input":
+            raise ValueError("仅澄清提问审批可携带 answer")
+        answer = normalize_user_answer(answer)
+        _validate_answer_for_ask(row, answer)
+    elif row.kind == "user_input" and confirmed:
+        raise ValueError("澄清提问审批必须携带 answer 提交回答")
 
     session = await db.get(ChatSession, row.session_id)
     if session is None:
@@ -386,6 +419,13 @@ async def stream_decide(
         reason=reason,
     ):
         raise ValueError(f"审批已被处理: {approval_id}")
+    if answer is not None:
+        # 用户回答落 payload：卡片已答态回显与事后追溯都从这里读
+        payload_raw = json.loads(row.payload)
+        if not isinstance(payload_raw, dict):
+            raise TypeError(f"审批 payload 损坏: {row.id}")
+        payload_raw["answer"] = answer
+        row.payload = json.dumps(payload_raw, ensure_ascii=False)
     await db.commit()
     await db.refresh(row)
 
@@ -436,6 +476,7 @@ async def stream_decide(
             max_turns=resolved_agent.max_turns,
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,
+            answer=answer,
             sub_agents=await build_sub_agents_for_agent(
                 db,
                 resolved_agent,
@@ -525,19 +566,29 @@ async def _decide(
     approval_id: str,
     confirmed: bool,
     reason: str,
+    answer: dict | None = None,
 ) -> Approval:
     async for _frame in stream_decide(
         db,
         approval_id=approval_id,
         confirmed=confirmed,
         reason=reason,
+        answer=answer,
     ):
         pass
     return await get_approval(db, approval_id)
 
 
-async def approve(db: AsyncSession, approval_id: str, *, reason: str = "") -> Approval:
-    row = await _decide(db, approval_id=approval_id, confirmed=True, reason=reason)
+async def approve(
+    db: AsyncSession,
+    approval_id: str,
+    *,
+    reason: str = "",
+    answer: dict | None = None,
+) -> Approval:
+    row = await _decide(
+        db, approval_id=approval_id, confirmed=True, reason=reason, answer=answer
+    )
     row.decision_reason = reason
     await db.commit()
     await db.refresh(row)

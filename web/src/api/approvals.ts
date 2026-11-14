@@ -84,11 +84,19 @@ export function batchDecideApprovals(ids: string[], confirmed: boolean, reason =
   });
 }
 
-/** 批准并续跑：SSE 增量，供会话内打字机渲染。 */
+/** 澄清提问卡的用户回答；与后端 stream_decide 的 answer 契约一致。 */
+export type UserInputAnswer = {
+  selected: string | null;
+  values: Record<string, string>;
+  text: string;
+};
+
+/** 批准并续跑：SSE 增量，供会话内打字机渲染。answer 仅澄清提问（ask_user）审批携带。 */
 export async function streamApproveApproval(
   id: string,
   reason: string,
   cbs: StreamCallbacks,
+  answer?: UserInputAnswer,
   signal?: AbortSignal,
 ): Promise<Approval | null> {
   const headers: Record<string, string> = {
@@ -102,7 +110,7 @@ export async function streamApproveApproval(
   const res = await fetch(`/api/v1/approvals/${encodeURIComponent(id)}/approve/stream`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify(answer ? { reason, answer } : { reason }),
     signal,
   });
   await consumeSseResponse(res, {

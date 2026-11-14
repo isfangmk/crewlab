@@ -36,6 +36,7 @@ from app.services.agent_tool_service import build_agent_tool_bundle
 from app.services.llm_config import resolve_model
 from app.services import turn_control
 from app.adk_runtime.sub_agents import build_sub_agents_for_agent
+from app.tools.user_input import coerce_ask_display
 
 logger = logging.getLogger(__name__)
 
@@ -1312,14 +1313,25 @@ class AdkFramePersister:
                 arguments=arguments,
                 trace_id=self._trace_id,
                 turn_context=self._turn_context,
+                kind=frame.data["kind"],
             )
-            pending_result = {
-                "status": "pending_approval",
-                "approval_id": approval.id,
-                "kind": frame.data["kind"],
-                "tool_name": frame.data["tool_name"],
-                "command": command,
-            }
+            if frame.data["kind"] == "user_input":
+                # 澄清提问卡：把提问规格写进信封，历史回放可原样重渲染
+                pending_result = {
+                    "status": "pending_input",
+                    "approval_id": approval.id,
+                    "kind": "user_input",
+                    "tool_name": frame.data["tool_name"],
+                    **coerce_ask_display(arguments),
+                }
+            else:
+                pending_result = {
+                    "status": "pending_approval",
+                    "approval_id": approval.id,
+                    "kind": frame.data["kind"],
+                    "tool_name": frame.data["tool_name"],
+                    "command": command,
+                }
             try:
                 await _update_tool_card(
                     self._db,

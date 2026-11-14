@@ -13,6 +13,7 @@ from typing import Any
 from app.tools.code_interpreter import run_python
 from app.tools.knowledge import query_knowledge
 from app.tools.memory import recall_memory, remember_memory
+from app.tools.user_input import ASK_USER_TOOL_NAME, ask_user
 from app.tools.workflow import (
     get_workflow,
     get_workflow_run,
@@ -57,6 +58,14 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
         "description": "DeepSeek 官方网页搜索（对话开启联网时可用）",
         "risk": "safe",
         "mount": "per_turn",
+    },
+    {
+        "name": ASK_USER_TOOL_NAME,
+        "group": "interaction",
+        "description": "向用户发起澄清：弹卡片让用户选择选项或填写信息，答案回流后继续",
+        # 只在有人值守的对话里用：子 Agent 与工作流无人值守，不挂载该工具
+        "risk": "safe",
+        "mount": "always",
     },
     {
         "name": "list_workflows",
@@ -114,6 +123,7 @@ _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
     "recall_memory": recall_memory,
     "query_knowledge": query_knowledge,
     "web_search": _web_search_signature,
+    ASK_USER_TOOL_NAME: ask_user,
     "list_workflows": list_workflows,
     "get_workflow": get_workflow,
     "run_workflow": run_workflow,
@@ -201,6 +211,7 @@ BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
     "search": {"title": "联网搜索", "title_en": "Web search"},
     "memory": {"title": "记忆", "title_en": "Memory"},
     "workflow": {"title": "工作流", "title_en": "Workflow"},
+    "interaction": {"title": "澄清交互", "title_en": "User input"},
 }
 
 
