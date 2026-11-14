@@ -74,6 +74,13 @@ export function getSystemTimeZoneId(): string {
   return id;
 }
 
+/** 未加载（如免登录分享页）返回 null，调用方回退浏览器本地时区。 */
+export function getSystemTimeZoneIdIfLoaded(): string | null {
+  const { label, loaded } = useSystemTimezone.getState();
+  if (!loaded || label === null) return null;
+  return TIMEZONE_IANA[label] ?? null;
+}
+
 /** 把系统时区标签转成 ISO 偏移后缀，如 +08:00。 */
 export function getSystemOffsetSuffix(): string {
   const label = requireLoadedLabel();

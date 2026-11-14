@@ -1,5 +1,5 @@
 import { getLocale } from '@/i18n/locale';
-import { getSystemTimeZoneId } from '@/store/systemTimezone';
+import { getSystemTimeZoneIdIfLoaded } from '@/store/systemTimezone';
 
 // Map our app-locale tag onto the Intl BCP-47 locale used by the
 // Date / Number formatters. We use the APP locale (operator's
@@ -34,7 +34,9 @@ export function formatBytes(b: number): string {
 /** 格式化为系统时区下的本地日期时间。列表里的时间统一用它，不提供相对时间。 */
 export function fullDateTime(input: string | number | Date): string {
   const t = asDate(input);
-  return t.toLocaleString(intlLocale(), { timeZone: getSystemTimeZoneId() });
+  // 系统时区未加载（免登录分享页等）时回退浏览器本地时区，不能把页面炸白
+  const timeZone = getSystemTimeZoneIdIfLoaded();
+  return t.toLocaleString(intlLocale(), timeZone ? { timeZone } : undefined);
 }
 
 /** datetime-local 值转筛选条件里的紧凑展示，本地时区精确到分钟。 */

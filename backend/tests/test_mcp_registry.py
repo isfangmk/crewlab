@@ -72,6 +72,24 @@ def test_remote_without_url_falls_back_to_packages() -> None:
     assert "npm-x" in out["hint"]
 
 
+def test_wrapped_entry_unwrapped() -> None:
+    """线上注册表条目带 server 包装（2025-12-11 schema）：映射必须解包。"""
+
+    entry = {
+        "server": {
+            "name": "ac.inference.sh__mcp",
+            "description": "150+ AI apps",
+            "remotes": [{"type": "streamable-http", "url": "https://sh.inference.ac"}],
+        },
+        "_meta": {"emoji": "apps"},
+    }
+    out = registry_entry_to_server_input(entry)
+    assert out["name"] == "ac.inference.sh-mcp"
+    assert out["endpoint"] == "https://sh.inference.ac"
+    assert out["transport"] == "http"
+    assert out["hint"] == ""
+
+
 async def test_search_registry_real_call() -> None:
     """真实打官方注册表；网络不可达显式 skip，不做 mock。"""
 
@@ -82,6 +100,7 @@ async def test_search_registry_real_call() -> None:
     assert isinstance(result["items"], list)
     for item in result["items"]:
         assert isinstance(item["name"], str)
+        assert item["name"] != ""
         assert item["transport"] in ("http", "sse")
     assert isinstance(result["next_cursor"], str)
 

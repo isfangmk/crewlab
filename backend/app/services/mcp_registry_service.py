@@ -26,8 +26,15 @@ def _suggest_name(raw: str) -> str:
 
 
 def registry_entry_to_server_input(entry: dict[str, Any]) -> dict[str, Any]:
-    """注册表条目 → 登记表单预填：优先 remote URL，包形式给部署提示。"""
+    """注册表条目 → 登记表单预填：优先 remote URL，包形式给部署提示。
 
+    线上注册表条目带 `server` 包装（2025-12-11 schema），这里先解包；
+    老的扁平条目结构保持兼容。
+    """
+
+    inner = entry.get("server")
+    if isinstance(inner, dict):
+        entry = inner
     name = _suggest_name(str(entry.get("name") or ""))
     description = str(entry.get("description") or "")
 
@@ -92,7 +99,8 @@ async def search_registry(
     metadata = data.get("metadata")
     next_cursor = ""
     if isinstance(metadata, dict):
-        next_cursor = str(metadata.get("next_cursor") or "")
+        # 线上注册表用驼峰 nextCursor；保留 snake 兼容
+        next_cursor = str(metadata.get("nextCursor") or metadata.get("next_cursor") or "")
     items = [
         registry_entry_to_server_input(entry)
         for entry in servers
