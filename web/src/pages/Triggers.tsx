@@ -499,7 +499,7 @@ function TriggerEditor({
   const [workflows, setWorkflows] = useState<
     { id: number; name: string; hasPublished: boolean }[]
   >([]);
-  const [agents, setAgents] = useState<{ name: string }[]>([]);
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
   // 工作流触发的输入变量：按已发布快照的开始节点声明，而不是当前草稿
   const [vars, setVars] = useState<WorkflowVariable[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -524,7 +524,7 @@ function TriggerEditor({
       }
       try {
         const a = await listAgents();
-        setAgents((a as { items: AgentSummary[] }).items.map((i) => ({ name: i.name })));
+        setAgents(a.items);
       } catch {
         // 同上
       }
@@ -887,7 +887,12 @@ function TriggerEditor({
                 aria-label={tr('助理', 'Assistant')}
                 value={agentId}
                 onValueChange={setAgentId}
-                options={agents.map((a) => ({ value: a.name, label: a.name }))}
+                options={agents.map((a) => ({
+                  value: a.name,
+                  label: a.display_name && a.display_name !== a.name
+                    ? `${a.display_name}（${a.name}）`
+                    : a.name,
+                }))}
               />
               <p className="text-[11px] text-zinc-500">
                 {tr(

@@ -20,6 +20,7 @@ def _agent_body(
 
     return {
         "name": name,
+        "display_name": f"{description}（测试）",
         "description": description,
         "when_to_use": f"{description}（委托用）",
         "system_prompt": f"你是 {name}，只回答与你职责相关的问题。",

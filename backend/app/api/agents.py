@@ -31,6 +31,7 @@ class KnowledgeScopeInput(BaseModel):
 
 class UserAgentInput(BaseModel):
     name: str | None = None
+    display_name: str = Field(min_length=1, max_length=64)
     description: str = Field(min_length=1)
     when_to_use: str
     system_prompt: str = Field(min_length=1)
@@ -54,6 +55,7 @@ def _agent_audit_detail(agent: object) -> dict:
 
     scope = getattr(agent, "knowledge_scope")
     return {
+        "display_name": getattr(agent, "display_name"),
         "model": getattr(agent, "model"),
         "permission_mode": getattr(agent, "permission_mode"),
         "max_turns": getattr(agent, "max_turns"),
@@ -144,6 +146,7 @@ async def create_user_agent(
         agent = await agent_service.create_user_agent(
             db,
             name=body.name,
+            display_name=body.display_name,
             description=body.description,
             when_to_use=body.when_to_use,
             system_prompt=body.system_prompt,
@@ -184,6 +187,7 @@ async def update_user_agent(
         agent = await agent_service.update_user_agent(
             db,
             name,
+            display_name=body.display_name,
             description=body.description,
             when_to_use=body.when_to_use,
             system_prompt=body.system_prompt,

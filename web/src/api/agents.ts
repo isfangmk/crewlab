@@ -16,7 +16,10 @@ export type KnowledgeScope = { paths: string[]; doc_ids: string[] };
 
 /** 助理列表/详情响应字段。 */
 export type AgentSummary = {
+  /** ADK 标识（主键，创建后不可改名） */
   name: string;
+  /** 面向用户的中文名 */
+  display_name: string;
   description: string;
   when_to_use: string;
   tools: string[];
@@ -39,6 +42,7 @@ export type AgentSummary = {
 /** 创建/更新用户自定义助理的请求体。 */
 export type UserAgentInput = {
   name?: string;
+  display_name: string;
   description: string;
   when_to_use: string;
   system_prompt: string;
@@ -70,6 +74,16 @@ const BUILTIN_AGENT_I18N: Record<string, { desc: { zh: string; en: string }; whe
 
 /** 按当前语言覆盖内置助理文案。 */
 export function localizedAgent(a: AgentSummary): AgentSummary {
+  if (a.name === 'default') {
+    return {
+      ...a,
+      display_name: trInline('默认助理', 'Default'),
+      description: trInline(
+        BUILTIN_AGENT_I18N.default.desc.zh,
+        BUILTIN_AGENT_I18N.default.desc.en,
+      ),
+    };
+  }
   const m = BUILTIN_AGENT_I18N[a.name];
   if (!m) return a;
   return {

@@ -11,6 +11,7 @@ from app.services.agent_service import (
     ResolvedAgent,
     compose_persona,
     parse_examples,
+    validate_display_name,
 )
 from app.services.knowledge_scope import KnowledgeScope
 from tests.conftest import login_access_token
@@ -81,6 +82,18 @@ def test_parse_examples_limits() -> None:
         parse_examples("not-a-list")
 
 
+def test_display_name_validation() -> None:
+    """中文名只用于展示：去空白、限长、拒绝空串与控制字符。"""
+
+    assert validate_display_name("  运维值班助理  ") == "运维值班助理"
+    with pytest.raises(ValueError):
+        validate_display_name("")
+    with pytest.raises(ValueError):
+        validate_display_name("名" * 65)
+    with pytest.raises(ValueError):
+        validate_display_name("值班\n助理")
+
+
 @pytest.mark.asyncio
 async def test_agent_persona_round_trip(env: dict[str, str], api_base: str) -> None:
     """示例/输出格式/知识范围必须能原样读回，未知取值显式失败。"""
@@ -88,6 +101,7 @@ async def test_agent_persona_round_trip(env: dict[str, str], api_base: str) -> N
     name = f"persona-agent-{uuid.uuid4().hex[:6]}"
     payload = {
         "name": name,
+        "display_name": "人设测试助理",
         "description": "人设测试助理",
         "when_to_use": "仅测试",
         "system_prompt": "你是人设测试助理。",
@@ -111,6 +125,7 @@ async def test_agent_persona_round_trip(env: dict[str, str], api_base: str) -> N
         assert created.status_code == 200, created.text
         try:
             body = created.json()
+            assert body["display_name"] == "人设测试助理"
             assert body["output_format"] == "json"
             assert body["examples"] == payload["examples"]
             assert body["knowledge_scope"] == {"paths": [], "doc_ids": []}
@@ -151,6 +166,7 @@ async def test_agent_scope_rejects_unknown_path(env: dict[str, str], api_base: s
     missing = f"不存在目录-{uuid.uuid4().hex[:6]}"
     payload = {
         "name": name,
+        "display_name": "范围校验助理",
         "description": "范围校验助理",
         "when_to_use": "",
         "system_prompt": "你是范围校验助理。",

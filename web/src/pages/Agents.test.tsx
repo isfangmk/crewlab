@@ -20,6 +20,7 @@ vi.mock('@/store/auth', () => ({
 
 const diskAgent = {
   name: 'specialist-sre',
+  display_name: 'SRE 专家',
   description: 'SRE 专家：黄金四信号 / SLO / 错误预算。',
   when_to_use: '当任务围绕系统是否健康时派给我。',
   system_prompt: '# SRE 专家\n你是 SRE 专家，优先看黄金四信号。',
@@ -35,6 +36,7 @@ const diskAgent = {
 
 const userAgent = {
   name: 'my_db_helper',
+  display_name: '数据库专家',
   description: '我的数据库助手。',
   system_prompt: '你是数据库专家。',
   tools: ['analyze_database_status'],
@@ -102,7 +104,8 @@ describe('AgentsPage', () => {
     const useButton = (await screen.findAllByRole('button', { name: '使用此助理' }))[0];
     expect(useButton).toHaveAttribute('data-variant', 'plain');
     expect(useButton).toHaveClass('bg-indigo-500/10', 'text-indigo-300');
-    // 卡片标题用短名；名称是唯一的详情入口（卡片本身不响应点击）
+    // 卡片标题用中文名；ADK 标识单独一行，二者都必须在卡片上可见
+    expect(await screen.findByText('specialist-sre')).toBeInTheDocument();
     await userEvent.click(await screen.findByRole('button', { name: 'SRE 专家' }));
 
     const dialog = await screen.findByRole('dialog');
@@ -121,10 +124,11 @@ describe('AgentsPage', () => {
         <AgentsPage />
       </MemoryRouter>,
     );
-    // user 助理无短名，name 同时出现在标题按钮和 mono 行；点标题按钮
-    await userEvent.click(await screen.findByRole('button', { name: 'my_db_helper' }));
+    // user 助理用中文名做标题，ADK 标识保留在副标题
+    await userEvent.click(await screen.findByRole('button', { name: '数据库专家' }));
 
     const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('my_db_helper')).toBeInTheDocument();
     expect(within(dialog).getByText(/你是数据库专家/)).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: /编辑/ })).toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: /复制为自定义助理/ })).not.toBeInTheDocument();
@@ -221,6 +225,7 @@ describe('AgentsPage', () => {
       within(dialog).getByPlaceholderText(/lower_snake/),
       'scoped_agent',
     );
+    await userEvent.type(within(dialog).getByPlaceholderText(/例如：运维值班助理/), '范围测试助理');
     await userEvent.type(within(dialog).getByPlaceholderText(/一句话说清/), '限定知识范围的助理');
     await userEvent.click(within(dialog).getByRole('button', { name: 'SRE 排障' }));
 
@@ -234,6 +239,7 @@ describe('AgentsPage', () => {
 
     expect(saved).not.toBeNull();
     const payload = saved as unknown as Record<string, unknown>;
+    expect(payload.display_name).toBe('范围测试助理');
     expect(payload.output_format).toBe('checklist');
     expect(payload.critical_reminder).toMatch(/证据/);
     expect((payload.examples as unknown[]).length).toBe(1);
@@ -262,6 +268,7 @@ describe('AgentsPage', () => {
 
     // 必填项先填齐，确保禁用只来自范围校验
     await userEvent.type(within(dialog).getByPlaceholderText(/lower_snake/), 'empty_scope_agent');
+    await userEvent.type(within(dialog).getByPlaceholderText(/例如：运维值班助理/), '空范围助理');
     await userEvent.type(within(dialog).getByPlaceholderText(/一句话说清/), '范围为空');
     await userEvent.click(within(dialog).getByRole('button', { name: 'SRE 排障' }));
 
@@ -278,7 +285,7 @@ describe('AgentsPage', () => {
         <AgentsPage />
       </MemoryRouter>,
     );
-    await userEvent.click(await screen.findByRole('button', { name: 'my_db_helper' }));
+    await userEvent.click(await screen.findByRole('button', { name: '数据库专家' }));
 
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('知识范围')).toBeInTheDocument();

@@ -835,7 +835,9 @@ function RunDialog({
 
   const agentOptions = (agents ?? []).map((agent) => ({
     value: agent.name,
-    label: `${agent.name} — ${agent.description}`,
+    label: agent.display_name && agent.display_name !== agent.name
+      ? `${agent.display_name}（${agent.name}） — ${agent.description}`
+      : `${agent.name} — ${agent.description}`,
   }));
   const modelOptions = [{ value: '', label: tr('跟随助理 / 全局默认', 'Assistant / global default') }];
   for (const provider of catalog?.providers ?? []) {

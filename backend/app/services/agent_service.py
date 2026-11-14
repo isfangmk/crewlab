@@ -44,6 +44,7 @@ _OUTPUT_FORMAT_INSTRUCTIONS = {
 
 MAX_EXAMPLES = 3
 MAX_EXAMPLE_CHARS = 2000
+MAX_DISPLAY_NAME_CHARS = 64
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,8 @@ class ResolvedAgent:
     model: str
     max_turns: int
     source: str
+    # 面向用户的中文名；为空时前端回退到 ADK 标识
+    display_name: str = ""
     output_format: str = "free"
     examples: tuple[dict[str, str], ...] = ()
     knowledge_scope: KnowledgeScope = empty_scope()
@@ -174,6 +177,7 @@ def agent_to_wire(agent: ResolvedAgent) -> dict:
 
     return {
         "name": agent.name,
+        "display_name": agent.display_name or agent.name,
         "description": agent.description,
         "when_to_use": agent.when_to_use,
         "tools": agent.tools,
@@ -197,6 +201,7 @@ def builtin_default_agent() -> ResolvedAgent:
 
     return ResolvedAgent(
         name=DEFAULT_AGENT_NAME,
+        display_name="默认助理",
         description="默认助理，适合通用问答与临时排查。",
         when_to_use="未指定专用助理时使用。",
         system_prompt="",
@@ -213,6 +218,7 @@ def builtin_default_agent() -> ResolvedAgent:
 def _row_to_resolved(row: UserAgent) -> ResolvedAgent:
     return ResolvedAgent(
         name=row.name,
+        display_name=row.display_name,
         description=row.description,
         when_to_use=row.when_to_use,
         system_prompt=row.system_prompt,
@@ -240,6 +246,19 @@ def validate_agent_name(name: str) -> None:
         raise ValueError("name 须为小写字母开头的标识（字母/数字/_/-，最长 64）")
     if name == DEFAULT_AGENT_NAME:
         raise ValueError("name 不能为保留名 default")
+
+
+def validate_display_name(display_name: str) -> str:
+    """中文名只用于展示：非空、限长，不能包含换行等控制字符。"""
+
+    value = display_name.strip()
+    if value == "":
+        raise ValueError("display_name 不能为空")
+    if len(value) > MAX_DISPLAY_NAME_CHARS:
+        raise ValueError(f"display_name 最长 {MAX_DISPLAY_NAME_CHARS} 个字符")
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise ValueError("display_name 不能包含控制字符")
+    return value
 
 
 def validate_permission_mode(mode: str) -> None:
@@ -456,6 +475,7 @@ async def create_user_agent(
     db: AsyncSession,
     *,
     name: str,
+    display_name: str,
     description: str,
     when_to_use: str,
     system_prompt: str,
@@ -472,6 +492,7 @@ async def create_user_agent(
     sub_agents: tuple[str, ...] = (),
 ) -> ResolvedAgent:
     validate_agent_name(name)
+    clean_display_name = validate_display_name(display_name)
     await validate_sub_agents(db, name, sub_agents)
     if description == "":
         raise ValueError("description 不能为空")
@@ -487,6 +508,7 @@ async def create_user_agent(
         raise ValueError(f"助理已存在: {name}")
     row = UserAgent(
         name=name,
+        display_name=clean_display_name,
         description=description,
         when_to_use=when_to_use,
         system_prompt=system_prompt,
@@ -520,6 +542,7 @@ async def update_user_agent(
     db: AsyncSession,
     name: str,
     *,
+    display_name: str,
     description: str,
     when_to_use: str,
     system_prompt: str,
@@ -538,6 +561,7 @@ async def update_user_agent(
     row = await db.get(UserAgent, name)
     if row is None:
         raise LookupError(f"助理不存在: {name}")
+    clean_display_name = validate_display_name(display_name)
     await validate_sub_agents(db, name, sub_agents)
     if description == "":
         raise ValueError("description 不能为空")
@@ -548,6 +572,7 @@ async def update_user_agent(
     validate_permission_mode(permission_mode)
     validate_output_format(output_format)
     scope = parse_scope(knowledge_scope)
+    row.display_name = clean_display_name
     row.description = description
     row.when_to_use = when_to_use
     row.system_prompt = system_prompt

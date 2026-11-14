@@ -178,7 +178,9 @@ export default function MemoryPage() {
     { value: '', label: tr('全局（所有助理）', 'Global (all assistants)') },
     ...(agents ?? []).map((agent) => ({
       value: agent.name,
-      label: `${agent.name} — ${agent.description}`,
+      label: agent.display_name && agent.display_name !== agent.name
+        ? `${agent.display_name}（${agent.name}） — ${agent.description}`
+        : `${agent.name} — ${agent.description}`,
     })),
   ];
 

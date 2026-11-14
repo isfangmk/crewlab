@@ -480,7 +480,9 @@ function ChannelEditor({
     const rows = agents ?? [];
     return rows.map((agent) => ({
       value: agent.name,
-      label: `${agent.name} — ${agent.description}`,
+      label: agent.display_name && agent.display_name !== agent.name
+        ? `${agent.display_name}（${agent.name}） — ${agent.description}`
+        : `${agent.name} — ${agent.description}`,
     }));
   }, [agents]);
 

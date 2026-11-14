@@ -253,6 +253,7 @@ async def test_skill_declares_mcp_tool(env: dict[str, str], api_base: str) -> No
             # 助理勾选该技能：声明的 MCP 工具自动并入白名单
             agent_payload = {
                 "name": agent_name,
+                "display_name": "技能 MCP 助理",
                 "description": "技能带头挂 MCP 工具的助理",
                 "when_to_use": "",
                 "system_prompt": "你是运维助理。",

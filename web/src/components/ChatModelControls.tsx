@@ -135,11 +135,14 @@ export function AgentDropdown({
 }) {
   const { tr } = useI18n();
   const [open, setOpen] = useState(false);
-  const options = agents.map((a) => ({
-    value: a.name,
-    label: a.name === 'default' ? tr('默认助理', 'Default') : a.name,
-    icon: <Bot size={14} />,
-  }));
+  const options = agents.map((a) => {
+    const display = a.display_name?.trim() || (a.name === 'default' ? tr('默认助理', 'Default') : a.name);
+    return {
+      value: a.name,
+      label: display !== a.name ? `${display}（${a.name}）` : display,
+      icon: <Bot size={14} />,
+    };
+  });
   if (options.length === 0) {
     return (
       <span className="rounded-md px-2.5 py-1.5 text-xs text-text-muted">

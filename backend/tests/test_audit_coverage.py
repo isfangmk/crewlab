@@ -54,6 +54,7 @@ async def test_agent_crud_is_audited(env: dict[str, str], api_base: str) -> None
     name = f"audit-agent-{uuid.uuid4().hex[:6]}"
     payload = {
         "name": name,
+        "display_name": "审计测试助理",
         "description": "审计用助理",
         "when_to_use": "仅测试",
         "system_prompt": "你是审计测试助理。",
@@ -91,6 +92,7 @@ async def test_agent_crud_is_audited(env: dict[str, str], api_base: str) -> None
         rows = await _audit_rows(client, headers, action="agent.create", resource_id=name)
         assert len(rows) == 1, rows
         assert rows[0]["resource_type"] == "agent"
+        assert rows[0]["detail"]["display_name"] == "审计测试助理"
         assert rows[0]["detail"]["max_turns"] == 8
         assert rows[0]["detail"]["tools"] == ["get_current_time"]
         # 审计只记 prompt 长度，不落全文；示例只记条数

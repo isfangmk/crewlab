@@ -150,6 +150,7 @@ export default function AgentsPage() {
       : items.filter(
           (a) =>
             a.name.toLowerCase().includes(q) ||
+            (a.display_name ?? '').toLowerCase().includes(q) ||
             a.description.toLowerCase().includes(q) ||
             a.when_to_use.toLowerCase().includes(q),
         );
@@ -203,7 +204,7 @@ export default function AgentsPage() {
         <SearchInput
           value={query}
           onChange={setQuery}
-          placeholder={tr('搜索 name / description', 'Search name / description')}
+          placeholder={tr('搜索中文名 / ADK 名称 / 描述', 'Search display name / ADK name / description')}
           ariaLabel={tr('搜索', 'Search')}
         />
         <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
@@ -222,7 +223,7 @@ export default function AgentsPage() {
         ) : err && items.length === 0 ? null : filtered.length === 0 ? (
           <AgentsEmpty canCreate={canMutate} hasItems={!!query.trim()} onClear={() => setQuery('')} onCreate={() => setEditing({ mode: 'create' })} />
         ) : (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filtered.map((a) => (
               <AgentCard
                 key={a.name}
@@ -232,16 +233,6 @@ export default function AgentsPage() {
                 onDelete={() => setDeleting(a)}
               />
             ))}
-            {canMutate && (
-              <button
-                type="button"
-                onClick={() => setEditing({ mode: 'create' })}
-                className="flex min-h-52 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-800/70 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
-              >
-                <Plus size={18} aria-hidden />
-                <span className="text-[12.5px]">{tr('新建自定义助理', 'New custom assistant')}</span>
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -360,12 +351,8 @@ function AgentCard({
   const toolCount = agent.tools.length;
   const isUser = agent.source === 'user';
   const canDelete = agent.source !== 'builtin' && agent.name !== 'default';
-  // Short Chinese display name. Mirrors AgentBadge's mapping; falls
-  // back to the ascii name for unknown personas (e.g. user-created).
-  // Description was used as the title before but it's a full sentence
-  // and made cards look noisy — we now show a short label and let the
-  // description live in the card body as a 2-line teaser.
-  const displayName = SHORT_LABELS[agent.name] ?? agent.name;
+  // 中文名优先取后端 display_name；旧数据或预置助理退回内置短名 / ADK 标识。
+  const displayName = agent.display_name || SHORT_LABELS[agent.name] || agent.name;
   // 知识范围：两个列表都空 = 继承全部知识库；否则优先列出目录名（最多两个），
   // 文档集只报篇数——路径比「N 个目录」更能说清这个助理到底管哪一摊。
   const scopePaths = agent.knowledge_scope.paths;
@@ -413,7 +400,7 @@ function AgentCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <Hint content={agent.name}>
+            <Hint content={tr(`${displayName}（${agent.name}）`, `${displayName} (${agent.name})`)}>
               <button
                 type="button"
                 onClick={onView}
@@ -564,7 +551,7 @@ function AgentDetailModal({
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const displayName = SHORT_LABELS[agent.name] ?? agent.name;
+  const displayName = agent.display_name || SHORT_LABELS[agent.name] || agent.name;
   const isUser = agent.source === 'user';
   const toolCount = agent.tools.length;
 
@@ -785,6 +772,10 @@ function AgentEditor({
   // 时承袭；fork 留空（不能与被 fork 的内置助理重名）。
   const base = existing ?? seed ?? null;
   const [name, setName] = useState(existing?.name ?? '');
+  const [displayName, setDisplayName] = useState(
+    existing?.display_name
+      ?? (seed ? `${seed.display_name || SHORT_LABELS[seed.name] || seed.name}（副本）` : ''),
+  );
   const [description, setDescription] = useState(base?.description ?? '');
   const [whenToUse, setWhenToUse] = useState(base?.when_to_use ?? '');
   const [systemPrompt, setSystemPrompt] = useState(base?.system_prompt ?? '');
@@ -869,6 +860,7 @@ function AgentEditor({
     try {
       const input: UserAgentInput = {
         name: mode === 'create' ? name.trim() : undefined,
+        display_name: displayName.trim(),
         description: description.trim(),
         when_to_use: whenToUse.trim(),
         system_prompt: systemPrompt.trim(),
@@ -908,9 +900,9 @@ function AgentEditor({
       resizable
       title={
         mode === 'edit'
-          ? tr(`编辑 ${existing?.name}`, `Edit ${existing?.name}`)
+          ? tr(`编辑 ${existing?.display_name || existing?.name}`, `Edit ${existing?.display_name || existing?.name}`)
           : seed
-            ? tr(`基于 ${seed.name} 新建助理`, `New assistant from ${seed.name}`)
+            ? tr(`基于 ${seed.display_name || seed.name} 新建助理`, `New assistant from ${seed.display_name || seed.name}`)
             : tr('新建助理', 'New assistant')
       }
       footer={
@@ -928,6 +920,7 @@ function AgentEditor({
             disabled={
               submitting ||
               (mode === 'create' && name.trim() === '') ||
+              displayName.trim() === '' ||
               description.trim() === '' ||
               systemPrompt.trim() === '' ||
               scopeBlocked
@@ -948,7 +941,7 @@ function AgentEditor({
 
         {/* 宽弹窗下基础信息并排，避免长表单变成一条竖直的窄列。 */}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Field label={tr('名称', 'Name')} required>
+          <Field label={tr('ADK 名称', 'ADK name')} required>
             <Input
               type="text"
               value={name}
@@ -959,24 +952,38 @@ function AgentEditor({
               maxLength={64}
             />
             <div className="mt-1 text-[11px] text-zinc-500">
-              {tr('创建后不能改名。', 'Cannot rename after creation.')}
+              {tr('ADK 标识与主键，创建后不能改名。', 'ADK identifier and primary key; cannot be renamed after creation.')}
             </div>
           </Field>
 
-          <Field label={tr('描述', 'Description')} required>
+          <Field label={tr('中文名称', 'Display name')} required>
             <Input
               type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={tr('一句话说清这个助理擅长什么', 'One sentence on what this assistant is good at')}
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder={tr('例如：运维值班助理', 'e.g. 运维值班助理')}
               className="w-full"
-              maxLength={512}
+              maxLength={64}
             />
             <div className="mt-1 text-[11px] text-zinc-500">
-              {tr('显示在助理卡片与选择器里。', 'Shown on the assistant card and picker.')}
+              {tr('卡片、会话与选择器优先展示中文名。', 'Shown first on cards, sessions and pickers.')}
             </div>
           </Field>
         </div>
+
+        <Field label={tr('描述', 'Description')} required>
+          <Input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={tr('一句话说清这个助理擅长什么', 'One sentence on what this assistant is good at')}
+            className="w-full"
+            maxLength={512}
+          />
+          <div className="mt-1 text-[11px] text-zinc-500">
+            {tr('显示在助理卡片与选择器里。', 'Shown on the assistant card and picker.')}
+          </div>
+        </Field>
 
         <Field label={tr('何时使用', 'When to use')}>
           <Textarea
@@ -1053,7 +1060,10 @@ function AgentEditor({
                       aria-label={tr(`委托给 ${item.name}`, `Delegate to ${item.name}`)}
                     />
                     <div className="min-w-0">
-                      <div className="truncate font-mono text-[11px] text-zinc-200">{item.name}</div>
+                      <div className="truncate text-[11px] text-zinc-200">
+                        {item.display_name || SHORT_LABELS[item.name] || item.name}
+                        <span className="ml-1 font-mono text-[10px] text-zinc-500">({item.name})</span>
+                      </div>
                       <div className="truncate text-[10px] text-zinc-500">
                         {item.when_to_use || item.description}
                       </div>
@@ -1158,16 +1168,18 @@ function DeleteAgentDialog({
   onDone: () => void;
 }) {
   const { tr } = useI18n();
+  const displayName = agent.display_name || SHORT_LABELS[agent.name] || agent.name;
 
   return (
     <ConfirmDialog
       open
-      title={tr(`删除助理 ${agent.name}`, `Delete assistant ${agent.name}`)}
+      title={tr(`删除助理 ${displayName}`, `Delete assistant ${displayName}`)}
       description={
         <>
           <p>
             {tr('确定删除自定义助理 ', 'Delete custom assistant ')}
-            <span className="font-mono text-zinc-100">{agent.name}</span>?
+            <span className="text-zinc-100">{displayName}</span>
+            <span className="ml-1 font-mono text-zinc-400">({agent.name})</span>?
           </p>
           <p className="mt-2 text-zinc-500">
             {tr(

@@ -1827,7 +1827,11 @@ export default function ChatThreadPage() {
 
             <span className="flex items-center gap-2">
 
-              <AgentBadge agentId={sessionAgentID} size="sm" />
+              <AgentBadge
+                agentId={sessionAgentID}
+                label={agents.find((a) => a.name === sessionAgentID)?.display_name}
+                size="sm"
+              />
 
               <span className="font-mono">#{sessionId}</span>
 

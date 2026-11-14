@@ -570,7 +570,9 @@ export default function SessionsPage() {
         enableSorting: false,
         cell: ({ getValue }) => {
           const id = getValue();
-          return id ? <AgentBadge agentId={id} size="xs" /> : <span className="text-[11px] text-zinc-600">—</span>;
+          if (!id) return <span className="text-[11px] text-zinc-600">—</span>;
+          const agent = agents.find((item) => item.name === id);
+          return <AgentBadge agentId={id} label={agent?.display_name} size="xs" />;
         },
       }),
       columnHelper.accessor('model', {
@@ -721,7 +723,7 @@ export default function SessionsPage() {
         },
       }),
     ],
-    [tr, rowActions, expandedPreviews, handleCopyResult],
+    [tr, rowActions, expandedPreviews, handleCopyResult, agents],
   );
 
   const table = useReactTable({
@@ -764,7 +766,12 @@ export default function SessionsPage() {
   const agentOptions = useMemo(
     () => [
       { value: '', label: tr('全部助理', 'All assistants') },
-      ...agents.map((a) => ({ value: a.name, label: a.name })),
+      ...agents.map((a) => ({
+        value: a.name,
+        label: a.display_name && a.display_name !== a.name
+          ? `${a.display_name}（${a.name}）`
+          : a.name,
+      })),
     ],
     [agents, tr],
   );
