@@ -33,6 +33,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
+import { fullDateTime } from '@/lib/format';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
 import { listAgents, type AgentSummary } from '@/api/agents';
@@ -170,10 +171,7 @@ export default function PublishPage() {
             className="min-w-[16rem] flex-1"
           />
           <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
-            {tr(
-              `${items.length} 个 · 匹配 ${filtered.length}`,
-              `${items.length} total · ${filtered.length} matched`,
-            )}
+            {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
           </span>
         </FilterBar>
       )}
@@ -214,6 +212,7 @@ export default function PublishPage() {
           />
         ) : (
           <TableCard
+            className="min-h-0 flex-1"
             footer={
               <TablePager
                 page={safePage}
@@ -257,8 +256,8 @@ export default function PublishPage() {
                         <span className="block truncate text-[10px] leading-4 text-zinc-500">
                           {channel.expires_at
                             ? tr(
-                                `有效期至 ${new Date(channel.expires_at).toLocaleString()}`,
-                                `Expires ${new Date(channel.expires_at).toLocaleString()}`,
+                                `有效期至 ${fullDateTime(channel.expires_at)}`,
+                                `Expires ${fullDateTime(channel.expires_at)}`,
                               )
                             : tr('永不过期', 'Never expires')}
                         </span>
@@ -298,7 +297,7 @@ export default function PublishPage() {
                       </td>
                       <td className="px-3 py-2 text-[11px] text-zinc-500">
                         {channel.usage.last_used_at
-                          ? new Date(channel.usage.last_used_at).toLocaleString()
+                          ? fullDateTime(channel.usage.last_used_at)
                           : '—'}
                       </td>
                       <td className="px-3 py-2 text-right">

@@ -268,7 +268,7 @@ function CatalogTab() {
             />
           ))}
           <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
-            {tr(`${items.length} 个 · 匹配 ${filtered.length}`, `${items.length} total · ${filtered.length} matched`)}
+            {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
           </span>
         </FilterBar>
 

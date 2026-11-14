@@ -664,6 +664,7 @@ export default function ObservabilityPage() {
           />
         ) : (
           <TableCard
+            className="min-h-0 flex-1"
             footer={
               <TablePager
                 page={page}

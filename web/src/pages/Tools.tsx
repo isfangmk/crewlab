@@ -191,7 +191,7 @@ export default function ToolsPage() {
           />
           <div className="ml-auto flex items-center gap-2">
             <span className="text-[11px] tabular-nums text-zinc-500">
-              {tr(`${items.length} 个 · 匹配 ${filtered.length}`, `${items.length} total · ${filtered.length} matched`)}
+              {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
             </span>
           </div>
         </FilterBar>

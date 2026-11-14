@@ -123,7 +123,7 @@ export function PersonaFields({
             '你是 X 专家，遇到 Y 类问题先做 Z...',
             'You are an X expert; when seeing a Y problem, first do Z...',
           )}
-          className="h-32 w-full resize-y font-mono"
+          className="h-32 w-full resize-y"
         />
       </div>
 

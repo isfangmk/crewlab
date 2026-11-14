@@ -22,6 +22,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
+import { fullDateTime } from '@/lib/format';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
 import { cn } from '@/lib/cn';
@@ -144,7 +145,7 @@ export default function TriggersPage() {
             className="min-w-[16rem] flex-1"
           />
           <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
-            {tr(`${items.length} 个 · 匹配 ${filtered.length}`, `${items.length} total · ${filtered.length} matched`)}
+            {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
           </span>
         </FilterBar>
       )}
@@ -187,6 +188,7 @@ export default function TriggersPage() {
           />
         ) : (
           <TableCard
+            className="min-h-0 flex-1"
             footer={
               <TablePager
                 page={safePage}
@@ -251,7 +253,7 @@ export default function TriggersPage() {
                       />
                     </td>
                     <td className="px-3 py-2 text-[11px] text-zinc-500">
-                      {t.next_fire_at ? new Date(t.next_fire_at).toLocaleString() : '—'}
+                      {t.next_fire_at ? fullDateTime(t.next_fire_at) : '—'}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div
@@ -343,7 +345,7 @@ export default function TriggersPage() {
                       label={r.status}
                     />
                     <div className="mt-1 truncate text-[10px] text-zinc-500">
-                      {r.started_at ? new Date(r.started_at).toLocaleString() : '—'} · attempt {r.attempt}
+                      {r.started_at ? fullDateTime(r.started_at) : '—'} · attempt {r.attempt}
                       {r.ref_id ? ` · ${r.ref_id}` : ''}
                     </div>
                     {r.error && (

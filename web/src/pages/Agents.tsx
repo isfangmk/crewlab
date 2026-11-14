@@ -207,7 +207,7 @@ export default function AgentsPage() {
           className="min-w-[16rem] flex-1"
         />
         <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
-          {tr(`共 ${items.length} 个 · 匹配 ${filtered.length}`, `${items.length} total · ${filtered.length} matched`)}
+          {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
         </span>
       </FilterBar>
 

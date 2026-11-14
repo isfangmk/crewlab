@@ -18,6 +18,7 @@ import {
 } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { errorText } from '@/lib/errors';
+import { fullDateTime } from '@/lib/format';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
 import { request } from '@/api/client';
@@ -129,7 +130,7 @@ export default function MemoryPage() {
           className="min-w-[16rem] flex-1"
         />
         <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
-          {tr(`${filtered.length} 条`, `${filtered.length} item(s)`)}
+          {tr(`共 ${filtered.length} 条`, `${filtered.length} total`)}
         </span>
       </FilterBar>
 
@@ -180,6 +181,7 @@ export default function MemoryPage() {
           />
         ) : (
           <TableCard
+            className="min-h-0 flex-1"
             footer={
               <TablePager
                 page={safePage}
@@ -225,7 +227,7 @@ export default function MemoryPage() {
                       {m.agent_id ?? tr('全局', 'Global')}
                     </td>
                     <td className="px-3 py-2 text-[11px] text-zinc-500">
-                      {m.created_at ? new Date(m.created_at).toLocaleString() : '—'}
+                      {m.created_at ? fullDateTime(m.created_at) : '—'}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
