@@ -16,6 +16,7 @@ import {
   RowAction,
   RowActionIcon,
   SearchInput,
+  SortableHead,
   StatusPill,
   TableCard,
   TableHead,
@@ -41,6 +42,7 @@ import {
 import { useI18n } from '@/i18n/locale';
 import { usePermissions, useMe } from '@/store/me';
 import { errorText } from '@/lib/errors';
+import { fullDateTime } from '@/lib/format';
 
 // 用户与权限：本地账号的建号、角色与启停用；仅管理员可进入。
 // 角色与后端 auth_service._ROLES 对齐：admin / developer / viewer。
@@ -114,6 +116,7 @@ export default function UsersPage() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const load = useCallback(async (silent = false) => {
     const current = reqSeq.next();
@@ -124,6 +127,7 @@ export default function UsersPage() {
         q: query.trim() === '' ? undefined : query.trim(),
         role: roleFilter === '' ? undefined : roleFilter,
         status: statusFilter === '' ? undefined : statusFilter,
+        sort_dir: sortDir,
         limit: pageSize,
         offset: page * pageSize,
       });
@@ -142,7 +146,7 @@ export default function UsersPage() {
               setRefreshing(false);
       }
     }
-  }, [query, roleFilter, statusFilter, page, pageSize, reqSeq]);
+  }, [query, roleFilter, statusFilter, sortDir, page, pageSize, reqSeq]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -495,12 +499,13 @@ export default function UsersPage() {
                 />
               }
             >
-              <table {...tableLayout(59)}>
+              <table {...tableLayout(70)}>
                 <colgroup>
                   <col className={COL.main} />
                   <col className={COL.person} />
                   <col className={COL.tag} />
                   <col className={COL.tag} />
+                  <col className={COL.time} />
                   <col className={COL.actions} />
                 </colgroup>
                 <TableHead>
@@ -509,6 +514,15 @@ export default function UsersPage() {
                     <th scope="col" className="px-3 py-2 text-left font-medium">{tr('显示名', 'Display name')}</th>
                     <th scope="col" className="px-3 py-2 text-left font-medium">{tr('角色', 'Role')}</th>
                     <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
+                    <SortableHead
+                      label={tr('创建时间', 'Created')}
+                      active
+                      order={sortDir}
+                      onClick={() => {
+                        setPage(0);
+                        setSortDir((current) => (current === 'desc' ? 'asc' : 'desc'));
+                      }}
+                    />
                     <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                   </tr>
                 </TableHead>
@@ -540,6 +554,9 @@ export default function UsersPage() {
                             tone={user.status === 'active' ? 'ok' : 'neutral'}
                             label={user.status === 'active' ? tr('启用', 'Active') : tr('已禁用', 'Disabled')}
                           />
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-zinc-500">
+                          {user.created_at ? fullDateTime(user.created_at) : '—'}
                         </td>
                         <td className="px-3 py-2">
                           {/* 行内动作：与工作流页同一口径，文字动作之间 gap-1.5。 */}

@@ -66,6 +66,42 @@ async def test_sandbox_list_detail_and_summary(env: dict[str, str], api_base: st
             assert detail.status_code == 200, detail.text
             assert detail.json()["id"] == items[0]["id"]
 
+            # 耗时排序：降序与升序都按数值单调排列
+            by_duration = await client.get(
+                "/api/v1/sandbox/executions",
+                params={"sort_by": "duration_ms", "sort_order": "desc", "limit": 200},
+                headers=headers,
+            )
+            assert by_duration.status_code == 200, by_duration.text
+            durations = [row["duration_ms"] for row in by_duration.json()["items"]]
+            assert durations == sorted(durations, reverse=True), durations
+
+            by_duration_asc = await client.get(
+                "/api/v1/sandbox/executions",
+                params={"sort_by": "duration_ms", "sort_order": "asc", "limit": 200},
+                headers=headers,
+            )
+            assert by_duration_asc.status_code == 200, by_duration_asc.text
+            durations_asc = [row["duration_ms"] for row in by_duration_asc.json()["items"]]
+            assert durations_asc == sorted(durations_asc), durations_asc
+
+            # 开始时间排序：升序从最早开始
+            by_started = await client.get(
+                "/api/v1/sandbox/executions",
+                params={"sort_by": "started_at", "sort_order": "asc", "limit": 200},
+                headers=headers,
+            )
+            assert by_started.status_code == 200, by_started.text
+            started = [row["started_at"] for row in by_started.json()["items"]]
+            assert started == sorted(started), started
+
+            bad_sort = await client.get(
+                "/api/v1/sandbox/executions",
+                params={"sort_by": "stdout"},
+                headers=headers,
+            )
+            assert bad_sort.status_code == 400, bad_sort.text
+
 
 @pytest.mark.asyncio
 async def test_sandbox_list_rejects_unknown_filter(env: dict[str, str], api_base: str) -> None:

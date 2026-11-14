@@ -13,6 +13,7 @@ import {
   RowActionIcon,
   SearchInput,
   Select,
+  SortableHead,
   Switch,
   TableCard,
   TableHead,
@@ -45,9 +46,15 @@ interface MemoryItem {
 const DEFAULT_PAGE_SIZE = 20;
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
-function listMemory(params: { query: string; limit: number; offset: number }) {
+function listMemory(params: {
+  query: string;
+  sortDir: 'asc' | 'desc';
+  limit: number;
+  offset: number;
+}) {
   const qs = new URLSearchParams();
   if (params.query.trim()) qs.set('q', params.query.trim());
+  qs.set('sort_dir', params.sortDir);
   qs.set('limit', String(params.limit));
   qs.set('offset', String(params.offset));
   return request<{ items: MemoryItem[]; total: number }>('GET', `/memory?${qs.toString()}`);
@@ -75,6 +82,7 @@ export default function MemoryPage() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newContent, setNewContent] = useState('');
@@ -99,6 +107,7 @@ export default function MemoryPage() {
     try {
       const r = await listMemory({
         query,
+        sortDir,
         limit: pageSize,
         offset: page * pageSize,
       });
@@ -110,7 +119,7 @@ export default function MemoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [query, page, pageSize]);
+  }, [query, sortDir, page, pageSize]);
 
   useEffect(() => {
     const t = window.setTimeout(() => void load(true), 250);
@@ -304,9 +313,15 @@ export default function MemoryPage() {
                   <th scope="col" className="px-3 py-2 text-left font-medium">
                     {tr('启用', 'Enabled')}
                   </th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">
-                    {tr('创建时间', 'Created')}
-                  </th>
+                  <SortableHead
+                    label={tr('创建时间', 'Created')}
+                    active
+                    order={sortDir}
+                    onClick={() => {
+                      setPage(0);
+                      setSortDir((current) => (current === 'desc' ? 'asc' : 'desc'));
+                    }}
+                  />
                   <th scope="col" className="px-3 py-2 text-right font-medium">
                     {tr('操作', 'Actions')}
                   </th>

@@ -79,6 +79,8 @@ async def list_executions(
     workflow_run_id: str | None = None,
     started_from: datetime | None = None,
     started_to: datetime | None = None,
+    sort_by: str = "started_at",
+    sort_order: str = "desc",
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[SandboxExecution], int]:
@@ -88,6 +90,10 @@ async def list_executions(
         raise ValueError(f"limit 必须在 1..{MAX_LIMIT} 之间")
     if offset < 0:
         raise ValueError("offset 不能为负")
+    if sort_by not in ("started_at", "duration_ms"):
+        raise ValueError(f"sort_by 非法: {sort_by}")
+    if sort_order not in ("asc", "desc"):
+        raise ValueError(f"sort_order 非法: {sort_order}")
 
     conditions = _filters(
         q=q,
@@ -103,7 +109,30 @@ async def list_executions(
     if conditions:
         stmt = stmt.where(*conditions)
         count_stmt = count_stmt.where(*conditions)
-    stmt = stmt.order_by(SandboxExecution.started_at.desc(), SandboxExecution.id.desc())
+    # 空值始终排在最后；耗时相同时回落到开始时间，保证翻页顺序稳定
+    if sort_by == "duration_ms":
+        value_order = (
+            SandboxExecution.duration_ms.asc()
+            if sort_order == "asc"
+            else SandboxExecution.duration_ms.desc()
+        )
+        stmt = stmt.order_by(
+            SandboxExecution.started_at.is_(None),
+            value_order,
+            SandboxExecution.started_at.desc(),
+            SandboxExecution.id.desc(),
+        )
+    else:
+        time_order = (
+            SandboxExecution.started_at.asc()
+            if sort_order == "asc"
+            else SandboxExecution.started_at.desc()
+        )
+        stmt = stmt.order_by(
+            SandboxExecution.started_at.is_(None),
+            time_order,
+            SandboxExecution.id.desc(),
+        )
     stmt = stmt.limit(limit).offset(offset)
 
     rows = list((await db.scalars(stmt)).all())

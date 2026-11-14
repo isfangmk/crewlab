@@ -114,6 +114,30 @@ describe('KnowledgeSourcesPage', () => {
     expect(screen.getByText('分支 main · docs')).toBeInTheDocument();
   });
 
+  it('按最近同步时间排序来源', async () => {
+    const olderGit = {
+      ...gitSource,
+      sync_status: 'ok',
+      last_error: '',
+      last_synced_at: '2026-11-12T08:00:00Z',
+    };
+    server.use(
+      http.get(sourcesURL, () =>
+        HttpResponse.json({ items: [olderGit, urlSource], total: 2 }),
+      ),
+    );
+    render(<KnowledgeSourcesPage />);
+
+    await screen.findByText('运维 Wiki');
+    const header = screen.getByRole('columnheader', { name: '最近同步' });
+    const rows = () => screen.getAllByRole('row').slice(1);
+    // 默认最新在前
+    expect(within(rows()[0]).getByText('运维 Wiki')).toBeInTheDocument();
+
+    await userEvent.click(within(header).getByRole('button', { name: '最近同步' }));
+    expect(within(rows()[0]).getByText('Runbook 仓库')).toBeInTheDocument();
+  });
+
   it('按名称过滤来源', async () => {
     render(<KnowledgeSourcesPage />);
     await screen.findByText('运维 Wiki');

@@ -53,6 +53,9 @@ export type SandboxListParams = {
   query?: string;
   source?: SandboxSource | '';
   status?: SandboxStatus | '';
+  /** 开始时间或耗时；诊断页允许按耗时排序 */
+  sort_by?: 'started_at' | 'duration_ms';
+  sort_order?: 'asc' | 'desc';
   limit?: number;
   offset?: number;
 };
@@ -63,6 +66,8 @@ export function listSandboxExecutions(params: SandboxListParams = {}) {
   if (params.query != null && params.query.trim() !== '') q.set('q', params.query.trim());
   if (params.source != null && params.source !== '') q.set('source', params.source);
   if (params.status != null && params.status !== '') q.set('status', params.status);
+  q.set('sort_by', params.sort_by ?? 'started_at');
+  q.set('sort_order', params.sort_order ?? 'desc');
   q.set('limit', String(params.limit ?? 20));
   q.set('offset', String(params.offset ?? 0));
   return request<SandboxExecutionList>('GET', `/sandbox/executions?${q.toString()}`);

@@ -475,12 +475,20 @@ export function runNode(workflowId: number, nodeId: string, values: Record<strin
 }
 
 export function listRuns(
-  params: { workflowId?: number; status?: RunStatus | ''; query?: string; limit?: number; offset?: number } = {},
+  params: {
+    workflowId?: number;
+    status?: RunStatus | '';
+    query?: string;
+    sortDir?: 'asc' | 'desc';
+    limit?: number;
+    offset?: number;
+  } = {},
 ) {
   const q = new URLSearchParams();
   if (params.workflowId != null) q.set('workflow_id', String(params.workflowId));
   if (params.status != null && params.status !== '') q.set('status', params.status);
   if (params.query != null && params.query.trim() !== '') q.set('q', params.query.trim());
+  q.set('sort_dir', params.sortDir ?? 'desc');
   q.set('limit', String(params.limit ?? 20));
   q.set('offset', String(params.offset ?? 0));
   return request<{ items: WorkflowRun[]; total: number }>('GET', `/workflows/runs/list?${q.toString()}`);

@@ -1,5 +1,5 @@
 // 自动化触发器：Cron / Webhook 驱动工作流或助理会话。
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarClock, Check, Copy, Loader2, Plus, Power, RefreshCw, Trash2 } from 'lucide-react';
 import {
   Button,
@@ -15,6 +15,7 @@ import {
   RowActionIcon,
   SearchInput,
   Select,
+  SortableHead,
   StatusPill,
   TableCard,
   TableHead,
@@ -30,6 +31,7 @@ import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
+import { compareNullableTime } from '@/lib/sort';
 import { useTimeout } from '@/lib/useTimeout';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
@@ -68,6 +70,7 @@ export default function TriggersPage() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [editor, setEditor] = useState<null | { mode: 'create' }>(null);
   const [deleting, setDeleting] = useState<TriggerRuleItem | null>(null);
   const [runsFor, setRunsFor] = useState<TriggerRuleItem | null>(null);
@@ -123,9 +126,16 @@ export default function TriggersPage() {
     if (!q) return true;
     return t.name.toLowerCase().includes(q);
   });
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const sorted = useMemo(
+    () =>
+      [...filtered].sort((a, b) =>
+        compareNullableTime(a.last_fired_at, b.last_fired_at, sortDir),
+      ),
+    [filtered, sortDir],
+  );
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const paged = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  const paged = sorted.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
   const refreshRuns = useCallback(async (rule: TriggerRuleItem) => {
     const r = await listTriggerRuns(rule.id);
@@ -272,7 +282,15 @@ export default function TriggersPage() {
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('类型', 'Type')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('计划', 'Schedule')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('最近运行', 'Last run')}</th>
+                  <SortableHead
+                    label={tr('最近运行', 'Last run')}
+                    active
+                    order={sortDir}
+                    onClick={() => {
+                      setPage(0);
+                      setSortDir((current) => (current === 'desc' ? 'asc' : 'desc'));
+                    }}
+                  />
                   <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                 </tr>
               </TableHead>

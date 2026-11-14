@@ -577,6 +577,7 @@ function RunsTab({
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
   // 关键字、状态、工作流都交给后端筛：筛完的 total 才是「共 N 次运行」的口径。
@@ -606,6 +607,7 @@ function RunsTab({
         workflowId,
         status,
         query,
+        sortDir,
         limit: pageSize,
         offset: page * pageSize,
       });
@@ -617,7 +619,7 @@ function RunsTab({
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, query, status, workflowId]);
+  }, [page, pageSize, query, sortDir, status, workflowId]);
 
   useEffect(() => {
     void fetchRuns();
@@ -778,7 +780,15 @@ function RunsTab({
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('版本', 'Version')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('触发人', 'Triggered by')}</th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('开始时间', 'Started')}</th>
+                  <SortableHead
+                    label={tr('开始时间', 'Started')}
+                    active
+                    order={sortDir}
+                    onClick={() => {
+                      setSortDir((current) => (current === 'desc' ? 'asc' : 'desc'));
+                      setPage(0);
+                    }}
+                  />
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('耗时', 'Duration')}</th>
                   <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                 </tr>

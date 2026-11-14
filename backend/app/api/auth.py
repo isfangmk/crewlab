@@ -46,6 +46,7 @@ class UserOut(BaseModel):
     display_name: str
     role: str
     status: str
+    created_at: str | None = None
 
 
 class UserListOut(BaseModel):
@@ -101,6 +102,7 @@ async def list_users(
     q: str | None = Query(None, max_length=200),
     role: str | None = Query(None),
     status: str | None = Query(None),
+    sort_dir: str = Query("desc"),
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -112,12 +114,15 @@ async def list_users(
         raise HTTPException(status_code=400, detail=f"role 非法: {role}")
     if status is not None and status not in ("active", "disabled"):
         raise HTTPException(status_code=400, detail=f"status 非法: {status}")
+    if sort_dir not in ("asc", "desc"):
+        raise HTTPException(status_code=400, detail=f"sort_dir 非法: {sort_dir}")
 
     rows, total = await auth_service.list_users(
         db,
         q=q if q not in (None, "") else None,
         role=role,
         status=status,
+        sort_dir=sort_dir,
         limit=limit,
         offset=offset,
     )
@@ -129,6 +134,7 @@ async def list_users(
                 display_name=u.display_name,
                 role=u.role,
                 status=u.status,
+                created_at=u.created_at.isoformat() if u.created_at else None,
             )
             for u in rows
         ],
@@ -176,6 +182,7 @@ async def create_user(
         display_name=row.display_name,
         role=row.role,
         status=row.status,
+        created_at=row.created_at.isoformat() if row.created_at else None,
     )
 
 
@@ -211,6 +218,7 @@ async def set_status(
         display_name=row.display_name,
         role=row.role,
         status=row.status,
+        created_at=row.created_at.isoformat() if row.created_at else None,
     )
 
 
@@ -248,6 +256,7 @@ async def update_role(
         display_name=row.display_name,
         role=row.role,
         status=row.status,
+        created_at=row.created_at.isoformat() if row.created_at else None,
     )
 
 

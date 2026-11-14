@@ -37,6 +37,7 @@ export type ManagedUser = {
   display_name: string;
   role: SystemRole;
   status: UserStatus;
+  created_at: string | null;
 };
 
 // UserListQuery — 用户列表的筛选与分页参数；后端按这些条件过滤并分页。
@@ -44,6 +45,8 @@ export type UserListQuery = {
   q?: string;
   role?: SystemRole;
   status?: UserStatus;
+  /** 创建时间排序方向，默认最新在前 */
+  sort_dir?: 'asc' | 'desc';
   limit?: number;
   offset?: number;
 };
@@ -59,6 +62,7 @@ export function listUsers(query: UserListQuery = {}): Promise<UserListResult> {
   if (query.q) params.set('q', query.q);
   if (query.role) params.set('role', query.role);
   if (query.status) params.set('status', query.status);
+  if (query.sort_dir) params.set('sort_dir', query.sort_dir);
   if (query.limit !== undefined) params.set('limit', String(query.limit));
   if (query.offset !== undefined) params.set('offset', String(query.offset));
   const qs = params.toString();

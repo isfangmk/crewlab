@@ -757,14 +757,17 @@ async def list_runs(
     workflow_id: int | None,
     status: str,
     keyword: str,
+    sort_dir: str = "desc",
     limit: int,
     offset: int,
 ) -> tuple[list[WorkflowRun], int]:
-    """运行记录列表：按工作流、运行状态、关键字筛选，按时间倒序分页。
+    """运行记录列表：按工作流、运行状态、关键字筛选，按开始时间分页。
 
     关键字同时匹配工作流名、run_uid 和触发人：用户找一次运行可能记得任何一个。
     """
 
+    if sort_dir not in ("asc", "desc"):
+        raise ValueError(f"sort_dir 非法: {sort_dir}")
     conditions: list[Any] = []
     if workflow_id is not None:
         conditions.append(WorkflowRun.workflow_id == workflow_id)
@@ -784,7 +787,9 @@ async def list_runs(
     for condition in conditions:
         stmt = stmt.where(condition)
         count_stmt = count_stmt.where(condition)
-    stmt = stmt.order_by(WorkflowRun.id.desc()).limit(limit).offset(offset)
+    ordered = WorkflowRun.created_at.asc() if sort_dir == "asc" else WorkflowRun.created_at.desc()
+    tie_break = WorkflowRun.id.asc() if sort_dir == "asc" else WorkflowRun.id.desc()
+    stmt = stmt.order_by(ordered, tie_break).limit(limit).offset(offset)
     rows = list((await db.scalars(stmt)).all())
     total = await db.scalar(count_stmt)
     return rows, int(total or 0)

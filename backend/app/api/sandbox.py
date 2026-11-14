@@ -92,6 +92,8 @@ async def list_sandbox_executions(
     workflow_run_id: str | None = Query(None),
     started_from: datetime | None = Query(None),
     started_to: datetime | None = Query(None),
+    sort_by: str = Query("started_at"),
+    sort_order: str = Query("desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -107,6 +109,8 @@ async def list_sandbox_executions(
             workflow_run_id=workflow_run_id,
             started_from=started_from,
             started_to=started_to,
+            sort_by=sort_by,
+            sort_order=sort_order,
             limit=limit,
             offset=offset,
         )

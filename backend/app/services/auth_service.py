@@ -188,6 +188,7 @@ async def list_users(
     q: str | None = None,
     role: str | None = None,
     status: str | None = None,
+    sort_dir: str = "desc",
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[User], int]:
@@ -196,6 +197,9 @@ async def list_users(
     筛选与分页都在服务端做：账号量级会随部署增长，前端分页拿不到
     真实 total，也无法在服务端过滤。
     """
+
+    if sort_dir not in ("asc", "desc"):
+        raise ValueError(f"sort_dir 非法: {sort_dir}")
 
     filters = []
     if role is not None:
@@ -208,12 +212,19 @@ async def list_users(
         filters.append(or_(User.email.ilike(pattern, escape="\\"), User.display_name.ilike(pattern, escape="\\")))
 
     total = await db.scalar(select(func.count()).select_from(User).where(*filters))
+    # 用户表只有创建时间这一个时间列；同秒创建时用 id 保持翻页稳定
+    ordered = User.created_at.asc() if sort_dir == "asc" else User.created_at.desc()
+    tie_break = User.id.asc() if sort_dir == "asc" else User.id.desc()
     rows = (
         await db.scalars(
-            select(User).where(*filters).order_by(User.id).limit(limit).offset(offset)
+            select(User)
+            .where(*filters)
+            .order_by(ordered, tie_break)
+            .limit(limit)
+            .offset(offset)
         )
     ).all()
-    logger.info("已列出用户 total=%s 返回=%s offset=%s", total, len(rows), offset)
+    logger.info("已列出用户 total=%s 返回=%s offset=%s sort=%s", total, len(rows), offset, sort_dir)
     return list(rows), int(total or 0)
 
 

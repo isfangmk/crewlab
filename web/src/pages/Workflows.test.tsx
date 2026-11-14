@@ -459,6 +459,53 @@ describe('WorkflowsPage', () => {
     expect(screen.getByText('共 1 次运行')).toBeInTheDocument();
   });
 
+  it('运行记录按开始时间切换排序并回第 1 页', async () => {
+    const seen: string[] = [];
+    const baseRun = {
+      id: 1,
+      run_uid: 'run-abc',
+      workflow_id: 12,
+      workflow_name: '新画布',
+      workflow_version: 3,
+      workflow_status: 'published',
+      status: 'succeeded',
+      trigger: 'manual',
+      triggered_by: 'admin',
+      input: '{}',
+      output: '"ok"',
+      error: '',
+      duration_ms: 1234,
+      created_at: '2026-08-02T03:04:00Z',
+      finished_at: '2026-08-02T03:04:01Z',
+    };
+    const olderRun = {
+      ...baseRun,
+      id: 2,
+      run_uid: 'run-old',
+      created_at: '2026-08-01T03:04:00Z',
+      finished_at: '2026-08-01T03:04:01Z',
+    };
+    server.use(
+      http.get(runsURL, ({ request }) => {
+        const sortDir = new URL(request.url).searchParams.get('sort_dir') ?? 'desc';
+        seen.push(sortDir);
+        return HttpResponse.json({
+          items: sortDir === 'asc' ? [olderRun, baseRun] : [baseRun, olderRun],
+          total: 2,
+        });
+      }),
+    );
+
+    renderPage('/workflows?tab=runs');
+    await screen.findByText('run-abc');
+    const header = screen.getByRole('columnheader', { name: '开始时间' });
+    expect(header).toHaveAttribute('aria-sort', 'descending');
+
+    await userEvent.click(within(header).getByRole('button', { name: '开始时间' }));
+    await waitFor(() => expect(seen).toContain('asc'));
+    expect(header).toHaveAttribute('aria-sort', 'ascending');
+  });
+
   it('删除：确认弹窗说明影响范围，确认后 DELETE 并刷新列表', async () => {
     let deleted = '';
     let listCalls = 0;

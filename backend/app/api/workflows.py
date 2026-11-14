@@ -363,6 +363,7 @@ async def list_runs(
     workflow_id: int | None = None,
     status: str = "",
     q: str = "",
+    sort_dir: str = "desc",
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -372,11 +373,14 @@ async def list_runs(
 
     if status not in ("", "running", "waiting", "succeeded", "failed", "stopped"):
         raise HTTPException(status_code=400, detail=f"status 非法: {status}")
+    if sort_dir not in ("asc", "desc"):
+        raise HTTPException(status_code=400, detail=f"sort_dir 非法: {sort_dir}")
     rows, total = await workflow_service.list_runs(
         db,
         workflow_id=workflow_id,
         status=status,
         keyword=q.strip(),
+        sort_dir=sort_dir,
         limit=limit,
         offset=offset,
     )

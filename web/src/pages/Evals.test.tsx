@@ -173,6 +173,39 @@ describe('评测页面', () => {
     expect(await screen.findByText('没有匹配的评测集')).toBeInTheDocument();
   });
 
+  it('按更新时间排序评测集', async () => {
+    const olderDataset = {
+      ...datasetSummary,
+      id: 2,
+      name: '旧评测集',
+      updated_at: '2026-11-13T01:00:00Z',
+      last_run: null,
+    };
+    server.use(
+      http.get('/api/v1/evals/datasets', () =>
+        HttpResponse.json({ items: [olderDataset, datasetSummary], total: 2 }),
+      ),
+    );
+    render(
+      <MemoryRouter initialEntries={['/evals']}>
+        <Routes>
+          <Route path="/evals" element={<EvalsPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('运维回归');
+    const header = screen.getByRole('columnheader', { name: '更新时间' });
+    const rows = () => screen.getAllByRole('row').slice(1);
+    // 默认最新在前
+    expect(within(rows()[0]).getByText('运维回归')).toBeInTheDocument();
+
+    await userEvent.click(within(header).getByRole('button', { name: '更新时间' }));
+    await waitFor(() =>
+      expect(within(rows()[0]).getByText('旧评测集')).toBeInTheDocument(),
+    );
+  });
+
   it('创建评测集后进入详情页', async () => {
     let posted: unknown = null;
     server.use(

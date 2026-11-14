@@ -142,6 +142,22 @@ async def test_memory_list_search_pagination_and_toggle(monkeypatch, tmp_path) -
             assert len(rows2) == 1
             assert {row.id for row in rows + rows2} == set(created)
 
+            # 创建时间排序：方向可切换，非法方向显式拒绝
+            ascending, _ = await memory_service.list_memories(
+                db, q=tag, sort_dir="asc", limit=10, offset=0
+            )
+            ascending_times = [row.created_at for row in ascending]
+            assert ascending_times == sorted(ascending_times), ascending_times
+
+            descending, _ = await memory_service.list_memories(
+                db, q=tag, sort_dir="desc", limit=10, offset=0
+            )
+            descending_times = [row.created_at for row in descending]
+            assert descending_times == sorted(descending_times, reverse=True), descending_times
+
+            with pytest.raises(ValueError):
+                await memory_service.list_memories(db, q=tag, sort_dir="sideways")
+
             target = created[0]
             await memory_service.set_enabled(db, target, False)
             disabled, _ = await memory_service.list_memories(

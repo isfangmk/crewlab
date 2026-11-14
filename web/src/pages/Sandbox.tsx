@@ -32,6 +32,7 @@ import {
   RowAction,
   SearchInput,
   Select,
+  SortableHead,
   StatusPill,
   TableCard,
   TableHead,
@@ -93,6 +94,10 @@ export default function SandboxPage() {
   const [status, setStatus] = useState<SandboxStatus | ''>('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
+  const [sort, setSort] = useState<{
+    by: 'started_at' | 'duration_ms';
+    order: 'asc' | 'desc';
+  }>({ by: 'started_at', order: 'desc' });
   const [viewing, setViewing] = useState<SandboxExecution | null>(null);
   const [runOpen, setRunOpen] = useState(false);
   const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
@@ -120,6 +125,8 @@ export default function SandboxPage() {
             query,
             source,
             status,
+            sort_by: sort.by,
+            sort_order: sort.order,
             limit: pageSize,
             offset: page * pageSize,
           }),
@@ -140,7 +147,7 @@ export default function SandboxPage() {
         }
       }
     },
-    [query, source, status, page, pageSize, seq],
+    [query, source, status, sort, page, pageSize, seq],
   );
 
   // 筛选与翻页都重建 load：统一走 250ms 防抖，避免连点筛选打出一串请求。
@@ -157,6 +164,16 @@ export default function SandboxPage() {
     setStatus('');
     setPage(0);
   }, []);
+
+  // 切到新字段默认降序；点当前字段则切换方向。两种排序都回到第 1 页。
+  const changeSort = (next: 'started_at' | 'duration_ms') => {
+    setPage(0);
+    setSort((current) =>
+      current.by === next
+        ? { by: next, order: current.order === 'desc' ? 'asc' : 'desc' }
+        : { by: next, order: 'desc' },
+    );
+  };
 
   const activeChips = useMemo(() => {
     const chips: { key: string; label: string; clear(): void }[] = [];
@@ -444,8 +461,18 @@ export default function SandboxPage() {
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('来源', 'Source')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('退出码', 'Exit')}</th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('耗时', 'Duration')}</th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('开始时间', 'Started')}</th>
+                  <SortableHead
+                    label={tr('耗时', 'Duration')}
+                    active={sort.by === 'duration_ms'}
+                    order={sort.order}
+                    onClick={() => changeSort('duration_ms')}
+                  />
+                  <SortableHead
+                    label={tr('开始时间', 'Started')}
+                    active={sort.by === 'started_at'}
+                    order={sort.order}
+                    onClick={() => changeSort('started_at')}
+                  />
                 </tr>
               </TableHead>
               <tbody className="divide-y divide-zinc-800/40">

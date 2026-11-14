@@ -153,6 +153,42 @@ describe('TriggersPage', () => {
     expect(screen.getAllByTitle('启用')).toHaveLength(1);
   });
 
+  it('按最近运行时间排序，未运行过的排最后', async () => {
+    const olderRule = {
+      ...RULES[0],
+      id: 9,
+      name: '旧巡检',
+      last_fired_at: '2026-11-12T01:00:00.000Z',
+    };
+    server.use(
+      http.get('/api/v1/triggers', () =>
+        HttpResponse.json({
+          items: [RULES[1], olderRule, RULES[0]],
+          total: 3,
+        }),
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <TriggersPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('每日巡检');
+    const header = screen.getByRole('columnheader', { name: '最近运行' });
+    const rows = () => screen.getAllByRole('row').slice(1);
+    expect(within(rows()[0]).getByText('每日巡检')).toBeInTheDocument();
+
+    await userEvent.click(within(header).getByRole('button', { name: '最近运行' }));
+    expect(within(rows()[0]).getByText('旧巡检')).toBeInTheDocument();
+    expect(within(rows()[2]).getByText('外部回调')).toBeInTheDocument();
+
+    // 切回降序，未运行过的规则仍然在最后
+    await userEvent.click(within(header).getByRole('button', { name: '最近运行' }));
+    expect(within(rows()[0]).getByText('每日巡检')).toBeInTheDocument();
+    expect(within(rows()[2]).getByText('外部回调')).toBeInTheDocument();
+  });
+
   it('只读用户看不到触发/启停/删除入口', async () => {
     perms.canMutate = false;
     perms.isAdmin = false;

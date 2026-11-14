@@ -103,6 +103,44 @@ describe('SandboxPage', () => {
     await waitFor(() => expect(seen).toContain('note'));
   });
 
+  it('耗时与开始时间表头把排序参数带到服务端', async () => {
+    const seen: URLSearchParams[] = [];
+    server.use(
+      http.get('/api/v1/sandbox/summary', () => HttpResponse.json(summary)),
+      http.get('/api/v1/sandbox/executions', ({ request }) => {
+        seen.push(new URL(request.url).searchParams);
+        return HttpResponse.json({ items: [succeededRun, failedRun], total: 2 });
+      }),
+    );
+    renderPage();
+    await screen.findByRole('button', { name: 'print(6 * 7)' });
+
+    // 加载态会短暂卸载表格，表头元素每次重新查询，避免点到已卸载的旧节点
+    const findHeader = (name: string) => screen.findByRole('columnheader', { name });
+    expect(await findHeader('开始时间')).toHaveAttribute('aria-sort', 'descending');
+
+    await userEvent.click(within(await findHeader('耗时')).getByRole('button', { name: '耗时' }));
+    await waitFor(() => {
+      expect(seen.at(-1)?.get('sort_by')).toBe('duration_ms');
+      expect(seen.at(-1)?.get('sort_order')).toBe('desc');
+    });
+    expect(await findHeader('耗时')).toHaveAttribute('aria-sort', 'descending');
+
+    await userEvent.click(within(await findHeader('耗时')).getByRole('button', { name: '耗时' }));
+    await waitFor(() => {
+      expect(seen.at(-1)?.get('sort_by')).toBe('duration_ms');
+      expect(seen.at(-1)?.get('sort_order')).toBe('asc');
+    });
+    expect(await findHeader('耗时')).toHaveAttribute('aria-sort', 'ascending');
+
+    // 切回时间列时重新从最新在前开始
+    await userEvent.click(within(await findHeader('开始时间')).getByRole('button', { name: '开始时间' }));
+    await waitFor(() => {
+      expect(seen.at(-1)?.get('sort_by')).toBe('started_at');
+      expect(seen.at(-1)?.get('sort_order')).toBe('desc');
+    });
+  });
+
   it('点代码打开详情：展示输出、错误与运行上下文', async () => {
     useList([failedRun]);
     renderPage();

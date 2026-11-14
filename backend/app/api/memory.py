@@ -42,6 +42,7 @@ async def list_memory(
     q: str | None = None,
     agent_id: str | None = None,
     enabled: bool | None = None,
+    sort_dir: str = "desc",
     limit: int = 20,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -55,6 +56,7 @@ async def list_memory(
             q=q,
             agent_id=agent_id,
             enabled=enabled,
+            sort_dir=sort_dir,
             limit=limit,
             offset=offset,
         )

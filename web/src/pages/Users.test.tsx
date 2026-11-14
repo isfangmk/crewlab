@@ -26,8 +26,22 @@ vi.mock('@/store/me', () => ({
 }));
 
 const USER_SEED = [
-  { id: 1, email: 'admin@local', display_name: 'Admin', role: 'admin', status: 'active' },
-  { id: 2, email: 'dev@local', display_name: 'Dev', role: 'developer', status: 'active' },
+  {
+    id: 1,
+    email: 'admin@local',
+    display_name: 'Admin',
+    role: 'admin',
+    status: 'active',
+    created_at: '2026-11-01T08:00:00Z',
+  },
+  {
+    id: 2,
+    email: 'dev@local',
+    display_name: 'Dev',
+    role: 'developer',
+    status: 'active',
+    created_at: '2026-11-02T08:00:00Z',
+  },
 ];
 
 // 测试内的用户表：每个用例从种子重建，避免上一个用例的写入影响下一个
@@ -36,6 +50,12 @@ let USERS: typeof USER_SEED = [];
 const roleBodies: { id: number; role: string }[] = [];
 const passwordBodies: { id: number; password: string }[] = [];
 const deletedIds: number[] = [];
+
+function rowOf(email: string): HTMLElement {
+  const row = screen.getByText(email).closest('tr');
+  if (!(row instanceof HTMLElement)) throw new Error(`user row not found: ${email}`);
+  return row;
+}
 
 describe('UsersPage', () => {
   beforeEach(() => {
@@ -52,6 +72,7 @@ describe('UsersPage', () => {
         const q = url.searchParams.get('q');
         const role = url.searchParams.get('role');
         const status = url.searchParams.get('status');
+        const sortDir = url.searchParams.get('sort_dir') ?? 'desc';
         const limit = Number(url.searchParams.get('limit') ?? '20');
         const offset = Number(url.searchParams.get('offset') ?? '0');
         let matched = USERS.filter((u) => {
@@ -65,7 +86,10 @@ describe('UsersPage', () => {
           }
           return true;
         });
-        matched = [...matched].sort((a, b) => a.id - b.id);
+        matched = [...matched].sort((a, b) => {
+          const delta = Date.parse(a.created_at) - Date.parse(b.created_at);
+          return sortDir === 'asc' ? delta : -delta;
+        });
         return HttpResponse.json({
           items: matched.slice(offset, offset + limit),
           total: matched.length,
@@ -83,6 +107,7 @@ describe('UsersPage', () => {
           display_name: body.display_name,
           role: body.role,
           status: 'active',
+          created_at: '2026-11-03T08:00:00Z',
         };
         USERS.push(created);
         return HttpResponse.json(created);
@@ -132,6 +157,28 @@ describe('UsersPage', () => {
     // 状态走 StatusPill（圆点 + 语义色），两个账号都是「启用」
     expect(screen.getAllByText('启用')).toHaveLength(2);
     expect(screen.getAllByText('启用').every((el) => el.closest('span.rounded-full'))).toBe(true);
+  });
+
+  it('按创建时间排序并同步服务端参数', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <UsersPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('dev@local');
+    const header = screen.getByRole('columnheader', { name: '创建时间' });
+    expect(header).toHaveAttribute('aria-sort', 'descending');
+    // 默认最新在前：11-02 的 Dev 排在 11-01 的 Admin 前
+    const rows = () => screen.getAllByRole('row').slice(1);
+    expect(within(rows()[0]).getByText('dev@local')).toBeInTheDocument();
+
+    await user.click(within(header).getByRole('button', { name: '创建时间' }));
+    await waitFor(() => expect(header).toHaveAttribute('aria-sort', 'ascending'));
+    await waitFor(() =>
+      expect(within(rows()[0]).getByText('admin@local')).toBeInTheDocument(),
+    );
   });
 
   it('filters accounts by keyword and by role', async () => {
@@ -244,8 +291,7 @@ describe('UsersPage', () => {
     );
 
     await screen.findByText('dev@local');
-    const disableButtons = screen.getAllByRole('button', { name: /禁用/ });
-    await user.click(disableButtons[1]);
+    await user.click(within(rowOf('dev@local')).getByRole('button', { name: /禁用/ }));
 
     await waitFor(() => expect(screen.getByText('已禁用')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: /启用/ })).toBeInTheDocument();
@@ -260,7 +306,7 @@ describe('UsersPage', () => {
     );
 
     await screen.findByText('dev@local');
-    await user.click(screen.getAllByRole('button', { name: /改角色/ })[1]);
+    await user.click(within(rowOf('dev@local')).getByRole('button', { name: /改角色/ }));
     expect(await screen.findByText('账号：dev@local')).toBeInTheDocument();
 
     await user.click(screen.getByRole('combobox', { name: '角色' }));
@@ -281,7 +327,7 @@ describe('UsersPage', () => {
     );
 
     await screen.findByText('dev@local');
-    await user.click(screen.getAllByRole('button', { name: '重置密码' })[1]);
+    await user.click(within(rowOf('dev@local')).getByRole('button', { name: '重置密码' }));
     await user.type(await screen.findByLabelText('新密码'), 'new-pass-789');
     await user.click(screen.getByRole('button', { name: /^重置$/ }));
 
@@ -301,7 +347,7 @@ describe('UsersPage', () => {
     );
 
     await screen.findByText('dev@local');
-    await user.click(screen.getAllByRole('button', { name: '删除账号' })[1]);
+    await user.click(within(rowOf('dev@local')).getByRole('button', { name: '删除账号' }));
 
     // 删除走统一确认弹窗（不再用原生 confirm）
     const dialog = await screen.findByRole('dialog');

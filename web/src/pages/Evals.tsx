@@ -21,6 +21,7 @@ import {
   RowAction,
   RowActionIcon,
   SearchInput,
+  SortableHead,
   StatusPill,
   TableCard,
   TableHead,
@@ -37,6 +38,7 @@ import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
 import { RUN_STATUS_META } from '@/lib/evalStatus';
+import { compareNullableTime } from '@/lib/sort';
 import { useTimeout } from '@/lib/useTimeout';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
@@ -61,6 +63,7 @@ export default function EvalsPage() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [editor, setEditor] = useState<null | { dataset: EvalDatasetSummary | null }>(
     null,
   );
@@ -103,9 +106,16 @@ export default function EvalsPage() {
       ),
     );
   }, [items, query]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const sorted = useMemo(
+    () =>
+      [...filtered].sort((a, b) =>
+        compareNullableTime(a.updated_at, b.updated_at, sortDir),
+      ),
+    [filtered, sortDir],
+  );
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const paged = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  const paged = sorted.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
   return (
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">
@@ -224,9 +234,15 @@ export default function EvalsPage() {
                   <th scope="col" className="px-3 py-2 text-left font-medium">
                     {tr('用例', 'Cases')}
                   </th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">
-                    {tr('更新时间', 'Updated')}
-                  </th>
+                  <SortableHead
+                    label={tr('更新时间', 'Updated')}
+                    active
+                    order={sortDir}
+                    onClick={() => {
+                      setPage(0);
+                      setSortDir((current) => (current === 'desc' ? 'asc' : 'desc'));
+                    }}
+                  />
                   <th scope="col" className="px-3 py-2 text-right font-medium">
                     {tr('操作', 'Actions')}
                   </th>

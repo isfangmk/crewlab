@@ -24,6 +24,7 @@ import {
   RowActionIcon,
   SearchInput,
   Select,
+  SortableHead,
   StatusPill,
   TableCard,
   TableHead,
@@ -38,6 +39,7 @@ import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
+import { compareNullableTime } from '@/lib/sort';
 import { useTimeout } from '@/lib/useTimeout';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
@@ -72,6 +74,7 @@ export default function PublishPage() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [editor, setEditor] = useState<null | { channel: PublishedChannel | null }>(null);
   const [revealed, setRevealed] = useState<{ name: string; key: string } | null>(null);
   const [rotating, setRotating] = useState<PublishedChannel | null>(null);
@@ -116,9 +119,16 @@ export default function PublishPage() {
       ),
     );
   }, [items, query]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const sorted = useMemo(
+    () =>
+      [...filtered].sort((a, b) =>
+        compareNullableTime(a.usage.last_used_at, b.usage.last_used_at, sortDir),
+      ),
+    [filtered, sortDir],
+  );
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const paged = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  const paged = sorted.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
   const onToggle = async (channel: PublishedChannel) => {
     setBusyId(channel.id);
@@ -267,7 +277,15 @@ export default function PublishPage() {
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('API Key', 'API key')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('用量', 'Usage')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('最近调用', 'Last call')}</th>
+                  <SortableHead
+                    label={tr('最近调用', 'Last call')}
+                    active
+                    order={sortDir}
+                    onClick={() => {
+                      setPage(0);
+                      setSortDir((current) => (current === 'desc' ? 'asc' : 'desc'));
+                    }}
+                  />
                   <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                 </tr>
               </TableHead>

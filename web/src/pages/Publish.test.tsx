@@ -92,6 +92,37 @@ describe('PublishPage', () => {
     expect(screen.getByText('启用中')).toBeInTheDocument();
   });
 
+  it('按最近调用时间排序渠道', async () => {
+    const older = {
+      ...channel,
+      id: 'ch-2',
+      name: '旧渠道',
+      usage: {
+        ...channel.usage,
+        last_used_at: '2026-11-10T01:00:00Z',
+      },
+    };
+    server.use(
+      http.get('/api/v1/publish/channels', () =>
+        HttpResponse.json({ items: [older, channel], total: 2 }),
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <PublishPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('运维对外问答');
+    const header = screen.getByRole('columnheader', { name: '最近调用' });
+    const rows = () => screen.getAllByRole('row').slice(1);
+    // 默认最近调用在前
+    expect(within(rows()[0]).getByText('运维对外问答')).toBeInTheDocument();
+
+    await userEvent.click(within(header).getByRole('button', { name: '最近调用' }));
+    expect(within(rows()[0]).getByText('旧渠道')).toBeInTheDocument();
+  });
+
   it('创建渠道后展示一次性 Key，提交内容包含名称与助理', async () => {
     let posted: unknown = null;
     server.use(

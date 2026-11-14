@@ -194,6 +194,21 @@ async def test_list_workflows_filters_and_paginates(
                 params={"status": "cancelled"},
             )
             assert bad_status.status_code == 400, bad_status.text
+
+            # 按开始时间升序可查，非法方向同样拒绝
+            ascending = await client.get(
+                "/api/v1/workflows/runs/list",
+                headers=headers,
+                params={"q": run_uid, "sort_dir": "asc"},
+            )
+            assert ascending.status_code == 200, ascending.text
+            assert [row["run_uid"] for row in ascending.json()["items"]] == [run_uid]
+            bad_sort = await client.get(
+                "/api/v1/workflows/runs/list",
+                headers=headers,
+                params={"sort_dir": "sideways"},
+            )
+            assert bad_sort.status_code == 400, bad_sort.text
         finally:
             for workflow_id in created:
                 await client.delete(

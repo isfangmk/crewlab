@@ -187,6 +187,7 @@ async def list_memories(
     q: str | None = None,
     agent_id: str | None = None,
     enabled: bool | None = None,
+    sort_dir: str = "desc",
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[MemoryItem], int]:
@@ -196,6 +197,8 @@ async def list_memories(
         raise ValueError(f"limit 必须在 1..{MAX_LIST_LIMIT} 之间")
     if offset < 0:
         raise ValueError("offset 不能为负")
+    if sort_dir not in ("asc", "desc"):
+        raise ValueError(f"sort_dir 非法: {sort_dir}")
     conditions = []
     scope = _normalize_scope(agent_id)
     if scope is not None:
@@ -216,11 +219,9 @@ async def list_memories(
     if conditions:
         stmt = stmt.where(*conditions)
         count_stmt = count_stmt.where(*conditions)
-    stmt = (
-        stmt.order_by(MemoryItem.created_at.desc(), MemoryItem.id.desc())
-        .limit(limit)
-        .offset(offset)
-    )
+    ordered = MemoryItem.created_at.asc() if sort_dir == "asc" else MemoryItem.created_at.desc()
+    tie_break = MemoryItem.id.asc() if sort_dir == "asc" else MemoryItem.id.desc()
+    stmt = stmt.order_by(ordered, tie_break).limit(limit).offset(offset)
     rows = list((await db.scalars(stmt)).all())
     total = int(await db.scalar(count_stmt) or 0)
     return rows, total

@@ -273,6 +273,26 @@ async def test_user_list_filters_and_paginates(env: dict[str, str], api_base: st
             second_ids = {item["id"] for item in second_body["items"]}
             assert first_ids.isdisjoint(second_ids), (first_body, second_body)
 
+            # 创建时间排序：默认最新在前，asc 切到最早在前
+            by_time_asc = await client.get(
+                "/api/v1/users",
+                headers=headers,
+                params={"q": "Page Target", "sort_dir": "asc", "limit": 100},
+            )
+            assert by_time_asc.status_code == 200, by_time_asc.text
+            asc_names = [item["display_name"] for item in by_time_asc.json()["items"]]
+            assert asc_names == ["Page Target 0", "Page Target 1", "Page Target 2"], asc_names
+            assert all(item["created_at"] for item in by_time_asc.json()["items"])
+
+            by_time_desc = await client.get(
+                "/api/v1/users",
+                headers=headers,
+                params={"q": "Page Target", "sort_dir": "desc", "limit": 100},
+            )
+            assert by_time_desc.status_code == 200, by_time_desc.text
+            desc_names = [item["display_name"] for item in by_time_desc.json()["items"]]
+            assert desc_names == ["Page Target 2", "Page Target 1", "Page Target 0"], desc_names
+
             # 非法筛选值显式拒绝
             bad_role = await client.get(
                 "/api/v1/users", headers=headers, params={"role": "owner"}
@@ -282,6 +302,10 @@ async def test_user_list_filters_and_paginates(env: dict[str, str], api_base: st
                 "/api/v1/users", headers=headers, params={"status": "paused"}
             )
             assert bad_status.status_code == 400, bad_status.text
+            bad_sort = await client.get(
+                "/api/v1/users", headers=headers, params={"sort_dir": "sideways"}
+            )
+            assert bad_sort.status_code == 400, bad_sort.text
 
             # 下拉选项：只返回 id 与邮箱
             options = await client.get("/api/v1/users/options", headers=headers)

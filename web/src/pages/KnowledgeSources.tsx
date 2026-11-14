@@ -29,6 +29,7 @@ import {
   RowActionIcon,
   SearchInput,
   Select,
+  SortableHead,
   StatusPill,
   TableCard,
   TableHead,
@@ -42,6 +43,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
+import { compareNullableTime } from '@/lib/sort';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
 import { useTimeout } from '@/lib/useTimeout';
@@ -86,6 +88,7 @@ export default function KnowledgeSourcesPage() {
   const [kindFilter, setKindFilter] = useState<KnowledgeSourceKind | ''>('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [editor, setEditor] = useState<{ source: KnowledgeSource | null } | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeSource | null>(null);
   const [docsOf, setDocsOf] = useState<KnowledgeSource | null>(null);
@@ -139,9 +142,16 @@ export default function KnowledgeSourcesPage() {
       );
     });
   }, [items, query, kindFilter]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const sorted = useMemo(
+    () =>
+      [...filtered].sort((a, b) =>
+        compareNullableTime(a.last_synced_at, b.last_synced_at, sortDir),
+      ),
+    [filtered, sortDir],
+  );
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const paged = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  const paged = sorted.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
   const triggerSync = useCallback(
     async (source: KnowledgeSource) => {
@@ -320,12 +330,13 @@ export default function KnowledgeSourcesPage() {
               />
             }
           >
-            <table {...tableLayout(62)}>
+            <table {...tableLayout(73)}>
               <colgroup>
                 <col className={COL.main} />
                 <col className={COL.detail} />
                 <col className={COL.tag} />
                 <col className={COL.detail} />
+                <col className={COL.time} />
                 <col className={COL.actionsIconWide} />
               </colgroup>
               <TableHead>
@@ -342,6 +353,15 @@ export default function KnowledgeSourcesPage() {
                   <th scope="col" className="px-3 py-2 text-left font-medium">
                     {tr('同步状态', 'Sync status')}
                   </th>
+                  <SortableHead
+                    label={tr('最近同步', 'Last sync')}
+                    active
+                    order={sortDir}
+                    onClick={() => {
+                      setPage(0);
+                      setSortDir((current) => (current === 'desc' ? 'asc' : 'desc'));
+                    }}
+                  />
                   <th scope="col" className="px-3 py-2 text-right font-medium">
                     {tr('操作', 'Actions')}
                   </th>
@@ -410,22 +430,12 @@ export default function KnowledgeSourcesPage() {
                             {source.last_error}
                           </div>
                         )}
-                        <div
-                          className="mt-0.5 whitespace-nowrap text-[10px] tabular-nums text-zinc-600"
-                          title={
-                            source.last_synced_at
-                              ? tr(
-                                  `最近同步 ${fullDateTime(source.last_synced_at)}`,
-                                  `Last sync ${fullDateTime(source.last_synced_at)}`,
-                                )
-                              : tr('尚未同步', 'Never synced')
-                          }
-                        >
-                          {source.last_synced_at ? fullDateTime(source.last_synced_at) : '—'}
-                          {source.last_duration_ms !== null && (
-                            <> · {formatDuration(source.last_duration_ms)}</>
-                          )}
-                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-zinc-500">
+                        {source.last_synced_at ? fullDateTime(source.last_synced_at) : '—'}
+                        {source.last_duration_ms !== null && (
+                          <> · {formatDuration(source.last_duration_ms)}</>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
