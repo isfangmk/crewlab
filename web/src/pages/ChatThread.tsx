@@ -1313,6 +1313,18 @@ export default function ChatThreadPage() {
 
             );
 
+            // 正常流式回合的 run_python 完成时也要刷新 Artifacts 面板，
+
+            // 不能只依赖全局 CHAT_LIVE_EVENT 通道（后台回合才走那里）。
+
+            if (t.name === 'run_python') {
+
+              setArtifactTick((v) => v + 1);
+
+              setShowArtifacts(true);
+
+            }
+
           },
 
           onApprovalPending: (a) => {

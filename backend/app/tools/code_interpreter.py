@@ -6,12 +6,19 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import threading
 from typing import Any
 
 from app.adk_runtime.workflow_node_impl import SANDBOX_RESULT_MARKER
 from app.services import sandbox_service
+
+# 产出物上限：模型生成的代码不可信，base64 文件与图表 JSON 都可能在宿主内存里膨胀
+ARTIFACT_KINDS = ("chart", "table", "file", "text")
+MAX_ARTIFACTS = 20
+MAX_ARTIFACT_BYTES = 5 * 1024 * 1024
+MAX_ARTIFACT_TOTAL_BYTES = 10 * 1024 * 1024
 
 # 模型可见的工具描述写在 docstring；这里只放脚本模板。
 # 占位符用 __CODE__/__MARKER__ 替换而不是 str.format：
@@ -103,6 +110,43 @@ def _parse_chat_payload(stdout: str) -> dict[str, Any]:
     raise RuntimeError("解释器没有返回结果信封（脚本可能被强制终止）")
 
 
+def validate_artifacts(artifacts: list[dict[str, Any]]) -> None:
+    """校验产出物数量、类型与体积；超限显式失败，不静默丢弃。
+
+    文件按解码后的字节计，图表/表格按 JSON 序列化后的 UTF-8 字节计。
+    """
+
+    if len(artifacts) > MAX_ARTIFACTS:
+        raise ValueError(f"单次执行最多产出 {MAX_ARTIFACTS} 个 Artifact")
+    total = 0
+    for index, item in enumerate(artifacts):
+        kind = item.get("kind", "text")
+        if kind not in ARTIFACT_KINDS:
+            raise ValueError(f"artifacts[{index}].kind 非法: {kind!r}")
+        payload = item.get("payload")
+        if kind == "file":
+            if not isinstance(payload, dict):
+                raise ValueError(f"artifacts[{index}].payload 必须是对象")
+            raw_b64 = "".join(str(payload.get("data", "")).split())
+            try:
+                size = len(base64.b64decode(raw_b64, validate=True))
+            except Exception as exc:  # noqa: BLE001 — 用户代码产出的内容不可信
+                raise ValueError(f"artifacts[{index}] 文件内容不是合法 base64") from exc
+        else:
+            size = len(
+                json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+            )
+        if size > MAX_ARTIFACT_BYTES:
+            raise ValueError(
+                f"artifacts[{index}] 体积超限: {size} > {MAX_ARTIFACT_BYTES} 字节"
+            )
+        total += size
+    if total > MAX_ARTIFACT_TOTAL_BYTES:
+        raise ValueError(
+            f"Artifact 总体积超限: {total} > {MAX_ARTIFACT_TOTAL_BYTES} 字节"
+        )
+
+
 async def run_python(
     code: str,
     purpose: str = "通用计算与数据处理",
@@ -145,6 +189,7 @@ async def run_python(
     for index, item in enumerate(artifacts):
         if not isinstance(item, dict):
             raise RuntimeError(f"artifacts[{index}] 格式非法：不是对象")
+    validate_artifacts(artifacts)
 
     stdout_lines = result.stdout.splitlines()
     user_stdout = "\n".join(

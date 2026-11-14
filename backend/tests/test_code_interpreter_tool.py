@@ -10,11 +10,14 @@ import pytest
 from app.config import get_settings
 from app.adk_runtime.workflow_node_impl import SANDBOX_RESULT_MARKER
 from app.tools.code_interpreter import (
+    MAX_ARTIFACT_BYTES,
+    MAX_ARTIFACTS,
     _build_chat_script,
     _parse_chat_payload,
     remember_pending,
     run_python,
     take_pending,
+    validate_artifacts,
 )
 
 
@@ -34,7 +37,7 @@ def test_parse_chat_payload_takes_last_envelope() -> None:
         _parse_chat_payload("没有任何信封")
 
 
-async def test_run_python_executes_and_collects_chart(tmp_path) -> None:
+async def test_run_python_executes_and_collects_chart() -> None:
     """真实沙盒（local 执行器）跑真实代码：print 回传、图表产出结构正确。"""
 
     code = (
@@ -70,7 +73,7 @@ async def test_run_python_file_artifact_bytes_roundtrip() -> None:
     assert decoded == raw
 
 
-async def test_run_python_error_returns_traceback(monkeypatch, tmp_path) -> None:
+async def test_run_python_error_returns_traceback() -> None:
     """用户代码抛异常：error 带回 traceback，status=failed，沙盒仍留执行记录。"""
 
     code = "raise ValueError('故意失败')"
@@ -87,7 +90,27 @@ def test_pending_registry_roundtrip() -> None:
     assert take_pending("fc-1") == []
 
 
-async def test_run_python_failure_recorded_in_sandbox_executions(tmp_path) -> None:
+def test_validate_artifacts_rejects_invalid_kind_and_oversize() -> None:
+    """产出物类型与体积都要在进内存/落库前显式拒绝。"""
+
+    with pytest.raises(ValueError, match="kind 非法"):
+        validate_artifacts([{"kind": "exe", "payload": {}}])
+    with pytest.raises(ValueError, match="最多"):
+        validate_artifacts([{"kind": "text", "payload": "x"}] * (MAX_ARTIFACTS + 1))
+    import base64
+
+    oversize = base64.b64encode(b"x" * (MAX_ARTIFACT_BYTES + 1)).decode()
+    with pytest.raises(ValueError, match="体积超限"):
+        validate_artifacts(
+            [{"kind": "file", "payload": {"name": "big.bin", "data": oversize}}]
+        )
+    with pytest.raises(ValueError, match="base64"):
+        validate_artifacts(
+            [{"kind": "file", "payload": {"name": "bad.bin", "data": "!!!"}}]
+        )
+
+
+async def test_run_python_failure_recorded_in_sandbox_executions() -> None:
     """执行记录进 sandbox_executions（source=chat），失败也留痕。"""
 
     import sqlite3

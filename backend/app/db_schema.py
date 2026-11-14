@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 _REQUIRED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("user_agents", "sub_agents_json", "TEXT"),
     ("observation_turns", "channel", "VARCHAR(128) NOT NULL DEFAULT ''"),
+    ("artifacts", "message_id", "VARCHAR(128) NOT NULL DEFAULT ''"),
+    ("artifacts", "seq", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 

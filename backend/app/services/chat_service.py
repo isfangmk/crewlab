@@ -113,6 +113,26 @@ def session_page_context(session: ChatSession) -> PageContextIn | None:
 
 
 
+def _tool_call_ids_of(messages: list[ChatMessage]) -> list[str]:
+    """从投影消息里取工具调用 id；截断/分叉时用于关联 Artifact。"""
+
+    ids: set[str] = set()
+    for m in messages:
+        if not m.tool_call_json:
+            continue
+        try:
+            raw = json.loads(m.tool_call_json)
+        except json.JSONDecodeError:
+            logger.warning("tool_call_json 解析失败 message_id=%s", m.id)
+            continue
+        if not isinstance(raw, dict):
+            continue
+        call_id = raw.get("id") or raw.get("tool_call_id")
+        if isinstance(call_id, str) and call_id != "":
+            ids.add(call_id)
+    return sorted(ids)
+
+
 def normalize_tool_call(raw: dict) -> dict:
     """把落库的 tool_call 规范成与流式前端一致的结构。"""
 
@@ -720,6 +740,7 @@ async def fork_session(
                     data_url=row.data_url,
                 )
             )
+    message_id_map: dict[str, str] = {}
     for i, m in enumerate(prefix, start=1):
         old_attachment_ids = _parse_attachments_json(m.attachments_json, message_id=m.id)
         attachments_json = (
@@ -730,9 +751,11 @@ async def fork_session(
             if old_attachment_ids
             else m.attachments_json
         )
+        new_message_id = str(uuid4())
+        message_id_map[m.id] = new_message_id
         db.add(
             ChatMessage(
-                id=str(uuid4()),
+                id=new_message_id,
                 session_id=new_session.id,
                 role=m.role,
                 kind=m.kind,
@@ -742,12 +765,20 @@ async def fork_session(
                 seq=i,
             )
         )
+    copied_artifacts = await artifact_service.copy_for_prefix(
+        db,
+        source_session_id=session_id,
+        target_session_id=new_session.id,
+        message_id_map=message_id_map,
+        tool_call_ids=_tool_call_ids_of(prefix),
+    )
     await db.commit()
     logger.info(
-        "fork 会话 source=%s new=%s messages=%s",
+        "fork 会话 source=%s new=%s messages=%s artifacts=%s",
         session_id,
         new_session.id,
         len(prefix),
+        copied_artifacts,
     )
     await _replay_adk_events(
         session=new_session,
@@ -835,9 +866,15 @@ async def truncate_after_message(
         raise LookupError(f"消息不存在: {message_id}")
     if target.role != "user" or target.kind != "message":
         raise ValueError("只能编辑用户正文消息")
-    for m in messages:
-        if m.seq > target.seq:
-            await db.delete(m)
+    removed = [m for m in messages if m.seq > target.seq]
+    await artifact_service.delete_for_messages(
+        db,
+        session_id=session_id,
+        message_ids=[m.id for m in removed],
+        tool_call_ids=_tool_call_ids_of(removed),
+    )
+    for m in removed:
+        await db.delete(m)
     await db.commit()
     await db.refresh(target)
     logger.info(
@@ -879,9 +916,15 @@ async def prepare_resend_from_user_message(
             if not isinstance(item, str) or item == "":
                 raise ValueError("attachments_json 含无效 id")
             attachment_ids.append(item)
-    for m in messages:
-        if m.seq >= target.seq:
-            await db.delete(m)
+    removed = [m for m in messages if m.seq >= target.seq]
+    await artifact_service.delete_for_messages(
+        db,
+        session_id=session_id,
+        message_ids=[m.id for m in removed],
+        tool_call_ids=_tool_call_ids_of(removed),
+    )
+    for m in removed:
+        await db.delete(m)
     await db.commit()
     logger.info(
         "已删除用户消息及后续投影以便重发 session_id=%s from_message_id=%s",
@@ -1217,16 +1260,27 @@ class AdkFramePersister:
             # 使实时会话与历史回放看到同一份可渲染数据。
             result = frame.data["result"]
             artifacts_update: dict | None = None
+            artifact_error: str | None = None
             if frame.data["name"] == "run_python" and isinstance(result, dict):
-                saved = await artifact_service.save_from_tool_result(
-                    self._db,
-                    session_id=self._session_id,
-                    tool_call_id=frame.data["tool_call_id"],
-                    tool_name=frame.data["name"],
-                )
-                if saved:
-                    artifacts_update = artifact_service.tool_result_update(saved)
-                    result = {**result, **artifacts_update}
+                try:
+                    saved = await artifact_service.save_from_tool_result(
+                        self._db,
+                        session_id=self._session_id,
+                        tool_call_id=frame.data["tool_call_id"],
+                        tool_name=frame.data["name"],
+                    )
+                except Exception as exc:  # noqa: BLE001 — 产出物失败不能拖垮整条消息流
+                    logger.exception(
+                        "Artifact 落库失败 session_id=%s tool_call_id=%s",
+                        self._session_id,
+                        frame.data["tool_call_id"],
+                    )
+                    artifact_error = f"产出物保存失败: {exc}"
+                    result = {**result, "artifact_error": artifact_error}
+                else:
+                    if saved:
+                        artifacts_update = artifact_service.tool_result_update(saved)
+                        result = {**result, **artifacts_update}
             await _update_tool_card(
                 self._db,
                 session_id=self._session_id,
@@ -1238,7 +1292,7 @@ class AdkFramePersister:
                     "error": frame.data["error"],
                 },
             )
-            if artifacts_update is not None:
+            if artifacts_update is not None or artifact_error is not None:
                 return SseFrame(event=frame.event, data={**frame.data, "result": result})
             return frame
         if frame.event == "approval_pending":

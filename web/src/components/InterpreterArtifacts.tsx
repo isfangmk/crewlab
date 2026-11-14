@@ -1,12 +1,15 @@
 // 代码解释器的产出物渲染：图表（ECharts）/ 表格 / 文件下载。
 // 数据来源有两个口径：工具返回的摘要（live，payload 未落库）与
 // 落库后的完整载荷（历史回放 / tool_card 更新）——payload 缺失时降级为摘要胶囊。
-import { useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { Download } from 'lucide-react';
 import { ChartCanvas } from './ChartCard';
 import { downloadArtifact } from '@/api/artifacts';
 import { errorText } from '@/lib/errors';
 import { useI18n } from '@/i18n/locale';
+
+/** 只读分享页没有登录态，下载产出物要走分享令牌作用域的公开端点。 */
+export const ArtifactShareContext = createContext<string | null>(null);
 
 export interface InterpreterArtifact {
   kind?: string;
@@ -28,6 +31,7 @@ function asOption(payload: unknown): Record<string, unknown> | null {
 
 function ArtifactFileButton({ artifact }: { artifact: InterpreterArtifact }) {
   const { tr } = useI18n();
+  const shareToken = useContext(ArtifactShareContext);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const save = async () => {
@@ -35,7 +39,10 @@ function ArtifactFileButton({ artifact }: { artifact: InterpreterArtifact }) {
     setBusy(true);
     setErr(null);
     try {
-      const { blob, filename } = await downloadArtifact(artifact.id);
+      const { blob, filename } = await downloadArtifact(
+        artifact.id,
+        shareToken ?? undefined,
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

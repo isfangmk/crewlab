@@ -23,7 +23,12 @@ export function listSessionArtifacts(sessionId: string) {
   );
 }
 
-export function downloadArtifact(id: string) {
+export function downloadArtifact(id: string, shareToken?: string) {
+  if (shareToken) {
+    return requestFile(
+      `/chat/shares/${encodeURIComponent(shareToken)}/artifacts/${encodeURIComponent(id)}/download`,
+    );
+  }
   return requestFile(`/artifacts/${id}/download`);
 }
 

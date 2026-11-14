@@ -2,14 +2,31 @@
 // 数据打真后端（listSessionArtifacts），refreshTick 变化即重新拉取
 // （代码解释器 tool_end 后由 ChatThread 递增）。
 import { useCallback, useEffect, useState } from 'react';
-import { Download, FileJson, FileText, Loader2, Table2, TrendingUp, X } from 'lucide-react';
+import {
+  Download,
+  FileJson,
+  FileText,
+  Loader2,
+  RefreshCw,
+  Table2,
+  TrendingUp,
+  X,
+} from 'lucide-react';
 import { ChartCanvas } from './ChartCard';
-import { downloadArtifact, listSessionArtifacts, type ArtifactItem } from '@/api/artifacts';
+import {
+  downloadArtifact,
+  listSessionArtifacts,
+  type ArtifactItem,
+  type ArtifactKind,
+} from '@/api/artifacts';
 import { errorText } from '@/lib/errors';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
 
-const KIND_META: Record<string, { icon: typeof FileText; label: string; labelEn: string }> = {
+const KIND_META: Record<
+  ArtifactKind,
+  { icon: typeof FileText; label: string; labelEn: string }
+> = {
   chart: { icon: TrendingUp, label: '图表', labelEn: 'Chart' },
   table: { icon: Table2, label: '表格', labelEn: 'Table' },
   file: { icon: FileText, label: '文件', labelEn: 'File' },
@@ -27,18 +44,23 @@ export function ArtifactsPanel({
 }) {
   const { tr } = useI18n();
   const [items, setItems] = useState<ArtifactItem[] | null>(null);
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [kind, setKind] = useState<ArtifactKind | 'all'>('all');
 
   const load = useCallback(async () => {
     if (!sessionId) return;
+    setLoading(true);
     try {
       const r = await listSessionArtifacts(sessionId);
       setItems(r.items);
       setErr(null);
     } catch (e) {
       setErr(errorText(e));
+    } finally {
+      setLoading(false);
     }
   }, [sessionId]);
 
@@ -63,7 +85,11 @@ export function ArtifactsPanel({
     }
   };
 
-  const selected = items?.find((i) => i.id === selectedId) ?? null;
+  const visibleKinds = Array.from(new Set((items ?? []).map((i) => i.kind)));
+  const filtered =
+    kind === 'all' ? (items ?? []) : (items ?? []).filter((i) => i.kind === kind);
+  // 过滤后原选中项可能不在列表里：仅渲染仍在列表中的预览，选中 id 保留即可
+  const selected = filtered.find((i) => i.id === selectedId) ?? null;
 
   return (
     <aside
@@ -73,6 +99,11 @@ export function ArtifactsPanel({
       <div className="flex items-center justify-between gap-2 border-b border-zinc-800/60 px-3 py-2.5">
         <span className="text-[12.5px] font-semibold text-zinc-100">
           {tr('Artifacts', 'Artifacts')}
+          {items !== null && items.length > 0 && (
+            <span className="ml-1.5 text-[11px] font-normal text-zinc-500">
+              {items.length}
+            </span>
+          )}
         </span>
         <button
           type="button"
@@ -85,17 +116,25 @@ export function ArtifactsPanel({
       </div>
 
       {err && (
-        <div className="mx-3 my-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] text-danger">
-          {err}
+        <div className="mx-3 my-2 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+          <span className="min-w-0 flex-1 break-words">{err}</span>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="inline-flex shrink-0 items-center gap-1 rounded border border-danger/30 px-1.5 py-0.5 text-danger transition-colors hover:bg-danger/10"
+          >
+            <RefreshCw size={10} />
+            {tr('重试', 'Retry')}
+          </button>
         </div>
       )}
 
-      {items === null ? (
+      {loading && items === null ? (
         <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
           <Loader2 size={14} className="mr-2 animate-spin" />
           {tr('加载中…', 'Loading…')}
         </div>
-      ) : items.length === 0 ? (
+      ) : items === null ? null : items.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-1 px-4 text-center">
           <p className="text-[12px] text-zinc-400">
             {tr('还没有产出物', 'No artifacts yet')}
@@ -109,71 +148,127 @@ export function ArtifactsPanel({
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          <ul className="divide-y divide-zinc-800/40 overflow-y-auto">
-            {items.map((item) => {
-              const meta = KIND_META[item.kind] ?? KIND_META.text;
-              const Icon = meta.icon;
-              return (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(item.id === selectedId ? null : item.id)}
-                    className={cn(
-                      'flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-zinc-800/40',
-                      selectedId === item.id && 'bg-zinc-800/40',
-                    )}
-                  >
-                    <Icon size={13} className="shrink-0 text-indigo-300" />
-                    <span className="min-w-0 flex-1 truncate text-[11.5px] text-zinc-200">
-                      {item.title || item.id}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-zinc-500">{meta.label}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          {selected && (
-            <div className="max-h-[55%] overflow-auto border-t border-zinc-800/60 bg-zinc-950/40 p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="truncate text-[11.5px] font-medium text-zinc-200">
-                  {selected.title || selected.id}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void save(selected)}
-                  disabled={busyId === selected.id}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/60 px-2 py-1 text-[11px] text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {busyId === selected.id ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <Download size={12} />
-                  )}
-                  {tr('下载', 'Download')}
-                </button>
-              </div>
-              {selected.kind === 'chart' &&
-                typeof selected.payload === 'object' &&
-                selected.payload !== null && (
-                  <ChartCanvas option={selected.payload as Record<string, unknown>} />
-                )}
-              {selected.kind === 'table' && <ArtifactTableLite payload={selected.payload} />}
-              {selected.kind === 'text' && (
-                <p className="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-zinc-300">
-                  {String(selected.payload ?? '')}
-                </p>
-              )}
-              {selected.kind === 'file' && (
-                <p className="text-[11px] text-zinc-500">
-                  {selected.file_name} · {selected.size} bytes
-                </p>
-              )}
+          {visibleKinds.length > 1 && (
+            <div className="flex flex-wrap gap-1 border-b border-zinc-800/40 px-3 py-2">
+              <KindFilter
+                active={kind === 'all'}
+                label={tr('全部', 'All')}
+                onClick={() => setKind('all')}
+              />
+              {visibleKinds.map((itemKind) => {
+                const meta = KIND_META[itemKind] ?? KIND_META.text;
+                return (
+                  <KindFilter
+                    key={itemKind}
+                    active={kind === itemKind}
+                    label={tr(meta.label, meta.labelEn)}
+                    onClick={() => setKind(itemKind)}
+                  />
+                );
+              })}
             </div>
+          )}
+          {filtered.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center px-4 text-center text-[11px] text-zinc-500">
+              {tr('该类型下没有产出物', 'No artifacts of this kind')}
+            </div>
+          ) : (
+            <>
+              <ul className="divide-y divide-zinc-800/40 overflow-y-auto">
+                {filtered.map((item) => {
+                  const meta = KIND_META[item.kind] ?? KIND_META.text;
+                  const Icon = meta.icon;
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(item.id === selectedId ? null : item.id)}
+                        className={cn(
+                          'flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-zinc-800/40',
+                          selectedId === item.id && 'bg-zinc-800/40',
+                        )}
+                      >
+                        <Icon size={13} className="shrink-0 text-indigo-300" />
+                        <span className="min-w-0 flex-1 truncate text-[11.5px] text-zinc-200">
+                          {item.title || item.id}
+                        </span>
+                        <span className="shrink-0 text-[10px] text-zinc-500">
+                          {tr(meta.label, meta.labelEn)}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {selected && (
+                <div className="max-h-[55%] overflow-auto border-t border-zinc-800/60 bg-zinc-950/40 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="truncate text-[11.5px] font-medium text-zinc-200">
+                      {selected.title || selected.id}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void save(selected)}
+                      disabled={busyId === selected.id}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/60 px-2 py-1 text-[11px] text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {busyId === selected.id ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Download size={12} />
+                      )}
+                      {tr('下载', 'Download')}
+                    </button>
+                  </div>
+                  {selected.kind === 'chart' &&
+                    typeof selected.payload === 'object' &&
+                    selected.payload !== null && (
+                      <ChartCanvas option={selected.payload as Record<string, unknown>} />
+                    )}
+                  {selected.kind === 'table' && <ArtifactTableLite payload={selected.payload} />}
+                  {selected.kind === 'text' && (
+                    <p className="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-zinc-300">
+                      {String(selected.payload ?? '')}
+                    </p>
+                  )}
+                  {selected.kind === 'file' && (
+                    <p className="text-[11px] text-zinc-500">
+                      {selected.file_name} · {selected.size} bytes
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
     </aside>
+  );
+}
+
+function KindFilter({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick(): void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'rounded-full border px-2 py-0.5 text-[10px] transition-colors',
+        active
+          ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-200'
+          : 'border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300',
+      )}
+    >
+      {label}
+    </button>
   );
 }
 

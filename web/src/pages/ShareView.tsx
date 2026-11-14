@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { MessageBubble } from '@/components/MessageBubble';
+import { ArtifactShareContext } from '@/components/InterpreterArtifacts';
 import {
   ErrorBanner, PageHeader } from '@/components/ui';
 import type { ChatMessage, ChatSession } from '@/api/chat';
@@ -52,9 +53,11 @@ export default function ShareViewPage() {
           </ErrorBanner>
         )}
         <div className="flex flex-col gap-5">
-          {items.map((m) => (
-            <MessageBubble key={m.id} message={m} />
-          ))}
+          <ArtifactShareContext.Provider value={token}>
+            {items.map((m) => (
+              <MessageBubble key={m.id} message={m} />
+            ))}
+          </ArtifactShareContext.Provider>
         </div>
       </div>
     </main>
