@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     )
     host: str = Field(alias="HOST")
     port: int = Field(alias="PORT")
+    # 对外可达的后端基址（OAuth 回调等需要浏览器访问的场景）；
+    # 留空则回退 http://{host}:{port}
+    public_base_url: str = Field(alias="PUBLIC_BASE_URL", default="")
     log_level: str = Field(alias="LOG_LEVEL")
     # 可选 OTLP：未配置则不装 exporter，禁止假装已观测
     otlp_endpoint: str = Field(alias="OTLP_ENDPOINT", default="")

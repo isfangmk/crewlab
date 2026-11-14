@@ -90,6 +90,23 @@ def _encrypt_fields(fields: dict[str, str]) -> str:
     return _fernet().encrypt(raw.encode("utf-8")).decode("ascii")
 
 
+def encrypt_json(payload: dict) -> str:
+    """任意 JSON 对象加密落库（OAuth token 等），与凭证字段同源密钥。"""
+
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
+    return _fernet().encrypt(raw.encode("utf-8")).decode("ascii")
+
+
+def decrypt_json(cipher: str) -> dict:
+    if cipher == "":
+        raise ValueError("密文为空")
+    raw = _fernet().decrypt(cipher.encode("ascii")).decode("utf-8")
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("解密载荷必须是 JSON 对象")
+    return data
+
+
 def _validate_fields(cred_type: str, fields: dict[str, str]) -> list[str]:
     if not isinstance(fields, dict) or len(fields) == 0:
         raise ValueError("fields 不能为空")

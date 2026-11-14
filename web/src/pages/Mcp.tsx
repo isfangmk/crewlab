@@ -5,7 +5,7 @@ import { useTimeout } from '@/lib/useTimeout';
 import { useRequestSeq } from '@/lib/requestSeq';
 import { Switch } from '@/components/ui/Switch';
 import { Select } from '@/components/ui/Select';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -15,6 +15,7 @@ import {
   Eye,
   FileText,
   Globe,
+  KeyRound,
   Loader2,
   Pencil,
   Play,
@@ -34,16 +35,21 @@ import {
   createMcpServer,
   deleteMcpServer,
   getMcpPrompt,
+  getMcpOauthStatus,
   listMcpPrompts,
   listMcpResources,
   listMcpServers,
   parseToolsCache,
   readMcpResource,
+  revokeMcpOauth,
   runMcpTool,
+  saveMcpOauthToken,
   searchMcpRegistry,
+  startMcpOauth,
   testMcpServer,
   updateMcpServer,
   type McpJsonSchema,
+  type McpOauthStatus,
   type McpPrompt,
   type McpRegistryItem,
   type McpResource,
@@ -289,6 +295,7 @@ export default function McpPage() {
                 onTest={() => void handleTest(s)}
                 onEdit={() => setEditing({ id: s.id, input: toInput(s) })}
                 onDelete={() => setConfirmDelete(s)}
+                onRefresh={() => void refresh()}
               />
             ))
           )}
@@ -403,6 +410,7 @@ function ServerRow({
   onTest,
   onEdit,
   onDelete,
+  onRefresh,
 }: {
   server: McpServer;
   test?: { loading: boolean; tools?: McpTool[]; error?: string };
@@ -410,10 +418,12 @@ function ServerRow({
   onTest: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onRefresh: () => void;
 }) {
   const { tr } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [openTool, setOpenTool] = useState<string | null>(null);
+  const [oauthOpen, setOauthOpen] = useState(false);
   const loaded = useMemo(() => loadServerTools(server, test?.tools), [server, test?.tools]);
   const toolCount = loaded.tools.length;
   // 测试失败优先展示最新一次结果；否则展示上次连接留下的错误。
@@ -495,6 +505,17 @@ function ServerRow({
                   </span>
                 </>
               )}
+              {/* OAuth/Token 授权态：只在有授权记录时展示，避免无 OAuth 服务的噪声 */}
+              {server.oauth_status && server.oauth_status !== 'none' && (
+                <>
+                  <span className="text-zinc-700">·</span>
+                  <span className={cn(server.oauth_status === 'expired' && 'text-warn')}>
+                    {server.oauth_status === 'authorized'
+                      ? tr('OAuth 已授权', 'OAuth authorized')
+                      : tr('OAuth 已过期', 'OAuth expired')}
+                  </span>
+                </>
+              )}
               {!freePass && (
                 <>
                   <span className="text-zinc-700">·</span>
@@ -524,6 +545,9 @@ function ServerRow({
           >
             {tr('测试连接', 'Test')}
           </RowAction>
+          <Hint content={isAdmin ? tr('OAuth 授权', 'OAuth') : tr('需要 admin 权限', 'Admin permission required')}>
+            <RowActionIcon icon={KeyRound} label={tr('OAuth 授权', 'OAuth')} onClick={() => setOauthOpen(true)} disabled={!isAdmin} />
+          </Hint>
           <Hint content={isAdmin ? tr('编辑', 'Edit') : tr('需要 admin 权限', 'Admin permission required')}>
             <RowActionIcon icon={Pencil} label={tr('编辑', 'Edit')} onClick={onEdit} disabled={!isAdmin} />
           </Hint>
@@ -573,6 +597,14 @@ function ServerRow({
           {/* 资源 / 提示词分组：展开时实时拉取，失败给横幅与重试 */}
           <ServerExtras server={server} />
         </div>
+      )}
+
+      {oauthOpen && (
+        <OAuthDialog
+          server={server}
+          onClose={() => setOauthOpen(false)}
+          onChanged={onRefresh}
+        />
       )}
     </Card>
   );
@@ -1408,6 +1440,233 @@ function RegistryDialog({
             )}
           </div>
         ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+// ---------- OAuth 授权 --------------------------------------------------------
+
+function OAuthDialog({
+  server,
+  onClose,
+  onChanged,
+}: {
+  server: McpServer;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { tr } = useI18n();
+  const [status, setStatus] = useState<McpOauthStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [accessToken, setAccessToken] = useState('');
+  const [refreshToken, setRefreshToken] = useState('');
+  const [expiresIn, setExpiresIn] = useState('');
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const pollTimer = useRef<number | null>(null);
+
+  const loadStatus = useCallback(async (): Promise<McpOauthStatus | null> => {
+    try {
+      const s = await getMcpOauthStatus(server.id);
+      setStatus(s);
+      return s;
+    } catch (e) {
+      setErr(errorText(e));
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [server.id]);
+
+  useEffect(() => {
+    void loadStatus();
+    return () => {
+      if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
+    };
+  }, [loadStatus]);
+
+  // 浏览器授权回调后轮询状态（2s 一次，至多 5 分钟）
+  const startPolling = useCallback(() => {
+    if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
+    let ticks = 0;
+    pollTimer.current = window.setInterval(() => {
+      ticks += 1;
+      if (ticks > 150) {
+        if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
+        pollTimer.current = null;
+        return;
+      }
+      void (async () => {
+        const s = await loadStatus();
+        if (s?.authorized && pollTimer.current !== null) {
+          window.clearInterval(pollTimer.current);
+          pollTimer.current = null;
+          onChanged();
+        }
+      })();
+    }, 2000);
+  }, [loadStatus, onChanged]);
+
+  const onAuthorize = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await startMcpOauth(server.id);
+      window.open(r.authorize_url, '_blank');
+      startPolling();
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onSaveManual = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const parsed = expiresIn.trim() === '' ? undefined : Number(expiresIn);
+      if (parsed !== undefined && (!Number.isFinite(parsed) || parsed <= 0)) {
+        throw new Error(tr('有效期必须是正数秒', 'Expiry must be a positive number of seconds'));
+      }
+      const s = await saveMcpOauthToken(server.id, {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_in: parsed,
+      });
+      setStatus(s);
+      setManualOpen(false);
+      setAccessToken('');
+      setRefreshToken('');
+      setExpiresIn('');
+      onChanged();
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRevoke = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await revokeMcpOauth(server.id);
+      setStatus({ authorized: false, auth_source: null, expires_at: null, expired: false });
+      onChanged();
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+      setConfirmRevoke(false);
+    }
+  };
+
+  const statusLabel =
+    status === null
+      ? tr('加载中…', 'Loading…')
+      : status.authorized
+        ? tr(
+            `已授权（${status.auth_source === 'manual' ? '手动' : 'OAuth'}）`,
+            `Authorized (${status.auth_source ?? 'oauth'})`,
+          )
+        : status.expired
+          ? tr('已过期', 'Expired')
+          : tr('未授权', 'Not authorized');
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="md"
+      title={tr(`OAuth 授权 · ${server.name}`, `OAuth · ${server.name}`)}
+      footer={
+        <Button size="sm" onClick={onClose} variant="ghost">{tr('关闭', 'Close')}</Button>
+      }
+    >
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 text-[12px] text-zinc-300">
+          <span className="text-zinc-500">{tr('当前状态：', 'Status: ')}</span>
+          {loading ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <span className={cn(status?.expired && 'text-warn')}>{statusLabel}</span>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <RowAction icon={busy ? Loader2 : KeyRound} iconClassName={busy ? 'animate-spin' : undefined} disabled={busy} onClick={() => void onAuthorize()}>
+            {tr('开始授权', 'Authorize')}
+          </RowAction>
+          <RowAction icon={Pencil} onClick={() => setManualOpen((v) => !v)}>
+            {tr('手动粘贴 Token', 'Paste token manually')}
+          </RowAction>
+          {status?.authorized && (
+            <RowAction icon={Trash2} tone="danger" onClick={() => setConfirmRevoke(true)}>
+              {tr('解绑', 'Unlink')}
+            </RowAction>
+          )}
+        </div>
+
+        <p className="text-[11px] leading-5 text-zinc-500">
+          {tr(
+            '开始授权会在新窗口打开授权服务器页面（授权码 + PKCE）；完成后本弹窗自动刷新状态。不支持动态注册的服务请用「手动粘贴 Token」。',
+            'Authorize opens the authorization server in a new tab (auth code + PKCE); this dialog refreshes automatically. For servers without dynamic registration, paste a token manually.',
+          )}
+        </p>
+
+        {manualOpen && (
+          <div className="space-y-3 rounded-lg border border-zinc-800/60 bg-zinc-950/40 p-3">
+            <Field label={tr('Access Token（必填）', 'Access token (required)')}>
+              <Input
+                type="text"
+                value={accessToken}
+                onChange={(e) => setAccessToken(e.target.value)}
+                className={cn(inputClass, 'font-sans')}
+              />
+            </Field>
+            <Field label={tr('Refresh Token（可选，不自动刷新）', 'Refresh token (optional, no auto refresh)')}>
+              <Input
+                type="text"
+                value={refreshToken}
+                onChange={(e) => setRefreshToken(e.target.value)}
+                className={cn(inputClass, 'font-sans')}
+              />
+            </Field>
+            <Field label={tr('有效期（秒，可选）', 'Expires in (seconds, optional)')}>
+              <Input
+                type="number"
+                value={expiresIn}
+                onChange={(e) => setExpiresIn(e.target.value)}
+                className="w-36 font-sans"
+              />
+            </Field>
+            <Button size="sm" variant="primary" disabled={busy || accessToken.trim() === ''} onClick={() => void onSaveManual()}>
+              {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+              {tr('保存 Token', 'Save token')}
+            </Button>
+          </div>
+        )}
+
+        {err && <ErrorBanner>{err}</ErrorBanner>}
+
+        <ConfirmDialog
+          open={confirmRevoke}
+          title={tr('解绑 Token？', 'Unlink token?')}
+          description={tr(
+            '解绑后该服务的请求不再携带授权头，需要重新授权或粘贴 Token。',
+            'Requests will no longer carry the auth header; re-authorize or paste a token to restore access.',
+          )}
+          confirmLabel={tr('解绑', 'Unlink')}
+          danger
+          onConfirm={async () => {
+            await onRevoke();
+          }}
+          onClose={() => setConfirmRevoke(false)}
+        />
       </div>
     </Modal>
   );

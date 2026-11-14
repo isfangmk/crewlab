@@ -20,6 +20,8 @@ export interface McpServer {
   resources_count?: number;
   prompts_count?: number;
   last_probed_at?: string | null;
+  /** OAuth/手动 Token 授权态：none | authorized | expired。 */
+  oauth_status?: 'none' | 'authorized' | 'expired';
   embedding_sync_status?: string;
   embedding_sync_count?: number;
   embedding_sync_error?: string;
@@ -302,4 +304,38 @@ export async function searchMcpRegistry(
     throw new Error('Registry 搜索响应缺少 items');
   }
   return r;
+}
+
+/** OAuth/手动 Token 授权状态。 */
+export interface McpOauthStatus {
+  authorized: boolean;
+  auth_source: 'oauth' | 'manual' | null;
+  expires_at: string | null;
+  expired: boolean;
+}
+
+export async function startMcpOauth(serverId: number): Promise<{ authorize_url: string }> {
+  const r = await request<{ authorize_url: string }>(
+    'POST',
+    `/mcp/servers/${serverId}/oauth/start`,
+  );
+  if (typeof r.authorize_url !== 'string' || r.authorize_url === '') {
+    throw new Error('OAuth 授权响应缺少 authorize_url');
+  }
+  return r;
+}
+
+export async function getMcpOauthStatus(serverId: number): Promise<McpOauthStatus> {
+  return request<McpOauthStatus>('GET', `/mcp/servers/${serverId}/oauth/status`);
+}
+
+export async function saveMcpOauthToken(
+  serverId: number,
+  input: { access_token: string; refresh_token?: string; expires_in?: number },
+): Promise<McpOauthStatus> {
+  return request<McpOauthStatus>('POST', `/mcp/servers/${serverId}/oauth/token`, input);
+}
+
+export async function revokeMcpOauth(serverId: number): Promise<void> {
+  await request<{ ok: boolean }>('DELETE', `/mcp/servers/${serverId}/oauth`);
 }

@@ -23,6 +23,7 @@ from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.models_orm.knowledge_source import KnowledgeSource
 from app.models_orm.llm import AppSetting, LlmProvider
 from app.models_orm.mcp import McpServer, McpToolEmbedding
+from app.models_orm.mcp_oauth import McpOauthState, McpOauthToken
 from app.models_orm.observation import ObservationToolCall, ObservationTurn
 from app.models_orm.sandbox import SandboxExecution
 from app.models_orm.secret import SecretCredential
@@ -44,6 +45,8 @@ __all__ = [
     "Approval",
     "McpServer",
     "McpToolEmbedding",
+    "McpOauthToken",
+    "McpOauthState",
     "UserAgent",
     "UserAgentVersion",
     "KnowledgeDoc",

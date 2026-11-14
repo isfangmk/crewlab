@@ -1,5 +1,5 @@
 // MCP 服务卡片测试 — 摘要行、内联工具清单、资源/提示词分组与 Registry 预填。
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
@@ -36,6 +36,7 @@ const mcpServer = {
   resources_count: 1,
   prompts_count: 1,
   last_probed_at: '2026-11-14T08:00:00Z',
+  oauth_status: 'authorized',
   embedding_sync_status: 'ok',
   embedding_sync_count: 3,
 };
@@ -285,5 +286,54 @@ describe('Registry 分页深翻', () => {
     expect(await screen.findByText('已加载 2 个')).toBeInTheDocument();
     expect(screen.getByText('item-b')).toBeInTheDocument();
     expect(screen.queryByText(/加载更多失败/)).not.toBeInTheDocument();
+  });
+});
+
+describe('OAuth 授权', () => {
+  it('摘要行显示 OAuth 授权状态', async () => {
+    renderPage();
+    expect(await screen.findByText('OAuth 已授权')).toBeInTheDocument();
+  });
+
+  it('弹窗手动粘贴 Token 并保存', async () => {
+    const posted: unknown[] = [];
+    server.use(
+      http.get('/api/v1/mcp/servers/:id/oauth/status', () =>
+        HttpResponse.json({ authorized: false, auth_source: null, expires_at: null, expired: false }),
+      ),
+      http.post('/api/v1/mcp/servers/:id/oauth/token', async ({ request }) => {
+        posted.push(await request.json());
+        return HttpResponse.json({ authorized: true, auth_source: 'manual', expires_at: null, expired: false });
+      }),
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'OAuth 授权' }));
+    const dialog = await screen.findByRole('dialog', { name: 'OAuth 授权 · demo-tools' });
+    await userEvent.click(within(dialog).getByRole('button', { name: '手动粘贴 Token' }));
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /Access Token/ }), 'tok-1');
+    await userEvent.click(within(dialog).getByRole('button', { name: '保存 Token' }));
+    expect(await within(dialog).findByText('已授权（手动）')).toBeInTheDocument();
+    expect(posted).toMatchObject([{ access_token: 'tok-1' }]);
+  });
+
+  it('解绑需二次确认', async () => {
+    let revoked = 0;
+    server.use(
+      http.get('/api/v1/mcp/servers/:id/oauth/status', () =>
+        HttpResponse.json({ authorized: true, auth_source: 'oauth', expires_at: '2026-12-01T00:00:00Z', expired: false }),
+      ),
+      http.delete('/api/v1/mcp/servers/:id/oauth', () => {
+        revoked += 1;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'OAuth 授权' }));
+    const dialog = await screen.findByRole('dialog', { name: 'OAuth 授权 · demo-tools' });
+    await userEvent.click(within(dialog).getByRole('button', { name: '解绑' }));
+    const confirm = await screen.findByRole('dialog', { name: '解绑 Token？' });
+    await userEvent.click(within(confirm).getByRole('button', { name: '解绑' }));
+    expect(await within(dialog).findByText('未授权')).toBeInTheDocument();
+    expect(revoked).toBe(1);
   });
 });

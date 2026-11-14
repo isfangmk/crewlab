@@ -6,12 +6,13 @@ import json
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
-from app.services import mcp_registry_service, mcp_service
+from app.services import mcp_oauth_service, mcp_registry_service, mcp_service
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser
 
@@ -45,8 +46,12 @@ async def list_servers(
     _user: str = Depends(require_auth),
 ) -> dict:
     items = await mcp_service.list_servers(db)
+    oauth_map = await mcp_oauth_service.status_map(db, [s.id for s in items])
     return {
-        "items": [mcp_service.server_to_wire(s) for s in items],
+        "items": [
+            mcp_service.server_to_wire(s, oauth_status=oauth_map.get(s.id, "none"))
+            for s in items
+        ],
         "total": len(items),
     }
 
@@ -89,7 +94,7 @@ async def create_server(
             "approval_policy": row.approval_policy,
         },
     )
-    return mcp_service.server_to_wire(row)
+    return mcp_service.server_to_wire(row, oauth_status="none")
 
 
 @router.put("/mcp/servers/{server_id}")
@@ -320,3 +325,147 @@ async def search_registry(
         )
     except (httpx.HTTPError, TypeError) as exc:
         raise HTTPException(status_code=502, detail=f"Registry 不可达: {exc}") from exc
+
+
+# ---------- OAuth 授权 ----------------------------------------------------------
+
+_OAUTH_DONE_HTML = """<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>授权完成</title></head>
+<body style="font-family:sans-serif;padding:2rem">
+<h2>授权完成</h2>
+<p>可以关闭本窗口返回 CrewLab 继续操作。</p>
+<script>window.close();</script>
+<a href="/mcp">返回 MCP 服务页</a>
+</body></html>"""
+
+
+def _oauth_error_html(message: str) -> str:
+    """授权失败页：只给错误说明，不回显任何密钥/授权码。"""
+
+    return (
+        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
+        "<title>授权失败</title></head><body style=\"font-family:sans-serif;padding:2rem\">"
+        f"<h2>授权失败</h2><p>{message}</p><a href=\"/mcp\">返回 MCP 服务页</a>"
+        "</body></html>"
+    )
+
+
+class McpOauthTokenInput(BaseModel):
+    access_token: str = Field(min_length=1)
+    refresh_token: str = ""
+    expires_in: float | None = Field(default=None, gt=0)
+
+
+@router.post("/mcp/servers/{server_id}/oauth/start")
+async def oauth_start(
+    server_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    """发起 OAuth 授权：发现 + 动态注册 + PKCE，返回授权页 URL。"""
+
+    try:
+        server = await mcp_service.get_server(db, server_id)
+        result = await mcp_oauth_service.start_auth(db, server)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (httpx.HTTPError, OSError) as exc:
+        raise HTTPException(status_code=502, detail=f"授权服务器不可达: {exc}") from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="mcp.oauth_start",
+        resource_type="mcp_server",
+        resource_id=str(server_id),
+        detail={"name": server.name},
+    )
+    return result
+
+
+@router.get("/mcp/oauth/callback", response_class=HTMLResponse)
+async def oauth_callback(
+    code: str = "",
+    state: str = "",
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """授权回调（免登录）：换 token 后返回结果页，不回显任何密钥。"""
+
+    if code == "" or state == "":
+        return HTMLResponse(_oauth_error_html("缺少 code 或 state 参数"), status_code=400)
+    try:
+        await mcp_oauth_service.handle_callback(db, code=code, state=state)
+    except ValueError as exc:
+        return HTMLResponse(_oauth_error_html(str(exc)), status_code=400)
+    except (httpx.HTTPError, OSError) as exc:
+        return HTMLResponse(
+            _oauth_error_html(f"授权服务器不可达: {exc}"), status_code=502
+        )
+    return HTMLResponse(_OAUTH_DONE_HTML)
+
+
+@router.post("/mcp/servers/{server_id}/oauth/token")
+async def oauth_save_token(
+    server_id: int,
+    body: McpOauthTokenInput,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    """手动粘贴 Token 兜底（不支持动态注册的服务用）。"""
+
+    try:
+        await mcp_service.get_server(db, server_id)
+        status = await mcp_oauth_service.save_manual_token(
+            db,
+            server_id,
+            access_token=body.access_token,
+            refresh_token=body.refresh_token,
+            expires_in=body.expires_in,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="mcp.oauth_token_save",
+        resource_type="mcp_server",
+        resource_id=str(server_id),
+        detail={"auth_source": "manual"},
+    )
+    return status
+
+
+@router.get("/mcp/servers/{server_id}/oauth/status")
+async def oauth_status(
+    server_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    try:
+        await mcp_service.get_server(db, server_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await mcp_oauth_service.oauth_status(db, server_id)
+
+
+@router.delete("/mcp/servers/{server_id}/oauth")
+async def oauth_revoke(
+    server_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    try:
+        existing = await mcp_service.get_server(db, server_id)
+        name = existing.name
+        await mcp_oauth_service.revoke(db, server_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="mcp.oauth_revoke",
+        resource_type="mcp_server",
+        resource_id=str(server_id),
+        detail={"name": name},
+    )
+    return {"ok": True}

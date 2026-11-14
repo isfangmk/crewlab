@@ -46,8 +46,12 @@ def _cache_count(raw: str) -> int:
     return len(data) if isinstance(data, list) else 0
 
 
-def server_to_wire(s: McpServer) -> dict:
-    """把 ORM 行转成前端 MCP 列表/详情用的字段字典。"""
+def server_to_wire(s: McpServer, *, oauth_status: str = "none") -> dict:
+    """把 ORM 行转成前端 MCP 列表/详情用的字段字典。
+
+    oauth_status 由调用方批量查 mcp_oauth_tokens 后传入（none|authorized|expired），
+    避免同步 wire 转换里夹带逐行解密查询。
+    """
 
     return {
         "id": s.id,
@@ -63,6 +67,7 @@ def server_to_wire(s: McpServer) -> dict:
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
         "last_error": s.last_error,
         "tools_cache_json": s.tools_cache_json,
+        "oauth_status": oauth_status,
         # 资源/提示词计数来自探测缓存，列表展示不必连远程
         "resources_count": _cache_count(s.resources_cache_json),
         "prompts_count": _cache_count(s.prompts_cache_json),
@@ -236,6 +241,13 @@ async def connection_params_for_server(db: AsyncSession, server: McpServer):
         )
 
     headers = render_header_template(template_headers, credential_fields)
+
+    # OAuth / 手动 Token 优先于模板同名键：授权态以 Token 为准
+    from app.services import mcp_oauth_service
+
+    auth_headers = await mcp_oauth_service.ensure_auth_headers(db, server)
+    if auth_headers:
+        headers.update(auth_headers)
 
     if server.transport == "http":
         return StreamableHTTPConnectionParams(url=server.endpoint, headers=headers)
