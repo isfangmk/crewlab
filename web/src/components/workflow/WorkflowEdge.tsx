@@ -112,7 +112,7 @@ export function WorkflowEdge({
 
             {open && (
               <div
-                className="pointer-events-auto absolute left-1/2 top-7 z-20 w-[212px] -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-card shadow-xl"
+                className="nodrag nopan nowheel pointer-events-auto absolute left-1/2 top-7 z-20 w-[212px] -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-card shadow-xl"
                 onMouseEnter={() => setHovered(true)}
                 onMouseLeave={() => setHovered(false)}
               >
