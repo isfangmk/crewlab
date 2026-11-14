@@ -62,6 +62,8 @@ class ResolvedAgent:
     knowledge_scope: KnowledgeScope = empty_scope()
     # 勾选的技能 key；None = 继承全部技能（磁盘 + 用户），[] = 不装配任何技能
     skills: list[str] | None = None
+    # 子助理委托：委托链在保存时校验（存在性 / 防环）
+    sub_agents: tuple[str, ...] = ()
 
 
 def _parse_str_list(raw: str, field: str) -> list[str]:
@@ -181,6 +183,7 @@ def agent_to_wire(agent: ResolvedAgent) -> dict:
         "examples": [dict(item) for item in agent.examples],
         "knowledge_scope": scope_to_wire(agent.knowledge_scope),
         "skills": None if agent.skills is None else list(agent.skills),
+        "sub_agents": list(agent.sub_agents),
         "source": agent.source,
     }
 
@@ -220,6 +223,11 @@ def _row_to_resolved(row: UserAgent) -> ResolvedAgent:
         examples=_parse_examples_json(row.examples_json),
         knowledge_scope=_parse_scope_json(row.knowledge_scope_json),
         skills=_parse_skills_json(row.skills_json),
+        sub_agents=(
+            _parse_str_list(row.sub_agents_json, "sub_agents_json")
+            if row.sub_agents_json
+            else ()
+        ),
     )
 
 
@@ -238,6 +246,33 @@ def validate_permission_mode(mode: str) -> None:
             f"permission_mode 非法: {mode!r}（允许："
             f"{', '.join(repr(m) for m in PERMISSION_MODES if m != '')} 或空串）"
         )
+
+
+async def validate_sub_agents(
+    db: AsyncSession,
+    parent_name: str,
+    sub_names: tuple[str, ...],
+) -> None:
+    """子助理委托校验：存在、不自引用、沿委托链无环。"""
+
+    for name in sub_names:
+        if name == parent_name:
+            raise ValueError(f"不能把助理委托给自己: {name}")
+        try:
+            agent = await get_agent(db, name)
+        except LookupError as exc:
+            raise ValueError(f"子助理不存在: {name}") from exc
+        stack = list(agent.sub_agents)
+        seen: set[str] = set()
+        while stack:
+            cur = stack.pop()
+            if cur == parent_name:
+                raise ValueError(f"子助理委托成环: {name} 的委托链回到了 {parent_name}")
+            if cur in seen:
+                continue
+            seen.add(cur)
+            sub = await get_agent(db, cur)
+            stack.extend(sub.sub_agents)
 
 
 def agent_disallowed_tool_names(agent: ResolvedAgent) -> set[str]:
@@ -359,8 +394,10 @@ async def create_user_agent(
     examples: tuple[dict[str, str], ...] = (),
     knowledge_scope: KnowledgeScope = empty_scope(),
     skills: list[str] | None = None,
+    sub_agents: tuple[str, ...] = (),
 ) -> ResolvedAgent:
     validate_agent_name(name)
+    await validate_sub_agents(db, name, sub_agents)
     if description == "":
         raise ValueError("description 不能为空")
     if system_prompt == "":
@@ -388,11 +425,19 @@ async def create_user_agent(
         examples_json=_dump_examples(examples),
         knowledge_scope_json=json.dumps(scope_to_wire(scope), ensure_ascii=False),
         skills_json=_dump_skills(skills),
+        sub_agents_json=(
+            _dump_str_list(list(sub_agents), "sub_agents") if sub_agents else None
+        ),
     )
     db.add(row)
     await db.commit()
     await db.refresh(row)
-    logger.info("创建用户助理 name=%s tools=%s", name, len(allowed_tools))
+    logger.info(
+        "创建用户助理 name=%s tools=%s sub_agents=%s",
+        name,
+        len(allowed_tools),
+        len(sub_agents),
+    )
     return _row_to_resolved(row)
 
 
@@ -413,10 +458,12 @@ async def update_user_agent(
     examples: tuple[dict[str, str], ...] = (),
     knowledge_scope: KnowledgeScope = empty_scope(),
     skills: list[str] | None = None,
+    sub_agents: tuple[str, ...] = (),
 ) -> ResolvedAgent:
     row = await db.get(UserAgent, name)
     if row is None:
         raise LookupError(f"助理不存在: {name}")
+    await validate_sub_agents(db, name, sub_agents)
     if description == "":
         raise ValueError("description 不能为空")
     if system_prompt == "":
@@ -439,6 +486,9 @@ async def update_user_agent(
     row.examples_json = _dump_examples(examples)
     row.knowledge_scope_json = json.dumps(scope_to_wire(scope), ensure_ascii=False)
     row.skills_json = _dump_skills(skills)
+    row.sub_agents_json = (
+        _dump_str_list(list(sub_agents), "sub_agents") if sub_agents else None
+    )
     await db.commit()
     await db.refresh(row)
     logger.info("更新用户助理 name=%s", name)
@@ -451,6 +501,15 @@ async def delete_user_agent(db: AsyncSession, name: str) -> None:
     row = await db.get(UserAgent, name)
     if row is None:
         raise LookupError(f"助理不存在: {name}")
+    # 仍被其他助理委托时禁止删除：否则父助理的委托链会在运行期断掉
+    referrers: list[str] = []
+    for other in (await db.scalars(select(UserAgent))).all():
+        if other.name == name or not other.sub_agents_json:
+            continue
+        if name in _parse_str_list(other.sub_agents_json, "sub_agents_json"):
+            referrers.append(other.name)
+    if referrers:
+        raise ValueError(f"以下助理仍在委托它，先解除委托再删除: {sorted(referrers)}")
     await db.delete(row)
     await db.commit()
     logger.info("删除用户助理 name=%s", name)

@@ -51,6 +51,8 @@ def build_chat_agent(
     max_turns: int = 0,
     knowledge_scope: KnowledgeScope | None = None,
     skills: list[Any] | None = None,
+    sub_agents: list[Any] | None = None,
+    adk_name: str = "workbench_chat",
 ) -> LlmAgent:
     """按配置-模型与助理人设装配 LlmAgent；extra_tools 挂 MCP SearchableToolset 等。
 
@@ -118,9 +120,10 @@ def build_chat_agent(
         )
     if extra_tools is not None:
         tools.extend(extra_tools)
-    # ADK Runner 侧固定 agent 名；业务助理标识只进日志与人设 instruction。
+    # ADK agent 名必须是合法 Python 标识符（委托工具名由它派生）；
+    # 业务助理标识只进日志与人设 instruction。
     return LlmAgent(
-        name="workbench_chat",
+        name=adk_name,
         model=llm,
         description=agent_description if agent_description != "" else "AI 工作台对话智能体",
         instruction=instruction,
@@ -128,6 +131,7 @@ def build_chat_agent(
         before_tool_callback=build_before_tool_callback(
             confirm_names, disallowed_tool_names
         ),
+        sub_agents=[a for a in (sub_agents or []) if a is not None],
     )
 
 

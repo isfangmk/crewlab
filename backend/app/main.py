@@ -60,6 +60,10 @@ async def lifespan(_app: FastAPI):
         if engine.dialect.name == "postgresql":
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
+    # create_all 只建缺失的表；既有库的新增列在启动期幂等补齐
+    from app.db_schema import ensure_schema
+
+    await ensure_schema(engine)
 
     # 向量存储与业务库分离：未启用时显式记录，向量依赖操作在调用点显式失败
     from app.vector_store import get_vector_store

@@ -31,6 +31,8 @@ export type AgentSummary = {
   knowledge_scope: KnowledgeScope;
   /** 勾选的技能 key；null = 继承全部技能 */
   skills: string[] | null;
+  /** 可委托的子助理 name 列表；空 = 不委托 */
+  sub_agents: string[];
   source: AgentSource;
 };
 
@@ -51,6 +53,8 @@ export type UserAgentInput = {
   knowledge_scope: KnowledgeScope;
   /** null = 继承全部技能；数组 = 只装配这些（空数组 = 不装配任何技能） */
   skills: string[] | null;
+  /** 子助理委托：name 列表；空数组 = 不委托 */
+  sub_agents: string[];
 };
 
 export type AgentListResp = { items: AgentSummary[]; total: number };

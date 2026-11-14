@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -35,6 +36,7 @@ from app.services import (
 )
 from app.services.llm_config import resolve_model
 from app.services import turn_control
+from app.adk_runtime.sub_agents import build_sub_agents_for_agent
 from app.services.web_search_service import resolve_deepseek_search_cred
 
 logger = logging.getLogger(__name__)
@@ -740,7 +742,11 @@ async def _replay_adk_events(
         app_name=APP_NAME, user_id=session.adk_user_id, session_id=session.id
     )
     replayed = 0
-    for role, kind, content in history:
+    # 回放是紧循环：Windows 时钟粒度约 15.6ms，连续事件会拿到相同时间戳，
+    # ADK 按 (timestamp, id) 排序时 id 是随机 UUID，历史顺序会被打乱。
+    # 这里显式给每条回放事件递增微秒，保证顺序稳定。
+    base_ts = time.time()
+    for index, (role, kind, content) in enumerate(history):
         if kind != "message" or role not in ("user", "assistant"):
             continue
         text = (content or "").strip()
@@ -751,6 +757,7 @@ async def _replay_adk_events(
             session=adk_session,
             event=Event(
                 author="user" if is_user else "workbench_chat",
+                timestamp=base_ts + index * 1e-6,
                 content=types.Content(
                     role="user" if is_user else "model",
                     parts=[types.Part(text=text)],
@@ -1540,6 +1547,17 @@ async def stream_session_message(
             max_turns=resolved_agent.max_turns,
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,
+            sub_agents=await build_sub_agents_for_agent(
+                db,
+                resolved_agent,
+                provider_id=llm.provider_id,
+                model=use_model,
+                base_url=llm.base_url,
+                api_key=llm.api_key,
+                model_prefix=llm.model_prefix,
+                provider_extra_body=llm_config.provider_extra_body(llm),
+                thinking_enabled=thinking_enabled,
+            ),
         ):
             if turn_control.is_stopped(session_id):
                 logger.info("回合被停止 session_id=%s", session_id)

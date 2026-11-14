@@ -602,6 +602,7 @@ async def stream_adk_turn(
     image_parts: list[tuple[bytes, str]] | None = None,
     knowledge_scope: KnowledgeScope | None = None,
     skills: list[Any] | None = None,
+    sub_agents: list[Any] | None = None,
 ) -> AsyncIterator[SseFrame]:
     """跑一轮用户对话；可附带图片多模态 parts。"""
 
@@ -623,6 +624,7 @@ async def stream_adk_turn(
         max_turns=max_turns,
         knowledge_scope=knowledge_scope,
         skills=skills,
+        sub_agents=sub_agents,
     )
     runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
     existing = await session_service.get_session(
@@ -682,6 +684,7 @@ async def stream_adk_confirmation(
     max_turns: int = 0,
     knowledge_scope: KnowledgeScope | None = None,
     skills: list[Any] | None = None,
+    sub_agents: list[Any] | None = None,
 ) -> AsyncIterator[SseFrame]:
     """用 ADK FunctionResponse 恢复被确认闸门拦住的回合。"""
 
@@ -705,6 +708,7 @@ async def stream_adk_confirmation(
         max_turns=max_turns,
         knowledge_scope=knowledge_scope,
         skills=skills,
+        sub_agents=sub_agents,
     )
     runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
     existing = await session_service.get_session(

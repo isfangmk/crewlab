@@ -101,7 +101,7 @@ async def _upstream_reasoning_chunks(*, thinking_type: str) -> int:
                 select(LlmProvider).where(LlmProvider.provider_id == "custom")
             )
             if p is None:
-                raise RuntimeError("custom provider 不存在")
+                pytest.skip("custom provider 未配置，跳过上游 thinking 校验")
             base_url, api_key, model = p.base_url, p.api_key, p.default_model
     finally:
         await engine.dispose()

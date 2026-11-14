@@ -45,6 +45,8 @@ class UserAgentInput(BaseModel):
     knowledge_scope: KnowledgeScopeInput
     # None = 继承全部技能；数组 = 只装配这些（可为空数组 = 不装配任何技能）
     skills: list[str] | None = None
+    # 子助理委托：name 列表；空/缺省 = 不委托
+    sub_agents: list[str] = []
 
 
 def _agent_audit_detail(agent: object) -> dict:
@@ -63,6 +65,7 @@ def _agent_audit_detail(agent: object) -> dict:
         "knowledge_scope_paths": list(scope.paths),
         "knowledge_scope_docs": len(scope.doc_ids),
         "skills": getattr(agent, "skills"),
+        "sub_agents": list(getattr(agent, "sub_agents")),
     }
 
 
@@ -154,6 +157,7 @@ async def create_user_agent(
             examples=tuple(item.model_dump() for item in body.examples),
             knowledge_scope=scope,
             skills=body.skills,
+            sub_agents=tuple(body.sub_agents),
         )
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -193,6 +197,7 @@ async def update_user_agent(
             examples=tuple(item.model_dump() for item in body.examples),
             knowledge_scope=scope,
             skills=body.skills,
+            sub_agents=tuple(body.sub_agents),
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

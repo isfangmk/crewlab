@@ -42,6 +42,8 @@ class UserAgent(Base):
     )
     # 勾选的技能 key；NULL = 继承全部技能，'[]' = 不装配任何技能
     skills_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 子助理委托：JSON 数组（助理 name 列表）；NULL = 无委托
+    sub_agents_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         AwareDateTime(), server_default=func.now(), nullable=False
     )

@@ -43,7 +43,7 @@ import {
 import { cn } from '@/lib/cn';
 import { mcpToolWireName } from '@/lib/mcpWire';
 import { Modal } from '@/components/Modal';
-import { Button, Card, Chip, CodeBlock, DetailSection, EmptyStateCard,
+import { Button, Card, Checkbox, Chip, CodeBlock, DetailSection, EmptyStateCard,
   ErrorBanner, FilterBar, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Textarea } from '@/components/ui';
 import {
   createUserAgent,
@@ -678,6 +678,21 @@ function AgentDetailModal({
           )}
         </DetailSection>
 
+        {agent.sub_agents.length > 0 && (
+          <DetailSection title={tr('子助理委托', 'Sub-assistant delegation')}>
+            <div className="flex flex-wrap gap-1.5">
+              {agent.sub_agents.map((name) => (
+                <span
+                  key={name}
+                  className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400"
+                >
+                  {name}
+                </span>
+              ))}
+            </div>
+          </DetailSection>
+        )}
+
         <DetailSection title={tr('输出格式与示例', 'Output format & examples')}>
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-zinc-500">
             <span>
@@ -782,6 +797,9 @@ function AgentEditor({
   const [selectedSkills, setSelectedSkills] = useState<string[] | null>(
     base?.skills === undefined ? null : base.skills,
   );
+  // 子助理候选：编辑时排除自身（后端同样拒绝自引用）
+  const [subAgents, setSubAgents] = useState<string[]>(base?.sub_agents ?? []);
+  const [subAgentCandidates, setSubAgentCandidates] = useState<AgentSummary[]>([]);
   const [permissionMode, setPermissionMode] = useState(base?.permission_mode ?? '');
   const [model, setModel] = useState(base?.model ?? '');
   const [maxTurns, setMaxTurns] = useState<number>(base?.max_turns ?? 0);
@@ -792,9 +810,12 @@ function AgentEditor({
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([listMcpServers(), listBuiltinTools(), listSkills()])
-      .then(([servers, builtins, skills]) => {
+    void Promise.all([listMcpServers(), listBuiltinTools(), listSkills(), listAgents()])
+      .then(([servers, builtins, skills, agents]) => {
         if (cancelled) return;
+        setSubAgentCandidates(
+          agents.items.filter((item) => item.name !== existing?.name),
+        );
         setCatalog({
           builtin: builtins.items.map((tool) => ({
             name: tool.name,
@@ -827,7 +848,7 @@ function AgentEditor({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [existing?.name]);
 
   const scopeBlocked =
     scope.mode === 'custom' &&
@@ -856,6 +877,7 @@ function AgentEditor({
         examples: examples.map((item) => ({ input: item.input, output: item.output })),
         knowledge_scope: scopeSelectionToWire(scope),
         skills: selectedSkills,
+        sub_agents: subAgents,
       };
       if (mode === 'create') {
         await createUserAgent(input);
@@ -992,6 +1014,49 @@ function AgentEditor({
             onSelectedSkillsChange={setSelectedSkills}
           />
         </Field>
+
+        <FieldGroup label={tr('子助理委托', 'Sub-assistant delegation')}>
+          <p className="mb-2 text-[11px] leading-relaxed text-zinc-500">
+            {tr(
+              '勾选的助理会成为父助理的可委托对象；由父助理按各自的「何时使用」判断何时转交，委托链最多 3 层。',
+              'Checked assistants become delegation targets; the parent decides when to hand off based on each one\'s "when to use", up to 3 levels deep.',
+            )}
+          </p>
+          {subAgentCandidates.length === 0 ? (
+            <div className="rounded border border-dashed border-zinc-800/60 px-2 py-1.5 text-[11px] text-zinc-500">
+              {tr('还没有其他助理可委托', 'No other assistants available yet')}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
+              {subAgentCandidates.map((item) => {
+                const checked = subAgents.includes(item.name);
+                return (
+                  <div
+                    key={item.name}
+                    className="flex items-start gap-1.5 rounded px-1.5 py-1 hover:bg-zinc-900/60"
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={() =>
+                        setSubAgents(
+                          checked
+                            ? subAgents.filter((name) => name !== item.name)
+                            : [...subAgents, item.name],
+                        )
+                      }
+                      className="mt-0.5 h-3 w-3"
+                      aria-label={tr(`委托给 ${item.name}`, `Delegate to ${item.name}`)}
+                    />
+                    <div className="min-w-0">
+                      <div className="truncate font-mono text-[11px] text-zinc-200">{item.name}</div>
+                      <div className="truncate text-[10px] text-zinc-500">{item.description}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </FieldGroup>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <Field label={tr('权限模式', 'Permission mode')}>
