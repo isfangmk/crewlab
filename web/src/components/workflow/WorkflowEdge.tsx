@@ -194,7 +194,7 @@ export function WorkflowEdge({
       {data !== undefined && data.route !== '' && (
         <EdgeLabelRenderer>
           <div
-            className="nodrag nopan pointer-events-none absolute rounded-md border border-border/70 bg-card px-1.5 py-[1px] font-mono text-[10px] leading-4 text-text-muted shadow-sm"
+            className="nodrag nopan pointer-events-none absolute rounded-md border border-border/70 bg-card px-1.5 py-[1px] font-sans text-[10px] leading-4 text-text-muted shadow-sm"
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 16}px)` }}
           >
             {data.route}

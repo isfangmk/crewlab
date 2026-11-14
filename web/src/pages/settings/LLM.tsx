@@ -733,7 +733,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
                       key={m}
                       className="flex items-center gap-2 py-2 text-[12.5px]"
                     >
-                      <code className="min-w-0 break-all font-mono text-zinc-100">{m}</code>
+                      <code className="min-w-0 break-all font-sans text-zinc-100">{m}</code>
                       {isDefault && (
                         <Chip dense tone="success">
                           <Star size={9} /> {tr('默认', 'Default')}

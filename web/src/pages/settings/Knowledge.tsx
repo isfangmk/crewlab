@@ -156,7 +156,7 @@ export default function SettingsKnowledge() {
                   inputMode="numeric"
                   value={size}
                   onChange={(e) => edit(setSize)(e.target.value)}
-                  className="font-mono text-[12px]"
+                  className="font-sans text-[12px]"
                 />
               </div>
               <div>
@@ -168,7 +168,7 @@ export default function SettingsKnowledge() {
                   inputMode="numeric"
                   value={overlap}
                   onChange={(e) => edit(setOverlap)(e.target.value)}
-                  className="font-mono text-[12px]"
+                  className="font-sans text-[12px]"
                 />
               </div>
             </div>
@@ -191,7 +191,7 @@ export default function SettingsKnowledge() {
                   inputMode="decimal"
                   value={minScore}
                   onChange={(e) => edit(setMinScore)(e.target.value)}
-                  className="font-mono text-[12px]"
+                  className="font-sans text-[12px]"
                 />
               </div>
               <p className="mt-2 text-[11px] leading-4 text-zinc-500">

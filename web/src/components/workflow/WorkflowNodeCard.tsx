@@ -170,7 +170,7 @@ export function WorkflowNodeCard({ data, selected }: NodeProps<CanvasFlowNode>) 
             <div className="mt-[1px] flex items-center gap-1 truncate text-[10px] leading-3 text-text-faint">
               <span className="truncate">{title}</span>
               <span className="opacity-60">·</span>
-              <span className="truncate font-mono">{node.id}</span>
+              <span className="truncate font-sans">{node.id}</span>
             </div>
           </div>
           {node.retry_count > 0 && (

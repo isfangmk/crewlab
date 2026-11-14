@@ -617,13 +617,13 @@ export default function AuditPage() {
                             {resourceMeta ? tr(resourceMeta.zh, resourceMeta.en) : row.resource_type}
                           </span>
                           {row.resource_id ? (
-                            <span className="mt-0.5 block truncate font-mono text-[10px] text-zinc-600" title={row.resource_id}>
+                            <span className="mt-0.5 block truncate font-sans text-[10px] text-zinc-600" title={row.resource_id}>
                               {row.resource_id}
                             </span>
                           ) : null}
                         </td>
                         <td className="min-w-0 px-3 py-2">
-                          <span className="block truncate font-mono text-[11px] text-zinc-500" title={JSON.stringify(row.detail)}>
+                          <span className="block truncate font-sans text-[11px] text-zinc-500" title={JSON.stringify(row.detail)}>
                             {summary(JSON.stringify(row.detail))}
                           </span>
                         </td>
@@ -654,14 +654,14 @@ export default function AuditPage() {
                 {detail.actor_user_id !== null ? ` (#${detail.actor_user_id})` : ''}
               </dd>
               <dt className="text-zinc-500">{tr('动作', 'Action')}</dt>
-              <dd className="font-mono text-zinc-200">{detail.action}</dd>
+              <dd className="font-sans text-zinc-200">{detail.action}</dd>
               <dt className="text-zinc-500">{tr('资源', 'Resource')}</dt>
-              <dd className="break-all font-mono text-zinc-200">
+              <dd className="break-all font-sans text-zinc-200">
                 {detail.resource_type}
                 {detail.resource_id ? ` / ${detail.resource_id}` : ''}
               </dd>
               <dt className="text-zinc-500">Request ID</dt>
-              <dd className="break-all font-mono text-zinc-400">{detail.request_id ?? '—'}</dd>
+              <dd className="break-all font-sans text-zinc-400">{detail.request_id ?? '—'}</dd>
             </dl>
             <div>
               <div className="mb-1 text-[11px] uppercase tracking-wide text-zinc-500">

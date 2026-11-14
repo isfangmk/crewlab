@@ -4,11 +4,11 @@ const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   darkMode: 'class',
   theme: {
+    // 全站只保留 sans：不生成等宽字体工具类，避免中文与英文混排出现异形字形。
+    fontFamily: {
+      sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+    },
     extend: {
-      fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
-      },
       colors: {
         bg: 'rgb(var(--bg) / <alpha-value>)',
         card: 'rgb(var(--card) / <alpha-value>)',

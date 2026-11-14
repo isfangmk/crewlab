@@ -233,7 +233,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
           <div className="space-y-3">
             <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1.5">
               <dt className="text-zinc-500">{tr('名称', 'Name')}</dt>
-              <dd className="font-mono text-zinc-200">{secret.name}</dd>
+              <dd className="font-sans text-zinc-200">{secret.name}</dd>
               <dt className="text-zinc-500">{tr('类型', 'Type')}</dt>
               <dd className="text-zinc-200">{typeLabel(secret.type)}</dd>
               <dt className="text-zinc-500">{tr('字段', 'Fields')}</dt>
@@ -242,7 +242,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
                   <span className="text-zinc-600">—</span>
                 ) : (
                   secret.field_keys.map((key) => (
-                    <Chip key={key} dense className="font-mono">
+                    <Chip key={key} dense className="font-sans">
                       {key}
                     </Chip>
                   ))
@@ -302,7 +302,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
                     <tbody className="divide-y divide-zinc-800/50">
                       {usage.map((item) => (
                         <tr key={item.id}>
-                          <td className="px-3 py-1.5 font-mono text-[12px] text-zinc-200">
+                          <td className="px-3 py-1.5 font-sans text-[12px] text-zinc-200">
                             {item.name}
                           </td>
                           <td className="px-3 py-1.5">
@@ -345,7 +345,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
                 <span className="mb-1 block text-[11px] text-zinc-400">
                   {fieldLabel(key)}
                   {fieldLabel(key) !== key ? (
-                    <span className="ml-1 font-mono text-[10px] text-zinc-600">{key}</span>
+                    <span className="ml-1 font-sans text-[10px] text-zinc-600">{key}</span>
                   ) : null}
                 </span>
                 <Input
@@ -358,7 +358,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
                     setValues((prev) => ({ ...prev, [key]: next }));
                   }}
                   placeholder={tr('新值（留空表示不修改）', 'New value (empty keeps current)')}
-                  className="w-full font-mono"
+                  className="w-full font-sans"
                 />
               </Label>
             ))}
@@ -383,7 +383,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
             </p>
             <div className="flex flex-wrap gap-1">
               {filled.map(([key]) => (
-                <Chip key={key} dense className="font-mono">
+                <Chip key={key} dense className="font-sans">
                   {key}
                 </Chip>
               ))}
@@ -397,7 +397,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
                   secret.field_keys
                     .filter((key) => (values[key] ?? '') === '')
                     .map((key) => (
-                      <Chip key={key} dense className="font-mono">
+                      <Chip key={key} dense className="font-sans">
                         {key}
                       </Chip>
                     ))
@@ -432,7 +432,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
               <dt className="text-zinc-500">{tr('字段', 'Fields')}</dt>
               <dd className="flex flex-wrap gap-1">
                 {rotated.field_keys.map((key) => (
-                  <Chip key={key} dense className="font-mono">
+                  <Chip key={key} dense className="font-sans">
                     {key}
                   </Chip>
                 ))}
@@ -459,7 +459,7 @@ export function SecretRotateDialog({ secret, types, health, onClose, onRotated }
                     ) : (
                       verifyItems.map((item) => (
                         <tr key={item.id}>
-                          <td className="px-3 py-1.5 font-mono text-[12px] text-zinc-200">
+                          <td className="px-3 py-1.5 font-sans text-[12px] text-zinc-200">
                             {item.name}
                           </td>
                           <td className="px-3 py-1.5">

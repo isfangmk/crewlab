@@ -388,7 +388,7 @@ function ToolRow({
           <button
             type="button"
             onClick={onView}
-            className="min-w-0 truncate text-left font-mono text-[12.5px] font-medium text-zinc-100 transition-colors hover:text-indigo-300"
+            className="min-w-0 truncate text-left font-sans text-[12.5px] font-medium text-zinc-100 transition-colors hover:text-indigo-300"
             title={tool.name}
           >
             {tool.name}
@@ -443,7 +443,7 @@ function ToolDetailModal({
         <div className="flex flex-wrap items-center gap-2">
           <RiskBadge value={tool.risk} />
           <Chip>builtin</Chip>
-          <span className="ml-auto font-mono text-[11px] text-zinc-500">{tool.name}</span>
+          <span className="ml-auto font-sans text-[11px] text-zinc-500">{tool.name}</span>
         </div>
 
         <DetailSection title={tr('描述', 'Description')}>
@@ -469,12 +469,12 @@ function ToolDetailModal({
                 <tbody className="divide-y divide-zinc-800/60">
                   {params.map((p) => (
                     <tr key={p.name}>
-                      <td className="whitespace-nowrap px-3 py-2 font-mono text-zinc-200">{p.name}</td>
+                      <td className="whitespace-nowrap px-3 py-2 font-sans text-zinc-200">{p.name}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-zinc-400">{p.type}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-zinc-400">
                         {p.required ? tr('是', 'Yes') : '—'}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 font-mono text-zinc-400">
+                      <td className="whitespace-nowrap px-3 py-2 font-sans text-zinc-400">
                         {p.default === undefined || p.default === null ? '—' : String(p.default)}
                       </td>
                     </tr>
@@ -547,7 +547,7 @@ function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void })
     >
       <div className="space-y-4">
         <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
-          <div className="font-mono text-[11px] text-zinc-100">{tool.name}</div>
+          <div className="font-sans text-[11px] text-zinc-100">{tool.name}</div>
           {tool.description ? (
             <p className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{tool.description}</p>
           ) : null}
@@ -562,9 +562,9 @@ function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void })
             {params.map((p) => (
               <Label key={p.name} className="block min-w-0">
                 <span className="mb-0.5 flex items-center gap-1 text-[11px]">
-                  <span className="font-mono text-info">{p.name}</span>
+                  <span className="font-sans text-info">{p.name}</span>
                   {p.required ? <span className="text-warn">*</span> : null}
-                  <span className="font-mono text-zinc-600">{p.type}</span>
+                  <span className="font-sans text-zinc-600">{p.type}</span>
                   {p.desc ? <span className="truncate text-zinc-500">{p.desc}</span> : null}
                 </span>
                 {p.type === 'bool' ? (
@@ -572,7 +572,7 @@ function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void })
                     label={p.name}
                     value={values[p.name] ?? ''}
                     onValueChange={(v) => setValues((cur) => ({ ...cur, [p.name]: v }))}
-                    className="h-8 w-full font-mono text-[12px]"
+                    className="h-8 w-full font-sans text-[12px]"
                   >
                     <option value="">{tr('（选择）', '(select)')}</option>
                     <option value="true">true</option>
@@ -583,7 +583,7 @@ function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void })
                     label={p.name}
                     value={values[p.name] ?? ''}
                     onValueChange={(v) => setValues((cur) => ({ ...cur, [p.name]: v }))}
-                    className="h-8 w-full font-mono text-[12px]"
+                    className="h-8 w-full font-sans text-[12px]"
                   >
                     <option value="">{tr('（选择）', '(select)')}</option>
                     {p.enum.map((opt) => (
@@ -596,7 +596,7 @@ function ToolRunModal({ tool, onClose }: { tool: BuiltinTool; onClose(): void })
                     step={p.type === 'int' ? 1 : p.type === 'float' ? 'any' : undefined}
                     value={values[p.name] ?? ''}
                     onChange={(e) => setValues((cur) => ({ ...cur, [p.name]: e.target.value }))}
-                    className="h-8 w-full font-mono text-[12px]"
+                    className="h-8 w-full font-sans text-[12px]"
                   />
                 )}
               </Label>

@@ -194,7 +194,7 @@ function SessionIdCell({
         onClick={() => void copy()}
         aria-label={tr(`复制会话 ID ${id}`, `Copy session ID ${id}`)}
         title={tr('点击复制会话 ID', 'Click to copy session ID')}
-        className="w-full min-w-0 rounded text-left font-mono text-[10px] leading-4 text-zinc-500 transition-colors hover:text-zinc-300"
+        className="w-full min-w-0 rounded text-left font-sans text-[10px] leading-4 text-zinc-500 transition-colors hover:text-zinc-300"
       >
         <span className="break-all">{id}</span>
       </button>
@@ -584,7 +584,7 @@ export default function SessionsPage() {
           const tokens = row.original.total_tokens;
           return (
             <div className="min-w-0">
-              <span className="block truncate font-mono text-[11px] text-zinc-500" title={model || undefined}>
+              <span className="block truncate font-sans text-[11px] text-zinc-500" title={model || undefined}>
                 {model || '—'}
               </span>
               {tokens !== null && tokens !== undefined ? (
@@ -1145,7 +1145,7 @@ export default function SessionsPage() {
             <>
               <p>
                 {tr('确定删除会话 ', 'Delete ')}
-                <span className="font-mono text-zinc-100">{deleteTarget.title || deleteTarget.id}</span>
+                <span className="font-sans text-zinc-100">{deleteTarget.title || deleteTarget.id}</span>
                 {tr('？', '?')}
               </p>
               <p className="mt-2 text-zinc-500">

@@ -295,7 +295,7 @@ export default function PublishPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2">
-                        <span className="block truncate font-mono text-[11px] text-zinc-300" title={channel.agent_id}>
+                        <span className="block truncate font-sans text-[11px] text-zinc-300" title={channel.agent_id}>
                           {channel.agent_id}
                         </span>
                         <span className="block truncate text-[10px] text-zinc-500">
@@ -303,7 +303,7 @@ export default function PublishPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2">
-                        <span className="font-mono text-[11px] text-zinc-400">
+                        <span className="font-sans text-[11px] text-zinc-400">
                           {channel.key_masked}
                         </span>
                       </td>
@@ -579,7 +579,7 @@ function ChannelEditor({
         {channel !== null && (
           <div className="space-y-1 rounded-lg border border-zinc-800/60 bg-zinc-950/60 px-3 py-2">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-400">
-              <span className="font-mono text-zinc-300">{channel.key_masked}</span>
+              <span className="font-sans text-zinc-300">{channel.key_masked}</span>
               <span className="tabular-nums">
                 {tr(`${channel.usage.turns} 回合`, `${channel.usage.turns} turns`)}
               </span>

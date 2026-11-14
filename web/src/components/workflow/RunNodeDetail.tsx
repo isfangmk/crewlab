@@ -65,7 +65,7 @@ export function RunNodeDetail({
           <Icon size={12} className={tone.icon} aria-hidden />
         </span>
         <h2 className="truncate text-[13px] font-medium text-text">{title}</h2>
-        <span className="shrink-0 rounded border border-border/70 px-1 font-mono text-[10px] leading-4 text-text-faint">
+        <span className="shrink-0 rounded border border-border/70 px-1 font-sans text-[10px] leading-4 text-text-faint">
           {nodeId}
         </span>
         <span className="text-[10px] text-text-faint">{kindTitle(kind, null, locale === 'zh-CN')}</span>
@@ -75,14 +75,14 @@ export function RunNodeDetail({
           </span>
         )}
         {record !== null && record.route !== '' && (
-          <span className="rounded border border-border/70 bg-zinc-500/10 px-1 font-mono text-[10px] leading-4 text-text-muted">
+          <span className="rounded border border-border/70 bg-zinc-500/10 px-1 font-sans text-[10px] leading-4 text-text-muted">
             {record.route}
           </span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           <StatusPill tone={status.tone} pulse={status.pulse} label={status.label} />
           {record !== null && record.status !== 'running' && (
-            <span className="font-mono text-[10.5px] tabular-nums text-text-faint">
+            <span className="font-sans text-[10.5px] tabular-nums text-text-faint">
               {formatDuration(record.duration_ms)}
             </span>
           )}
@@ -129,7 +129,7 @@ export function RunNodeDetail({
 
             {record !== null && record.error !== '' && (
               <DetailBlock title={tr('错误', 'Error')}>
-                <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 font-mono text-[11px] leading-5 text-danger">
+                <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 font-sans text-[11px] leading-5 text-danger">
                   {record.error}
                 </pre>
               </DetailBlock>
@@ -138,7 +138,7 @@ export function RunNodeDetail({
             {/* 节点自己没报错但整条运行失败了：把运行级错误挂在这里，否则这一页看不出为什么红 */}
             {runError !== '' && (record === null || record.error === '') && (
               <DetailBlock title={tr('运行错误', 'Run error')}>
-                <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 font-mono text-[11px] leading-5 text-danger">
+                <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 font-sans text-[11px] leading-5 text-danger">
                   {runError}
                 </pre>
               </DetailBlock>
@@ -184,7 +184,7 @@ function GateInline({
           <>
             <span className="text-[10.5px] text-text-faint">
               {tr('提交字段：', 'Field: ')}
-              <span className="font-mono">{gateNode?.output_key ?? '—'}</span>
+              <span className="font-sans">{gateNode?.output_key ?? '—'}</span>
             </span>
             <Input
               value={value}
@@ -231,7 +231,7 @@ function DetailBlock({
       <div className="mb-1.5 flex items-center gap-1.5">
         <h3 className="text-[10.5px] font-medium uppercase tracking-wide text-text-faint">{title}</h3>
         {extra !== undefined && (
-          <span className="rounded-full border border-border/60 bg-zinc-500/[0.06] px-1.5 font-mono text-[9.5px] leading-4 text-text-faint">
+          <span className="rounded-full border border-border/60 bg-zinc-500/[0.06] px-1.5 font-sans text-[9.5px] leading-4 text-text-faint">
             {extra}
           </span>
         )}

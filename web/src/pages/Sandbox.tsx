@@ -514,7 +514,7 @@ function SandboxRow({
           type="button"
           onClick={onView}
           className={cn(
-            'block w-full truncate text-left font-mono text-[12.5px] font-medium transition-colors hover:text-indigo-300',
+            'block w-full truncate text-left font-sans text-[12.5px] font-medium transition-colors hover:text-indigo-300',
             row.status === 'failed' ? 'text-danger' : 'text-zinc-100',
           )}
           title={codePreview(row.code)}
@@ -533,10 +533,10 @@ function SandboxRow({
       <td className="whitespace-nowrap px-3 py-2">
         <StatusPill tone={status.tone} label={tr(status.zh, status.en)} />
       </td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono text-[11px] tabular-nums text-zinc-400">
+      <td className="whitespace-nowrap px-3 py-2 font-sans text-[11px] tabular-nums text-zinc-400">
         {row.exit_code === null ? <span className="text-zinc-600">{tr('无', 'n/a')}</span> : row.exit_code}
       </td>
-      <td className="whitespace-nowrap px-3 py-2 font-mono text-[11px] tabular-nums text-zinc-400">
+      <td className="whitespace-nowrap px-3 py-2 font-sans text-[11px] tabular-nums text-zinc-400">
         {formatDuration(row.duration_ms)}
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-zinc-500">
@@ -588,7 +588,7 @@ function ExecutionModal({
             onClick={() => void navigator.clipboard.writeText(execution.id).then(onCopied)}
             aria-label={tr('复制执行 ID', 'Copy execution ID')}
             title={tr('复制执行 ID', 'Copy execution ID')}
-            className="font-mono text-[11px] text-zinc-500 transition-colors hover:text-indigo-300"
+            className="font-sans text-[11px] text-zinc-500 transition-colors hover:text-indigo-300"
           >
             {execution.id}
           </button>
@@ -712,7 +712,7 @@ function RunCodeModal({
           <Label htmlFor="sandbox-code">{tr('Python 代码', 'Python code')}</Label>
           <Textarea
             id="sandbox-code"
-            className="min-h-[14rem] font-mono text-[11.5px]"
+            className="min-h-[14rem] font-sans text-[11.5px]"
             value={code}
             spellCheck={false}
             onChange={(event) => setCode(event.target.value)}

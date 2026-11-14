@@ -85,7 +85,7 @@ const CJK = /[\u3000-\u9fff\uff00-\uffef]/;
 function valueFont(text: string): string {
   return CJK.test(text)
     ? 'text-[12px] leading-5 text-text'
-    : 'font-mono text-[10.5px] leading-4 text-text';
+    : 'font-sans text-[10.5px] leading-4 text-text';
 }
 
 /** 单个字段：标签行在外，内容框在内。 */
@@ -106,7 +106,7 @@ export function RunValueBlock({
       <div className="flex items-center gap-1.5 border-b border-border/50 bg-zinc-500/[0.06] px-2.5 py-1">
         <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', DOT[tone])} aria-hidden />
         <span
-          className={cn('min-w-0 truncate font-mono text-[9.5px] leading-4', LABEL_TEXT[tone])}
+          className={cn('min-w-0 truncate font-sans text-[9.5px] leading-4', LABEL_TEXT[tone])}
           title={label}
         >
           {label}

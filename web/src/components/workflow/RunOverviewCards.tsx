@@ -86,7 +86,7 @@ export function RunOverviewCards({ run, runningCount, gate, gateLabel }: Props) 
       {/* 耗时卡 */}
       <div className="flex min-w-0 flex-col gap-1 rounded-xl border border-zinc-800/60 bg-zinc-900/40 px-3 py-2.5">
         <div className="text-[10px] text-text-faint">{tr('耗时', 'Duration')}</div>
-        <div className="font-mono text-[17px] font-semibold leading-5 tabular-nums text-text">
+        <div className="font-sans text-[17px] font-semibold leading-5 tabular-nums text-text">
           {formatDuration(run.duration_ms)}
         </div>
         <div className="truncate text-[10px] leading-4 text-text-faint">
@@ -98,26 +98,26 @@ export function RunOverviewCards({ run, runningCount, gate, gateLabel }: Props) 
       <div className="flex min-w-0 flex-col gap-1 rounded-xl border border-zinc-800/60 bg-zinc-900/40 px-3 py-2.5">
         <div className="flex items-center justify-between gap-2 text-[10px] text-text-faint">
           <span>{tr('节点进度', 'Progress')}</span>
-          <span className="font-mono tabular-nums text-text-muted">
+          <span className="font-sans tabular-nums text-text-muted">
             {done} / {total}
           </span>
         </div>
         <div className="flex flex-wrap items-baseline gap-x-1.5 text-[10.5px] leading-4">
           <span className="text-ok">
-            {tr('成功', 'ok')} <span className="font-mono tabular-nums">{ok}</span>
+            {tr('成功', 'ok')} <span className="font-sans tabular-nums">{ok}</span>
           </span>
           {running > 0 && (
             <span className="text-info">
-              · {tr('运行中', 'running')} <span className="font-mono tabular-nums">{running}</span>
+              · {tr('运行中', 'running')} <span className="font-sans tabular-nums">{running}</span>
             </span>
           )}
           {waitingCount > 0 && (
             <span className="text-warn">
-              · {tr('待人工', 'waiting')} <span className="font-mono tabular-nums">{waitingCount}</span>
+              · {tr('待人工', 'waiting')} <span className="font-sans tabular-nums">{waitingCount}</span>
             </span>
           )}
           <span className="text-text-faint">
-            · {tr('未执行', 'pending')} <span className="font-mono tabular-nums">{rest}</span>
+            · {tr('未执行', 'pending')} <span className="font-sans tabular-nums">{rest}</span>
           </span>
         </div>
         <div className="mt-0.5 flex h-1.5 overflow-hidden rounded-full bg-zinc-800" aria-hidden>

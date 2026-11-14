@@ -470,7 +470,7 @@ function ToolCallSummaryBlock({
           </span></Hint>
         )}
         {typeof call.device_id === 'number' && (
-          <Chip dense className="font-mono">host#{call.device_id}</Chip>
+          <Chip dense className="font-sans">host#{call.device_id}</Chip>
         )}
         <span className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500">
           {typeof call.duration_ms === 'number' && call.duration_ms > 0 && (
@@ -943,7 +943,7 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
           <div className="mb-2 flex flex-wrap items-center gap-1 text-[11px] text-zinc-400">
             <span>{tr('将注入凭证：', 'Injects credentials: ')}</span>
             {creds.map((c) => (
-              <Chip key={c} dense className="font-mono">{c}</Chip>
+              <Chip key={c} dense className="font-sans">{c}</Chip>
             ))}
           </div>
         )}

@@ -413,7 +413,7 @@ export default function EvalDatasetPage() {
                           )}
                         </td>
                         <td className="px-3 py-2">
-                          <span className="block font-mono text-[11px] text-zinc-300">
+                          <span className="block font-sans text-[11px] text-zinc-300">
                             {run.agent_id}
                           </span>
                           <span className="block text-[10px] text-zinc-500">
@@ -985,7 +985,7 @@ function RunResultDialog({
                 `${totalTokens.toLocaleString()} tokens · ${(totalDuration / 1000).toFixed(1)}s`,
               )}
             </span>
-            <span className="ml-auto font-mono text-[10px] text-zinc-500">
+            <span className="ml-auto font-sans text-[10px] text-zinc-500">
               {run.agent_id} · {run.provider} · {run.model}
             </span>
           </div>
@@ -1134,7 +1134,7 @@ function CompareDialog({
             aria-label={tr('基线运行', 'Baseline')}
             className="min-w-[22rem]"
           />
-          <span className="ml-auto font-mono text-[10px] text-zinc-500">
+          <span className="ml-auto font-sans text-[10px] text-zinc-500">
             {tr('当前', 'Current')}: {current.agent_id} · {current.model}
           </span>
         </div>

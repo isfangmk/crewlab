@@ -15,7 +15,7 @@ export function CodeBlock({ children, maxHeightClassName = 'max-h-72', wrap = tr
   return (
     <pre
       className={cn(
-        'overflow-auto rounded-lg border border-zinc-800/60 bg-zinc-950 px-3 py-2 font-mono text-[11px] leading-5 text-zinc-300',
+        'overflow-auto rounded-lg border border-zinc-800/60 bg-zinc-950 px-3 py-2 font-sans text-[11px] leading-5 text-zinc-300',
         maxHeightClassName,
         wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre',
         className,

@@ -1833,7 +1833,7 @@ export default function ChatThreadPage() {
                 size="sm"
               />
 
-              <span className="font-mono">#{sessionId}</span>
+              <span className="font-sans">#{sessionId}</span>
 
             </span>
 

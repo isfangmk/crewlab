@@ -333,7 +333,7 @@ export default function MemoryPage() {
                         <Link
                           to={`/chat/${m.source_session_id}`}
                           title={m.source_session_id}
-                          className="block truncate font-mono text-[11px] text-indigo-300 hover:underline"
+                          className="block truncate font-sans text-[11px] text-indigo-300 hover:underline"
                         >
                           {m.source_session_id.slice(0, 8)}
                         </Link>

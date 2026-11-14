@@ -167,7 +167,7 @@ export function ShareSessionDialog({
           <div className="space-y-3">
             <Label className="block">
               <span className="mb-1 block text-[12px] text-zinc-500">{tr('分享链接', 'Share link')}</span>
-              <Input readOnly value={result.link} className="w-full font-mono text-[12px]" />
+              <Input readOnly value={result.link} className="w-full font-sans text-[12px]" />
             </Label>
             <p className="text-[12px] text-zinc-500">
               {tr('过期时间：', 'Expires: ')}

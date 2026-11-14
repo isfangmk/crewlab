@@ -395,7 +395,7 @@ function ServerRow({
               <Server size={14} />
             </span>
             <span className="text-[12.5px] font-medium text-zinc-100">{server.name}</span>
-            <Chip className="font-mono">{server.transport}</Chip>
+            <Chip className="font-sans">{server.transport}</Chip>
             <StatusChip status={server.status} />
             {server.trusted && (
               <Chip tone="warning">
@@ -424,7 +424,7 @@ function ServerRow({
             {!server.enabled && <Chip tone="default">{tr('已停用', 'disabled')}</Chip>}
             <Chip tone="info">{tr(`${toolCount} 个工具`, `${toolCount} tool${toolCount === 1 ? '' : 's'}`)}</Chip>
           </div>
-          <div className="mt-2 break-all font-mono text-[11px] text-zinc-500">{server.endpoint || '—'}</div>
+          <div className="mt-2 break-all font-sans text-[11px] text-zinc-500">{server.endpoint || '—'}</div>
         </button>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <RowAction
@@ -519,7 +519,7 @@ function ToolRow({
           {open ? <ChevronDown size={13} className="shrink-0 text-zinc-400" /> : <ChevronRight size={13} className="shrink-0 text-zinc-400" />}
           <Wrench size={13} className="shrink-0 text-zinc-500" />
           <div className="min-w-0 flex-1">
-            <div className="font-mono text-[12.5px] leading-5 text-zinc-100">
+            <div className="font-sans text-[12.5px] leading-5 text-zinc-100">
               mcp__{serverName}__{tool.name}
             </div>
             {!open && tool.description && (
@@ -568,10 +568,10 @@ function ToolRow({
                     {fields.map((field) => (
                       <tr key={field.name} className="transition-colors hover:bg-zinc-900/70">
                         <td className="px-3 py-2 align-top">
-                          <Chip dense tone="info" className="font-mono">{field.name}</Chip>
+                          <Chip dense tone="info" className="font-sans">{field.name}</Chip>
                         </td>
                         <td className="px-3 py-2 align-top">
-                          <Chip dense className="font-mono">{field.type}</Chip>
+                          <Chip dense className="font-sans">{field.type}</Chip>
                         </td>
                         <td className="px-3 py-2 align-top">
                           {field.required ? (
@@ -580,7 +580,7 @@ function ToolRow({
                             <Chip tone="default" dense>{tr('可选', 'optional')}</Chip>
                           )}
                         </td>
-                        <td className="px-3 py-2 align-top font-mono text-[11px] text-zinc-500">
+                        <td className="px-3 py-2 align-top font-sans text-[11px] text-zinc-500">
                           {field.defaultValue || '—'}
                         </td>
                         <td className="max-w-md px-3 py-2 align-top text-[12px] leading-relaxed text-zinc-400">
@@ -721,7 +721,7 @@ function ToolRunModal({
     >
       <div className="space-y-4">
         <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/60 px-3 py-2">
-          <div className="font-mono text-[11px] leading-4 text-zinc-100">
+          <div className="font-sans text-[11px] leading-4 text-zinc-100">
             mcp__{serverName}__{tool.name}
           </div>
           {tool.description ? (
@@ -741,9 +741,9 @@ function ToolRunModal({
                   className={cn('block min-w-0', wide && 'sm:col-span-2')}
                 >
                   <span className="mb-0.5 flex h-5 items-center gap-1 overflow-hidden">
-                    <span className="shrink-0 font-mono text-[11px] text-info">{field.name}</span>
+                    <span className="shrink-0 font-sans text-[11px] text-info">{field.name}</span>
                     {field.required ? <span className="shrink-0 text-[10px] text-warn">*</span> : null}
-                    <span className="shrink-0 font-mono text-[10px] text-zinc-600">{field.type}</span>
+                    <span className="shrink-0 font-sans text-[10px] text-zinc-600">{field.type}</span>
                     {field.description ? (
                       <Hint content={field.description}>
                         <span className="min-w-0 flex-1 truncate text-[10px] text-zinc-500">{field.description}</span>
@@ -767,14 +767,14 @@ function ToolRunModal({
                       onChange={(e) => setValues((cur) => ({ ...cur, [field.name]: e.target.value }))}
                       rows={2}
                       placeholder={field.type.includes('array') ? '["a","b"]' : '{"k":"v"}'}
-                      className="w-full font-mono text-[12px]"
+                      className="w-full font-sans text-[12px]"
                     />
                   ) : (
                     <Input
                       type={field.type === 'number' || field.type === 'integer' ? 'number' : 'text'}
                       value={values[field.name] ?? ''}
                       onChange={(e) => setValues((cur) => ({ ...cur, [field.name]: e.target.value }))}
-                      className="w-full font-mono text-[12px]"
+                      className="w-full font-sans text-[12px]"
                     />
                   )}
                 </Label>
@@ -877,7 +877,7 @@ function ServerEditor({
             value={input.name}
             onChange={(e) => onChange({ name: e.target.value })}
             placeholder="github"
-            className={cn(inputClass, "font-mono")}
+            className={cn(inputClass, "font-sans")}
           />
         </Field>
 
@@ -904,7 +904,7 @@ function ServerEditor({
               value={input.endpoint}
               onChange={(e) => onChange({ endpoint: e.target.value })}
               placeholder="https://mcp.example.com/sse"
-              className={cn(inputClass, "font-mono")}
+              className={cn(inputClass, "font-sans")}
             />
           </Field>
         </div>
@@ -939,7 +939,7 @@ function ServerEditor({
             onChange={(e) => onChange({ header_template_json: e.target.value })}
             placeholder={'{"Authorization":"Bearer {{token}}"}'}
             rows={3}
-            className={cn(inputClass, "font-mono")}
+            className={cn(inputClass, "font-sans")}
           />
         </Field>
 

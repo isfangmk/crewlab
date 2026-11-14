@@ -446,7 +446,7 @@ export default function WorkflowRunPage() {
               <button
                 type="button"
                 onClick={() => void copyId()}
-                className="font-mono transition-colors hover:text-zinc-300"
+                className="font-sans transition-colors hover:text-zinc-300"
                 title={tr('点击复制', 'Click to copy')}
               >
                 {run.run_uid}

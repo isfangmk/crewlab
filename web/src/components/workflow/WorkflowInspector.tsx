@@ -291,7 +291,7 @@ function ResultVarRow({
     <div className="rounded-lg border border-border/60 bg-bg/40 px-2.5 py-2">
       <div className="flex items-center gap-2">
         <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-text-faint">{tr('结果变量', 'Result variable')}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text">{token}</span>
+        <span className="min-w-0 flex-1 truncate font-sans text-[11px] text-text">{token}</span>
         <button
           type="button"
           aria-label={tr('复制结果变量', 'Copy result variable')}
@@ -445,7 +445,7 @@ function KnowledgeFields({ node, onNodeChange }: { node: WorkflowNode; onNodeCha
           value={node.paths.join('\n')}
           onChange={(event) => onNodeChange({ paths: event.target.value.split('\n').map((line) => line.trim()).filter((line) => line !== '') })}
           rows={2}
-          className="font-mono text-[11px]"
+          className="font-sans text-[11px]"
           placeholder="/产品文档"
         />
       </Field>
@@ -534,7 +534,7 @@ function ToolFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catal
               }))}
               aria-label={tr('内置工具', 'Built-in tool')}
               searchable
-              className="h-8 w-full font-mono text-[11.5px]"
+              className="h-8 w-full font-sans text-[11.5px]"
             />
           </Field>
           {selected !== null && <InfoBox tone="muted">{selected.description}</InfoBox>}
@@ -566,14 +566,14 @@ function ToolParamField({ param, value, onChange }: { param: ToolParam; value: s
   const placeholder = paramPlaceholder(param, tr);
   const multiline = param.name === 'code' || param.schema_type === 'object' || param.schema_type === 'array';
   return (
-    <Field label={<span className="font-mono">{param.name}</span>} required={param.required} hint={hint}>
+    <Field label={<span className="font-sans">{param.name}</span>} required={param.required} hint={hint}>
       {param.enum !== undefined && param.enum.length > 0 ? (
         <Select
           value={value}
           onValueChange={onChange}
           options={param.enum.map((item) => ({ value: item, label: item }))}
           aria-label={param.name}
-          className="h-8 w-full font-mono text-[11.5px]"
+          className="h-8 w-full font-sans text-[11.5px]"
         />
       ) : multiline ? (
         <Textarea
@@ -583,7 +583,7 @@ function ToolParamField({ param, value, onChange }: { param: ToolParam; value: s
           spellCheck={false}
           placeholder={placeholder}
           aria-label={param.name}
-          className="font-mono text-[11px] leading-5"
+          className="font-sans text-[11px] leading-5"
         />
       ) : (
         <Input
@@ -592,7 +592,7 @@ function ToolParamField({ param, value, onChange }: { param: ToolParam; value: s
           placeholder={placeholder}
           aria-label={param.name}
           inputMode={param.type === 'int' || param.type === 'float' ? 'decimal' : undefined}
-          className="h-8 w-full font-mono text-[11.5px]"
+          className="h-8 w-full font-sans text-[11.5px]"
         />
       )}
     </Field>
@@ -658,7 +658,7 @@ function McpToolFields({ node, catalog, onNodeChange }: { node: WorkflowNode; ca
           }}
           options={serverTools.map((tool) => ({ value: tool.tool, label: tool.tool }))}
           aria-label={tr('工具', 'Tool')}
-          className="h-8 w-full font-mono text-[11.5px]"
+          className="h-8 w-full font-sans text-[11.5px]"
           disabled={node.mcp_server === ''}
         />
       </Field>
@@ -730,7 +730,7 @@ function HttpFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange(p
         <KeyValueEditor value={node.headers} onChange={(headers) => onNodeChange({ headers })} keyPlaceholder="Content-Type" valuePlaceholder="application/json" />
       </Field>
       <Field label={tr('请求体', 'Body')} hint={tr('支持 {{变量}} 与 {{变量.字段}}；留空表示不带 body', 'Supports {{vars}} and {{var.field}}; empty means no body')}>
-        <Textarea value={node.body} onChange={(event) => onNodeChange({ body: event.target.value })} rows={4} className="font-mono text-[11px]" placeholder='{"q": "{{input}}"}' />
+        <Textarea value={node.body} onChange={(event) => onNodeChange({ body: event.target.value })} rows={4} className="font-sans text-[11px]" placeholder='{"q": "{{input}}"}' />
       </Field>
     </>
   );
@@ -746,7 +746,7 @@ function CodeFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange(p
           onChange={(event) => onNodeChange({ code: event.target.value })}
           rows={10}
           spellCheck={false}
-          className="font-mono text-[11px] leading-5"
+          className="font-sans text-[11px] leading-5"
         />
       </Field>
     </>
@@ -784,7 +784,7 @@ function SwitchFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange
             value={node.expression}
             onChange={(event) => onNodeChange({ expression: event.target.value })}
             placeholder="{{status}} == ok"
-            className="h-8 font-mono text-[11.5px]"
+            className="h-8 font-sans text-[11.5px]"
           />
         </Field>
       ) : (
@@ -813,7 +813,7 @@ function LoopFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange(p
           value={node.expression}
           onChange={(event) => onNodeChange({ expression: event.target.value })}
           placeholder="{{count}} < 3"
-          className="h-8 font-mono text-[11.5px]"
+          className="h-8 font-sans text-[11.5px]"
         />
       </Field>
       <Field label={tr('最多轮次', 'Max rounds')}>
@@ -1075,14 +1075,14 @@ function KeyValueEditor({
             aria-label={tr('参数名', 'Key')}
             placeholder={keyPlaceholder}
             onChange={(event) => emit(rows.map((item, i) => (i === index ? { ...item, key: event.target.value } : item)))}
-            className="h-7 min-w-0 flex-1 font-mono text-[11px]"
+            className="h-7 min-w-0 flex-1 font-sans text-[11px]"
           />
           <Input
             value={row.value}
             aria-label={tr('参数值', 'Value')}
             placeholder={valuePlaceholder}
             onChange={(event) => emit(rows.map((item, i) => (i === index ? { ...item, value: event.target.value } : item)))}
-            className="h-7 min-w-0 flex-[1.4] font-mono text-[11px]"
+            className="h-7 min-w-0 flex-[1.4] font-sans text-[11px]"
           />
           <button
             type="button"
@@ -1142,7 +1142,7 @@ function StringListEditor({
             aria-label={tr('分支名', 'Branch name')}
             placeholder={placeholder}
             onChange={(event) => emit(drafts.map((item, i) => (i === index ? event.target.value : item)))}
-            className={cn('h-7 min-w-0 flex-1 font-mono text-[11px]', draft !== '' && !VAR_PATTERN.test(draft) && 'border-danger/60')}
+            className={cn('h-7 min-w-0 flex-1 font-sans text-[11px]', draft !== '' && !VAR_PATTERN.test(draft) && 'border-danger/60')}
           />
           <button
             type="button"
@@ -1195,7 +1195,7 @@ function VariablesEditor({ variables, onChange }: { variables: WorkflowVariable[
                 aria-label={tr('变量名', 'Variable name')}
                 placeholder="topic"
                 onChange={(event) => update(index, { name: event.target.value })}
-                className={cn('h-7 min-w-0 flex-1 font-mono text-[11px]', invalidName && 'border-danger/60')}
+                className={cn('h-7 min-w-0 flex-1 font-sans text-[11px]', invalidName && 'border-danger/60')}
               />
               <Select
                 value={variable.type}
@@ -1244,7 +1244,7 @@ function VariablesEditor({ variables, onChange }: { variables: WorkflowVariable[
                   disabled={variable.required}
                   onChange={(event) => update(index, { default: event.target.value === '' ? null : event.target.value })}
                   placeholder="—"
-                  className="h-7 w-28 font-mono text-[11px]"
+                  className="h-7 w-28 font-sans text-[11px]"
                 />
               </div>
             </div>
@@ -1444,7 +1444,7 @@ function LastRunBody({
           </div>
 
           {view.error !== '' && (
-            <pre className="max-h-40 overflow-auto rounded-lg border border-danger/30 bg-danger/5 px-2.5 py-2 font-mono text-[10.5px] leading-4 text-danger">{view.error}</pre>
+            <pre className="max-h-40 overflow-auto rounded-lg border border-danger/30 bg-danger/5 px-2.5 py-2 font-sans text-[10.5px] leading-4 text-danger">{view.error}</pre>
           )}
 
           {/* 先输入、再输出，方便对照这一步吃了什么、吐出什么 */}
@@ -1455,7 +1455,7 @@ function LastRunBody({
           <RunInputRows input={view.input} />
 
           <div className="text-[10px] font-medium uppercase tracking-wider text-text-faint">{tr('输出', 'Output')}</div>
-          <pre className="max-h-[28vh] overflow-auto rounded-lg border border-border/60 bg-bg/60 px-2.5 py-2 font-mono text-[10.5px] leading-4 text-text">
+          <pre className="max-h-[28vh] overflow-auto rounded-lg border border-border/60 bg-bg/60 px-2.5 py-2 font-sans text-[10.5px] leading-4 text-text">
             {view.status === 'running'
               ? tr('这一步还在执行，输出跑完即到…', 'Still running; output arrives when this step finishes…')
               : view.output === null

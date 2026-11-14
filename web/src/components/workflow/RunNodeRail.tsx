@@ -162,7 +162,7 @@ function RailButton({
       />
       <span className="min-w-0 flex-1 truncate text-[11.5px] text-text-muted">{label}</span>
       {trailing !== null && (
-        <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-text-faint">{trailing}</span>
+        <span className="shrink-0 font-sans text-[9.5px] tabular-nums text-text-faint">{trailing}</span>
       )}
     </button>
   );

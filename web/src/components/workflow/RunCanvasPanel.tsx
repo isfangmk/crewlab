@@ -44,7 +44,7 @@ export function RunCanvasPanel({ run, statuses, gate, selectedId, onSelect, onEd
           <span className="text-[11px] font-medium text-text-muted">
             {run.workflow_name === '' ? tr('画布', 'Canvas') : run.workflow_name}
           </span>
-          <span className="font-mono text-[9.5px] text-text-faint">v{run.workflow_version}</span>
+          <span className="font-sans text-[9.5px] text-text-faint">v{run.workflow_version}</span>
           <div className="ml-auto">
             <RowAction icon={Pencil} onClick={onEdit}>
               {tr('去编排', 'Edit workflow')}

@@ -42,7 +42,7 @@ export default function About() {
     >
       <dl className="divide-y divide-zinc-800/60">
         <Row icon={<Tag size={12} />} label={tr('版本', 'Version')}>
-          <span className="font-mono text-zinc-200">{version || '—'}</span>
+          <span className="font-sans text-zinc-200">{version || '—'}</span>
         </Row>
         <Row icon={<Github size={12} />} label={tr('源码', 'Source')}>
           <a

@@ -329,7 +329,7 @@ export default function KnowledgeSourcesPage() {
                           <span className="truncate text-[12.5px] font-medium text-zinc-100">
                             {source.name}
                           </span>
-                          <Chip dense className="shrink-0 font-mono">
+                          <Chip dense className="shrink-0 font-sans">
                             {source.kind === 'git' ? 'Git' : 'URL'}
                           </Chip>
                           {!source.enabled && (
@@ -337,7 +337,7 @@ export default function KnowledgeSourcesPage() {
                           )}
                         </div>
                         <div
-                          className="mt-0.5 truncate pl-7 font-mono text-[10.5px] text-zinc-500"
+                          className="mt-0.5 truncate pl-7 font-sans text-[10.5px] text-zinc-500"
                           title={source.location}
                         >
                           {source.location}
@@ -615,7 +615,7 @@ function SourceEditor({
                 ? 'https://git.example.com/ops/runbooks.git'
                 : 'https://wiki.internal/runbook/nginx'
             }
-            className="w-full font-mono text-[11.5px]"
+            className="w-full font-sans text-[11.5px]"
           />
         </div>
         {kind === 'git' && (
@@ -627,7 +627,7 @@ function SourceEditor({
                 value={branch}
                 onChange={(e) => setBranch(e.target.value)}
                 placeholder="main"
-                className="w-full font-mono text-[11.5px]"
+                className="w-full font-sans text-[11.5px]"
               />
             </div>
             <div className="space-y-1.5">
@@ -637,7 +637,7 @@ function SourceEditor({
                 value={pathPrefix}
                 onChange={(e) => setPathPrefix(e.target.value)}
                 placeholder="docs"
-                className="w-full font-mono text-[11.5px]"
+                className="w-full font-sans text-[11.5px]"
               />
             </div>
           </div>
@@ -754,7 +754,7 @@ function SourceDocsModal({
                         {localizedDocTitle(doc)}
                       </div>
                       {doc.external_key && (
-                        <div className="mt-0.5 truncate font-mono text-[10px] text-zinc-600" title={doc.external_key}>
+                        <div className="mt-0.5 truncate font-sans text-[10px] text-zinc-600" title={doc.external_key}>
                           {doc.external_key}
                         </div>
                       )}

@@ -485,7 +485,7 @@ export default function ObservabilityPage() {
           }}
           placeholder={tr('搜索 trace / 会话 / 请求 ID', 'Search trace / session / request ID')}
           ariaLabel={tr('搜索', 'Search')}
-          inputClassName="font-mono"
+          inputClassName="font-sans"
         />
           <FilterPill
             label={tr('状态', 'Status')}
@@ -790,7 +790,7 @@ export default function ObservabilityPage() {
                           <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-zinc-600">
                             <Link
                               to={`/chat/${row.session_id}`}
-                              className="shrink-0 font-mono transition-colors hover:text-indigo-300 hover:underline"
+                              className="shrink-0 font-sans transition-colors hover:text-indigo-300 hover:underline"
                               title={row.session_id}
                             >
                               {row.session_id.slice(0, 8)}
@@ -798,7 +798,7 @@ export default function ObservabilityPage() {
                             <span aria-hidden>·</span>
                             <span className="shrink-0">{row.agent_id}</span>
                             <span aria-hidden>·</span>
-                            <span className="min-w-0 truncate font-mono" title={`${row.provider}/${row.model}`}>
+                            <span className="min-w-0 truncate font-sans" title={`${row.provider}/${row.model}`}>
                               {row.model}
                             </span>
                             {row.channel !== '' ? (
@@ -960,7 +960,7 @@ function TraceDetail({ turn }: { turn: ObservationTurnDetail }) {
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-500">
             <span className="text-zinc-300">{turn.agent_id}</span>
             <span aria-hidden>·</span>
-            <span className="truncate font-mono">{turn.model}</span>
+            <span className="truncate font-sans">{turn.model}</span>
             <span aria-hidden>·</span>
             <span>{turn.provider}</span>
             {turn.channel !== '' ? (
@@ -1016,7 +1016,7 @@ function TraceDetail({ turn }: { turn: ObservationTurnDetail }) {
 
       {turn.error_message ? (
         <DetailSection title={tr('错误', 'Error')} tone="danger">
-          <p className="whitespace-pre-wrap break-words rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 font-mono text-[11px] leading-5 text-danger">
+          <p className="whitespace-pre-wrap break-words rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 font-sans text-[11px] leading-5 text-danger">
             {turn.error_message}
           </p>
         </DetailSection>
@@ -1063,7 +1063,7 @@ function TraceTimeline({ turn }: { turn: ObservationTurnDetail }) {
                   <Icon size={9} aria-hidden />
                   {tr(kind.zh, kind.en)}
                 </Chip>
-                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-300" title={call.name}>
+                <span className="min-w-0 flex-1 truncate font-sans text-[11px] text-zinc-300" title={call.name}>
                   {call.name}
                 </span>
                 {call.detail !== '' && !call.name.includes(call.detail) ? (

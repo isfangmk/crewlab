@@ -776,7 +776,7 @@ export default function UsersPage() {
           <>
             <p>
               {tr('确定删除账号 ', 'Delete ')}
-              <span className="font-mono text-zinc-100">{deleteTarget?.email ?? ''}</span>
+              <span className="font-sans text-zinc-100">{deleteTarget?.email ?? ''}</span>
               {tr('？', '?')}
             </p>
             <p className="mt-2 text-zinc-500">

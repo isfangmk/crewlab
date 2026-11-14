@@ -754,7 +754,7 @@ function ApprovalRow({
             >
               {a.title}
             </button>
-            <Chip dense className="shrink-0 font-mono">
+            <Chip dense className="shrink-0 font-sans">
               {a.kind}
             </Chip>
           </div>
@@ -771,7 +771,7 @@ function ApprovalRow({
           {a.session_id ? (
             <Link
               to={`/chat/${a.session_id}`}
-              className="font-mono text-zinc-400 transition-colors hover:text-indigo-300 hover:underline"
+              className="font-sans text-zinc-400 transition-colors hover:text-indigo-300 hover:underline"
               title={`${a.source} · ${a.session_id}`}
             >
               {a.session_id.slice(0, 8)}

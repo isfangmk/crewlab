@@ -116,7 +116,7 @@ export function SourcesSection({
             className="rounded-lg border border-zinc-800/60 bg-zinc-900/40 px-2.5 py-1.5"
           >
             <div className="flex items-baseline gap-2">
-              <span className="shrink-0 font-mono text-[10px] text-zinc-500">[{i + 1}]</span>
+              <span className="shrink-0 font-sans text-[10px] text-zinc-500">[{i + 1}]</span>
               {s.href !== undefined ? (
                 <a
                   href={s.href}
@@ -129,7 +129,7 @@ export function SourcesSection({
               ) : (
                 <span className="truncate text-[12px] text-zinc-200">{s.title}</span>
               )}
-              <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-zinc-500">
+              <span className="ml-auto flex shrink-0 items-center gap-1.5 font-sans text-[10px] text-zinc-500">
                 {s.chunkIndex !== undefined && (
                   <span>{tr(`第 ${s.chunkIndex + 1} 块`, `chunk ${s.chunkIndex + 1}`)}</span>
                 )}
@@ -137,7 +137,7 @@ export function SourcesSection({
               </span>
             </div>
             {s.path !== undefined && (
-              <div className="mt-0.5 truncate pl-6 font-mono text-[10px] text-zinc-600">{s.path}</div>
+              <div className="mt-0.5 truncate pl-6 font-sans text-[10px] text-zinc-600">{s.path}</div>
             )}
             {s.excerpt !== undefined && (
               <p className="mt-1 line-clamp-3 pl-6 text-[11px] leading-relaxed text-zinc-500">

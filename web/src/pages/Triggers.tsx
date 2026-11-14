@@ -316,7 +316,7 @@ export default function TriggersPage() {
                       {t.kind === 'cron' ? (
                         <>
                           <span
-                            className="block truncate font-mono text-[10.5px] text-zinc-300"
+                            className="block truncate font-sans text-[10.5px] text-zinc-300"
                             title={t.cron_expr}
                           >
                             {t.cron_expr}
@@ -806,7 +806,7 @@ function TriggerEditor({
                     return (
                       <div key={variable.name} className="space-y-1">
                         <div className="flex flex-wrap items-baseline gap-1.5">
-                          <Label htmlFor={inputId} className="font-mono text-[11px]">
+                          <Label htmlFor={inputId} className="font-sans text-[11px]">
                             {variable.name}
                           </Label>
                           <span className="text-[10px] text-zinc-500">{variable.type}</span>
@@ -850,7 +850,7 @@ function TriggerEditor({
                                 [variable.name]: e.target.value,
                               }))
                             }
-                            className="h-20 w-full resize-y font-mono text-[11px]"
+                            className="h-20 w-full resize-y font-sans text-[11px]"
                             placeholder="{ }"
                           />
                         ) : (

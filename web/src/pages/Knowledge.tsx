@@ -904,7 +904,7 @@ function SourceGroupSection({
             <Icon size={11} aria-hidden />
           </span>
           <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium">{label}</span>
-          <span className="shrink-0 font-mono text-[10px] tabular-nums text-zinc-500">{total}</span>
+          <span className="shrink-0 font-sans text-[10px] tabular-nums text-zinc-500">{total}</span>
         </button>
         {actions && <div className="flex shrink-0 items-center gap-0.5 pr-0.5">{actions}</div>}
       </div>
@@ -1012,7 +1012,7 @@ function FolderNode({
           <span className="truncate">{localizedPathSegment(node.name)}</span>
           <span
             className={cn(
-              'ml-auto shrink-0 font-mono text-[10px] tabular-nums',
+              'ml-auto shrink-0 font-sans text-[10px] tabular-nums',
               isActive ? 'text-indigo-300' : 'text-zinc-600',
             )}
           >
@@ -1110,7 +1110,7 @@ function DocRow({
             tone={DOC_KIND_TONE[kind] ?? 'default'}
             aria-label={tr(`文档类型 ${kind}`, `Document type ${kind}`)}
             title={tr(`文档类型 ${kind}`, `Document type ${kind}`)}
-            className="inline-flex min-w-[24px] shrink-0 items-center justify-center font-mono"
+            className="inline-flex min-w-[24px] shrink-0 items-center justify-center font-sans"
           >
             {kind}
           </Chip>
@@ -1276,7 +1276,7 @@ function SearchHitRow({ hit, rank, onOpen }: { hit: SearchHit; rank: number; onO
   const title = localizedDocTitle(hit.doc);
   return (
     <tr>
-      <td className="px-3 py-2 align-top font-mono text-[10.5px] tabular-nums text-zinc-600">
+      <td className="px-3 py-2 align-top font-sans text-[10.5px] tabular-nums text-zinc-600">
         {String(rank).padStart(2, '0')}
       </td>
       <td className="px-3 py-2">
@@ -1302,11 +1302,11 @@ function SearchHitRow({ hit, rank, onOpen }: { hit: SearchHit; rank: number; onO
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-right align-top text-[10px] leading-4 text-zinc-500">
         <span className="block">
-          RRF <span className="font-mono text-zinc-300">{hit.score.toFixed(4)}</span>
+          RRF <span className="font-sans text-zinc-300">{hit.score.toFixed(4)}</span>
         </span>
         {hit.vector_score !== null && (
           <span className="block">
-            {tr('向量相似度', 'vector sim')} <span className="font-mono text-zinc-300">{hit.vector_score.toFixed(3)}</span>
+            {tr('向量相似度', 'vector sim')} <span className="font-sans text-zinc-300">{hit.vector_score.toFixed(3)}</span>
           </span>
         )}
         {hit.keyword_rank !== null && (
@@ -1431,7 +1431,7 @@ function DocBody({ content }: { content: string }) {
         <dl className="mb-4 space-y-1 border-b border-zinc-800 pb-3">
           {fm.meta.map(([key, value]) => (
             <div key={key} className="flex items-baseline gap-2 text-xs">
-              <dt className="shrink-0 font-mono text-[11px] text-zinc-500">{key}</dt>
+              <dt className="shrink-0 font-sans text-[11px] text-zinc-500">{key}</dt>
               {Array.isArray(value) ? (
                 <dd className="flex flex-wrap gap-1">
                   {value.map((v) => (
@@ -1469,7 +1469,7 @@ function LocateBanner({
             `Matched chunk ${locate.chunkIndex + 1}, selected in the body`,
           )}
       {readOnly && (
-        <div className="mt-1 line-clamp-4 whitespace-pre-wrap break-words font-mono text-[10.5px] text-zinc-400">
+        <div className="mt-1 line-clamp-4 whitespace-pre-wrap break-words font-sans text-[10.5px] text-zinc-400">
           {locate.excerpt}
         </div>
       )}
@@ -1654,12 +1654,12 @@ function DocEditor({
                   target="_blank"
                   rel="noreferrer"
                   title={existing.url}
-                  className="ml-auto max-w-[24rem] truncate font-mono text-[10px] text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
+                  className="ml-auto max-w-[24rem] truncate font-sans text-[10px] text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
                 >
                   {existing.url}
                 </a>
               ) : (
-                <span className="ml-auto max-w-[24rem] truncate font-mono text-[10px] text-zinc-500" title={existing.url}>
+                <span className="ml-auto max-w-[24rem] truncate font-sans text-[10px] text-zinc-500" title={existing.url}>
                   {existing.url}
                 </span>
               ))}
@@ -1770,7 +1770,7 @@ function DocEditor({
               onChange={(e) => setUrl(e.target.value)}
               readOnly={urlReadOnly}
               placeholder="https://wiki.internal/runbook/nginx-restart"
-              className={cn('font-mono text-[11.5px]', urlReadOnly && 'cursor-not-allowed')}
+              className={cn('font-sans text-[11.5px]', urlReadOnly && 'cursor-not-allowed')}
             />
           </Field>
         )}
@@ -1784,7 +1784,7 @@ function DocEditor({
               '支持 Markdown；助手按标题与正文做语义匹配',
               'Markdown supported; the assistant matches on title and content semantically',
             )}
-            className="h-80 w-full resize-y font-mono text-[11.5px] leading-5"
+            className="h-80 w-full resize-y font-sans text-[11.5px] leading-5"
           />
         </Field>
       </div>

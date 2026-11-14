@@ -1383,7 +1383,7 @@ function ValidationBanner({ result, onClose }: { result: ValidationResult; onClo
           <div className={cn('font-medium', ok ? 'text-ok' : 'text-danger')}>
             {ok ? tr('画布校验通过，可以运行', 'Canvas is valid and can run') : tr('画布校验不通过', 'Canvas validation failed')}
           </div>
-          {!ok && <div className="mt-1 break-words font-mono text-[11px] leading-5 text-danger">{result.error}</div>}
+          {!ok && <div className="mt-1 break-words font-sans text-[11px] leading-5 text-danger">{result.error}</div>}
           {result.warnings.length > 0 && (
             <ul className="mt-1.5 space-y-0.5 border-t border-zinc-700/40 pt-1.5 text-[10.5px] leading-4 text-warn">
               {result.warnings.map((warning) => (

@@ -163,7 +163,7 @@ export default function SettingsAgent() {
                 step={1}
                 value={llmTimeoutSeconds}
                 onChange={(event) => setLLMTimeoutSeconds(event.target.value)}
-                className="w-full font-mono"
+                className="w-full font-sans"
               />
               <span className="shrink-0 text-[11px] text-zinc-500">{tr('秒', 'seconds')}</span>
             </div>

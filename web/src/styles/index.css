@@ -496,6 +496,11 @@ body {
   font-family: theme('fontFamily.sans');
 }
 
+/* 全站禁用等宽字体：代码块、行内代码、快捷键标签同样使用界面 sans。 */
+code, kbd, pre, samp {
+  font-family: theme('fontFamily.sans');
+}
+
 /* Sticky glass header. Pages opt in by adding `.app-header` alongside their
    existing border/padding utility classes. Uses semantic tokens so the
    header glass background flips automatically when mode toggles. */
@@ -623,7 +628,7 @@ html.light .md-body h3 {
   padding: 0.1em 0.35em;
   border-radius: 4px;
   font-size: 0.85em;
-  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-family: theme('fontFamily.sans');
 }
 .md-body pre {
   background: rgba(24, 24, 27, 0.9);
@@ -900,9 +905,6 @@ html.dark .og-dialog-content .text-zinc-600 { color: rgb(var(--text-muted)); }
   .og-input[data-variant="inset"]:focus-visible, .og-textarea[data-variant="inset"]:focus-visible { box-shadow: none; }
   .og-input[type="file"] { @apply h-auto py-1.5; }
   .og-input[type="file"]::file-selector-button { @apply mr-3 rounded border-0 bg-transparent text-xs font-medium text-text; }
-  /* 等宽输入框的占位符多为中文提示；等宽栈缺中文字形会回退成异形字 */
-  .og-input.font-mono::placeholder,
-  .og-textarea.font-mono::placeholder { font-family: theme('fontFamily.sans'); }
   .og-label { @apply text-xs font-medium leading-5 text-text-muted; }
   .og-label:has(:disabled) { @apply cursor-not-allowed; }
   .og-radio { @apply h-3.5 w-3.5 shrink-0 cursor-pointer appearance-none rounded-full border border-border bg-card align-middle; }

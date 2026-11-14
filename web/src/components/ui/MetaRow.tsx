@@ -16,7 +16,7 @@ export function MetaRow({ label, value, copyable }: Props) {
     <div className="min-w-0">
       <dt className="text-[10px] uppercase tracking-wide text-zinc-600">{label}</dt>
       <dd className="flex min-w-0 items-center gap-1.5">
-        <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-zinc-300" title={value}>
+        <span className="min-w-0 flex-1 break-all font-sans text-[11px] text-zinc-300" title={value}>
           {value}
         </span>
         {copyable ? <CopyButton value={value} label={label} /> : null}

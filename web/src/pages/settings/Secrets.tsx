@@ -218,7 +218,7 @@ export default function SecretsPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={tr('名称（如 tencent-prod）', 'Name (e.g. tencent-prod)')}
-            className="font-mono"
+            className="font-sans"
           />
           <Select label={tr('凭证类型', 'Credential type')}
             value={typeName}
@@ -260,7 +260,7 @@ export default function SecretsPage() {
             {selectedType.inject_env && Object.keys(selectedType.inject_env).length > 0 && (
               <div className="pt-1 text-[10px] leading-relaxed text-zinc-600">
                 {tr('将注入为环境变量：', 'Injects as env vars: ')}
-                <span className="font-mono text-zinc-500">{Object.keys(selectedType.inject_env).join(', ')}</span>
+                <span className="font-sans text-zinc-500">{Object.keys(selectedType.inject_env).join(', ')}</span>
               </div>
             )}
           </div>
@@ -276,7 +276,7 @@ export default function SecretsPage() {
                   value={row.key}
                   onChange={(e) => setRow(i, { key: e.target.value })}
                   placeholder={tr('字段名（如 GITHUB_TOKEN）', 'field key (e.g. GITHUB_TOKEN)')}
-                  className="w-48 font-mono"
+                  className="w-48 font-sans"
                 />
                 <Input
                   value={row.value}
@@ -337,7 +337,7 @@ export default function SecretsPage() {
                 const healthItem = health[s.id];
                 return (
                   <tr key={s.id} className="transition-colors hover:bg-zinc-800/30">
-                    <td className="px-3 py-2 font-mono text-[12.5px] text-zinc-100">
+                    <td className="px-3 py-2 font-sans text-[12.5px] text-zinc-100">
                       <span className="inline-flex items-center gap-1.5">
                         {s.name}
                         {healthItem !== undefined && !healthItem.ok ? (
@@ -354,7 +354,7 @@ export default function SecretsPage() {
                           <span className="text-[11px] text-zinc-600">—</span>
                         ) : (
                           s.field_keys.map((k) => (
-                            <Chip key={k} dense className="font-mono">{k}</Chip>
+                            <Chip key={k} dense className="font-sans">{k}</Chip>
                           ))
                         )}
                       </div>

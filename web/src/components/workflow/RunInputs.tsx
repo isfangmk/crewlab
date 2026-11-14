@@ -44,7 +44,7 @@ export function VariableInput({ variable, value, onChange }: { variable: Workflo
               setJsonError(tr('不是合法 JSON', 'Not valid JSON'));
             }
           }}
-          className={cn('font-mono text-[11px]', jsonError !== null && 'border-danger/60')}
+          className={cn('font-sans text-[11px]', jsonError !== null && 'border-danger/60')}
           placeholder='{"key": "value"}'
         />
         {jsonError !== null && <div className="text-[10px] text-danger">{jsonError}</div>}
@@ -84,7 +84,7 @@ export function VariableFields({
       {variables.map((variable) => (
         <div key={variable.name} className="space-y-1">
           <div className="flex items-baseline gap-1.5">
-            <Label className="font-mono text-[11.5px] text-text">{variable.name}</Label>
+            <Label className="font-sans text-[11.5px] text-text">{variable.name}</Label>
             <span className="rounded bg-zinc-500/10 px-1 text-[9.5px] leading-4 text-text-faint">{variable.type}</span>
             {variable.required && <span className="text-[10px] text-danger">{tr('必填', 'required')}</span>}
             {variable.description !== '' && <span className="truncate text-[10.5px] text-text-faint">· {variable.description}</span>}

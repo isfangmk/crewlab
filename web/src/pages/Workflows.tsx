@@ -411,7 +411,7 @@ export default function WorkflowsPage() {
                         <td className="whitespace-nowrap px-3 py-2">
                           <LastRunCell run={item.last_run} onOpen={(uid) => navigate(`/workflows/runs/${uid}`)} />
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 font-mono text-[11px] text-zinc-500">v{item.version}</td>
+                        <td className="whitespace-nowrap px-3 py-2 font-sans text-[11px] text-zinc-500">v{item.version}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-zinc-500">{fullDateTime(item.updated_at)}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-right">
                           <div className="flex items-center justify-end gap-1.5">
@@ -801,7 +801,7 @@ function RunsTab({
                         >
                           {run.workflow_name}
                         </button>
-                        <div className="mt-0.5 flex min-w-0 items-center gap-1 font-mono text-[10px] text-zinc-600">
+                        <div className="mt-0.5 flex min-w-0 items-center gap-1 font-sans text-[10px] text-zinc-600">
                           <span className="truncate" title={run.run_uid}>{run.run_uid}</span>
                           {run.trigger === 'debug' && (
                             <Chip dense className="ml-1 shrink-0 font-sans">
@@ -811,7 +811,7 @@ function RunsTab({
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-3 py-2">
-                        <span className="font-mono text-[11px] text-zinc-400">v{run.workflow_version}</span>
+                        <span className="font-sans text-[11px] text-zinc-400">v{run.workflow_version}</span>
                         {run.workflow_status === 'draft' && <DraftTag className="ml-1.5" />}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2">
@@ -819,7 +819,7 @@ function RunsTab({
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-[11px] text-zinc-400">{run.triggered_by || '—'}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-[11px] tabular-nums text-zinc-500">{fullDateTime(run.created_at)}</td>
-                      <td className="whitespace-nowrap px-3 py-2 font-mono text-[11px] text-zinc-500">{formatDuration(run.duration_ms)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 font-sans text-[11px] text-zinc-500">{formatDuration(run.duration_ms)}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {/* 未发布就没有可运行的正式版本，不给「再次运行」 */}

@@ -487,7 +487,7 @@ function SkillRow({
         >
           {displayName ?? skill.name}
         </button>
-        <Hint content={skill.key}><div className="font-mono text-[10px] text-zinc-600" >
+        <Hint content={skill.key}><div className="font-sans text-[10px] text-zinc-600" >
           {skill.key}
         </div></Hint>
       </td>
@@ -503,7 +503,7 @@ function SkillRow({
           shrink below their natural width. */}
       <td className="w-full max-w-0 px-3 py-2 text-[11px] text-zinc-500">
         <div className="line-clamp-1">{skill.description || '—'}</div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 font-mono text-[10px] text-zinc-600">
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 font-sans text-[10px] text-zinc-600">
           {skill.group && <span>{skill.group}</span>}
           {Array.isArray(skill.tools) && skill.tools.length > 0 && (
             <span>tools: {skill.tools.join(', ')}</span>
@@ -607,7 +607,7 @@ function SkillDetailModal({
           <OriginBadge value={origin} />
           {skill.group && <Chip>{skill.group}</Chip>}
           {skill.inject_state && <Chip tone="accent">adk_inject_state</Chip>}
-          <span className="ml-auto font-mono text-[11px] text-zinc-500">{skill.key}</span>
+          <span className="ml-auto font-sans text-[11px] text-zinc-500">{skill.key}</span>
         </div>
 
         <DetailSection title={tr('描述', 'Description')}>
@@ -621,7 +621,7 @@ function SkillDetailModal({
             <dl className="grid grid-cols-1 gap-2 text-[12px] md:grid-cols-3">
               <div>
                 <dt className="text-[11px] text-zinc-500">allowed-tools</dt>
-                <dd className="font-mono text-zinc-300">{skill.preapproved_tools || '—'}</dd>
+                <dd className="font-sans text-zinc-300">{skill.preapproved_tools || '—'}</dd>
               </div>
             </dl>
           </DetailSection>
@@ -687,10 +687,10 @@ function SkillDetailModal({
                 <tbody className="divide-y divide-zinc-800/60">
                   {skill.params.map((p, index) => (
                     <tr key={`${p.name}-${index}`}>
-                      <td className="whitespace-nowrap px-3 py-2 font-mono text-zinc-200">{p.name}</td>
+                      <td className="whitespace-nowrap px-3 py-2 font-sans text-zinc-200">{p.name}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-zinc-400">{p.type}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-zinc-400">{p.required ? tr('是', 'Yes') : '—'}</td>
-                      <td className="whitespace-nowrap px-3 py-2 font-mono text-zinc-400">
+                      <td className="whitespace-nowrap px-3 py-2 font-sans text-zinc-400">
                         {p.default === undefined || p.default === null ? '—' : String(p.default)}
                       </td>
                       <td className="px-3 py-2 text-zinc-400">{p.desc || '—'}</td>
@@ -710,7 +710,7 @@ function SkillDetailModal({
               <ul className="divide-y divide-zinc-800/60 overflow-hidden rounded-lg border border-zinc-800/60">
                 {group.files.map((file) => (
                   <li key={file.path} className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
-                    <span className="truncate font-mono text-zinc-300">{file.path}</span>
+                    <span className="truncate font-sans text-zinc-300">{file.path}</span>
                     {file.binary && <Chip dense tone="warning">{tr('二进制', 'binary')}</Chip>}
                     <span className="ml-auto shrink-0 tabular-nums text-[11px] text-zinc-500">{file.size} B</span>
                   </li>

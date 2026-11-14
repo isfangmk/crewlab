@@ -359,7 +359,7 @@ export function SkillEditor({
                   disabled={mode === 'edit'}
                   onChange={(e) => setKey(e.target.value)}
                   placeholder="knowledge-search / my-runbook"
-                  className="w-full font-mono"
+                  className="w-full font-sans"
                   maxLength={64}
                 />
                 <div className="mt-1 text-[11px] text-zinc-500">
@@ -433,7 +433,7 @@ export function SkillEditor({
                   toolGroups.map((group) => (
                     <div key={group.key} className="overflow-hidden rounded-md border border-zinc-800/60">
                       <div className="flex items-center gap-1.5 border-b border-zinc-800/60 bg-zinc-950/40 px-1.5 py-1">
-                        <span className="truncate font-mono text-[10px] text-zinc-400">{group.label}</span>
+                        <span className="truncate font-sans text-[10px] text-zinc-400">{group.label}</span>
                         <span className="shrink-0 text-[10px] text-zinc-600">{group.items.length}</span>
                         <span className="ml-auto shrink-0 text-[10px] text-zinc-500">
                           {tr(
@@ -457,7 +457,7 @@ export function SkillEditor({
                                 className="h-3.5 w-3.5 shrink-0 accent-indigo-500"
                                 aria-label={tr(`声明工具 ${tool.name}`, `Declare tool ${tool.name}`)}
                               />
-                              <span className="shrink-0 font-mono text-[11px] text-zinc-200">{tool.name}</span>
+                              <span className="shrink-0 font-sans text-[11px] text-zinc-200">{tool.name}</span>
                               {!tool.available && (
                                 <Chip dense tone="warning">
                                   {tr('不可用', 'unavailable')}
@@ -485,7 +485,7 @@ export function SkillEditor({
                 value={instructions}
                 onChange={(e) => setInstructions(e.target.value)}
                 placeholder={tr('# 什么时候用\n\n1. 先读 references/guide.md\n2. 按步骤执行', '# When to use\n\n1. Read references/guide.md\n2. Follow the steps')}
-                className="h-48 w-full resize-y font-mono text-[12px]"
+                className="h-48 w-full resize-y font-sans text-[12px]"
               />
               <div className="mt-1 text-[11px] text-zinc-500">
                 {tr('frontmatter 由上方字段生成，这里只写 Markdown 正文。', 'Frontmatter is generated from the fields above; write only the Markdown body here.')}
@@ -555,7 +555,7 @@ export function SkillEditor({
                             value={file.path}
                             onChange={(e) => updateFile(section.kind, index, { path: e.target.value })}
                             placeholder={tr('相对路径，例如 guide.md', 'Relative path, e.g. guide.md')}
-                            className="w-full font-mono text-[11px]"
+                            className="w-full font-sans text-[11px]"
                           />
                           <Button
                             variant="dangerGhost"
@@ -577,7 +577,7 @@ export function SkillEditor({
                             value={file.text}
                             onChange={(e) => updateFile(section.kind, index, { text: e.target.value })}
                             placeholder={tr('文件内容', 'File content')}
-                            className={cn('mt-1 w-full resize-y font-mono text-[11px]', section.kind === 'scripts' ? 'h-24' : 'h-20')}
+                            className={cn('mt-1 w-full resize-y font-sans text-[11px]', section.kind === 'scripts' ? 'h-24' : 'h-20')}
                           />
                         )}
                       </div>
@@ -725,7 +725,7 @@ export function SkillImportDialog({ onClose, onImported }: { onClose(): void; on
           <div className="space-y-3">
             <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-[12px] text-zinc-200">{preview.key}</span>
+                <span className="font-sans text-[12px] text-zinc-200">{preview.key}</span>
                 <Chip dense tone="accent">{tr('已解析', 'parsed')}</Chip>
                 <span className="ml-auto text-[11px] text-zinc-500">
                   {tr(
@@ -736,7 +736,7 @@ export function SkillImportDialog({ onClose, onImported }: { onClose(): void; on
               </div>
               <div className="mt-1 text-[11px] text-zinc-400">{preview.description}</div>
               {preview.tools.length > 0 && (
-                <div className="mt-1 font-mono text-[10px] text-zinc-500">tools: {preview.tools.join(', ')}</div>
+                <div className="mt-1 font-sans text-[10px] text-zinc-500">tools: {preview.tools.join(', ')}</div>
               )}
             </div>
 
