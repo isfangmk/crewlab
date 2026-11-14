@@ -8,11 +8,12 @@
 //   - 技能：勾选的才装配；技能声明的工具随技能自动并入白名单且不可屏蔽
 //   - 内置工具随 SkillToolset 始终装配，只能进「屏蔽」名单
 // 顶部的预览由 capabilityPreview 按运行时口径算出，勾选与装配数不一致时逐条说明。
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Lock } from 'lucide-react';
 
 import {
-  ErrorBanner, Checkbox } from '@/components/ui';
+  ErrorBanner, Checkbox, SearchInput,
+} from '@/components/ui';
 import { Button, Chip, Label } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { useI18n } from '@/i18n/locale';
@@ -49,6 +50,8 @@ export function CapabilityBinding({
   const { tr } = useI18n();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showTools, setShowTools] = useState<Record<string, boolean>>({});
+  // 工具、技能、MCP 一次性搜索；输入后只保留匹配项并自动展开所在分组。
+  const [query, setQuery] = useState('');
 
   const preview = useMemo(
     () =>
@@ -117,6 +120,37 @@ export function CapabilityBinding({
 
   // 白名单为空 = 继承全部 MCP，所以「取消最后一台已挂载的 Server」无法用空数组表达
   const canUnmount = preview.mountedServers.length > 1;
+
+  const safeQuery = query.trim().toLowerCase();
+  const includes = (value: string | undefined) =>
+    safeQuery === '' || (value ?? '').toLowerCase().includes(safeQuery);
+  const builtinMatches = catalog.builtin.filter(
+    (tool) => includes(tool.name) || includes(tool.description),
+  );
+  const skillMatches = catalog.skills.filter((skill) => {
+    if (safeQuery === '') return true;
+    return (
+      includes(skill.key) ||
+      includes(skill.description) ||
+      skill.tools.some((wire) => includes(wire))
+    );
+  });
+  const mcpMatches = catalog.mcpServers
+    .map((server) => {
+      const serverMatch = safeQuery === '' || includes(server.name);
+      const toolMatches =
+        safeQuery === ''
+          ? server.tools
+          : server.tools.filter((tool) => includes(tool.wire) || includes(tool.description));
+      return {
+        server,
+        tools: serverMatch ? server.tools : toolMatches,
+        matched: safeQuery === '' || serverMatch || toolMatches.length > 0,
+      };
+    })
+    .filter((item) => item.matched);
+  const matchCount = builtinMatches.length + skillMatches.length + mcpMatches.length;
+  const searching = safeQuery !== '';
 
   const skillChecked = (key: string) => selectedSkills === null || selectedSkills.includes(key);
 
@@ -251,191 +285,228 @@ export function CapabilityBinding({
         </ul>
       </div>
 
-      {/* 内置工具 */}
-      <CapabilityGroup
-        title={tr('内置工具', 'Built-in tools')}
-        count={catalog.builtin.length}
-        hint={tr('随技能目录始终装配；联网类工具按对话开关挂载', 'Always mounted with the skill catalog; per-turn tools follow the chat toggle')}
-      >
-        {catalog.builtin.map((tool) => (
-          <ToolRow
-            key={tool.name}
-            name={tool.name}
-            description={tool.description}
-            blocked={disallowedTools.includes(tool.name)}
-            locked={preview.lockedTools.includes(tool.name)}
-            onToggleBlocked={() => toggleBlocked(tool.name)}
-            binding={
-              <span className="shrink-0 text-[10px] text-zinc-500">
-                {tool.mount === 'always' ? tr('始终可用', 'always on') : tr('随开关', 'per turn')}
-              </span>
-            }
-          />
-        ))}
-      </CapabilityGroup>
-
-      {/* 技能 */}
-      <CapabilityGroup
-        title={tr('技能', 'Skills')}
-        count={catalog.skills.length}
-        hint={tr('勾选的技能才装配；技能内的工具随技能自动开启', 'Only checked skills are mounted; their tools open with them')}
-        actions={
-          <span className="flex items-center gap-1" role="group" aria-label={tr('技能装配范围', 'Skill scope')}>
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-pressed={selectedSkills === null}
-              aria-label={tr('装配全部技能', 'Mount every skill')}
-              className={cn('h-6 px-2 text-[10px]', selectedSkills === null && 'text-zinc-100')}
-              onClick={() => onSelectedSkillsChange(null)}
-            >
-              {tr('全部', 'All')}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-pressed={selectedSkills !== null}
-              aria-label={tr('只装配勾选的技能', 'Mount only checked skills')}
-              className={cn('h-6 px-2 text-[10px]', selectedSkills !== null && 'text-zinc-100')}
-              onClick={() => onSelectedSkillsChange([])}
-            >
-              {tr('指定', 'Selected')}
-            </Button>
+      <div className="flex items-center gap-2">
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          placeholder={tr('搜索工具、技能、MCP Server', 'Search tools, skills or MCP servers')}
+          ariaLabel={tr('搜索能力', 'Search capabilities')}
+        />
+        {searching && (
+          <span className="shrink-0 text-[11px] text-zinc-500">
+            {tr(`匹配 ${matchCount} 项`, `${matchCount} matches`)}
           </span>
-        }
-      >
-        {catalog.skills.length === 0 && (
-          <div className="px-1.5 py-1 text-[11px] text-zinc-500">
-            {tr('还没有技能，可到「技能」页新建或导入 zip', 'No skills yet — create one or import a zip on the Skills page')}
-          </div>
         )}
-        {catalog.skills.map((skill) => (
-          <div key={skill.key} className="rounded px-1.5 py-1 hover:bg-zinc-900/60">
-            <div className="flex items-center gap-1.5">
-              {selectedSkills !== null && (
-                <Checkbox
-                  checked={skillChecked(skill.key)}
-                  onCheckedChange={() => toggleSkill(skill, !skillChecked(skill.key))}
-                  className="h-3 w-3"
-                  aria-label={tr(`装配技能 ${skill.key}`, `Mount skill ${skill.key}`)}
-                />
-              )}
-              <span className="truncate font-mono text-[11px] text-zinc-200">{skill.key}</span>
-              <span className="shrink-0 text-[10px] text-zinc-500">
-                {selectedSkills === null
-                  ? tr('继承全部', 'inherited')
-                  : skillChecked(skill.key)
-                    ? tr('已装配', 'mounted')
-                    : tr('未装配', 'not mounted')}
-              </span>
-              {skill.tools.length > 0 && (
-                <button
-                  type="button"
-                  className="ml-auto flex items-center gap-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"
-                  aria-expanded={showTools[skill.key] === true}
-                  onClick={() => setShowTools((cur) => ({ ...cur, [skill.key]: cur[skill.key] !== true }))}
-                >
-                  {showTools[skill.key] === true ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                  {tr(`${skill.tools.length} 个工具`, `${skill.tools.length} tools`)}
-                </button>
-              )}
-            </div>
-            {showTools[skill.key] === true && (
-              <div className="mt-1 space-y-1 border-l border-zinc-800/60 pl-2">
-                {skill.tools.map((wire) => (
-                  <ToolRow
-                    key={wire}
-                    name={wire}
-                    blocked={disallowedTools.includes(wire)}
-                    locked={skillChecked(skill.key)}
-                    onToggleBlocked={() => toggleBlocked(wire)}
-                    binding={skillToolBinding(wire)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </CapabilityGroup>
+      </div>
 
-      {/* MCP Server */}
-      <CapabilityGroup
-        title={tr('MCP Server', 'MCP servers')}
-        count={catalog.mcpServers.length}
-        hint={tr(
-          '勾选即整台挂载；工具清单按需展开',
-          'Check to mount a whole server; expand for tools',
-        )}
-      >
-        {catalog.mcpServers.length === 0 ? (
-          <div className="text-[11px] text-zinc-500">{tr('尚未配置 MCP Server', 'No MCP server configured yet')}</div>
-        ) : (
-          catalog.mcpServers.map((server) => {
-            const ready = server.enabled && server.status === 'ok' && server.tools.length > 0;
-            const bound = ready && boundServers.has(server.name);
-            const lockedBound = bound && !canUnmount;
-            return (
-              <div key={server.name} className="rounded px-1.5 py-1 hover:bg-zinc-900/60">
-                <div className="flex items-center gap-2">
-                  <Label className="flex min-w-0 items-center gap-1.5">
-                    <Hint
-                      content={
-                        lockedBound
-                          ? tr('白名单为空等于继承全部 MCP，最后一台已挂载的 Server 不能单独取消', 'An empty whitelist inherits every MCP server, so the last mounted server cannot be unmounted alone')
-                          : tr('勾选即把整台 Server 加入白名单', 'Checking adds the whole server to the whitelist')
-                      }
-                    >
-                      <Checkbox
-                        checked={bound}
-                        disabled={!ready || lockedBound}
-                        onCheckedChange={() => toggleServer(server, !bound)}
-                        className="h-3 w-3"
-                        aria-label={tr(`挂载 MCP Server ${server.name}`, `Mount MCP server ${server.name}`)}
-                      />
-                    </Hint>
-                    <span className="truncate font-mono text-[11px] text-zinc-200">mcp · {server.name}</span>
-                  </Label>
-                  <Chip dense tone={bound ? 'accent' : 'default'}>
-                    {bound ? tr('已挂载', 'mounted') : tr('未挂载', 'not mounted')}
-                  </Chip>
-                  {!ready && (
-                    <Chip dense tone="warning">
-                      {server.enabled ? tr('未探测成功', 'not verified') : tr('已停用', 'disabled')}
-                    </Chip>
-                  )}
-                  <button
-                    type="button"
-                    className="ml-auto flex items-center gap-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"
-                    aria-expanded={expanded[server.name] === true}
-                    onClick={() => setExpanded((cur) => ({ ...cur, [server.name]: cur[server.name] !== true }))}
+      {searching && matchCount === 0 ? (
+        <div className="rounded-md border border-zinc-800/60 px-3 py-4 text-center text-[11px] text-zinc-500">
+          {tr('没有匹配的工具、技能或 MCP Server。', 'No matching tools, skills or MCP servers.')}
+        </div>
+      ) : (
+        <>
+          {/* 内置工具 */}
+          {(!searching || builtinMatches.length > 0) && (
+            <CapabilityGroup
+              title={tr('内置工具', 'Built-in tools')}
+              count={builtinMatches.length}
+              autoOpen={searching}
+              hint={tr('随技能目录始终装配；联网类工具按对话开关挂载', 'Always mounted with the skill catalog; per-turn tools follow the chat toggle')}
+            >
+              {builtinMatches.map((tool) => (
+                <ToolRow
+                  key={tool.name}
+                  name={tool.name}
+                  description={tool.description}
+                  blocked={disallowedTools.includes(tool.name)}
+                  locked={preview.lockedTools.includes(tool.name)}
+                  onToggleBlocked={() => toggleBlocked(tool.name)}
+                  binding={
+                    <span className="shrink-0 text-[10px] text-zinc-500">
+                      {tool.mount === 'always' ? tr('始终可用', 'always on') : tr('随开关', 'per turn')}
+                    </span>
+                  }
+                />
+              ))}
+            </CapabilityGroup>
+          )}
+
+          {/* 技能 */}
+          {(!searching || skillMatches.length > 0) && (
+            <CapabilityGroup
+              title={tr('技能', 'Skills')}
+              count={skillMatches.length}
+              autoOpen={searching}
+              hint={tr('勾选的技能才装配；技能内的工具随技能自动开启', 'Only checked skills are mounted; their tools open with them')}
+              actions={
+                <span className="flex items-center gap-1" role="group" aria-label={tr('技能装配范围', 'Skill scope')}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-pressed={selectedSkills === null}
+                    aria-label={tr('装配全部技能', 'Mount every skill')}
+                    className={cn('h-6 px-2 text-[10px]', selectedSkills === null && 'text-zinc-100')}
+                    onClick={() => onSelectedSkillsChange(null)}
                   >
-                    {expanded[server.name] === true ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                    {tr(`${server.tools.length} 个工具`, `${server.tools.length} tools`)}
-                  </button>
+                    {tr('全部', 'All')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-pressed={selectedSkills !== null}
+                    aria-label={tr('只装配勾选的技能', 'Mount only checked skills')}
+                    className={cn('h-6 px-2 text-[10px]', selectedSkills !== null && 'text-zinc-100')}
+                    onClick={() => onSelectedSkillsChange([])}
+                  >
+                    {tr('指定', 'Selected')}
+                  </Button>
+                </span>
+              }
+            >
+              {catalog.skills.length === 0 && (
+                <div className="px-1.5 py-1 text-[11px] text-zinc-500">
+                  {tr('还没有技能，可到「技能」页新建或导入 zip', 'No skills yet — create one or import a zip on the Skills page')}
                 </div>
-                {expanded[server.name] === true && (
-                  <div className="mt-1 max-h-56 space-y-0.5 overflow-y-auto border-l border-zinc-800/60 pl-2">
-                    {server.tools.length === 0 ? (
-                      <div className="text-[11px] text-zinc-500">{tr('工具缓存为空，请先「测试连接」', 'Empty tool cache — run "Test connection" first')}</div>
-                    ) : (
-                      server.tools.map((tool) => (
-                        <ToolRow
-                          key={tool.wire}
-                          name={tool.wire}
-                          description={tool.description}
-                          blocked={disallowedTools.includes(tool.wire)}
-                          locked={preview.lockedTools.includes(tool.wire)}
-                          onToggleBlocked={() => toggleBlocked(tool.wire)}
-                        />
-                      ))
+              )}
+              {skillMatches.map((skill) => (
+                <div key={skill.key} className="rounded px-1.5 py-1 hover:bg-zinc-900/60">
+                  <div className="flex items-center gap-1.5">
+                    {selectedSkills !== null && (
+                      <Checkbox
+                        checked={skillChecked(skill.key)}
+                        onCheckedChange={() => toggleSkill(skill, !skillChecked(skill.key))}
+                        className="h-3 w-3"
+                        aria-label={tr(`装配技能 ${skill.key}`, `Mount skill ${skill.key}`)}
+                      />
+                    )}
+                    <span className="truncate font-mono text-[11px] text-zinc-200">{skill.key}</span>
+                    <span className="shrink-0 text-[10px] text-zinc-500">
+                      {selectedSkills === null
+                        ? tr('继承全部', 'inherited')
+                        : skillChecked(skill.key)
+                          ? tr('已装配', 'mounted')
+                          : tr('未装配', 'not mounted')}
+                    </span>
+                    {skill.tools.length > 0 && (
+                      <button
+                        type="button"
+                        className="ml-auto flex items-center gap-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"
+                        aria-expanded={showTools[skill.key] === true}
+                        onClick={() => setShowTools((cur) => ({ ...cur, [skill.key]: cur[skill.key] !== true }))}
+                      >
+                        {showTools[skill.key] === true ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                        {tr(`${skill.tools.length} 个工具`, `${skill.tools.length} tools`)}
+                      </button>
                     )}
                   </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </CapabilityGroup>
+                  {showTools[skill.key] === true && (
+                    <div className="mt-1 space-y-1 border-l border-zinc-800/60 pl-2">
+                      {skill.tools.map((wire) => (
+                        <ToolRow
+                          key={wire}
+                          name={wire}
+                          blocked={disallowedTools.includes(wire)}
+                          locked={skillChecked(skill.key)}
+                          onToggleBlocked={() => toggleBlocked(wire)}
+                          binding={skillToolBinding(wire)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </CapabilityGroup>
+          )}
+
+          {/* MCP Server */}
+          {(!searching || mcpMatches.length > 0) && (
+            <CapabilityGroup
+              title={tr('MCP Server', 'MCP servers')}
+              count={mcpMatches.length}
+              autoOpen={searching}
+              hint={tr(
+                '勾选即整台挂载；工具清单按需展开',
+                'Check to mount a whole server; expand for tools',
+              )}
+            >
+              {catalog.mcpServers.length === 0 ? (
+                <div className="text-[11px] text-zinc-500">{tr('尚未配置 MCP Server', 'No MCP server configured yet')}</div>
+              ) : (
+                mcpMatches.map(({ server, tools: visibleTools }) => {
+                  const ready = server.enabled && server.status === 'ok' && server.tools.length > 0;
+                  const bound = ready && boundServers.has(server.name);
+                  const lockedBound = bound && !canUnmount;
+                  return (
+                    <div key={server.name} className="rounded px-1.5 py-1 hover:bg-zinc-900/60">
+                      <div className="flex items-center gap-2">
+                        <Label className="flex min-w-0 items-center gap-1.5">
+                          <Hint
+                            content={
+                              lockedBound
+                                ? tr('白名单为空等于继承全部 MCP，最后一台已挂载的 Server 不能单独取消', 'An empty whitelist inherits every MCP server, so the last mounted server cannot be unmounted alone')
+                                : tr('勾选即把整台 Server 加入白名单', 'Checking adds the whole server to the whitelist')
+                            }
+                          >
+                            <Checkbox
+                              checked={bound}
+                              disabled={!ready || lockedBound}
+                              onCheckedChange={() => toggleServer(server, !bound)}
+                              className="h-3 w-3"
+                              aria-label={tr(`挂载 MCP Server ${server.name}`, `Mount MCP server ${server.name}`)}
+                            />
+                          </Hint>
+                          <span className="truncate font-mono text-[11px] text-zinc-200">mcp · {server.name}</span>
+                        </Label>
+                        <Chip dense tone={bound ? 'accent' : 'default'}>
+                          {bound ? tr('已挂载', 'mounted') : tr('未挂载', 'not mounted')}
+                        </Chip>
+                        {!ready && (
+                          <Chip dense tone="warning">
+                            {server.enabled ? tr('未探测成功', 'not verified') : tr('已停用', 'disabled')}
+                          </Chip>
+                        )}
+                        {searching ? (
+                          <span className="ml-auto shrink-0 text-[10px] text-zinc-500">
+                            {tr(`匹配 ${visibleTools.length} 个工具`, `${visibleTools.length} matched tools`)}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="ml-auto flex items-center gap-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"
+                            aria-expanded={expanded[server.name] === true}
+                            onClick={() => setExpanded((cur) => ({ ...cur, [server.name]: cur[server.name] !== true }))}
+                          >
+                            {expanded[server.name] === true ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                            {tr(`${server.tools.length} 个工具`, `${server.tools.length} tools`)}
+                          </button>
+                        )}
+                      </div>
+                      {(searching || expanded[server.name] === true) && (
+                        <div className="mt-1 max-h-56 space-y-0.5 overflow-y-auto border-l border-zinc-800/60 pl-2">
+                          {visibleTools.length === 0 ? (
+                            <div className="text-[11px] text-zinc-500">{tr('工具缓存为空，请先「测试连接」', 'Empty tool cache — run "Test connection" first')}</div>
+                          ) : (
+                            visibleTools.map((tool) => (
+                              <ToolRow
+                                key={tool.wire}
+                                name={tool.wire}
+                                description={tool.description}
+                                blocked={disallowedTools.includes(tool.wire)}
+                                locked={preview.lockedTools.includes(tool.wire)}
+                                onToggleBlocked={() => toggleBlocked(tool.wire)}
+                              />
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </CapabilityGroup>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -445,16 +516,21 @@ function CapabilityGroup({
   count,
   hint,
   actions,
+  autoOpen = false,
   children,
 }: {
   title: string;
   count: number;
   hint: string;
   actions?: React.ReactNode;
+  autoOpen?: boolean;
   children: React.ReactNode;
 }) {
   // 三个分组默认收起，能力页先给出总量与说明，需要逐项调整时再展开。
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (autoOpen) setOpen(true);
+  }, [autoOpen]);
   return (
     <section className="rounded-md border border-zinc-800 bg-zinc-950/40">
       <div className="flex items-center gap-1.5 border-b border-zinc-800/60 px-2 py-1.5">

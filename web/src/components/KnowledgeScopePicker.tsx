@@ -20,7 +20,7 @@ import {
   type PathRow,
   type SearchHit,
 } from '@/api/knowledge';
-import { Button, Checkbox, Input, Label, Radio } from '@/components/ui';
+import { Button, Checkbox, Input, Label, Radio, SearchInput } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
 
 export type ScopeMode = 'all' | 'custom';
@@ -56,6 +56,7 @@ export function scopeSelectionIsIncomplete(sel: ScopeSelection): boolean {
 
 const ROOT_PATH_LABEL = { zh: '（根目录）', en: '(root)' };
 const DOC_FILTER_LIMIT = 50;
+const DOC_SEARCH_LIMIT = 100;
 // 选择器只加载可用的一页：不传 limit 会让后端拉全库并计算全库正文统计
 const DOC_LOAD_LIMIT = 200;
 
@@ -109,6 +110,11 @@ function buildFolderTree(rows: PathRow[]): FolderNode[] {
   return freeze(root);
 }
 
+/** 搜索时把树摊平成目录列表，避免用户先展开多层才能点到目标。 */
+function flattenFolderTree(nodes: FolderNode[]): FolderNode[] {
+  return nodes.flatMap((node) => [node, ...flattenFolderTree(node.children)]);
+}
+
 export function KnowledgeScopePicker({
   value,
   onChange,
@@ -124,7 +130,7 @@ export function KnowledgeScopePicker({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preview, setPreview] = useState<ScopePreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [docQuery, setDocQuery] = useState('');
+  const [scopeQuery, setScopeQuery] = useState('');
   const [trialQuery, setTrialQuery] = useState('');
   const [trialHits, setTrialHits] = useState<SearchHit[] | null>(null);
   const [trialError, setTrialError] = useState<string | null>(null);
@@ -302,16 +308,50 @@ export function KnowledgeScopePicker({
     });
   };
 
-  const filteredDocs = useMemo(() => {
-    const q = docQuery.trim().toLowerCase();
-    const base = q === ''
-      ? docs
-      : docs.filter((doc) => {
-          const title = localizedDocTitle(doc).toLowerCase();
-          return title.includes(q) || doc.id.includes(q) || (doc.path ?? '').toLowerCase().includes(q);
-        });
-    return base.slice(0, DOC_FILTER_LIMIT);
-  }, [docs, docQuery]);
+  // 目录树与搜索结果共用同一行结构，避免两处勾选语义分叉。
+  const renderDocRow = (doc: KnowledgeDoc) => (
+    <label
+      key={`doc-${doc.id}`}
+      className="flex items-center gap-2 border-b border-zinc-800/40 px-2 py-1 text-[11px] text-zinc-300 last:border-b-0"
+    >
+      <Checkbox
+        checked={value.doc_ids.includes(doc.id)}
+        onCheckedChange={() => toggleDoc(doc.id)}
+        aria-label={tr(`范围文档 ${localizedDocTitle(doc)}`, `Scope document ${localizedDocTitle(doc)}`)}
+        className="h-3 w-3"
+      />
+      <span className="truncate">{localizedDocTitle(doc)}</span>
+      <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500">
+        {localizedPath(doc.path ?? '') || '—'}
+      </span>
+    </label>
+  );
+
+  const browseDocs = useMemo(() => docs.slice(0, DOC_FILTER_LIMIT), [docs]);
+
+  const searchQuery = scopeQuery.trim().toLowerCase();
+  const searchingScope = searchQuery !== '';
+  const folderMatches = useMemo(() => {
+    if (searchQuery === '') return [];
+    return flattenFolderTree(folderTree).filter(
+      (node) =>
+        node.path.toLowerCase().includes(searchQuery) ||
+        localizedPath(node.path).toLowerCase().includes(searchQuery),
+    );
+  }, [folderTree, searchQuery]);
+  const docMatches = useMemo(() => {
+    if (searchQuery === '') return [];
+    return docs
+      .filter((doc) => {
+        const title = localizedDocTitle(doc).toLowerCase();
+        return (
+          title.includes(searchQuery) ||
+          doc.id.toLowerCase().includes(searchQuery) ||
+          (doc.path ?? '').toLowerCase().includes(searchQuery)
+        );
+      })
+      .slice(0, DOC_SEARCH_LIMIT);
+  }, [docs, searchQuery]);
 
   // 已选文档可能不在已加载的一页里：回退展示 id，避免「选了却不显示」
   const selectedDocs = useMemo(
@@ -380,91 +420,157 @@ export function KnowledgeScopePicker({
         </p>
       ) : (
         <div className="space-y-3">
-          <div>
-            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
-              {tr('目录（含子目录）', 'Folders (with subfolders)')}
-            </div>
-            {folderTree.length === 0 ? (
-              <p className="text-[11px] text-zinc-500">{tr('知识库暂无目录。', 'No folders yet.')}</p>
-            ) : (
-              <div className="max-h-56 overflow-y-auto rounded border border-zinc-800/60 p-1">
-                {folderTree.map((node) => renderFolder(node, 0))}
-              </div>
-            )}
-          </div>
+          <SearchInput
+            value={scopeQuery}
+            onChange={setScopeQuery}
+            placeholder={tr('搜索目录或文档，直接勾选', 'Search folders or documents to select')}
+            ariaLabel={tr('搜索知识范围', 'Search knowledge scope')}
+          />
 
-          <div className="rounded border border-zinc-800/60">
-            <button
-              type="button"
-              onClick={() => setShowDocuments((v) => !v)}
-              aria-expanded={showDocuments}
-              className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left"
-            >
-              <ChevronRight
-                size={11}
-                className={cn(
-                  'shrink-0 text-zinc-500 transition-transform',
-                  showDocuments && 'rotate-90',
-                )}
-              />
-              <span className="text-[11px] font-medium text-zinc-300">
-                {tr('按文档精确选择', 'Pick individual documents')}
-              </span>
-              <span className="text-[10px] text-zinc-500">
-                {selectedDocs.length > 0
-                  ? tr(`已选 ${selectedDocs.length} 篇`, `${selectedDocs.length} selected`)
-                  : tr('可选', 'optional')}
-              </span>
-            </button>
-            {showDocuments && (
-              <div className="border-t border-zinc-800/60 p-2">
-                <Input
-                  type="text"
-                  value={docQuery}
-                  onChange={(e) => setDocQuery(e.target.value)}
-                  placeholder={tr('按标题 / 路径 / ID 过滤', 'Filter by title / path / ID')}
-                  className="mb-1.5 w-full"
-                />
-                {selectedDocs.length > 0 && (
-                  <div className="mb-1.5 flex flex-wrap gap-1.5">
-                    {selectedDocs.map((doc) => (
-                      <span
-                        key={doc.id}
-                        className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 text-[10px] text-zinc-400"
-                      >
-                        {doc.title}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="max-h-48 overflow-y-auto rounded border border-zinc-800/60">
-                  {filteredDocs.length === 0 ? (
-                    <p className="px-2 py-1.5 text-[11px] text-zinc-500">
-                      {tr('没有匹配的文档。', 'No matching documents.')}
-                    </p>
-                  ) : (
-                    filteredDocs.map((doc) => (
-                      <label
-                        key={doc.id}
-                        className="flex items-center gap-2 border-b border-zinc-800/40 px-2 py-1 text-[11px] text-zinc-300 last:border-b-0"
-                      >
-                        <Checkbox
-                          checked={value.doc_ids.includes(doc.id)}
-                          onCheckedChange={() => toggleDoc(doc.id)}
-                          aria-label={tr(`范围文档 ${localizedDocTitle(doc)}`, `Scope document ${localizedDocTitle(doc)}`)}
-                          className="h-3 w-3"
-                        />
-                        <span className="truncate">{localizedDocTitle(doc)}</span>
-                        <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500">
-                          {localizedPath(doc.path ?? '') || '—'}
-                        </span>
-                      </label>
-                    ))
+          {searchingScope ? (
+            <div className="space-y-2">
+              {(value.paths.length > 0 || selectedDocs.length > 0) && (
+                <div className="flex flex-wrap items-center gap-1 text-[10px] text-zinc-500">
+                  <span className="shrink-0">{tr('已选', 'Selected')}</span>
+                  {value.paths.map((path) => (
+                    <span
+                      key={`selected-${path}`}
+                      className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 text-zinc-400"
+                    >
+                      {localizedPath(path)}
+                    </span>
+                  ))}
+                  {selectedDocs.map((doc) => (
+                    <span
+                      key={`selected-${doc.id}`}
+                      className="max-w-[16rem] truncate rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 text-zinc-400"
+                    >
+                      {doc.title}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="max-h-64 overflow-y-auto rounded border border-zinc-800/60">
+                <div className="border-b border-zinc-800/60 bg-zinc-950/40 px-2 py-1 text-[10px] text-zinc-500">
+                  {tr(
+                    `匹配 ${folderMatches.length} 个目录 · ${docMatches.length} 篇文档`,
+                    `${folderMatches.length} folder(s) · ${docMatches.length} document(s)`,
                   )}
                 </div>
+                {folderMatches.length === 0 && docMatches.length === 0 ? (
+                  <p className="px-2 py-2 text-[11px] text-zinc-500">
+                    {tr('没有匹配的目录或文档。', 'No matching folders or documents.')}
+                  </p>
+                ) : (
+                  <>
+                    {folderMatches.map((node) => {
+                      const selected = value.paths.includes(node.path);
+                      const inherited = isPathInherited(node.path);
+                      const label = localizedPath(node.path);
+                      return (
+                        <label
+                          key={`folder-${node.path}`}
+                          className="flex items-center gap-2 border-b border-zinc-800/40 px-2 py-1 text-[11px] text-zinc-300 last:border-b-0"
+                        >
+                          <Checkbox
+                            checked={selected || inherited}
+                            disabled={inherited}
+                            onCheckedChange={() => togglePath(node.path)}
+                            aria-label={tr(`范围目录 ${label}`, `Scope folder ${label}`)}
+                            className="h-3 w-3"
+                          />
+                          <Folder size={11} className="shrink-0 text-zinc-500" aria-hidden />
+                          <span className="truncate">{label}</span>
+                          {inherited && (
+                            <span className="shrink-0 text-[10px] text-zinc-600">
+                              {tr('随上级', 'inherited')}
+                            </span>
+                          )}
+                          <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500">
+                            {node.subtreeCount}
+                          </span>
+                        </label>
+                      );
+                    })}
+                    {docMatches.map((doc) => renderDocRow(doc))}
+                  </>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <>
+              <div>
+                <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+                  {tr('目录（含子目录）', 'Folders (with subfolders)')}
+                </div>
+                {folderTree.length === 0 ? (
+                  <p className="text-[11px] text-zinc-500">{tr('知识库暂无目录。', 'No folders yet.')}</p>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto rounded border border-zinc-800/60 p-1">
+                    {folderTree.map((node) => renderFolder(node, 0))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded border border-zinc-800/60">
+                <button
+                  type="button"
+                  onClick={() => setShowDocuments((v) => !v)}
+                  aria-expanded={showDocuments}
+                  className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left"
+                >
+                  <ChevronRight
+                    size={11}
+                    className={cn(
+                      'shrink-0 text-zinc-500 transition-transform',
+                      showDocuments && 'rotate-90',
+                    )}
+                  />
+                  <span className="text-[11px] font-medium text-zinc-300">
+                    {tr('按文档精确选择', 'Pick individual documents')}
+                  </span>
+                  <span className="text-[10px] text-zinc-500">
+                    {selectedDocs.length > 0
+                      ? tr(`已选 ${selectedDocs.length} 篇`, `${selectedDocs.length} selected`)
+                      : tr('可选', 'optional')}
+                  </span>
+                </button>
+                {showDocuments && (
+                  <div className="border-t border-zinc-800/60 p-2">
+                    {selectedDocs.length > 0 && (
+                      <div className="mb-1.5 flex flex-wrap gap-1.5">
+                        {selectedDocs.map((doc) => (
+                          <span
+                            key={doc.id}
+                            className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 text-[10px] text-zinc-400"
+                          >
+                            {doc.title}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="max-h-48 overflow-y-auto rounded border border-zinc-800/60">
+                      {browseDocs.length === 0 ? (
+                        <p className="px-2 py-1.5 text-[11px] text-zinc-500">
+                          {tr('知识库暂无文档。', 'No documents yet.')}
+                        </p>
+                      ) : (
+                        browseDocs.map((doc) => renderDocRow(doc))
+                      )}
+                    </div>
+                    {docs.length > browseDocs.length && (
+                      <p className="mt-1 text-[10px] text-zinc-500">
+                        {tr(
+                          `仅显示前 ${browseDocs.length} 篇，共 ${docs.length} 篇；用上方搜索查找其余文档。`,
+                          `Showing first ${browseDocs.length} of ${docs.length}; use the search above for the rest.`,
+                        )}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           <div className="text-[11px]">
             {previewError !== null ? (

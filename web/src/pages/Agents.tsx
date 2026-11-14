@@ -27,6 +27,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   BookOpen,
   Bot,
+  Check,
+  ChevronRight,
   Copy,
   ListChecks,
   MessageSquarePlus,
@@ -67,7 +69,7 @@ import { tr as trInline, useI18n } from '@/i18n/locale';
 import { useModelSelection } from '@/store/modelSelection';
 import { CapabilityBinding } from '@/components/CapabilityBinding';
 import { KnowledgeScopePicker, scopeSelectionFromWire, scopeSelectionIsIncomplete, scopeSelectionToWire, type ScopeSelection } from '@/components/KnowledgeScopePicker';
-import { PersonaFields, OUTPUT_FORMAT_LABELS } from '@/components/PersonaFields';
+import { PersonaFields, OUTPUT_FORMAT_LABELS, examplesInvalid } from '@/components/PersonaFields';
 import type { CapabilityCatalog } from '@/lib/capabilityPreview';
 import type { ScopePreview } from '@/api/knowledge';
 import type { AgentExample, OutputFormat } from '@/api/agents';
@@ -750,6 +752,53 @@ function AgentsEmpty({ hasItems, onCreate, onClear, canCreate }: { canCreate: bo
   );
 }
 
+// 新建走向导、编辑走 Tabs；两边共用同一组配置分区与同一份草稿状态。
+type EditorSection = 'basic' | 'persona' | 'knowledge' | 'capabilities' | 'runtime';
+
+const EDITOR_SECTIONS: {
+  key: EditorSection;
+  zh: string;
+  en: string;
+  hintZh: string;
+  hintEn: string;
+}[] = [
+  {
+    key: 'basic',
+    zh: '基础',
+    en: 'Basics',
+    hintZh: '定义唯一标识、显示名称与适用场景',
+    hintEn: 'Define the identifier, display name and when to use it',
+  },
+  {
+    key: 'persona',
+    zh: '人设',
+    en: 'Persona',
+    hintZh: '设定职责、回答方式与示例',
+    hintEn: 'Set responsibilities, answer style and examples',
+  },
+  {
+    key: 'knowledge',
+    zh: '知识范围',
+    en: 'Knowledge',
+    hintZh: '限定可检索的目录与文档',
+    hintEn: 'Limit the folders and documents it can search',
+  },
+  {
+    key: 'capabilities',
+    zh: '能力绑定',
+    en: 'Capabilities',
+    hintZh: '选择工具、技能与 MCP Server',
+    hintEn: 'Pick tools, skills and MCP servers',
+  },
+  {
+    key: 'runtime',
+    zh: '委托与运行',
+    en: 'Delegation & runtime',
+    hintZh: '指定子助理、权限与模型参数',
+    hintEn: 'Choose sub-assistants, permissions and model settings',
+  },
+];
+
 // AgentEditor is the create + edit form modal. Reused by three flows:
 //   - create blank: existing=null, seed=undefined
 //   - create from fork: existing=null, seed=<内置/预置助理> — 预填正文，
@@ -805,7 +854,7 @@ function AgentEditor({
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // 配置项按用途分区，避免单页纵向滚动过长；切换分区不丢草稿。
-  const [tab, setTab] = useState<'basic' | 'persona' | 'knowledge' | 'capabilities' | 'runtime'>('basic');
+  const [section, setSection] = useState<EditorSection>('basic');
 
   useEffect(() => {
     let cancelled = false;
@@ -867,17 +916,68 @@ function AgentEditor({
   const saveBlockedHint =
     missingRequired.length > 0
       ? tr(`还需填写：${missingRequired.join('、')}`, `Still required: ${missingRequired.join(', ')}`)
-      : scopeBlocked
-        ? tr(
-            '知识范围不可用，请到「知识范围」分区检查',
-            'Knowledge scope is invalid; check the Knowledge tab',
-          )
-        : '';
+      : examplesInvalid(examples)
+        ? tr('示例的输入与输出都不能为空。', 'Both sides of every example are required.')
+        : scopeBlocked
+          ? tr(
+              '知识范围不可用，请到「知识范围」分区检查',
+              'Knowledge scope is invalid; check the Knowledge section',
+            )
+          : '';
   const basicIncomplete =
     (mode === 'create' && name.trim() === '') ||
     displayName.trim() === '' ||
     description.trim() === '';
   const personaIncomplete = systemPrompt.trim() === '';
+
+  const sectionIndex = Math.max(
+    0,
+    EDITOR_SECTIONS.findIndex((item) => item.key === section),
+  );
+  const isCreate = mode === 'create';
+  const isLastSection = sectionIndex === EDITOR_SECTIONS.length - 1;
+  const sectionIncomplete: Record<EditorSection, boolean> = {
+    basic: basicIncomplete,
+    persona: personaIncomplete || examplesInvalid(examples),
+    knowledge: scopeBlocked,
+    capabilities: false,
+    runtime: false,
+  };
+  // 向导每一步只提示本步还缺什么，避免把后续分区的必填项提前抛给用户。
+  const createStepHint = (() => {
+    if (!isCreate) return saveBlockedHint;
+    if (section === 'basic') {
+      const missing: string[] = [];
+      if (name.trim() === '') missing.push(tr('Agent 标识', 'Agent identifier'));
+      if (displayName.trim() === '') missing.push(tr('显示名称', 'Display name'));
+      if (description.trim() === '') missing.push(tr('描述', 'Description'));
+      return missing.length > 0
+        ? tr(`还需填写：${missing.join('、')}`, `Still required: ${missing.join(', ')}`)
+        : '';
+    }
+    if (section === 'persona') {
+      if (systemPrompt.trim() === '') return tr('还需填写：系统提示', 'Still required: System prompt');
+      if (examplesInvalid(examples)) {
+        return tr('示例的输入与输出都不能为空。', 'Both sides of every example are required.');
+      }
+      return '';
+    }
+    if (section === 'knowledge' && scopeBlocked) {
+      return tr(
+        '知识范围不可用，请选择有效目录或文档',
+        'Knowledge scope is invalid; pick a valid folder or document',
+      );
+    }
+    return '';
+  })();
+  const saveDisabled =
+    submitting ||
+    (mode === 'create' && name.trim() === '') ||
+    displayName.trim() === '' ||
+    description.trim() === '' ||
+    systemPrompt.trim() === '' ||
+    examplesInvalid(examples) ||
+    scopeBlocked;
 
   const tabLabel = (label: string, incomplete: boolean) => (
     <>
@@ -945,8 +1045,8 @@ function AgentEditor({
       }
       footer={
         <>
-          {saveBlockedHint !== '' && (
-            <span className="mr-auto text-[11px] text-zinc-500">{saveBlockedHint}</span>
+          {createStepHint !== '' && (
+            <span className="mr-auto text-[11px] text-zinc-500">{createStepHint}</span>
           )}
           <Button variant="outline" size="sm"
             type="button"
@@ -955,21 +1055,53 @@ function AgentEditor({
           >
             {tr('取消', 'Cancel')}
           </Button>
-          <Button variant="primary" size="sm"
-            type="button"
-            onClick={() => void submit()}
-            disabled={
-              submitting ||
-              (mode === 'create' && name.trim() === '') ||
-              displayName.trim() === '' ||
-              description.trim() === '' ||
-              systemPrompt.trim() === '' ||
-              scopeBlocked
-            }
-            className="px-3 py-1.5 font-medium text-accent-fg"
-          >
-            {submitting ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
-          </Button>
+          {isCreate ? (
+            <>
+              {sectionIndex > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  onClick={() => setSection(EDITOR_SECTIONS[sectionIndex - 1].key)}
+                  className="px-3 py-1.5"
+                >
+                  {tr('上一步', 'Back')}
+                </Button>
+              )}
+              {isLastSection ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  type="button"
+                  onClick={() => void submit()}
+                  disabled={saveDisabled}
+                  className="px-3 py-1.5 font-medium text-accent-fg"
+                >
+                  {submitting ? tr('创建中…', 'Creating…') : tr('创建', 'Create')}
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  type="button"
+                  onClick={() => setSection(EDITOR_SECTIONS[sectionIndex + 1].key)}
+                  disabled={submitting || sectionIncomplete[section]}
+                  className="px-3 py-1.5 font-medium text-accent-fg"
+                >
+                  {tr('下一步', 'Next')}
+                </Button>
+              )}
+            </>
+          ) : (
+            <Button variant="primary" size="sm"
+              type="button"
+              onClick={() => void submit()}
+              disabled={saveDisabled}
+              className="px-3 py-1.5 font-medium text-accent-fg"
+            >
+              {submitting ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
+            </Button>
+          )}
         </>
       }
     >
@@ -980,20 +1112,70 @@ function AgentEditor({
           </ErrorBanner>
         )}
 
+        {isCreate && (
+          <nav
+            aria-label={tr('创建步骤', 'Creation steps')}
+            className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2"
+          >
+            <ol className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              {EDITOR_SECTIONS.map((item, index) => {
+                const active = item.key === section;
+                const done = index < sectionIndex;
+                return (
+                  <li
+                    key={item.key}
+                    aria-current={active ? 'step' : undefined}
+                    className="flex items-center gap-1.5"
+                  >
+                    {index > 0 && (
+                      <ChevronRight size={11} aria-hidden className="text-zinc-600" />
+                    )}
+                    <span
+                      className={cn(
+                        'flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-medium',
+                        active
+                          ? 'bg-indigo-500 text-white'
+                          : done
+                            ? 'bg-indigo-500/15 text-indigo-300'
+                            : 'bg-zinc-800 text-zinc-500',
+                      )}
+                    >
+                      {done ? <Check size={9} aria-hidden /> : index + 1}
+                    </span>
+                    <span
+                      className={cn('text-[11px]', active ? 'text-zinc-100' : 'text-zinc-500')}
+                    >
+                      {tr(item.zh, item.en)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+            <div className="mt-1 text-[10px] text-zinc-500">
+              {tr(
+                `第 ${sectionIndex + 1} / ${EDITOR_SECTIONS.length} 步 · ${EDITOR_SECTIONS[sectionIndex].hintZh}`,
+                `Step ${sectionIndex + 1} of ${EDITOR_SECTIONS.length} · ${EDITOR_SECTIONS[sectionIndex].hintEn}`,
+              )}
+            </div>
+          </nav>
+        )}
+
         <Tabs
-          value={tab}
-          onValueChange={(value) => setTab(value as typeof tab)}
+          value={section}
+          onValueChange={(value) => setSection(value as EditorSection)}
           className="space-y-4"
         >
-          <TabsList aria-label={tr('助理配置分区', 'Assistant configuration sections')}>
-            <TabsTrigger value="basic">{tabLabel(tr('基础', 'Basics'), basicIncomplete)}</TabsTrigger>
-            <TabsTrigger value="persona">{tabLabel(tr('人设', 'Persona'), personaIncomplete)}</TabsTrigger>
-            <TabsTrigger value="knowledge">
-              {tabLabel(tr('知识范围', 'Knowledge'), scopeBlocked)}
-            </TabsTrigger>
-            <TabsTrigger value="capabilities">{tr('能力绑定', 'Capabilities')}</TabsTrigger>
-            <TabsTrigger value="runtime">{tr('委托与运行', 'Delegation & runtime')}</TabsTrigger>
-          </TabsList>
+          {!isCreate && (
+            <TabsList aria-label={tr('助理配置分区', 'Assistant configuration sections')}>
+              <TabsTrigger value="basic">{tabLabel(tr('基础', 'Basics'), basicIncomplete)}</TabsTrigger>
+              <TabsTrigger value="persona">{tabLabel(tr('人设', 'Persona'), personaIncomplete)}</TabsTrigger>
+              <TabsTrigger value="knowledge">
+                {tabLabel(tr('知识范围', 'Knowledge'), scopeBlocked)}
+              </TabsTrigger>
+              <TabsTrigger value="capabilities">{tr('能力绑定', 'Capabilities')}</TabsTrigger>
+              <TabsTrigger value="runtime">{tr('委托与运行', 'Delegation & runtime')}</TabsTrigger>
+            </TabsList>
+          )}
 
           <TabsContent value="basic" keepMounted className="min-h-[24rem] space-y-4">
             {/* 宽弹窗下基础信息并排，避免长表单变成一条竖直的窄列。 */}

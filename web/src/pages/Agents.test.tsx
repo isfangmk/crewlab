@@ -52,6 +52,24 @@ const userAgent = {
 const listURL = '/api/v1/skills';
 const mcpListURL = '/api/v1/mcp/servers';
 
+// 创建助理走 5 步向导：先填基础信息，再过必填的人设，才能进入后续步骤。
+async function fillCreateBasics(dialog: HTMLElement, name = 'test_agent') {
+  await userEvent.type(within(dialog).getByPlaceholderText(/oncall-duty/), name);
+  await userEvent.type(within(dialog).getByPlaceholderText(/例如：运维值班助理/), '测试助理');
+  await userEvent.type(within(dialog).getByPlaceholderText(/一句话说清/), '测试用途');
+}
+
+async function fillCreatePersona(dialog: HTMLElement) {
+  await userEvent.type(
+    within(dialog).getByPlaceholderText(/你是 X 专家/),
+    '你是测试专家。',
+  );
+}
+
+async function clickNext(dialog: HTMLElement) {
+  await userEvent.click(within(dialog).getByRole('button', { name: '下一步' }));
+}
+
 describe('AgentsPage', () => {
   beforeEach(() => {
     localStorage.setItem('ongrid-locale', 'zh-CN');
@@ -167,7 +185,11 @@ describe('AgentsPage', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
     const dialog = await screen.findByRole('dialog');
-    await userEvent.click(within(dialog).getByRole('tab', { name: '能力绑定' }));
+    await fillCreateBasics(dialog, 'mcp_agent');
+    await clickNext(dialog);
+    await fillCreatePersona(dialog);
+    await clickNext(dialog);
+    await clickNext(dialog);
     // 能力分组默认收起；展开 MCP Server 后只显示 Server 摘要，工具清单仍收起
     expect(within(dialog).queryByText('mcp · demo-operations')).not.toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole('button', { name: /MCP Server/ }));
@@ -197,7 +219,8 @@ describe('AgentsPage', () => {
     );
     await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
     const dialog = await screen.findByRole('dialog');
-    await userEvent.click(within(dialog).getByRole('tab', { name: '人设' }));
+    await fillCreateBasics(dialog, 'persona_agent');
+    await clickNext(dialog);
 
     await userEvent.click(within(dialog).getByRole('button', { name: '知识问答' }));
 
@@ -234,17 +257,19 @@ describe('AgentsPage', () => {
     );
     await userEvent.type(within(dialog).getByPlaceholderText(/例如：运维值班助理/), '范围测试助理');
     await userEvent.type(within(dialog).getByPlaceholderText(/一句话说清/), '限定知识范围的助理');
-    await userEvent.click(within(dialog).getByRole('tab', { name: '人设' }));
+    await clickNext(dialog);
     await userEvent.click(within(dialog).getByRole('button', { name: 'SRE 排障' }));
+    await clickNext(dialog);
 
     // 指定范围 → 勾选目录 → 预览命中数
-    await userEvent.click(within(dialog).getByRole('tab', { name: '知识范围' }));
     await userEvent.click(within(dialog).getByRole('radio', { name: '指定范围' }));
     const pathBox = await within(dialog).findByRole('checkbox', { name: /范围目录 数据库/ });
     await userEvent.click(pathBox);
     expect(await within(dialog).findByText(/命中 2 篇文档/)).toBeInTheDocument();
+    await clickNext(dialog);
+    await clickNext(dialog);
 
-    await userEvent.click(within(dialog).getByRole('button', { name: '保存' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: '创建' }));
 
     expect(saved).not.toBeNull();
     const payload = saved as unknown as Record<string, unknown>;
@@ -275,7 +300,10 @@ describe('AgentsPage', () => {
     );
     await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
     const dialog = await screen.findByRole('dialog');
-    await userEvent.click(within(dialog).getByRole('tab', { name: '知识范围' }));
+    await fillCreateBasics(dialog, 'tree_agent');
+    await clickNext(dialog);
+    await fillCreatePersona(dialog);
+    await clickNext(dialog);
     await userEvent.click(within(dialog).getByRole('radio', { name: '指定范围' }));
 
     // 中间层级由子路径自动补全，计数按含子目录口径汇总
@@ -319,15 +347,148 @@ describe('AgentsPage', () => {
     await userEvent.type(within(dialog).getByPlaceholderText(/oncall-duty/), 'empty_scope_agent');
     await userEvent.type(within(dialog).getByPlaceholderText(/例如：运维值班助理/), '空范围助理');
     await userEvent.type(within(dialog).getByPlaceholderText(/一句话说清/), '范围为空');
-    await userEvent.click(within(dialog).getByRole('tab', { name: '人设' }));
+    await clickNext(dialog);
     await userEvent.click(within(dialog).getByRole('button', { name: 'SRE 排障' }));
-
-    await userEvent.click(within(dialog).getByRole('tab', { name: '知识范围' }));
+    await clickNext(dialog);
     await userEvent.click(within(dialog).getByRole('radio', { name: '指定范围' }));
     await userEvent.click(await within(dialog).findByRole('checkbox', { name: /范围目录 数据库/ }));
 
     expect(await within(dialog).findByText(/保存会被拒绝/)).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: '保存' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: '下一步' })).toBeDisabled();
+  });
+
+  it('创建向导逐步校验必填项，返回上一步保留草稿', async () => {
+    render(
+      <MemoryRouter>
+        <AgentsPage />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
+    const dialog = await screen.findByRole('dialog');
+
+    const nextButton = within(dialog).getByRole('button', { name: '下一步' });
+    expect(nextButton).toBeDisabled();
+    await fillCreateBasics(dialog, 'wizard_agent');
+    expect(nextButton).toBeEnabled();
+
+    await clickNext(dialog);
+    expect(within(dialog).getByText(/第 2 \/ 5 步/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: '下一步' })).toBeDisabled();
+    await fillCreatePersona(dialog);
+    expect(within(dialog).getByRole('button', { name: '下一步' })).toBeEnabled();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: '上一步' }));
+    expect(within(dialog).getByPlaceholderText(/oncall-duty/)).toHaveValue('wizard_agent');
+    expect(within(dialog).getByPlaceholderText(/例如：运维值班助理/)).toHaveValue('测试助理');
+    expect(within(dialog).getByPlaceholderText(/一句话说清/)).toHaveValue('测试用途');
+  });
+
+  it('知识范围支持搜索目录与文档并直接勾选', async () => {
+    render(
+      <MemoryRouter>
+        <AgentsPage />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
+    const dialog = await screen.findByRole('dialog');
+    await fillCreateBasics(dialog, 'search_scope_agent');
+    await clickNext(dialog);
+    await fillCreatePersona(dialog);
+    await clickNext(dialog);
+    await userEvent.click(within(dialog).getByRole('radio', { name: '指定范围' }));
+
+    const search = within(dialog).getByRole('searchbox', { name: '搜索知识范围' });
+    await userEvent.type(search, '慢查询');
+    expect(await within(dialog).findByText(/匹配 0 个目录 · 1 篇文档/)).toBeInTheDocument();
+    const docBox = within(dialog).getByRole('checkbox', { name: '范围文档 MySQL 慢查询排查' });
+    await userEvent.click(docBox);
+    expect(docBox).toBeChecked();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, '数据');
+    const folderBox = await within(dialog).findByRole('checkbox', { name: '范围目录 数据库' });
+    await userEvent.click(folderBox);
+    expect(folderBox).toBeChecked();
+
+    // 搜索不到已选项时，已选摘要仍保留，避免用户以为选择丢了
+    await userEvent.clear(search);
+    await userEvent.type(search, '网络');
+    expect(await within(dialog).findByText('已选')).toBeInTheDocument();
+    expect(within(dialog).getByText('MySQL 慢查询排查')).toBeInTheDocument();
+  });
+
+  it('能力绑定支持按工具、技能与 MCP 工具搜索', async () => {
+    server.use(
+      http.get('/api/v1/tools/builtin', () =>
+        HttpResponse.json({
+          items: [
+            { name: 'query_promql', description: 'Query Prometheus', mount: 'always' },
+            { name: 'query_incidents', description: 'List incidents', mount: 'always' },
+          ],
+          total: 2,
+        }),
+      ),
+      http.get(listURL, () =>
+        HttpResponse.json({
+          items: [
+            { key: 'sre-runbook', description: 'SRE runbook', tools: ['query_promql'] },
+            { key: 'k8s-ops', description: 'Kubernetes operations', tools: [] },
+          ],
+          total: 2,
+        }),
+      ),
+      http.get(mcpListURL, () =>
+        HttpResponse.json({
+          items: [{
+            id: 2,
+            name: 'demo-operations',
+            transport: 'http',
+            endpoint: 'https://mcp.example.com/mcp',
+            credential: '',
+            header_template_json: '{}',
+            trusted: false,
+            approval_policy: 'always',
+            enabled: true,
+            status: 'ok',
+            last_error: '',
+            tools_cache_json: JSON.stringify([
+              { name: 'get_service_health', description: 'Read health.', input_schema: { type: 'object', properties: {} } },
+            ]),
+          }],
+          total: 1,
+        }),
+      ),
+    );
+
+    render(
+      <MemoryRouter>
+        <AgentsPage />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
+    const dialog = await screen.findByRole('dialog');
+    await fillCreateBasics(dialog, 'search_capability_agent');
+    await clickNext(dialog);
+    await fillCreatePersona(dialog);
+    await clickNext(dialog);
+    await clickNext(dialog);
+
+    const search = within(dialog).getByRole('searchbox', { name: '搜索能力' });
+    await userEvent.type(search, 'promql');
+    expect(await within(dialog).findByText('匹配 2 项')).toBeInTheDocument();
+    expect(within(dialog).getByText('query_promql')).toBeInTheDocument();
+    expect(within(dialog).queryByText('query_incidents')).not.toBeInTheDocument();
+    expect(within(dialog).getByText('sre-runbook')).toBeInTheDocument();
+    expect(within(dialog).queryByText('k8s-ops')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('mcp · demo-operations')).not.toBeInTheDocument();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, 'service_health');
+    expect(await within(dialog).findByText('匹配 1 项')).toBeInTheDocument();
+    expect(within(dialog).getByText('mcp · demo-operations')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('mcp__demo-operations__get_service_health'),
+    ).toBeInTheDocument();
   });
 
   it('详情弹窗展示知识范围与输出格式', async () => {
