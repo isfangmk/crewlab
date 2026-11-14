@@ -87,6 +87,7 @@ async def start_chat_turn(
     provider: str,
     model: str,
     user_input: str,
+    channel: str = "",
 ) -> ChatTurnObservation:
     if session_id == "":
         raise ValueError("session_id 不能为空")
@@ -105,6 +106,7 @@ async def start_chat_turn(
         agent_id=agent_id,
         provider=provider,
         model=model,
+        channel=channel,
         status=_STATUS_RUNNING,
         request_id=request_id if request_id != "-" else "",
         input_summary=_summary(user_input, _INPUT_SUMMARY_MAX),

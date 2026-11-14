@@ -19,8 +19,9 @@ const ROUTE_DEFS: RouteDef[] = [
   // 对话：会话管理；后续可挂导出中心等（不放助理能力）
   { path: '/sessions', zh: '会话', en: 'Sessions', keywords: ['sessions', 'chat', 'huihua', 'duihua'], group: '对话' },
 
-  // 助理：人设与装配；后续可挂 Memory / Playground
+  // 助理：人设与装配；记忆是助理的跨会话上下文
   { path: '/agents', zh: '助理', en: 'Assistants', keywords: ['agents', 'assistant', 'bot', 'zhuli'], group: '助理' },
+  { path: '/memory', zh: '记忆', en: 'Memory', keywords: ['memory', 'jiyi', 'recall', 'remember'], group: '助理' },
 
   // 能力：可被助理装配的执行面
   { path: '/tools', zh: '工具', en: 'Tools', keywords: ['tools', 'builtin', 'gongju'], group: '能力' },
@@ -35,6 +36,7 @@ const ROUTE_DEFS: RouteDef[] = [
   { path: '/approvals', zh: '审批', en: 'Approvals', keywords: ['approvals', 'shenpi', 'confirm'], group: '治理' },
   { path: '/audit', zh: '审计日志', en: 'Audit logs', keywords: ['audit', 'logs', 'shenji'], group: '治理' },
   { path: '/observability', zh: '可观测', en: 'Observability', keywords: ['observability', 'trace', 'token', 'keguance'], group: '治理' },
+  { path: '/publish', zh: '发布管理', en: 'Publishing', keywords: ['publish', 'openai', 'api', 'key', 'fabu'], group: '治理' },
   { path: '/users', zh: '用户与权限', en: 'Users & roles', keywords: ['users', 'roles', 'permissions', 'yonghu'], group: '治理' },
 
   { path: '/settings/llm', zh: '设置 / 模型', en: 'Settings / LLM', keywords: ['llm', 'model', 'moxing'], group: '设置' },

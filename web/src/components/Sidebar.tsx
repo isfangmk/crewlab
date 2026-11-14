@@ -41,6 +41,7 @@ import {
   ScrollText,
   Activity,
   TestTube2,
+  Globe,
   Users,
 } from 'lucide-react';
 import { Avatar } from './Avatar';
@@ -411,6 +412,7 @@ export function Sidebar() {
             { key: 'approvals', to: '/approvals', icon: ShieldCheck, label: tr('审批', 'Approvals') },
             { key: 'audit', to: '/audit', icon: ScrollText, label: tr('审计日志', 'Audit logs') },
             { key: 'observability', to: '/observability', icon: Activity, label: tr('可观测', 'Observability') },
+            { key: 'publish', to: '/publish', icon: Globe, label: tr('发布管理', 'Publishing') },
             { key: 'evals', icon: TestTube2, label: tr('评测', 'Evals'), planned: true },
             { key: 'users', to: '/users', icon: Users, label: tr('用户与权限', 'Users & roles') },
           ]}

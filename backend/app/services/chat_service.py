@@ -1346,6 +1346,7 @@ async def stream_session_message(
     attachment_ids: list[str],
     locale: str | None = None,
     mentions: list[dict] | None = None,
+    channel: str = "",
 ) -> AsyncIterator[SseFrame]:
     session = await get_session(db, session_id)
     use_provider = provider if provider is not None else session.provider
@@ -1488,6 +1489,7 @@ async def stream_session_message(
         provider=llm.provider_id,
         model=use_model,
         user_input=content,
+        channel=channel,
     )
 
     persister = AdkFramePersister(

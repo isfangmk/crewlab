@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 # (表名, 列名, 列定义)：列定义只用两种方言都支持的语法
 _REQUIRED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("user_agents", "sub_agents_json", "TEXT"),
+    ("observation_turns", "channel", "VARCHAR(128) NOT NULL DEFAULT ''"),
 )
 
 

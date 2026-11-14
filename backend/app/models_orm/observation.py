@@ -23,6 +23,10 @@ class ObservationTurn(Base):
     # running | ok | error | stopped
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     request_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    # 对外发布渠道名；空 = 站内对话
+    channel: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="", server_default=""
+    )
     input_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

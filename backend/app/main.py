@@ -24,6 +24,7 @@ from app.api import (
     mentions,
     models,
     observability,
+    publish,
     sandbox,
     secrets,
     skills,
@@ -140,6 +141,9 @@ def create_app() -> FastAPI:
     app.include_router(audit.router, prefix="/api/v1")
     app.include_router(workflows.router, prefix="/api/v1")
     app.include_router(triggers.router, prefix="/api/v1")
+    app.include_router(publish.router, prefix="/api/v1")
+    # OpenAI 兼容端点在根路径，便于外部 SDK 直接指向工作台
+    app.include_router(publish.public_router)
     return app
 
 

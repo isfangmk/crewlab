@@ -52,6 +52,7 @@ describe('Sidebar workbench nav', () => {
     expect(screen.getByLabelText('检索试跑（规划中）')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '触发器' })).toHaveAttribute('href', '/triggers');
     expect(screen.getByLabelText('IM 渠道（规划中）')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '发布管理' })).toHaveAttribute('href', '/publish');
     expect(screen.getByRole('link', { name: '工作流' })).toHaveAttribute('href', '/workflows');
     expect(screen.getByRole('link', { name: '运行记录' })).toHaveAttribute(
       'href',

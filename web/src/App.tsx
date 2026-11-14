@@ -19,6 +19,7 @@ const McpPage = lazy(() => import('@/pages/Mcp'));
 const WorkflowsPage = lazy(() => import('@/pages/Workflows'));
 const TriggersPage = lazy(() => import('@/pages/Triggers'));
 const MemoryPage = lazy(() => import('@/pages/Memory'));
+const PublishPage = lazy(() => import('@/pages/Publish'));
 const WorkflowEditorPage = lazy(() => import('@/pages/WorkflowEditor'));
 const WorkflowRunPage = lazy(() => import('@/pages/WorkflowRun'));
 const SandboxPage = lazy(() => import('@/pages/Sandbox'));
@@ -94,6 +95,8 @@ export default function App() {
         <Route path="/mcp" element={<McpPage />} />
         <Route path='/workflows' element={<WorkflowsPage />} />
         <Route path='/triggers' element={<TriggersPage />} />
+        <Route path='/memory' element={<MemoryPage />} />
+        <Route path='/publish' element={<PublishPage />} />
         <Route path="/workflows/runs/:runUid" element={<WorkflowRunPage />} />
         <Route path="/workflows/:id" element={<WorkflowEditorPage key={location.pathname} />} />
         <Route path="/knowledge" element={<KnowledgePage />} />
