@@ -2,12 +2,14 @@
 //
 // 这四块在运行时全部由 compose_persona 拼进人设；编辑时也必须一起给，
 // 否则用户填了提醒/示例却以为没生效。
-import { Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronRight, Plus, Trash2 } from 'lucide-react';
 
 import type { AgentExample, OutputFormat } from '@/api/agents';
 import { OUTPUT_FORMATS } from '@/api/agents';
 import { Button, Input, Label, Select, Textarea } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
+import { cn } from '@/lib/cn';
 import { PERSONA_TEMPLATES, type PersonaTemplate } from '@/lib/personaTemplates';
 
 export const MAX_EXAMPLES = 3;
@@ -59,6 +61,12 @@ export function PersonaFields({
   error?: string | null;
 }) {
   const { tr } = useI18n();
+  // 示例是可选补充内容：无示例时收起，已有示例或新增/套用模板后自动展开。
+  const [showExamples, setShowExamples] = useState(value.examples.length > 0);
+
+  useEffect(() => {
+    if (value.examples.length > 0) setShowExamples(true);
+  }, [value.examples.length]);
 
   const applyTemplate = (tpl: PersonaTemplate) => {
     onChange({
@@ -177,65 +185,85 @@ export function PersonaFields({
       </div>
 
       <div>
-        <div className="mb-1 flex items-center justify-between">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">
-            {tr('示例', 'Examples')}
-          </div>
+        <div className="mb-1 flex items-center gap-1.5">
+          <button
+            type="button"
+            aria-expanded={showExamples}
+            onClick={() => setShowExamples((v) => !v)}
+            className="flex items-center gap-1"
+          >
+            <ChevronRight
+              size={11}
+              className={cn('shrink-0 text-zinc-500 transition-transform', showExamples && 'rotate-90')}
+            />
+            <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+              {tr('示例', 'Examples')}
+            </span>
+            <span className="text-[10px] text-zinc-500">
+              {value.examples.length > 0
+                ? `${value.examples.length}/${MAX_EXAMPLES}`
+                : tr('可选', 'optional')}
+            </span>
+          </button>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="px-2 py-0.5 text-[11px]"
+            className="ml-auto px-2 py-0.5 text-[11px]"
             onClick={addExample}
             disabled={value.examples.length >= MAX_EXAMPLES}
           >
             <Plus size={11} /> {tr('添加示例', 'Add example')}
           </Button>
         </div>
-        {value.examples.length === 0 ? (
-          <p className="text-[11px] text-zinc-500">
-            {tr('暂无示例；最多 3 条，输入与输出都必填。', 'No examples yet; up to 3, both sides required.')}
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {value.examples.map((item, index) => (
-              <div key={index} className="rounded-md border border-zinc-800/60 p-2">
-                <div className="mb-1 flex items-center justify-between text-[11px] text-zinc-400">
-                  <span>{tr(`示例 ${index + 1}`, `Example ${index + 1}`)}</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="px-1.5 py-0.5 text-[11px]"
-                    onClick={() => removeExample(index)}
-                    aria-label={tr(`删除示例 ${index + 1}`, `Delete example ${index + 1}`)}
-                  >
-                    <Trash2 size={11} />
-                  </Button>
-                </div>
-                <Input
-                  type="text"
-                  value={item.input}
-                  onChange={(e) => updateExample(index, { input: e.target.value })}
-                  placeholder={tr('用户会怎么问', 'What the user asks')}
-                  className="mb-1.5 w-full"
-                  maxLength={MAX_EXAMPLE_CHARS}
-                />
-                <Textarea
-                  value={item.output}
-                  onChange={(e) => updateExample(index, { output: e.target.value })}
-                  placeholder={tr('期望的回答', 'Expected answer')}
-                  className="h-20 w-full resize-y"
-                  maxLength={MAX_EXAMPLE_CHARS}
-                />
+        {showExamples && (
+          <>
+            {value.examples.length === 0 ? (
+              <p className="text-[11px] text-zinc-500">
+                {tr('暂无示例；最多 3 条，输入与输出都必填。', 'No examples yet; up to 3, both sides required.')}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {value.examples.map((item, index) => (
+                  <div key={index} className="rounded-md border border-zinc-800/60 p-2">
+                    <div className="mb-1 flex items-center justify-between text-[11px] text-zinc-400">
+                      <span>{tr(`示例 ${index + 1}`, `Example ${index + 1}`)}</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="px-1.5 py-0.5 text-[11px]"
+                        onClick={() => removeExample(index)}
+                        aria-label={tr(`删除示例 ${index + 1}`, `Delete example ${index + 1}`)}
+                      >
+                        <Trash2 size={11} />
+                      </Button>
+                    </div>
+                    <Input
+                      type="text"
+                      value={item.input}
+                      onChange={(e) => updateExample(index, { input: e.target.value })}
+                      placeholder={tr('用户会怎么问', 'What the user asks')}
+                      className="mb-1.5 w-full"
+                      maxLength={MAX_EXAMPLE_CHARS}
+                    />
+                    <Textarea
+                      value={item.output}
+                      onChange={(e) => updateExample(index, { output: e.target.value })}
+                      placeholder={tr('期望的回答', 'Expected answer')}
+                      className="h-20 w-full resize-y"
+                      maxLength={MAX_EXAMPLE_CHARS}
+                    />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-        {exampleInvalid && (
-          <div className="mt-1 text-[11px] text-danger">
-            {tr('示例的输入与输出都不能为空。', 'Both sides of every example are required.')}
-          </div>
+            )}
+            {exampleInvalid && (
+              <div className="mt-1 text-[11px] text-danger">
+                {tr('示例的输入与输出都不能为空。', 'Both sides of every example are required.')}
+              </div>
+            )}
+          </>
         )}
       </div>
 

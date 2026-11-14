@@ -168,6 +168,11 @@ describe('AgentsPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
     const dialog = await screen.findByRole('dialog');
     await userEvent.click(within(dialog).getByRole('tab', { name: '能力绑定' }));
+    // 能力分组默认收起；展开 MCP Server 后只显示 Server 摘要，工具清单仍收起
+    expect(within(dialog).queryByText('mcp · demo-operations')).not.toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('button', { name: /MCP Server/ }));
+    expect(within(dialog).getByText('mcp · demo-operations')).toBeInTheDocument();
+    expect(within(dialog).queryByText('mcp__demo-operations__get_service_health')).not.toBeInTheDocument();
     // 白名单为空 = 继承全部，Server 直接显示为已挂载
     expect(await within(dialog).findByText('mcp · demo-operations')).toBeInTheDocument();
     expect(within(dialog).getByText('已挂载')).toBeInTheDocument();

@@ -359,74 +359,83 @@ export function CapabilityBinding({
       </CapabilityGroup>
 
       {/* MCP Server */}
-      {catalog.mcpServers.map((server) => {
-        const ready = server.enabled && server.status === 'ok' && server.tools.length > 0;
-        const bound = ready && boundServers.has(server.name);
-        const lockedBound = bound && !canUnmount;
-        return (
-          <section key={server.name} className="rounded-md border border-zinc-800 bg-zinc-950/40">
-            <div className="flex items-center gap-2 px-2 py-1.5">
-              <Label className="flex min-w-0 items-center gap-1.5">
-                <Hint
-                  content={
-                    lockedBound
-                      ? tr('白名单为空等于继承全部 MCP，最后一台已挂载的 Server 不能单独取消', 'An empty whitelist inherits every MCP server, so the last mounted server cannot be unmounted alone')
-                      : tr('勾选即把整台 Server 加入白名单', 'Checking adds the whole server to the whitelist')
-                  }
-                >
-                  <Checkbox
-                    checked={bound}
-                    disabled={!ready || lockedBound}
-                    onCheckedChange={() => toggleServer(server, !bound)}
-                    className="h-3 w-3"
-                    aria-label={tr(`挂载 MCP Server ${server.name}`, `Mount MCP server ${server.name}`)}
-                  />
-                </Hint>
-                <span className="truncate font-mono text-[11px] text-zinc-200">mcp · {server.name}</span>
-              </Label>
-              <Chip dense tone={bound ? 'accent' : 'default'}>
-                {bound ? tr('已挂载', 'mounted') : tr('未挂载', 'not mounted')}
-              </Chip>
-              {!ready && (
-                <Chip dense tone="warning">
-                  {server.enabled ? tr('未探测成功', 'not verified') : tr('已停用', 'disabled')}
-                </Chip>
-              )}
-              <button
-                type="button"
-                className="ml-auto flex items-center gap-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"
-                aria-expanded={expanded[server.name] === true}
-                onClick={() => setExpanded((cur) => ({ ...cur, [server.name]: cur[server.name] !== true }))}
-              >
-                {expanded[server.name] === true ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                {tr(`${server.tools.length} 个工具`, `${server.tools.length} tools`)}
-              </button>
-            </div>
-            {expanded[server.name] === true && (
-              <div className="max-h-56 space-y-0.5 overflow-y-auto border-t border-zinc-800/60 px-2 py-1.5">
-                {server.tools.length === 0 ? (
-                  <div className="text-[11px] text-zinc-500">{tr('工具缓存为空，请先「测试连接」', 'Empty tool cache — run "Test connection" first')}</div>
-                ) : (
-                  server.tools.map((tool) => (
-                    <ToolRow
-                      key={tool.wire}
-                      name={tool.wire}
-                      description={tool.description}
-                      blocked={disallowedTools.includes(tool.wire)}
-                      locked={preview.lockedTools.includes(tool.wire)}
-                      onToggleBlocked={() => toggleBlocked(tool.wire)}
-                    />
-                  ))
+      <CapabilityGroup
+        title={tr('MCP Server', 'MCP servers')}
+        count={catalog.mcpServers.length}
+        hint={tr(
+          '勾选即整台挂载；工具清单按需展开',
+          'Check to mount a whole server; expand for tools',
+        )}
+      >
+        {catalog.mcpServers.length === 0 ? (
+          <div className="text-[11px] text-zinc-500">{tr('尚未配置 MCP Server', 'No MCP server configured yet')}</div>
+        ) : (
+          catalog.mcpServers.map((server) => {
+            const ready = server.enabled && server.status === 'ok' && server.tools.length > 0;
+            const bound = ready && boundServers.has(server.name);
+            const lockedBound = bound && !canUnmount;
+            return (
+              <div key={server.name} className="rounded px-1.5 py-1 hover:bg-zinc-900/60">
+                <div className="flex items-center gap-2">
+                  <Label className="flex min-w-0 items-center gap-1.5">
+                    <Hint
+                      content={
+                        lockedBound
+                          ? tr('白名单为空等于继承全部 MCP，最后一台已挂载的 Server 不能单独取消', 'An empty whitelist inherits every MCP server, so the last mounted server cannot be unmounted alone')
+                          : tr('勾选即把整台 Server 加入白名单', 'Checking adds the whole server to the whitelist')
+                      }
+                    >
+                      <Checkbox
+                        checked={bound}
+                        disabled={!ready || lockedBound}
+                        onCheckedChange={() => toggleServer(server, !bound)}
+                        className="h-3 w-3"
+                        aria-label={tr(`挂载 MCP Server ${server.name}`, `Mount MCP server ${server.name}`)}
+                      />
+                    </Hint>
+                    <span className="truncate font-mono text-[11px] text-zinc-200">mcp · {server.name}</span>
+                  </Label>
+                  <Chip dense tone={bound ? 'accent' : 'default'}>
+                    {bound ? tr('已挂载', 'mounted') : tr('未挂载', 'not mounted')}
+                  </Chip>
+                  {!ready && (
+                    <Chip dense tone="warning">
+                      {server.enabled ? tr('未探测成功', 'not verified') : tr('已停用', 'disabled')}
+                    </Chip>
+                  )}
+                  <button
+                    type="button"
+                    className="ml-auto flex items-center gap-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"
+                    aria-expanded={expanded[server.name] === true}
+                    onClick={() => setExpanded((cur) => ({ ...cur, [server.name]: cur[server.name] !== true }))}
+                  >
+                    {expanded[server.name] === true ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                    {tr(`${server.tools.length} 个工具`, `${server.tools.length} tools`)}
+                  </button>
+                </div>
+                {expanded[server.name] === true && (
+                  <div className="mt-1 max-h-56 space-y-0.5 overflow-y-auto border-l border-zinc-800/60 pl-2">
+                    {server.tools.length === 0 ? (
+                      <div className="text-[11px] text-zinc-500">{tr('工具缓存为空，请先「测试连接」', 'Empty tool cache — run "Test connection" first')}</div>
+                    ) : (
+                      server.tools.map((tool) => (
+                        <ToolRow
+                          key={tool.wire}
+                          name={tool.wire}
+                          description={tool.description}
+                          blocked={disallowedTools.includes(tool.wire)}
+                          locked={preview.lockedTools.includes(tool.wire)}
+                          onToggleBlocked={() => toggleBlocked(tool.wire)}
+                        />
+                      ))
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-          </section>
-        );
-      })}
-
-      {catalog.mcpServers.length === 0 && (
-        <div className="text-[11px] text-zinc-500">{tr('尚未配置 MCP Server', 'No MCP server configured yet')}</div>
-      )}
+            );
+          })
+        )}
+      </CapabilityGroup>
     </div>
   );
 }
@@ -444,15 +453,30 @@ function CapabilityGroup({
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  // 三个分组默认收起，能力页先给出总量与说明，需要逐项调整时再展开。
+  const [open, setOpen] = useState(false);
   return (
     <section className="rounded-md border border-zinc-800 bg-zinc-950/40">
-      <div className="flex items-baseline gap-1.5 border-b border-zinc-800/60 px-2 py-1.5">
-        <span className="text-[11px] font-medium text-zinc-300">{title}</span>
-        <span className="text-[10px] text-zinc-600">({count})</span>
+      <div className="flex items-center gap-1.5 border-b border-zinc-800/60 px-2 py-1.5">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className="flex min-w-0 items-center gap-1.5 text-left"
+        >
+          <ChevronRight
+            size={11}
+            className={cn('shrink-0 text-zinc-500 transition-transform', open && 'rotate-90')}
+          />
+          <span className="text-[11px] font-medium text-zinc-300">{title}</span>
+          <span className="text-[10px] text-zinc-600">({count})</span>
+        </button>
         {actions}
         <span className="ml-auto truncate pl-2 text-[10px] text-zinc-600">{hint}</span>
       </div>
-      <div className="space-y-0.5 px-1 py-1.5">{children}</div>
+      {open && (
+        <div className="max-h-64 space-y-0.5 overflow-y-auto px-1 py-1.5">{children}</div>
+      )}
     </section>
   );
 }

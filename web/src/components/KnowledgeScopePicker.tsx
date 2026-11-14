@@ -129,6 +129,9 @@ export function KnowledgeScopePicker({
   const [trialHits, setTrialHits] = useState<SearchHit[] | null>(null);
   const [trialError, setTrialError] = useState<string | null>(null);
   const [trialBusy, setTrialBusy] = useState(false);
+  // 文档级选择与试检索属于补充能力，默认收起，先让目录树独占一屏。
+  const [showDocuments, setShowDocuments] = useState(value.doc_ids.length > 0);
+  const [showTrial, setShowTrial] = useState(false);
   // 树节点默认全部展开；用户逐个折叠后保持自己的选择。
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const expandedInitialized = useRef(false);
@@ -319,6 +322,10 @@ export function KnowledgeScopePicker({
       }),
     [docs, value.doc_ids],
   );
+
+  useEffect(() => {
+    if (value.doc_ids.length > 0) setShowDocuments(true);
+  }, [value.doc_ids.length]);
   // 根目录不是可选范围：空范围已经代表「全部知识库」，后端也拒绝空路径
   // 目录树在 buildFolderTree 中已按 path 层级聚合，根节点本身不渲染。
 
@@ -386,54 +393,77 @@ export function KnowledgeScopePicker({
             )}
           </div>
 
-          <div>
-            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
-              {tr('文档', 'Documents')}
-            </div>
-            <Input
-              type="text"
-              value={docQuery}
-              onChange={(e) => setDocQuery(e.target.value)}
-              placeholder={tr('按标题 / 路径 / ID 过滤', 'Filter by title / path / ID')}
-              className="mb-1.5 w-full"
-            />
-            {selectedDocs.length > 0 && (
-              <div className="mb-1.5 flex flex-wrap gap-1.5">
-                {selectedDocs.map((doc) => (
-                  <span
-                    key={doc.id}
-                    className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 text-[10px] text-zinc-400"
-                  >
-                    {doc.title}
-                  </span>
-                ))}
+          <div className="rounded border border-zinc-800/60">
+            <button
+              type="button"
+              onClick={() => setShowDocuments((v) => !v)}
+              aria-expanded={showDocuments}
+              className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left"
+            >
+              <ChevronRight
+                size={11}
+                className={cn(
+                  'shrink-0 text-zinc-500 transition-transform',
+                  showDocuments && 'rotate-90',
+                )}
+              />
+              <span className="text-[11px] font-medium text-zinc-300">
+                {tr('按文档精确选择', 'Pick individual documents')}
+              </span>
+              <span className="text-[10px] text-zinc-500">
+                {selectedDocs.length > 0
+                  ? tr(`已选 ${selectedDocs.length} 篇`, `${selectedDocs.length} selected`)
+                  : tr('可选', 'optional')}
+              </span>
+            </button>
+            {showDocuments && (
+              <div className="border-t border-zinc-800/60 p-2">
+                <Input
+                  type="text"
+                  value={docQuery}
+                  onChange={(e) => setDocQuery(e.target.value)}
+                  placeholder={tr('按标题 / 路径 / ID 过滤', 'Filter by title / path / ID')}
+                  className="mb-1.5 w-full"
+                />
+                {selectedDocs.length > 0 && (
+                  <div className="mb-1.5 flex flex-wrap gap-1.5">
+                    {selectedDocs.map((doc) => (
+                      <span
+                        key={doc.id}
+                        className="rounded border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-0.5 text-[10px] text-zinc-400"
+                      >
+                        {doc.title}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="max-h-48 overflow-y-auto rounded border border-zinc-800/60">
+                  {filteredDocs.length === 0 ? (
+                    <p className="px-2 py-1.5 text-[11px] text-zinc-500">
+                      {tr('没有匹配的文档。', 'No matching documents.')}
+                    </p>
+                  ) : (
+                    filteredDocs.map((doc) => (
+                      <label
+                        key={doc.id}
+                        className="flex items-center gap-2 border-b border-zinc-800/40 px-2 py-1 text-[11px] text-zinc-300 last:border-b-0"
+                      >
+                        <Checkbox
+                          checked={value.doc_ids.includes(doc.id)}
+                          onCheckedChange={() => toggleDoc(doc.id)}
+                          aria-label={tr(`范围文档 ${localizedDocTitle(doc)}`, `Scope document ${localizedDocTitle(doc)}`)}
+                          className="h-3 w-3"
+                        />
+                        <span className="truncate">{localizedDocTitle(doc)}</span>
+                        <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500">
+                          {localizedPath(doc.path ?? '') || '—'}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
               </div>
             )}
-            <div className="max-h-48 overflow-y-auto rounded border border-zinc-800/60">
-              {filteredDocs.length === 0 ? (
-                <p className="px-2 py-1.5 text-[11px] text-zinc-500">
-                  {tr('没有匹配的文档。', 'No matching documents.')}
-                </p>
-              ) : (
-                filteredDocs.map((doc) => (
-                  <label
-                    key={doc.id}
-                    className="flex items-center gap-2 border-b border-zinc-800/40 px-2 py-1 text-[11px] text-zinc-300 last:border-b-0"
-                  >
-                    <Checkbox
-                      checked={value.doc_ids.includes(doc.id)}
-                      onCheckedChange={() => toggleDoc(doc.id)}
-                      aria-label={tr(`范围文档 ${localizedDocTitle(doc)}`, `Scope document ${localizedDocTitle(doc)}`)}
-                      className="h-3 w-3"
-                    />
-                    <span className="truncate">{localizedDocTitle(doc)}</span>
-                    <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500">
-                      {localizedPath(doc.path ?? '') || '—'}
-                    </span>
-                  </label>
-                ))
-              )}
-            </div>
           </div>
 
           <div className="text-[11px]">
@@ -468,41 +498,67 @@ export function KnowledgeScopePicker({
             )}
           </div>
 
-          <div>
-            <div className="mb-1 flex items-center gap-1.5">
-              <Input
-                type="text"
-                value={trialQuery}
-                onChange={(e) => setTrialQuery(e.target.value)}
-                placeholder={tr('按当前范围试检索', 'Try a search in this scope')}
-                className="w-full"
+          <div className="rounded border border-zinc-800/60">
+            <button
+              type="button"
+              onClick={() => setShowTrial((v) => !v)}
+              aria-expanded={showTrial}
+              className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left"
+            >
+              <ChevronRight
+                size={11}
+                className={cn(
+                  'shrink-0 text-zinc-500 transition-transform',
+                  showTrial && 'rotate-90',
+                )}
               />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0 px-2 py-1 text-[11px]"
-                onClick={() => void runTrial()}
-                disabled={trialBusy || trialQuery.trim() === ''}
-              >
-                <Search size={11} /> {trialBusy ? tr('检索中…', 'Searching…') : tr('试检索', 'Search')}
-              </Button>
-            </div>
-            {trialError !== null && <div className="text-[11px] text-danger">{trialError}</div>}
-            {trialHits !== null && (
-              <div className="mt-1 space-y-1 text-[11px] text-zinc-400">
-                {trialHits.length === 0 ? (
-                  <p className="text-zinc-500">{tr('当前范围内没有命中。', 'No hits within this scope.')}</p>
-                ) : (
-                  trialHits.map((hit) => (
-                    <div key={hit.doc.id} className="flex items-center gap-2">
-                      <span className="truncate text-zinc-300">{localizedDocTitle(hit.doc)}</span>
-                      <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500">
-                        {localizedPath(hit.doc.path ?? '') || '—'}
-                      </span>
-                      <span className="shrink-0 text-zinc-500">{hit.score.toFixed(3)}</span>
-                    </div>
-                  ))
+              <span className="text-[11px] font-medium text-zinc-300">
+                {tr('按当前范围试检索', 'Try a search in this scope')}
+              </span>
+              <span className="text-[10px] text-zinc-500">
+                {trialHits !== null
+                  ? tr(`命中 ${trialHits.length} 条`, `${trialHits.length} hit(s)`)
+                  : tr('可选', 'optional')}
+              </span>
+            </button>
+            {showTrial && (
+              <div className="border-t border-zinc-800/60 p-2">
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="text"
+                    value={trialQuery}
+                    onChange={(e) => setTrialQuery(e.target.value)}
+                    placeholder={tr('输入检索词', 'Enter a query')}
+                    className="w-full"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 px-2 py-1 text-[11px]"
+                    onClick={() => void runTrial()}
+                    disabled={trialBusy || trialQuery.trim() === ''}
+                  >
+                    <Search size={11} /> {trialBusy ? tr('检索中…', 'Searching…') : tr('试检索', 'Search')}
+                  </Button>
+                </div>
+                {trialError !== null && <div className="text-[11px] text-danger">{trialError}</div>}
+                {trialHits !== null && (
+                  <div className="mt-1 space-y-1 text-[11px] text-zinc-400">
+                    {trialHits.length === 0 ? (
+                      <p className="text-zinc-500">{tr('当前范围内没有命中。', 'No hits within this scope.')}</p>
+                    ) : (
+                      trialHits.map((hit) => (
+                        <div key={hit.doc.id} className="flex items-center gap-2">
+                          <span className="truncate text-zinc-300">{localizedDocTitle(hit.doc)}</span>
+                          <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500">
+                            {localizedPath(hit.doc.path ?? '') || '—'}
+                          </span>
+                          <span className="shrink-0 text-zinc-500">{hit.score.toFixed(3)}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 )}
               </div>
             )}
