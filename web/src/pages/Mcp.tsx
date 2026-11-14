@@ -1233,29 +1233,67 @@ function RegistryDialog({
   onPick: (item: McpRegistryItem) => void;
 }) {
   const { tr } = useI18n();
+  const reqSeq = useRequestSeq();
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<McpRegistryItem[]>([]);
   const [nextCursor, setNextCursor] = useState('');
   const [loading, setLoading] = useState(false);
+  const [moreLoading, setMoreLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // 加载更多失败：保留失败 cursor，重试从断点续拉，不丢已加载项
+  const [moreErr, setMoreErr] = useState<{ cursor: string; message: string } | null>(null);
   const [searched, setSearched] = useState(false);
 
   const runSearch = useCallback(
     async (cursor: string, append: boolean) => {
-      setLoading(true);
-      setErr(null);
+      const current = reqSeq.next();
+      if (append) {
+        setMoreLoading(true);
+        setMoreErr(null);
+      } else {
+        // 新搜索立即清空旧结果，避免与上一次查询的残留混排
+        setLoading(true);
+        setErr(null);
+        setItems([]);
+        setNextCursor('');
+      }
       try {
-        const r = await searchMcpRegistry(query, 20, cursor);
-        setItems((cur) => (append ? [...cur, ...r.items] : r.items));
+        const r = await searchMcpRegistry(query, 50, cursor);
+        if (reqSeq.isStale(current)) return;
+        // 游标深翻可能跨页重复：按 name|endpoint 去重后再追加
+        setItems((cur) => {
+          const base = append ? cur : [];
+          const seen = new Set(base.map((it) => `${it.name}|${it.endpoint}`));
+          const merged = [...base];
+          for (const it of r.items) {
+            const key = `${it.name}|${it.endpoint}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(it);
+          }
+          return merged;
+        });
         setNextCursor(r.next_cursor);
         setSearched(true);
       } catch (e) {
-        setErr(errorText(e));
+        if (reqSeq.isStale(current)) return;
+        const message = errorText(e);
+        if (append) {
+          setMoreErr({ cursor, message });
+        } else {
+          setErr(message);
+        }
       } finally {
-        setLoading(false);
+        if (!reqSeq.isStale(current)) {
+          if (append) {
+            setMoreLoading(false);
+          } else {
+            setLoading(false);
+          }
+        }
       }
     },
-    [query],
+    [query, reqSeq],
   );
 
   return (
@@ -1274,17 +1312,17 @@ function RegistryDialog({
             value={query}
             onChange={setQuery}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !loading) void runSearch('', false);
+              if (e.key === 'Enter') void runSearch('', false);
             }}
             placeholder={tr('搜索官方注册表…', 'Search the official registry…')}
             ariaLabel={tr('搜索注册表', 'Search registry')}
             className="min-w-[13.5rem] max-w-[14.5rem]"
             fluid
           />
+          {/* 请求在途也允许发起新搜索：序号守卫丢弃旧响应，实现抢占式搜索 */}
           <RowAction
             icon={loading ? Loader2 : Globe}
             iconClassName={loading ? 'animate-spin' : undefined}
-            disabled={loading}
             onClick={() => void runSearch('', false)}
           >
             {tr('搜索', 'Search')}
@@ -1300,9 +1338,18 @@ function RegistryDialog({
           </ErrorBanner>
         )}
 
-        {!err && searched && (
+        {moreErr && (
+          <ErrorBanner className="flex items-center justify-between gap-2">
+            <span>{tr(`加载更多失败：${moreErr.message}`, `Failed to load more: ${moreErr.message}`)}</span>
+            <RowAction icon={RefreshCw} onClick={() => void runSearch(moreErr.cursor, true)}>
+              {tr('重试', 'Retry')}
+            </RowAction>
+          </ErrorBanner>
+        )}
+
+        {!err && searched && items.length > 0 && (
           <div className="text-[11px] text-zinc-500">
-            {tr(`共 ${items.length} 个结果`, `${items.length} result${items.length === 1 ? '' : 's'}`)}
+            {tr(`已加载 ${items.length} 个`, `${items.length} loaded`)}
           </div>
         )}
 
@@ -1322,7 +1369,7 @@ function RegistryDialog({
             hint={tr('换个关键词试试。', 'Try a different keyword.')}
           />
         ) : items.length > 0 ? (
-          <div className="space-y-2">
+          <div className="max-h-[22rem] space-y-2 overflow-y-auto">
             {items.map((item) => (
               <div key={`${item.name}-${item.endpoint}`} className="rounded-lg border border-zinc-800/60 bg-zinc-900/40 px-3 py-2">
                 <div className="flex items-start justify-between gap-2">
@@ -1352,9 +1399,9 @@ function RegistryDialog({
                 </div>
               </div>
             ))}
-            {nextCursor !== '' && (
+            {nextCursor !== '' && !moreErr && (
               <div className="flex justify-center">
-                <RowAction icon={Loader2} iconClassName={loading ? 'animate-spin' : undefined} disabled={loading} onClick={() => void runSearch(nextCursor, true)}>
+                <RowAction icon={Loader2} iconClassName={moreLoading ? 'animate-spin' : undefined} disabled={moreLoading} onClick={() => void runSearch(nextCursor, true)}>
                   {tr('加载更多', 'Load more')}
                 </RowAction>
               </div>

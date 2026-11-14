@@ -170,3 +170,120 @@ describe('MCP 服务卡片', () => {
     expect(screen.getByDisplayValue('https://example.com/mcp/sse')).toBeInTheDocument();
   });
 });
+
+describe('Registry 分页深翻', () => {
+  it('加载更多追加下一页并跨页去重', async () => {
+    server.use(
+      http.get('/api/v1/mcp/registry/servers', ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor') ?? '';
+        if (cursor === '') {
+          return HttpResponse.json({
+            items: [
+              { name: 'item-a', description: '', transport: 'http', endpoint: 'https://a.example/mcp', hint: '' },
+              { name: 'item-b', description: '', transport: 'http', endpoint: 'https://b.example/mcp', hint: '' },
+            ],
+            next_cursor: 'c1',
+            total: 2,
+          });
+        }
+        // 第二页故意与第一页重复 item-b
+        return HttpResponse.json({
+          items: [
+            { name: 'item-b', description: '', transport: 'http', endpoint: 'https://b.example/mcp', hint: '' },
+            { name: 'item-c', description: '', transport: 'sse', endpoint: 'https://c.example/sse', hint: '' },
+          ],
+          next_cursor: '',
+          total: 2,
+        });
+      }),
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: '从 Registry 添加' }));
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+    expect(await screen.findByText('已加载 2 个')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '加载更多' }));
+    expect(await screen.findByText('已加载 3 个')).toBeInTheDocument();
+    expect(screen.getByText('item-a')).toBeInTheDocument();
+    expect(screen.getByText('item-c')).toBeInTheDocument();
+    // 重复的 item-b 只保留一行
+    expect(screen.getAllByText('item-b')).toHaveLength(1);
+    // 已到最后一页，不再显示加载更多
+    expect(screen.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument();
+  });
+
+  it('慢响应不覆盖新搜索结果', async () => {
+    server.use(
+      http.get('/api/v1/mcp/registry/servers', async ({ request }) => {
+        const search = new URL(request.url).searchParams.get('search') ?? '';
+        if (search === 'slow') {
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          return HttpResponse.json({
+            items: [{ name: 'slow-item', description: '', transport: 'http', endpoint: 'https://slow.example/mcp', hint: '' }],
+            next_cursor: '',
+            total: 1,
+          });
+        }
+        return HttpResponse.json({
+          items: [{ name: 'fast-item', description: '', transport: 'http', endpoint: 'https://fast.example/mcp', hint: '' }],
+          next_cursor: '',
+          total: 1,
+        });
+      }),
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: '从 Registry 添加' }));
+    const searchBox = screen.getByRole('searchbox', { name: '搜索注册表' });
+    // 先发慢查询，不等它返回就立刻改词重搜
+    await userEvent.type(searchBox, 'slow');
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+    await userEvent.clear(searchBox);
+    await userEvent.type(searchBox, 'fast');
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+
+    expect(await screen.findByText('fast-item')).toBeInTheDocument();
+    // 等慢响应抵达后仍不得覆盖新结果
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(screen.queryByText('slow-item')).not.toBeInTheDocument();
+    expect(screen.getByText('fast-item')).toBeInTheDocument();
+  });
+
+  it('加载更多失败后从断点续拉，不丢已加载项', async () => {
+    let moreCalls = 0;
+    server.use(
+      http.get('/api/v1/mcp/registry/servers', ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor') ?? '';
+        if (cursor === '') {
+          return HttpResponse.json({
+            items: [{ name: 'item-a', description: '', transport: 'http', endpoint: 'https://a.example/mcp', hint: '' }],
+            next_cursor: 'c1',
+            total: 1,
+          });
+        }
+        moreCalls += 1;
+        if (moreCalls === 1) {
+          return HttpResponse.json({ detail: 'Registry 不可达' }, { status: 502 });
+        }
+        return HttpResponse.json({
+          items: [{ name: 'item-b', description: '', transport: 'http', endpoint: 'https://b.example/mcp', hint: '' }],
+          next_cursor: '',
+          total: 1,
+        });
+      }),
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: '从 Registry 添加' }));
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+    expect(await screen.findByText('已加载 1 个')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '加载更多' }));
+    expect(await screen.findByText(/加载更多失败/)).toBeInTheDocument();
+    // 已加载项保留
+    expect(screen.getByText('item-a')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByText('已加载 2 个')).toBeInTheDocument();
+    expect(screen.getByText('item-b')).toBeInTheDocument();
+    expect(screen.queryByText(/加载更多失败/)).not.toBeInTheDocument();
+  });
+});

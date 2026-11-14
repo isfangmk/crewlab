@@ -290,7 +290,7 @@ export async function getMcpPrompt(
 
 export async function searchMcpRegistry(
   search: string,
-  limit = 20,
+  limit = 50,
   cursor = '',
 ): Promise<McpRegistrySearchResp> {
   const params = new URLSearchParams();
