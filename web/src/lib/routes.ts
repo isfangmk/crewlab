@@ -1,8 +1,8 @@
 // 命令面板（⌘P）路由目录：分组与侧栏 IA 一致，只收录已上线路由。
-// 规划中菜单（工作流/Playground/审计等）仅出现在侧栏占位，不进命令面板。
+// 侧栏里的规划中占位（Playground、评测、IM 渠道等）不进命令面板。
 import { tr as trInline } from '@/i18n/locale';
 
-export type AppRouteGroup = '主页' | '对话' | '助理' | '能力' | '知识库' | '治理' | '设置';
+export type AppRouteGroup = '主页' | '对话' | '助理' | '能力' | '知识库' | '工作流' | '治理' | '设置';
 
 export type AppRoute = {
   path: string;
@@ -31,6 +31,11 @@ const ROUTE_DEFS: RouteDef[] = [
 
   // 知识库：文档与检索；后续可挂检索试跑子页
   { path: '/knowledge', zh: '知识库', en: 'Knowledge', keywords: ['knowledge', 'kb', 'docs', 'rag', 'zhishiku', 'upload'], group: '知识库' },
+
+  // 工作流：编排、运行记录与自动化触发
+  { path: '/workflows', zh: '工作流', en: 'Workflows', keywords: ['workflows', 'flow', 'canvas', 'gongzuoliu'], group: '工作流' },
+  { path: '/workflows?tab=runs', zh: '运行记录', en: 'Run history', keywords: ['runs', 'history', 'yunxing', 'jilu'], group: '工作流' },
+  { path: '/triggers', zh: '触发器', en: 'Triggers', keywords: ['triggers', 'cron', 'webhook', 'chufaqi'], group: '工作流' },
 
   // 治理：审批闸门与安全；后续可挂评测（不放助理菜单）
   { path: '/approvals', zh: '审批', en: 'Approvals', keywords: ['approvals', 'shenpi', 'confirm'], group: '治理' },

@@ -33,7 +33,7 @@ import { fullDateTime } from '@/lib/format';
 import { useTimeout } from '@/lib/useTimeout';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
-import { listWorkflows } from '@/api/workflows';
+import { getWorkflow, listWorkflows, type WorkflowVariable } from '@/api/workflows';
 import {
   createTrigger,
   deleteTrigger,
@@ -257,7 +257,7 @@ export default function TriggersPage() {
               />
             }
           >
-            <table {...tableLayout(64)}>
+            <table {...tableLayout(62)}>
               <colgroup>
                 <col className={COL.main} />
                 <col className={COL.tag} />
@@ -269,10 +269,10 @@ export default function TriggersPage() {
               <TableHead>
                 <tr className="whitespace-nowrap">
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('名称', 'Name')}</th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('目标类型', 'Target type')}</th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('目标', 'Target')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('类型', 'Type')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('计划', 'Schedule')}</th>
                   <th scope="col" className="px-3 py-2 text-left font-medium">{tr('状态', 'Status')}</th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('下次触发', 'Next fire')}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">{tr('最近运行', 'Last run')}</th>
                   <th scope="col" className="px-3 py-2 text-right font-medium">{tr('操作', 'Actions')}</th>
                 </tr>
               </TableHead>
@@ -294,28 +294,49 @@ export default function TriggersPage() {
                       >
                         {t.name}
                       </button>
-                      <span className="block truncate text-[10px] leading-4 text-zinc-500">
-                        {t.kind === 'cron' ? `cron · ${t.cron_expr}` : 'webhook'}
+                      <span
+                        className="block truncate text-[10px] leading-4 text-zinc-500"
+                        title={
+                          t.target_kind === 'workflow'
+                            ? workflowNames[t.workflow_id ?? -1] ?? `#${t.workflow_id}`
+                            : t.agent_id ?? ''
+                        }
+                      >
+                        {t.target_kind === 'workflow'
+                          ? `${tr('工作流', 'Workflow')} · ${
+                              workflowNames[t.workflow_id ?? -1] ?? `#${t.workflow_id}`
+                            }`
+                          : `${tr('助理', 'Assistant')} · ${t.agent_id}`}
                       </span>
                     </td>
                     <td className="px-3 py-2">
-                      <Chip>{t.target_kind === 'workflow' ? tr('工作流', 'Workflow') : tr('助理', 'Assistant')}</Chip>
+                      <Chip>{t.kind === 'cron' ? tr('定时', 'Cron') : 'Webhook'}</Chip>
                     </td>
-                    <td className="px-3 py-2 text-[11px] text-zinc-300">
-                      {t.target_kind === 'workflow' ? (
+                    <td className="px-3 py-2">
+                      {t.kind === 'cron' ? (
                         <>
                           <span
-                            className="block truncate"
-                            title={workflowNames[t.workflow_id ?? -1] ?? `#${t.workflow_id}`}
+                            className="block truncate font-mono text-[10.5px] text-zinc-300"
+                            title={t.cron_expr}
                           >
-                            {workflowNames[t.workflow_id ?? -1] ?? `#${t.workflow_id}`}
+                            {t.cron_expr}
                           </span>
-                          <span className="block text-[10px] text-zinc-500">#{t.workflow_id}</span>
+                          <span className="block text-[10px] text-zinc-500">
+                            {t.enabled && t.next_fire_at
+                              ? tr(
+                                  `下次 ${fullDateTime(t.next_fire_at)}`,
+                                  `Next ${fullDateTime(t.next_fire_at)}`,
+                                )
+                              : tr('未排期', 'Not scheduled')}
+                          </span>
                         </>
                       ) : (
-                        <span className="block truncate" title={t.agent_id ?? ''}>
-                          {t.agent_id}
-                        </span>
+                        <>
+                          <span className="block text-[11px] text-zinc-300">
+                            {tr('按调用', 'On call')}
+                          </span>
+                          <span className="block text-[10px] text-zinc-500">POST webhook</span>
+                        </>
                       )}
                     </td>
                     <td className="px-3 py-2">
@@ -325,20 +346,20 @@ export default function TriggersPage() {
                       />
                     </td>
                     <td className="px-3 py-2 text-[11px] text-zinc-500">
-                      {t.next_fire_at ? fullDateTime(t.next_fire_at) : '—'}
+                      {t.last_fired_at ? fullDateTime(t.last_fired_at) : '—'}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex items-center justify-end gap-1.5 opacity-60 transition-opacity group-hover:opacity-100">
-                        <RowAction
-                          icon={busyId === t.id ? Loader2 : RefreshCw}
-                          iconClassName={busyId === t.id ? 'animate-spin' : undefined}
-                          disabled={busyId === t.id}
-                          onClick={() => void onFire(t)}
-                        >
-                          {tr('触发', 'Fire')}
-                        </RowAction>
-                        {canMutate && (
+                        {canMutate ? (
                           <>
+                            <RowAction
+                              icon={busyId === t.id ? Loader2 : RefreshCw}
+                              iconClassName={busyId === t.id ? 'animate-spin' : undefined}
+                              disabled={busyId === t.id}
+                              onClick={() => void onFire(t)}
+                            >
+                              {tr('触发', 'Fire')}
+                            </RowAction>
                             <Hint content={tr('启停', 'Toggle')}>
                               <RowActionIcon
                                 icon={Power}
@@ -357,6 +378,8 @@ export default function TriggersPage() {
                               </Hint>
                             )}
                           </>
+                        ) : (
+                          <span className="text-[10px] text-zinc-600">{tr('只读', 'Read only')}</span>
                         )}
                       </div>
                     </td>
@@ -473,8 +496,15 @@ function TriggerEditor({
   const [workflowId, setWorkflowId] = useState<number | null>(null);
   const [agentId, setAgentId] = useState<string>('');
   const [prompt, setPrompt] = useState('');
-  const [workflows, setWorkflows] = useState<{ id: number; name: string }[]>([]);
+  const [workflows, setWorkflows] = useState<
+    { id: number; name: string; hasPublished: boolean }[]
+  >([]);
   const [agents, setAgents] = useState<{ name: string }[]>([]);
+  // 工作流触发的输入变量：按已发布快照的开始节点声明，而不是当前草稿
+  const [vars, setVars] = useState<WorkflowVariable[]>([]);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [varsLoading, setVarsLoading] = useState(false);
+  const [varsErr, setVarsErr] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -482,7 +512,13 @@ function TriggerEditor({
     void (async () => {
       try {
         const w = await listWorkflows({ limit: 100 });
-        setWorkflows(w.items.map((i) => ({ id: i.id, name: i.name })));
+        setWorkflows(
+          w.items.map((i) => ({
+            id: i.id,
+            name: i.name,
+            hasPublished: i.has_published,
+          })),
+        );
       } catch {
         // 工作流为空不阻塞编辑器
       }
@@ -495,9 +531,121 @@ function TriggerEditor({
     })();
   }, []);
 
+  useEffect(() => {
+    if (targetKind !== 'workflow' || workflowId === null) {
+      setVars([]);
+      setValues({});
+      setVarsErr(null);
+      setVarsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setVarsLoading(true);
+    setVarsErr(null);
+    void getWorkflow(workflowId, 'published')
+      .then((wf) => {
+        if (cancelled) return;
+        const start = wf.definition.nodes.find((n) => n.kind === 'start');
+        const declared = start?.variables ?? [];
+        setVars(declared);
+        setValues(
+          Object.fromEntries(
+            declared.map((v) => [
+              v.name,
+              v.default === null || v.default === undefined
+                ? ''
+                : v.type === 'json'
+                  ? JSON.stringify(v.default)
+                  : String(v.default),
+            ]),
+          ),
+        );
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setVars([]);
+        setValues({});
+        setVarsErr(errorText(e));
+      })
+      .finally(() => {
+        if (!cancelled) setVarsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [targetKind, workflowId]);
+
+  /** 把表单值按声明类型转换后序列化成 values_json；非法输入显式报错。 */
+  const buildValuesJson = (): { json: string } | { error: string } => {
+    const out: Record<string, unknown> = {};
+    for (const variable of vars) {
+      const raw = (values[variable.name] ?? '').trim();
+      if (raw === '') {
+        if (variable.required) {
+          return {
+            error: tr(
+              `变量 ${variable.name} 为必填`,
+              `Variable ${variable.name} is required`,
+            ),
+          };
+        }
+        // 留空表示不注入，运行时回退到工作流声明的默认值
+        continue;
+      }
+      if (variable.type === 'number') {
+        const num = Number(raw);
+        if (!Number.isFinite(num)) {
+          return {
+            error: tr(
+              `变量 ${variable.name} 必须是数字`,
+              `Variable ${variable.name} must be a number`,
+            ),
+          };
+        }
+        out[variable.name] = num;
+      } else if (variable.type === 'boolean') {
+        if (raw !== 'true' && raw !== 'false') {
+          return {
+            error: tr(
+              `变量 ${variable.name} 必须是 true 或 false`,
+              `Variable ${variable.name} must be true or false`,
+            ),
+          };
+        }
+        out[variable.name] = raw === 'true';
+      } else if (variable.type === 'json') {
+        try {
+          out[variable.name] = JSON.parse(raw);
+        } catch {
+          return {
+            error: tr(
+              `变量 ${variable.name} 不是合法 JSON`,
+              `Variable ${variable.name} is not valid JSON`,
+            ),
+          };
+        }
+      } else {
+        out[variable.name] = raw;
+      }
+    }
+    return { json: JSON.stringify(out) };
+  };
+
+  const missingRequired = vars.some(
+    (variable) => variable.required && (values[variable.name] ?? '').trim() === '',
+  );
+  // 触发器只跑已发布快照：未发布的工作流选了也会在建触发器时被后端拒绝
+  const publishedWorkflows = workflows.filter((workflow) => workflow.hasPublished);
+
   const save = async () => {
     setSaving(true);
     setErr(null);
+    const built = buildValuesJson();
+    if ('error' in built) {
+      setErr(built.error);
+      setSaving(false);
+      return;
+    }
     try {
       const created = await createTrigger({
         name: name.trim(),
@@ -507,6 +655,7 @@ function TriggerEditor({
         workflow_id: targetKind === 'workflow' ? (workflowId ?? undefined) : undefined,
         agent_id: targetKind === 'agent' ? agentId : undefined,
         prompt: targetKind === 'agent' ? prompt : '',
+        values_json: targetKind === 'workflow' ? built.json : '{}',
       });
       const rawUrl =
         typeof created.webhook_url === 'string' ? created.webhook_url : '';
@@ -540,7 +689,11 @@ function TriggerEditor({
               saving ||
               name.trim() === '' ||
               (kind === 'cron' && cronExpr.trim() === '') ||
-              (targetKind === 'workflow' && workflowId === null) ||
+              (targetKind === 'workflow' &&
+                (workflowId === null ||
+                  varsLoading ||
+                  varsErr !== null ||
+                  missingRequired)) ||
               (targetKind === 'agent' && agentId === '')
             }
           >
@@ -600,19 +753,131 @@ function TriggerEditor({
           />
         </div>
         {targetKind === 'workflow' ? (
-          <div className="space-y-1.5">
-            <Label htmlFor="trigger-workflow">{tr('工作流', 'Workflow')}</Label>
-            <Select
-              id="trigger-workflow"
-              aria-label={tr('工作流', 'Workflow')}
-              value={workflowId === null ? '' : String(workflowId)}
-              onValueChange={(v) => setWorkflowId(Number(v))}
-              options={workflows.map((w) => ({ value: String(w.id), label: w.name }))}
-            />
-            <p className="text-[11px] text-zinc-500">
-              {tr('触发时运行该工作流的已发布版本。', 'The published version runs on fire.')}
-            </p>
-          </div>
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="trigger-workflow">{tr('工作流', 'Workflow')}</Label>
+              <Select
+                id="trigger-workflow"
+                aria-label={tr('工作流', 'Workflow')}
+                value={workflowId === null ? '' : String(workflowId)}
+                onValueChange={(v) => setWorkflowId(Number(v))}
+                options={publishedWorkflows.map((w) => ({
+                  value: String(w.id),
+                  label: w.name,
+                }))}
+              />
+              <p className="text-[11px] text-zinc-500">
+                {publishedWorkflows.length === 0
+                  ? tr(
+                      '没有已发布的工作流；请先在工作流页发布后再创建触发器。',
+                      'No published workflow yet; publish one on the workflows page first.',
+                    )
+                  : tr(
+                      '触发时运行该工作流的已发布版本。',
+                      'The published version runs on fire.',
+                    )}
+              </p>
+            </div>
+            {workflowId !== null && (
+              <div className="space-y-2 rounded-lg border border-zinc-800/60 bg-zinc-950/60 p-3">
+                <div className="flex items-center gap-1.5">
+                  <div className="og-label">{tr('输入变量', 'Input variables')}</div>
+                  {varsLoading && (
+                    <Loader2 size={11} className="animate-spin text-zinc-500" />
+                  )}
+                </div>
+                {varsErr !== null ? (
+                  <p className="text-[11px] leading-relaxed text-danger">{varsErr}</p>
+                ) : varsLoading ? (
+                  <p className="text-[11px] text-zinc-500">
+                    {tr('读取已发布版本…', 'Loading published version…')}
+                  </p>
+                ) : vars.length === 0 ? (
+                  <p className="text-[11px] text-zinc-500">
+                    {tr(
+                      '该工作流的开始节点没有声明输入变量。',
+                      'The start node declares no variables.',
+                    )}
+                  </p>
+                ) : (
+                  vars.map((variable, index) => {
+                    const inputId = `trigger-var-${index}`;
+                    const raw = values[variable.name] ?? '';
+                    return (
+                      <div key={variable.name} className="space-y-1">
+                        <div className="flex flex-wrap items-baseline gap-1.5">
+                          <Label htmlFor={inputId} className="font-mono text-[11px]">
+                            {variable.name}
+                          </Label>
+                          <span className="text-[10px] text-zinc-500">{variable.type}</span>
+                          {variable.required && (
+                            <span className="text-[10px] text-danger">*</span>
+                          )}
+                        </div>
+                        {variable.description !== '' && (
+                          <p className="text-[10.5px] leading-4 text-zinc-500">
+                            {variable.description}
+                          </p>
+                        )}
+                        {variable.type === 'boolean' ? (
+                          <Select
+                            id={inputId}
+                            aria-label={tr(
+                              `变量 ${variable.name}`,
+                              `Variable ${variable.name}`,
+                            )}
+                            value={raw}
+                            onValueChange={(v) =>
+                              setValues((prev) => ({ ...prev, [variable.name]: v }))
+                            }
+                            options={[
+                              { value: '', label: tr('使用默认值', 'Use default') },
+                              { value: 'true', label: tr('是', 'True') },
+                              { value: 'false', label: tr('否', 'False') },
+                            ]}
+                          />
+                        ) : variable.type === 'json' ? (
+                          <Textarea
+                            id={inputId}
+                            aria-label={tr(
+                              `变量 ${variable.name}`,
+                              `Variable ${variable.name}`,
+                            )}
+                            value={raw}
+                            onChange={(e) =>
+                              setValues((prev) => ({
+                                ...prev,
+                                [variable.name]: e.target.value,
+                              }))
+                            }
+                            className="h-20 w-full resize-y font-mono text-[11px]"
+                            placeholder="{ }"
+                          />
+                        ) : (
+                          <Input
+                            id={inputId}
+                            type={variable.type === 'number' ? 'number' : 'text'}
+                            step={variable.type === 'number' ? 'any' : undefined}
+                            aria-label={tr(
+                              `变量 ${variable.name}`,
+                              `Variable ${variable.name}`,
+                            )}
+                            value={raw}
+                            onChange={(e) =>
+                              setValues((prev) => ({
+                                ...prev,
+                                [variable.name]: e.target.value,
+                              }))
+                            }
+                          />
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </>
         ) : (
           <>
             <div className="space-y-1.5">

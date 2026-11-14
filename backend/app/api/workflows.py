@@ -69,9 +69,17 @@ class ResumeInput(BaseModel):
 
 
 def _row_to_wire(
-    row: WorkflowRow, *, include_definition: bool, last_run: Any | None
+    row: WorkflowRow,
+    *,
+    include_definition: bool,
+    last_run: Any | None,
+    definition_source: Literal["draft", "published"] = "draft",
 ) -> dict[str, Any]:
-    definition = parse_definition(row.definition_json)
+    if definition_source == "published":
+        # 外部触发只能跑已发布快照，编辑器要按快照声明变量，而不是当前草稿
+        definition, _ = workflow_service.definition_for(row, "published")
+    else:
+        definition = parse_definition(row.definition_json)
     payload: dict[str, Any] = {
         "id": row.id,
         "name": row.name,
@@ -98,6 +106,8 @@ def _row_to_wire(
     }
     if include_definition:
         payload["definition"] = definition.model_dump()
+        # 详情可能按草稿或已发布快照返回，调用方据此知道拿到的是哪一份
+        payload["definition_source"] = definition_source
     return payload
 
 
@@ -535,11 +545,22 @@ async def latest_run_snapshot(
 @router.get("/workflows/{workflow_id}")
 async def get_workflow(
     workflow_id: int,
+    source: Literal["draft", "published"] = Query(
+        default="draft", description="definition 取草稿还是已发布快照"
+    ),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
     row = await _get_row(db, workflow_id)
-    return _row_to_wire(row, include_definition=True, last_run=await _latest_run(db, row.id))
+    try:
+        return _row_to_wire(
+            row,
+            include_definition=True,
+            last_run=await _latest_run(db, row.id),
+            definition_source=source,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put("/workflows/{workflow_id}")

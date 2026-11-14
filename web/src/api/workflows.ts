@@ -172,7 +172,11 @@ export type WorkflowSummary = {
   updated_at: string;
 };
 
-export type WorkflowDetail = WorkflowSummary & { definition: WorkflowDefinition };
+export type WorkflowDetail = WorkflowSummary & {
+  definition: WorkflowDefinition;
+  /** 详情取的是草稿还是已发布快照；外部触发按快照声明变量。 */
+  definition_source?: 'draft' | 'published';
+};
 
 export type CatalogKind = {
   key: NodeKind;
@@ -309,8 +313,8 @@ export function listWorkflows(
   return request<{ items: WorkflowSummary[]; total: number }>('GET', `/workflows?${query.toString()}`);
 }
 
-export function getWorkflow(id: number) {
-  return request<WorkflowDetail>('GET', `/workflows/${id}`);
+export function getWorkflow(id: number, source: 'draft' | 'published' = 'draft') {
+  return request<WorkflowDetail>('GET', `/workflows/${id}?source=${source}`);
 }
 
 export function createWorkflow(payload: {

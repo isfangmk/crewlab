@@ -10,6 +10,8 @@ export interface TriggerRuleItem {
   workflow_id: number | null;
   agent_id: string | null;
   prompt: string;
+  /** 工作流型触发时注入开始节点的变量（JSON 对象文本）。 */
+  values_json: string;
   enabled: boolean;
   max_retries: number;
   has_webhook: boolean;
@@ -26,6 +28,7 @@ export interface TriggerCreateInput {
   workflow_id?: number;
   agent_id?: string;
   prompt?: string;
+  values_json?: string;
   enabled?: boolean;
   max_retries?: number;
 }
