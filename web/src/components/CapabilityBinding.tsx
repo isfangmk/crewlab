@@ -282,6 +282,7 @@ export function CapabilityBinding({
           </div>
           <div className="w-full shrink-0 sm:w-[14.5rem]">
             <SearchInput
+              fluid
               value={query}
               onChange={setQuery}
               placeholder={tr('搜索工具 / 技能 / MCP', 'Search tools / skills / MCP')}

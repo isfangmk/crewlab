@@ -503,6 +503,7 @@ export function KnowledgeScopePicker({
               </div>
               <div className="w-full shrink-0 sm:w-[13.5rem]">
                 <SearchInput
+                  fluid
                   value={scopeQuery}
                   onChange={setScopeQuery}
                   placeholder={tr('搜索目录或文档', 'Search folders or documents')}

@@ -15,6 +15,8 @@ type Props = {
   /** 外层宽度类，默认自适应占满一行。 */
   className?: string;
   inputClassName?: string;
+  /** 面板头部等固定宽度容器内使用：允许收窄，避免最小宽度撑破容器。 */
+  fluid?: boolean;
 };
 
 // 列表页统一搜索框：左侧放大镜，有内容时右侧出现清空按钮。
@@ -27,11 +29,12 @@ export function SearchInput({
   onKeyDown,
   className,
   inputClassName,
+  fluid = false,
 }: Props) {
   const { tr } = useI18n();
   const clear = onClear ?? (() => onChange(''));
   return (
-    <div className={cn('relative min-w-[15rem] flex-1', className)}>
+    <div className={cn('relative flex-1', fluid ? 'min-w-0' : 'min-w-[15rem]', className)}>
       <Search
         size={13}
         aria-hidden
