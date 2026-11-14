@@ -185,3 +185,50 @@ async def test_agent_trigger_session_created(
         runs = await client.get(f"/api/v1/triggers/{rule['id']}/runs", headers=headers)
         assert runs.status_code == 200
         assert runs.json()["total"] >= 1
+
+
+async def test_cron_next_fire_is_timezone_aware(
+    env: dict[str, str], api_base: str
+) -> None:
+    """SQLite 读回的 next_fire_at 必须补上 UTC 时区，否则调度器与 now 比较会抛错。"""
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models_orm.trigger import TriggerRule
+    from tests.conftest import login_access_token
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=60.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        created = await client.post(
+            "/api/v1/triggers",
+            headers=headers,
+            json={
+                "name": "cron-tz-" + uuid.uuid4().hex[:8],
+                "kind": "cron",
+                "cron_expr": "0 9 * * *",
+                "target_kind": "agent",
+                "agent_id": "default",
+                "prompt": "巡检",
+            },
+        )
+        assert created.status_code == 200, created.text
+        rule_id = created.json()["id"]
+
+        try:
+            async with SessionLocal() as db:
+                row = await db.scalar(
+                    select(TriggerRule).where(TriggerRule.id == rule_id)
+                )
+                assert row is not None
+                assert row.next_fire_at is not None
+                assert row.next_fire_at.tzinfo is not None
+        finally:
+            deleted = await client.delete(
+                f"/api/v1/triggers/{rule_id}", headers=headers
+            )
+            assert deleted.status_code == 200, deleted.text

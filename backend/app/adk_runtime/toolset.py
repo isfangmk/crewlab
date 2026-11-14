@@ -32,25 +32,28 @@ __all__ = [
 def build_knowledge_tools(scope: KnowledgeScope | None = None) -> list[FunctionTool]:
     """供 SkillToolset.additional_tools 挂载；scope 为空时使用全库检索。
 
-    顺带挂上工作流与代码解释器工具组：它们同样不依赖外部凭证——
-    工作流回答「上次跑到哪了」，解释器让模型能真正执行 Python 产出图表与文件。
+    只返回知识检索工具：ADK 的 additional_tools 要等技能在元数据里声明后
+    才注入，代码解释器/记忆/工作流这类始终可用的能力直接挂在 Agent 上。
     """
 
-    extra_tools = [
-        FunctionTool(tool_impl(name))
-        for name in builtin_group_names("workflow", "code", "memory")
-    ]
     if scope is None or scope.is_empty:
-        return [FunctionTool(query_knowledge), *extra_tools]
+        return [FunctionTool(query_knowledge)]
     logger.info(
         "装配带知识范围的 query_knowledge paths=%s doc_ids=%s",
         list(scope.paths),
         len(scope.doc_ids),
     )
-    return [FunctionTool(scoped_query_knowledge(scope)), *extra_tools]
+    return [FunctionTool(scoped_query_knowledge(scope))]
 
 
 def build_builtin_tools() -> list[FunctionTool]:
-    """初始上下文不挂 Tool；由 Skill 激活后注入。"""
+    """始终装配的内置工具组：代码解释器、记忆与工作流。
 
-    return []
+    ADK 的 SkillToolset.additional_tools 只有在技能声明后才注入；这些能力
+    不依赖外部凭证且对话随时可用，所以直接作为 Agent 工具挂载。
+    """
+
+    return [
+        FunctionTool(tool_impl(name))
+        for name in builtin_group_names("workflow", "code", "memory")
+    ]

@@ -183,6 +183,17 @@ def _tool_start_frame(
     )
 
 
+def tool_response_status(response: Any) -> str:
+    """工具响应状态：error 为空串视为成功。
+
+    run_python 的结果信封固定带 error 字段，成功时是空串；若按字段是否存在
+    判断，会把成功卡显示成失败。
+    """
+
+    error_text = response.get("error") if isinstance(response, dict) else None
+    return "error" if error_text not in (None, "") else "success"
+
+
 def _tool_end_frame(
     buf: _TurnBuffer,
     *,
@@ -500,7 +511,9 @@ async def _iter_runner_events(
                 if not isinstance(pending_name, str) or pending_name == "":
                     raise ValueError(f"function_response 缺少 name: {call_id}")
                 name = pending_name
-            status = "error" if isinstance(response, dict) and "error" in response else "success"
+            # 工具结果用空字符串表示成功时不能当成失败：run_python 的
+            # 信封固定带 error 字段，成功为空串。
+            status = tool_response_status(response)
             end_frame = _tool_end_frame(
                 buf,
                 call_id=call_id,

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models_orm.base import Base
+from app.models_orm.base import AwareDateTime, Base
 
 
 class TriggerRule(Base):
@@ -34,16 +34,16 @@ class TriggerRule(Base):
     values_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # webhook 型：sha256(token)；原文只在创建时返回一次
+    # webhook 型：sha256(token)；其他类型存唯一占位值（列上有唯一约束）
     webhook_token_hash: Mapped[str] = mapped_column(
         String(128), nullable=False, default="", unique=True
     )
     # 调度器缓存的下次触发时间；cron 型由调度器维护
-    next_fire_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_fire_at: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True)
+    last_fired_at: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )
 
 
@@ -62,6 +62,6 @@ class TriggerRun(Base):
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     ref_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        AwareDateTime(), server_default=func.now(), nullable=False
     )
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True)

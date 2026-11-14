@@ -110,7 +110,7 @@ export default function TriggersPage() {
   };
 
   return (
-    <>
+    <main className="anim-fade flex flex-1 flex-col overflow-hidden">
       <PageHeader
         title={tr('触发器', 'Triggers')}
         subtitle={tr(
@@ -373,7 +373,7 @@ export default function TriggersPage() {
           }}
         />
       )}
-    </>
+    </main>
   );
 }
 

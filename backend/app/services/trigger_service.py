@@ -10,6 +10,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import uuid4
 
 from croniter import croniter
 from sqlalchemy import select
@@ -96,6 +97,10 @@ async def create_rule(
     if kind == "webhook":
         raw_token = secrets.token_urlsafe(24)
         token_hash = hash_token(raw_token)
+    else:
+        # 列上有唯一约束：非 webhook 也要占一个不可解析的唯一值，
+        # 否则多条 cron 都会写空串而撞约束。
+        token_hash = f"non-webhook:{uuid4().hex}"
 
     rule = TriggerRule(
         name=name,

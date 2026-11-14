@@ -3,7 +3,9 @@
 v1 口径：
   - 子助理继承父回合的 provider/model（换模型留待后续）；
   - 子助理拥有自己的人设（compose_persona）与知识范围（query_knowledge 收口），
-    直挂工作流 / 记忆内置工具，技能按子助理自身勾选装配；不挂 MCP（v1 边界）；
+    技能按子助理自身勾选装配；不挂 MCP（v1 边界）；
+  - 内置工具只由根 Agent 挂载：委托后父子工具会进同一 ADK 注册表，
+    重复同名工具会被上游以「Tool names must be unique」拒绝；
   - ADK agent 名由业务名净化成合法 Python 标识符（委托工具名由它派生），
     撞名时追加序号；委托链已在保存时防环，运行期按树递归安全。
 """
@@ -13,11 +15,9 @@ from __future__ import annotations
 import re
 
 from google.adk.agents import LlmAgent
-from google.adk.tools import FunctionTool
 
 from app.services.agent_service import compose_persona, get_agent
 from app.services.knowledge_scope import KnowledgeScope
-from app.tools.catalog import builtin_group_names, tool_impl
 
 
 def adk_identifier(name: str) -> str:
@@ -93,11 +93,9 @@ async def build_sub_agents_for_agent(
                     if isinstance(sub.knowledge_scope, KnowledgeScope)
                     else None
                 ),
-                extra_tools=[
-                    FunctionTool(tool_impl(name))
-                    for name in builtin_group_names("workflow", "memory")
-                ],
+                extra_tools=None,
                 skills=sub_skills,
+                include_builtin_tools=False,
                 # MCP toolset 只在父回合按父助理白名单装配，子助理不挂（v1 边界）
                 sub_agents=await build_sub_agents_for_agent(
                     db,

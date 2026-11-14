@@ -96,7 +96,7 @@ export default function MemoryPage() {
   };
 
   return (
-    <>
+    <main className="anim-fade flex flex-1 flex-col overflow-hidden">
       <PageHeader
         title={tr('记忆', 'Memory')}
         subtitle={tr(
@@ -262,6 +262,6 @@ export default function MemoryPage() {
           }}
         />
       )}
-    </>
+    </main>
   );
 }

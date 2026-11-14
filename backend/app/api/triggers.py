@@ -34,7 +34,8 @@ def rule_to_wire(rule: TriggerRule) -> dict[str, Any]:
         "prompt": rule.prompt,
         "enabled": rule.enabled,
         "max_retries": rule.max_retries,
-        "has_webhook": bool(rule.webhook_token_hash),
+        # 非 webhook 的 token_hash 是唯一占位值，不能据此判断类型
+        "has_webhook": rule.kind == "webhook",
         "next_fire_at": rule.next_fire_at.isoformat() if rule.next_fire_at else None,
         "last_fired_at": rule.last_fired_at.isoformat() if rule.last_fired_at else None,
         "created_at": rule.created_at.isoformat() if rule.created_at else None,

@@ -53,9 +53,12 @@ def build_chat_agent(
     skills: list[Any] | None = None,
     sub_agents: list[Any] | None = None,
     adk_name: str = "workbench_chat",
+    include_builtin_tools: bool = True,
 ) -> LlmAgent:
     """按配置-模型与助理人设装配 LlmAgent；extra_tools 挂 MCP SearchableToolset 等。
 
+    include_builtin_tools=False 供子 Agent 使用：委托后父子工具会进同一注册表，
+    两边挂同名工具会让上游以「Tool names must be unique」拒绝请求。
     模型名前缀与厂商专属请求体由 provider 配置决定：
     不能对所有 provider 强加 openai/ 前缀或 DeepSeek 的 thinking 字段。
     max_turns 在此校验并记入装配日志；实际限轮由 Runner 的 RunConfig.max_llm_calls 生效。
@@ -108,7 +111,7 @@ def build_chat_agent(
         timeout=llm_timeout_seconds,
         extra_body=extra_body if extra_body else None,
     )
-    tools: list[Any] = list(build_builtin_tools())
+    tools: list[Any] = list(build_builtin_tools()) if include_builtin_tools else []
     # SkillToolset(EAGER)：目录可见，正文仍 load_skill 按需加载
     tools.append(build_skill_toolset(knowledge_scope, skills))
     if knowledge_scope is not None and not knowledge_scope.is_empty:
