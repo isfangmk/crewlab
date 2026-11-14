@@ -371,7 +371,7 @@ function AgentCard({
         ? scopePaths.slice(0, 2).join('、') + (scopePaths.length > 2 ? ` +${scopePaths.length - 2}` : '')
         : tr(`${scopeDocs.length} 篇文档`, `${scopeDocs.length} doc(s)`);
   const formatLabel = tr(OUTPUT_FORMAT_LABELS[agent.output_format].zh, OUTPUT_FORMAT_LABELS[agent.output_format].en);
-  const modelLabel = agent.model !== '' ? agent.model : tr('默认模型', 'Default model');
+  const modelLabel = agent.model || '';
   const skillLabel = agent.skills == null ? tr('全部', 'All') : String(agent.skills.length);
   const delegationCount = agent.sub_agents?.length ?? 0;
   const delegationLabel = delegationCount > 0 ? String(delegationCount) : tr('无', 'None');
@@ -420,10 +420,12 @@ function AgentCard({
           </div>
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-zinc-500">
             <span className="truncate" title={agent.name}>{agent.name}</span>
-            <span className="shrink-0 text-zinc-700">·</span>
-            <span className={cn('truncate', agent.model === '' && 'text-zinc-600')} title={agent.model || undefined}>
-              {modelLabel}
-            </span>
+            {modelLabel !== '' && (
+              <>
+                <span className="shrink-0 text-zinc-700">·</span>
+                <span className="truncate" title={modelLabel}>{modelLabel}</span>
+              </>
+            )}
           </div>
         </div>
         <div className="-mr-1 -mt-0.5 flex shrink-0 items-center gap-0.5">

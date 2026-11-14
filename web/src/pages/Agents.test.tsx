@@ -152,6 +152,29 @@ describe('AgentsPage', () => {
     expect(within(dialog).queryByRole('button', { name: /复制为自定义助理/ })).not.toBeInTheDocument();
   });
 
+  it('卡片只在显式配置模型时展示模型名', async () => {
+    server.use(
+      http.get('/api/v1/agents', () =>
+        HttpResponse.json({
+          items: [
+            { ...diskAgent, model: '' },
+            { ...userAgent, model: 'deepseek-chat' },
+          ],
+          total: 2,
+        }),
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <AgentsPage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('button', { name: 'SRE 专家' })).toBeInTheDocument();
+    // 未配置模型时不重复「默认模型」；显式配置的模型仍然展示。
+    expect(screen.queryByText('默认模型')).not.toBeInTheDocument();
+    expect(screen.getByText('deepseek-chat')).toBeInTheDocument();
+  });
+
   it('新建助理时按 Server 分组挂载 MCP 能力并预览可检索工具数', async () => {
     server.use(
       http.get(listURL, () => HttpResponse.json({ items: [{ key: 'query_promql' }], total: 1 })),

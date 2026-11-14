@@ -42,7 +42,7 @@ import {
 import { listSecrets, type SecretView } from '@/api/secrets';
 import { Modal } from '@/components/Modal';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { Button, Card, Chip, CodeBlock, DetailSection, EmptyStateCard, ErrorBanner, PageHeader, RowAction, Toast } from '@/components/ui';
+import { Button, Card, Chip, CodeBlock, DetailSection, EmptyStateCard, ErrorBanner, PageHeader, RowAction, RowActionIcon, Toast } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
 import { errorText } from '@/lib/errors';
@@ -379,54 +379,88 @@ function ServerRow({
   const [openTool, setOpenTool] = useState<string | null>(null);
   const loaded = useMemo(() => loadServerTools(server, test?.tools), [server, test?.tools]);
   const toolCount = loaded.tools.length;
+  // 测试失败优先展示最新一次结果；否则展示上次连接留下的错误。
+  const errorMessage = test?.error || (server.status === 'error' ? server.last_error : '');
+  const freePass = server.trusted || server.approval_policy === 'never';
+  const approvalLabel =
+    server.approval_policy === 'non_readonly'
+      ? tr('写操作审批', 'Writes need approval')
+      : tr('每次审批', 'Always asks');
+  const embeddingLabel =
+    server.embedding_sync_status === 'ok'
+      ? tr(`索引 ${server.embedding_sync_count ?? 0}`, `Index ${server.embedding_sync_count ?? 0}`)
+      : server.embedding_sync_status === 'syncing'
+        ? tr('索引同步中', 'Indexing…')
+        : server.embedding_sync_status === 'error'
+          ? tr('索引失败', 'Index failed')
+          : '';
+  const iconClass = !server.enabled
+    ? 'bg-zinc-800/40 text-zinc-500 ring-zinc-700/50'
+    : server.status === 'error'
+      ? 'bg-gradient-to-br from-rose-500/25 via-rose-500/10 to-transparent text-rose-300 ring-rose-500/20'
+      : 'bg-gradient-to-br from-indigo-500/25 via-indigo-500/10 to-transparent text-indigo-300 ring-indigo-500/20';
 
   return (
-    <Card className="overflow-hidden p-0">
-      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+    <Card className="overflow-hidden p-0 transition-colors hover:border-zinc-700/70">
+      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
         <button
           type="button"
-          className="min-w-0 flex-1 rounded-md text-left"
+          className="flex min-w-0 flex-1 items-start gap-2.5 rounded-md text-left"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
         >
-          <div className="flex flex-wrap items-center gap-2">
-            {expanded ? <ChevronDown size={14} className="shrink-0 text-zinc-400" /> : <ChevronRight size={14} className="shrink-0 text-zinc-400" />}
-            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-indigo-500/20 text-indigo-300 ring-1 ring-inset ring-indigo-500/40">
-              <Server size={14} />
-            </span>
-            <span className="text-[12.5px] font-medium text-zinc-100">{server.name}</span>
-            <Chip className="font-sans">{server.transport}</Chip>
-            <StatusChip status={server.status} />
-            {server.trusted && (
-              <Chip tone="warning">
-                <ShieldCheck size={10} />
-                {tr('免审', 'trusted')}
-              </Chip>
-            )}
-            <Chip>{server.approval_policy ?? 'always'}</Chip>
-            {server.embedding_sync_status && server.embedding_sync_status !== 'idle' && (
-              <Chip
-                tone={
-                  server.embedding_sync_status === 'ok'
-                    ? 'info'
-                    : server.embedding_sync_status === 'error'
-                      ? 'warning'
-                      : 'default'
-                }
-                title={server.embedding_sync_error || undefined}
-              >
-                {`embed: ${server.embedding_sync_status}`}
-                {typeof server.embedding_sync_count === 'number'
-                  ? ` (${server.embedding_sync_count})`
-                  : ''}
-              </Chip>
-            )}
-            {!server.enabled && <Chip tone="default">{tr('已停用', 'disabled')}</Chip>}
-            <Chip tone="info">{tr(`${toolCount} 个工具`, `${toolCount} tool${toolCount === 1 ? '' : 's'}`)}</Chip>
+          <span className="flex h-9 w-3.5 shrink-0 items-center justify-center text-zinc-500">
+            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </span>
+          <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-lg ring-1 ring-inset', iconClass)}>
+            <Server size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            {/* 身份行：名称 + 连接状态 + 风险标记；传输方式与端点放到下一行。 */}
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span className="min-w-0 truncate text-[13px] font-semibold leading-5 text-zinc-100">{server.name}</span>
+              <StatusChip status={server.status} />
+              {freePass && (
+                <Chip dense tone="warning">
+                  <ShieldCheck size={10} />
+                  {tr('免审', 'trusted')}
+                </Chip>
+              )}
+              {!server.enabled && <Chip dense>{tr('已停用', 'disabled')}</Chip>}
+            </div>
+            <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-zinc-500">
+              <span className="shrink-0 font-medium uppercase tracking-wide text-zinc-400">{server.transport}</span>
+              <span className="shrink-0 text-zinc-700">·</span>
+              <span className="min-w-0 truncate" title={server.endpoint}>{server.endpoint || '—'}</span>
+            </div>
+            {/* 摘要行：工具数 / 审批口径 / 工具索引，替代一排彩色胶囊。 */}
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-zinc-500">
+              <span className={cn(loaded.error && 'text-warn')}>
+                {loaded.error
+                  ? tr('工具缓存异常', 'Tool cache error')
+                  : tr(`${toolCount} 个工具`, `${toolCount} tool${toolCount === 1 ? '' : 's'}`)}
+              </span>
+              {!freePass && (
+                <>
+                  <span className="text-zinc-700">·</span>
+                  <span>{approvalLabel}</span>
+                </>
+              )}
+              {embeddingLabel !== '' && (
+                <>
+                  <span className="text-zinc-700">·</span>
+                  <span
+                    className={cn(server.embedding_sync_status === 'error' && 'text-warn')}
+                    title={server.embedding_sync_error || undefined}
+                  >
+                    {embeddingLabel}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
-          <div className="mt-2 break-all font-sans text-[11px] text-zinc-500">{server.endpoint || '—'}</div>
         </button>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:pl-2" onClick={(e) => e.stopPropagation()}>
           <RowAction
             icon={test?.loading ? Loader2 : PlugZap}
             iconClassName={test?.loading ? 'animate-spin' : undefined}
@@ -435,27 +469,24 @@ function ServerRow({
           >
             {tr('测试连接', 'Test')}
           </RowAction>
-          <Hint content={isAdmin ? undefined : tr('需要 admin 权限', 'Admin permission required')}>
-            <RowAction icon={Pencil} onClick={onEdit} disabled={!isAdmin}>
-              {tr('编辑', 'Edit')}
-            </RowAction>
+          <Hint content={isAdmin ? tr('编辑', 'Edit') : tr('需要 admin 权限', 'Admin permission required')}>
+            <RowActionIcon icon={Pencil} label={tr('编辑', 'Edit')} onClick={onEdit} disabled={!isAdmin} />
           </Hint>
-          <Hint content={isAdmin ? undefined : tr('需要 admin 权限', 'Admin permission required')}>
-            <RowAction icon={Trash2} tone="danger" onClick={onDelete} disabled={!isAdmin}>
-              {tr('删除', 'Delete')}
-            </RowAction>
+          <Hint content={isAdmin ? tr('删除', 'Delete') : tr('需要 admin 权限', 'Admin permission required')}>
+            <RowActionIcon icon={Trash2} label={tr('删除', 'Delete')} tone="danger" onClick={onDelete} disabled={!isAdmin} />
           </Hint>
         </div>
       </div>
 
-      {server.status === 'error' && server.last_error && (
-        <ErrorBanner className="mx-4 mb-3">{server.last_error}</ErrorBanner>
-      )}
-
-      {test?.error && <ErrorBanner className="mx-4 mb-3">{test.error}</ErrorBanner>}
+      {errorMessage && <ErrorBanner className="mx-4 mb-3">{errorMessage}</ErrorBanner>}
 
       {expanded && (
         <div className="border-t border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+          <div className="mb-2.5 flex items-center gap-2">
+            <Wrench size={12} className="text-zinc-500" />
+            <span className="text-[11px] font-medium text-zinc-300">{tr('工具清单', 'Tool catalog')}</span>
+            <span className="text-[10px] text-zinc-500">{tr(`${toolCount} 个`, `${toolCount}`)}</span>
+          </div>
           {loaded.error ? (
             <div className="flex items-start gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[11.5px] leading-5 text-warn">
               <AlertTriangle size={12} className="mt-0.5 shrink-0" />
@@ -468,7 +499,7 @@ function ServerRow({
             </div>
           ) : toolCount === 0 ? (
             <div className="text-[12px] text-zinc-500">
-              {tr('暂无工具，请先「测试连接」。', 'No tools yet. Run Test first.')}
+              {tr('暂无工具，点击右上角「测试连接」重新拉取。', 'No tools yet. Click Test in the top-right corner to refresh.')}
             </div>
           ) : (
             <div className="space-y-2">
