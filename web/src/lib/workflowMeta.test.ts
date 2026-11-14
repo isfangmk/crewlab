@@ -105,6 +105,13 @@ describe('placeholdersIn', () => {
       'context',
     ]);
   });
+
+  it('字段路径与数组下标按根变量归并', () => {
+    expect(placeholdersIn('{{result.items[0].name}} / {{result.title}} / {{input}}')).toEqual([
+      'result',
+      'input',
+    ]);
+  });
 });
 
 describe('toneOf', () => {

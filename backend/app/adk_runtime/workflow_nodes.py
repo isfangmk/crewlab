@@ -115,17 +115,20 @@ def upstream_outputs(
 
 
 def template_values(text: str, state: dict[str, Any]) -> dict[str, Any]:
-    """模板里引用到的变量及其当前值。
+    """模板里引用到的变量表达式及其当前值。
 
-    只按名字取值，缺的变量不硬凑成空值——面板要的是「这一步实际吃到了什么」，
-    而不是一份补全过的参数表。
+    路径按表达式原样作为展示键（如 `result.items[0].name`），让面板说明
+    「这一步具体读了哪个字段」；取不到的值跳过，不硬凑成空值——面板要的是
+    实际吃到的输入，而不是一份补全过的参数表。
     """
 
-    return {
-        name: state[name]
-        for name in workflow_vars.referenced_names(text)
-        if name in state
-    }
+    values: dict[str, Any] = {}
+    for expression in workflow_vars.referenced_expressions(text):
+        try:
+            values[expression] = workflow_vars.resolve_expression(expression, state)
+        except (workflow_vars.MissingVariableError, ValueError):
+            continue
+    return values
 
 
 def template_input(text: str, state: dict[str, Any], literal_key: str) -> dict[str, Any]:

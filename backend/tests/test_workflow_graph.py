@@ -170,6 +170,20 @@ def test_unknown_placeholder_reported_as_warning() -> None:
     assert any("nope" in w for w in graph_warnings(definition))
 
 
+def test_unknown_placeholder_uses_path_root() -> None:
+    payload = _simple_flow()
+    payload["nodes"][1]["assignments"] = {"q": "{{nope.data}}"}
+    definition = WorkflowDefinition.model_validate(payload)
+    assert unknown_placeholders(definition) == ["nope"]
+
+
+def test_known_path_root_is_not_reported_as_unknown() -> None:
+    payload = _simple_flow()
+    payload["nodes"][1]["assignments"] = {"q": "{{topic.title}}"}
+    definition = WorkflowDefinition.model_validate(payload)
+    assert unknown_placeholders(definition) == []
+
+
 def test_switch_branch_merge_is_not_warned() -> None:
     """同一个条件分支的不同 route 汇合到同一节点，不会重复执行，不该提示。"""
 
@@ -322,9 +336,54 @@ def test_render_keeps_type_for_whole_placeholder() -> None:
     assert workflow_vars.render_value("n={{n}}", state) == "n=3"
 
 
+def test_render_keeps_non_variable_braces() -> None:
+    """不是变量样式的双花括号（如 JSON 片段）按普通文本保留。"""
+
+    assert workflow_vars.render('{{"a": 1}} 和 {{9bad}}', {}) == '{{"a": 1}} 和 {{9bad}}'
+
+
 def test_render_missing_variable_raises() -> None:
     with pytest.raises(workflow_vars.MissingVariableError):
         workflow_vars.render("{{absent}}", {})
+
+
+def test_render_nested_fields_and_indexes() -> None:
+    state = {
+        "result": {
+            "items": [{"name": "disk"}, {"name": "cpu"}],
+            "key-name": 7,
+        }
+    }
+    assert workflow_vars.render_value("{{result.items[1].name}}", state) == "cpu"
+    assert workflow_vars.render_value("{{result.items[0]}}", state) == {"name": "disk"}
+    assert workflow_vars.render_value('{{result["key-name"]}}', state) == 7
+    assert workflow_vars.render_value("{{result.items.0.name}}", state) == "disk"
+    assert workflow_vars.render_value("{{result.items[-1].name}}", state) == "cpu"
+    assert workflow_vars.render("name={{result.items[0].name}}", state) == "name=disk"
+    assert workflow_vars.resolve_conditional("{{result.items[1].name}} == cpu", state) is True
+
+
+def test_render_nested_path_errors_are_explicit() -> None:
+    state = {"result": {"items": []}}
+    with pytest.raises(workflow_vars.VariablePathError) as exc:
+        workflow_vars.render("{{result.items[0]}}", state)
+    assert "下标 0 越界" in str(exc.value)
+    with pytest.raises(workflow_vars.VariablePathError):
+        workflow_vars.render("{{result.missing}}", state)
+    with pytest.raises(workflow_vars.VariablePathError):
+        workflow_vars.render("{{result.items.name}}", state)
+    with pytest.raises(ValueError):
+        workflow_vars.render("{{result.items[}}", state)
+
+
+def test_referenced_expressions_keep_paths() -> None:
+    text = "{{result.items[0].name}} {{result.items[0].name}} {{result.title}} {{ n }}"
+    assert workflow_vars.referenced_expressions(text) == [
+        "result.items[0].name",
+        "result.title",
+        "n",
+    ]
+    assert workflow_vars.referenced_names(text) == ["result", "n"]
 
 
 def test_conditional_operators() -> None:
@@ -381,6 +440,15 @@ def test_start_node_input_is_submitted_values() -> None:
     built = _built_node({"id": "start", "kind": "start"}, definition, {"run_values": {"topic": "巡检"}})
     # 开始节点的输入就是这一轮提交的参数，人工节点回填的值同样算在内
     assert built.input_snapshot({}) == {"topic": "巡检"}  # type: ignore[attr-defined]
+
+
+def test_node_input_shows_nested_path_reads() -> None:
+    """引用 JSON 字段时，输入快照展示具体路径而不是整份 JSON。"""
+
+    state = {"result": {"items": [{"name": "磁盘"}]}}
+    assert _input_of(_node("kb", "knowledge", query="{{result.items[0].name}} 手册"), state) == {
+        "result.items[0].name": "磁盘"
+    }
 
 
 def test_node_input_is_what_the_node_reads() -> None:

@@ -2,6 +2,10 @@
 
 画布上的连线只表达控制流，数据靠这里的共享状态传递。插值必须显式失败：
 引用了不存在的变量就报错，不静默替换成空串。
+
+变量支持逐层读取 JSON 字段：`{{result.items[0].name}}`。这里只做
+「对象取键 / 数组取下标」，不引入 JSONPath 的通配、过滤与表达式求值——
+画布上的模板要可预测、可报错，而不是一门小语言。
 """
 
 from __future__ import annotations
@@ -10,9 +14,12 @@ import json
 import re
 from typing import Any
 
-_PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+# 占位符必须以变量名开头；不是变量样式的双花括号（如 JSON 片段）原样保留。
+_PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][^{}]*?)\s*\}\}")
 # 整个字符串就是一个占位符时，保留原始类型（列表/对象/数字），供参数表使用。
-_WHOLE = re.compile(r"^\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}$")
+_WHOLE = re.compile(r"^\{\{\s*([A-Za-z_][^{}]*?)\s*\}\}$")
+_PATH_ATTR = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_PATH_INDEX = re.compile(r"-?\d+")
 
 
 class MissingVariableError(KeyError):
@@ -28,18 +35,133 @@ class MissingVariableError(KeyError):
         return self.message
 
 
-def _lookup(state: dict[str, Any], name: str) -> Any:
-    if name not in state:
-        raise MissingVariableError(name)
-    return state[name]
+class VariablePathError(MissingVariableError):
+    """变量存在，但路径上的字段/下标取不到。"""
+
+    def __init__(self, expression: str, reason: str) -> None:
+        self.name = expression
+        self.message = f"变量路径无法读取: {expression}（{reason}）"
+        KeyError.__init__(self, self.message)
+
+    def __str__(self) -> str:
+        return self.message
 
 
-def referenced_names(text: str) -> list[str]:
-    """列出文本里引用到的变量名，按出现顺序去重。"""
+def parse_expression(expression: str) -> list[str | int]:
+    """把 `result.items[0].name` 解析成 ["result", "items", 0, "name"]。
+
+    语法：
+      - 变量名开头，后接任意数量的 `.字段`、`[下标]`、`["带引号的键"]`；
+      - 也接受 `.0` 这种写法，方便沿用 Jinja 风格的数组下标。
+    格式不对时抛 ValueError，避免把半截表达式当成变量名静默忽略。
+    """
+
+    text = expression.strip()
+    if text == "":
+        raise ValueError("变量表达式不能为空")
+    root = _PATH_ATTR.match(text)
+    if root is None:
+        raise ValueError(f"变量表达式必须以变量名开头: {expression}")
+    tokens: list[str | int] = [root.group(0)]
+    pos = root.end()
+    while pos < len(text):
+        while pos < len(text) and text[pos].isspace():
+            pos += 1
+        if pos >= len(text):
+            break
+        if text[pos] == ".":
+            pos += 1
+            while pos < len(text) and text[pos].isspace():
+                pos += 1
+            attr = _PATH_ATTR.match(text, pos)
+            if attr is not None:
+                tokens.append(attr.group(0))
+                pos = attr.end()
+                continue
+            index = _PATH_INDEX.match(text, pos)
+            if index is not None:
+                tokens.append(int(index.group(0)))
+                pos = index.end()
+                continue
+            raise ValueError(f"变量表达式格式错误: {expression}")
+        if text[pos] == "[":
+            close = text.find("]", pos)
+            if close == -1:
+                raise ValueError(f"变量表达式缺少 ]: {expression}")
+            inner = text[pos + 1 : close].strip()
+            if inner == "":
+                raise ValueError(f"变量表达式的中括号不能为空: {expression}")
+            if _PATH_INDEX.fullmatch(inner):
+                tokens.append(int(inner))
+            elif len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in {'"', "'"}:
+                if inner[0] == '"':
+                    try:
+                        tokens.append(json.loads(inner))
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(f"变量表达式的键名不合法: {expression}") from exc
+                else:
+                    tokens.append(inner[1:-1])
+            else:
+                raise ValueError(f"中括号里只能填数组下标或带引号的键名: {expression}")
+            pos = close + 1
+            continue
+        raise ValueError(f"变量表达式格式错误: {expression}")
+    return tokens
+
+
+def _step(value: Any, token: str | int, expression: str) -> Any:
+    if isinstance(value, dict):
+        key = token if isinstance(token, str) else str(token)
+        if key not in value:
+            raise VariablePathError(expression, f"字段 {key} 不存在")
+        return value[key]
+    if isinstance(value, (list, tuple)):
+        if not isinstance(token, int):
+            raise VariablePathError(expression, f"需要数组下标，不能读取字段 {token}")
+        if token >= len(value) or token < -len(value):
+            raise VariablePathError(expression, f"下标 {token} 越界（长度 {len(value)}）")
+        return value[token]
+    if value is None:
+        raise VariablePathError(expression, "上一层是 null")
+    raise VariablePathError(
+        expression, f"{type(value).__name__} 不支持继续取字段或下标"
+    )
+
+
+def resolve_expression(expression: str, state: dict[str, Any]) -> Any:
+    """按路径从状态里取值；根变量不存在或路径断开都显式报错。"""
+
+    tokens = parse_expression(expression)
+    root = tokens[0]
+    assert isinstance(root, str)
+    if root not in state:
+        raise MissingVariableError(root)
+    value = state[root]
+    for token in tokens[1:]:
+        value = _step(value, token, expression.strip())
+    return value
+
+
+def referenced_expressions(text: str) -> list[str]:
+    """列出文本里引用到的变量表达式，按出现顺序去重。"""
 
     seen: list[str] = []
     for match in _PLACEHOLDER.finditer(text):
-        name = match.group(1)
+        expression = match.group(1).strip()
+        if expression not in seen:
+            seen.append(expression)
+    return seen
+
+
+def referenced_names(text: str) -> list[str]:
+    """列出文本里引用到的根变量名，按出现顺序去重。"""
+
+    seen: list[str] = []
+    for expression in referenced_expressions(text):
+        root = _PATH_ATTR.match(expression)
+        if root is None:
+            continue
+        name = root.group(0)
         if name not in seen:
             seen.append(name)
     return seen
@@ -52,10 +174,10 @@ def _to_text(value: Any) -> str:
 
 
 def render(text: str, state: dict[str, Any]) -> str:
-    """把字符串里的 {{变量}} 全部替换成文本；缺变量直接报错。"""
+    """把字符串里的 {{变量表达式}} 全部替换成文本；取不到值直接报错。"""
 
     def _replace(match: re.Match[str]) -> str:
-        return _to_text(_lookup(state, match.group(1)))
+        return _to_text(resolve_expression(match.group(1), state))
 
     return _PLACEHOLDER.sub(_replace, text)
 
@@ -65,7 +187,7 @@ def render_value(text: str, state: dict[str, Any]) -> Any:
 
     whole = _WHOLE.match(text)
     if whole is not None:
-        return _lookup(state, whole.group(1))
+        return resolve_expression(whole.group(1), state)
     return render(text, state)
 
 

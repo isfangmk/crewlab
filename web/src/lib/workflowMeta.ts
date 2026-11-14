@@ -374,13 +374,13 @@ export function layeredLayout(graph: {
   return positions;
 }
 
-/** {{变量}} 在文本里出现的地方，用于「这个节点引用了谁」提示。 */
+/** {{变量}} / {{变量.字段[0]}} 引用到的根变量，用于「这个节点引用了谁」提示。 */
 export function placeholdersIn(text: string): string[] {
   const out: string[] = [];
-  const pattern = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
+  const pattern = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)(?:\s*(?:\.[A-Za-z0-9_]+|\[[^\]]*\])+)?\s*\}\}/g;
   let match = pattern.exec(text);
   while (match !== null) {
-    out.push(match[1]);
+    if (!out.includes(match[1])) out.push(match[1]);
     match = pattern.exec(text);
   }
   return out;

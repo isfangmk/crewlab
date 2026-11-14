@@ -22,8 +22,10 @@ PIP_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(==[A-Za-z0-9._+
 _NODE_ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 # 变量名：与节点 ID 同规则，便于 {{var}} 插值时不会误吞标点。
 _VAR_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
-# {{ var }} 插值；允许空格，不允许嵌套。
-_PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+# {{ var }} / {{ var.field[0] }} 插值；这里只取根变量名做「有没有节点产出」的提示。
+_PLACEHOLDER_ROOT_PATTERN = re.compile(
+    r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?=[.\[]|\}\})"
+)
 
 # ADK START 节点的保留名，画布上不允许占用。
 # 只保留 ADK 真正占用的名字：`start` 是用户常用的节点 ID，不能一并禁掉。
@@ -481,7 +483,7 @@ def unknown_placeholders(definition: WorkflowDefinition) -> list[str]:
     missing: set[str] = set()
     for node in definition.nodes:
         for text in _node_texts(node):
-            for name in _PLACEHOLDER_PATTERN.findall(text):
+            for name in _PLACEHOLDER_ROOT_PATTERN.findall(text):
                 if name not in produced:
                     missing.add(name)
     return sorted(missing)

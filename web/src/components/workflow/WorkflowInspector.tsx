@@ -305,7 +305,10 @@ function ResultVarRow({
         </button>
       </div>
       <div className="mt-0.5 text-[10px] leading-4 text-text-faint">
-        {tr('自动按节点生成，下游直接用它取值', 'Generated from the node; downstream reads it as-is')}
+        {tr(
+          `自动按节点生成；JSON 结果可用 {{${node.output_key}.字段}} 取其中的字段`,
+          `Generated from the node; read nested fields as {{${node.output_key}.field}}`,
+        )}
       </div>
     </div>
   );
@@ -371,8 +374,8 @@ function StartNodeFields({ node, onNodeChange }: { node: WorkflowNode; onNodeCha
       />
       <InfoBox tone="muted">
         {tr(
-          '这些变量就是整次运行的输入；下游任意节点都可以用 {{变量名}} 引用。',
-          'These variables are the run inputs; any downstream node can read them as {{var}}.',
+          '这些变量就是整次运行的输入；下游任意节点都可以用 {{变量名}} 引用，JSON 字段用 {{变量名.字段}}。',
+          'These variables are the run inputs; any downstream node can read them as {{var}}, nested fields as {{var.field}}.',
         )}
       </InfoBox>
     </>
@@ -402,7 +405,7 @@ function AgentFields({ node, catalog, onNodeChange }: { node: WorkflowNode; cata
           className="h-8 w-full text-[11.5px]"
         />
       </Field>
-      <Field label={tr('指令', 'Instruction')} required hint={tr('节点级系统指令，支持 {{变量}}', 'Node-level instruction; supports {{vars}}')}>
+      <Field label={tr('指令', 'Instruction')} required hint={tr('节点级系统指令；支持 {{变量}} 与 {{变量.字段}}', 'Node-level instruction; supports {{vars}} and {{var.field}}')}>
         <Textarea value={node.instruction} onChange={(event) => onNodeChange({ instruction: event.target.value })} rows={5} className="text-[11.5px]" />
       </Field>
       <InfoBox tone="muted">
@@ -419,7 +422,7 @@ function KnowledgeFields({ node, onNodeChange }: { node: WorkflowNode; onNodeCha
   const { tr } = useI18n();
   return (
     <>
-      <Field label={tr('检索语句', 'Query')} required hint={tr('支持 {{变量}}，例如：{{topic}} 的处置流程', 'Supports {{vars}}, e.g. {{topic}} runbook')}>
+      <Field label={tr('检索语句', 'Query')} required hint={tr('支持 {{变量}} 与 {{变量.字段}}，例如：{{topic.title}} 的处置流程', 'Supports {{vars}} and {{var.field}}, e.g. {{topic.title}} runbook')}>
         <Textarea value={node.query} onChange={(event) => onNodeChange({ query: event.target.value })} rows={2} className="text-[11.5px]" />
       </Field>
       <Field label={tr('返回条数', 'Top K')}>
@@ -452,7 +455,7 @@ function SearchFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange
   const { tr } = useI18n();
   return (
     <>
-      <Field label={tr('搜索语句', 'Query')} required hint={tr('支持 {{变量}}', 'Supports {{vars}}')}>
+      <Field label={tr('搜索语句', 'Query')} required hint={tr('支持 {{变量}} 与 {{变量.字段}}', 'Supports {{vars}} and {{var.field}}')}>
         <Textarea value={node.query} onChange={(event) => onNodeChange({ query: event.target.value })} rows={2} className="text-[11.5px]" />
       </Field>
       <Field label={tr('返回条数', 'Result count')}>
@@ -501,7 +504,7 @@ function McpFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catalo
           disabled={node.mcp_server === ''}
         />
       </Field>
-      <Field label={tr('参数', 'Arguments')} hint={tr('值支持 {{变量}}；参数名按工具 schema 填写', 'Values support {{vars}}; key names follow the tool schema')}>
+      <Field label={tr('参数', 'Arguments')} hint={tr('值支持 {{变量}} 与 {{变量.字段}}；参数名按工具 schema 填写', 'Values support {{vars}} and {{var.field}}; key names follow the tool schema')}>
         <KeyValueEditor
           value={node.arguments}
           onChange={(args) => onNodeChange({ arguments: args })}
@@ -527,14 +530,14 @@ function HttpFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange(p
             className="h-8 w-full text-[11.5px]"
           />
         </Field>
-        <Field label={tr('URL', 'URL')} required hint={tr('支持 {{变量}}', 'Supports {{vars}}')}>
+        <Field label={tr('URL', 'URL')} required hint={tr('支持 {{变量}} 与 {{变量.字段}}', 'Supports {{vars}} and {{var.field}}')}>
           <Input value={node.url} onChange={(event) => onNodeChange({ url: event.target.value })} placeholder="https://example.com/api" className="h-8 text-[11.5px]" />
         </Field>
       </div>
       <Field label={tr('请求头', 'Headers')}>
         <KeyValueEditor value={node.headers} onChange={(headers) => onNodeChange({ headers })} keyPlaceholder="Content-Type" valuePlaceholder="application/json" />
       </Field>
-      <Field label={tr('请求体', 'Body')} hint={tr('支持 {{变量}}；留空表示不带 body', 'Supports {{vars}}; empty means no body')}>
+      <Field label={tr('请求体', 'Body')} hint={tr('支持 {{变量}} 与 {{变量.字段}}；留空表示不带 body', 'Supports {{vars}} and {{var.field}}; empty means no body')}>
         <Textarea value={node.body} onChange={(event) => onNodeChange({ body: event.target.value })} rows={4} className="font-mono text-[11px]" placeholder='{"q": "{{input}}"}' />
       </Field>
     </>
@@ -561,7 +564,7 @@ function CodeFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange(p
 function AssignFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange(patch: Partial<WorkflowNode>): void }) {
   const { tr } = useI18n();
   return (
-    <Field label={tr('赋值', 'Assignments')} required hint={tr('变量名 → 值，值支持 {{变量}} 插值', 'Name → value; values support {{vars}}')}>
+    <Field label={tr('赋值', 'Assignments')} required hint={tr('变量名 → 值；值支持 {{变量}} 与 {{变量.字段}}', 'Name → value; values support {{vars}} and {{var.field}}')}>
       <KeyValueEditor value={node.assignments} onChange={(assignments) => onNodeChange({ assignments })} keyPlaceholder="summary" valuePlaceholder="关于 {{topic}} 的结论" />
     </Field>
   );
@@ -584,7 +587,7 @@ function SwitchFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange
         />
       </Field>
       {node.branch_mode === 'expr' ? (
-        <Field label={tr('表达式', 'Expression')} required hint={tr('形如 {{amount}} > 1000，结果决定走哪条出边', 'e.g. {{amount}} > 1000 picks the outgoing route')}>
+        <Field label={tr('表达式', 'Expression')} required hint={tr('形如 {{变量.字段}} > 1000，结果决定走哪条出边', 'e.g. {{var.field}} > 1000 picks the outgoing route')}>
           <Input
             value={node.expression}
             onChange={(event) => onNodeChange({ expression: event.target.value })}
@@ -613,7 +616,7 @@ function LoopFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange(p
   const { tr } = useI18n();
   return (
     <>
-      <Field label={tr('继续条件', 'Continue while')} hint={tr('条件成立时走 loop 出边回到上游；不成立走 exit', 'True loops back through the loop edge; false takes exit')}>
+      <Field label={tr('继续条件', 'Continue while')} hint={tr('条件成立时走 loop 出边回到上游；字段用 {{变量.字段}} 读取', 'True loops back through the loop edge; read fields as {{var.field}}')}>
         <Input
           value={node.expression}
           onChange={(event) => onNodeChange({ expression: event.target.value })}
@@ -644,7 +647,7 @@ function PromptFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange
     <Field
       label={node.kind === 'approval' ? tr('审批说明', 'Approval prompt') : tr('提示文案', 'Prompt')}
       required
-      hint={tr('支持 {{变量}}，运行会停在这里等人处理', 'Supports {{vars}}; the run pauses here for a human')}
+      hint={tr('支持 {{变量}} 与 {{变量.字段}}，运行会停在这里等人处理', 'Supports {{vars}} and {{var.field}}; the run pauses here for a human')}
     >
       <Textarea value={node.prompt} onChange={(event) => onNodeChange({ prompt: event.target.value })} rows={3} className="text-[11.5px]" />
     </Field>
