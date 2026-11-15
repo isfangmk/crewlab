@@ -38,6 +38,30 @@ describe('parseFollowups', () => {
   it('未闭合的建议块不泄漏成正文（流式中途 / 打断）', () => {
     const { body, questions } = parseFollowups('答。\n\n```suggestions\n帮我查');
     expect(body).toBe('答。');
+    // 最后一行没写完（无换行收尾），不闪现半句话
     expect(questions).toEqual([]);
+  });
+
+  it('随流渐进：写完的行先出题，收尾不再整卡突现', () => {
+    // 第一行刚写完（有换行收尾）：只出第一题
+    expect(parseFollowups('答。\n```suggestions\n查上周的工时\n').questions).toEqual([
+      '查上周的工时',
+    ]);
+    // 第二行写完：两题；第三行还在写（无换行）不计
+    expect(parseFollowups('答。\n```suggestions\n查上周的工时\n导出为表格\n按项目汇总').questions).toEqual([
+      '查上周的工时',
+      '导出为表格',
+    ]);
+    // 围栏闭合：与渐进结果一致，不跳变
+    expect(parseFollowups('答。\n```suggestions\n查上周的工时\n导出为表格\n```').questions).toEqual([
+      '查上周的工时',
+      '导出为表格',
+    ]);
+  });
+
+  it('块在正文开头时同样渐进', () => {
+    const { body, questions } = parseFollowups('```suggestions\n问题一\n');
+    expect(body).toBe('');
+    expect(questions).toEqual(['问题一']);
   });
 });
