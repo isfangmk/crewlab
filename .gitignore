@@ -37,3 +37,6 @@ Thumbs.db
 
 # 后端运行时数据（业务库 / 向量库 / 上传原件）
 backend/data/
+
+# ZCode 会话工作区（计划/运行时状态），不进版本库
+.zcode/
