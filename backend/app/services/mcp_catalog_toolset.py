@@ -103,11 +103,11 @@ class CachedMcpCatalogToolset(BaseToolset):
             tools.append(loader)
         self._tools = tools
         logger.info(
-            "已从工具缓存装配 MCP 目录 server_id=%s name=%s tools=%s trusted=%s",
+            "已从工具缓存装配 MCP 目录 server_id=%s name=%s tools=%s policy=%s",
             self._server_id,
             self._server_name,
             len(self._tools),
-            server.trusted,
+            server.approval_policy,
         )
 
     async def list_resources(self, readonly_context=None) -> list[str]:

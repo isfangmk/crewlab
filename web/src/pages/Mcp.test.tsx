@@ -23,7 +23,6 @@ const mcpServer = {
   endpoint: 'http://127.0.0.1:18099/sse',
   credential: '',
   header_template_json: '{}',
-  trusted: false,
   approval_policy: 'always',
   enabled: true,
   status: 'ok',

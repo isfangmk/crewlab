@@ -82,7 +82,6 @@ const mcpServers = [
     endpoint: 'http://127.0.0.1:1',
     credential: '',
     header_template_json: '{}',
-    trusted: false,
     approval_policy: 'never',
     enabled: true,
     status: 'ok',

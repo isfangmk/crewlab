@@ -79,7 +79,6 @@ function emptyInput(): McpServerInput {
     endpoint: '',
     credential: '',
     header_template_json: '{}',
-    trusted: false,
     approval_policy: 'always',
     enabled: true,
   };
@@ -205,8 +204,8 @@ export default function McpPage() {
         subtitle={
           <>
             {tr(
-              '注册外部 MCP server 后，它暴露的工具会进入 Agent / 工作流 工具箱。工具执行默认需要人工确认；标记为 trusted 的服务免审直跑（仅建议给只读服务）。',
-              'Registered external MCP servers expose tools into the Agent / Workflow toolbag. Tool execution requires human approval by default; servers marked trusted run without approval (recommended for read-only servers only).',
+              '注册外部 MCP server 后，它暴露的工具会进入 Agent / 工作流 工具箱。工具执行默认需要人工确认；审批策略可按服务设置：始终审批 / 非只读才审批 / 永不审批（免审直跑，仅建议给只读服务）。',
+              'Registered external MCP servers expose tools into the Agent / Workflow toolbag. Tool execution requires human approval by default; set the approval policy per server: always / non-readonly only / never (runs without approval; recommended for read-only servers only).',
             )}
             {!isAdmin && (
               <span className="ml-1 text-warn">{tr('仅 admin 可增删改。', 'Only admins can add / edit / remove.')}</span>
@@ -344,7 +343,6 @@ function toInput(s: McpServer): McpServerInput {
     endpoint: s.endpoint,
     credential: s.credential,
     header_template_json: s.header_template_json,
-    trusted: s.trusted,
     approval_policy: s.approval_policy ?? 'always',
     enabled: s.enabled,
   };
@@ -416,7 +414,7 @@ function ServerRow({
   const toolCount = loaded.tools.length;
   // 测试失败优先展示最新一次结果；否则展示上次连接留下的错误。
   const errorMessage = test?.error || (server.status === 'error' ? server.last_error : '');
-  const freePass = server.trusted || server.approval_policy === 'never';
+  const freePass = server.approval_policy === 'never';
   const approvalLabel =
     server.approval_policy === 'non_readonly'
       ? tr('写操作审批', 'Writes need approval')
@@ -458,7 +456,7 @@ function ServerRow({
               {freePass && (
                 <Chip dense tone="warning">
                   <ShieldCheck size={10} />
-                  {tr('免审', 'trusted')}
+                  {tr('免审', 'no approval')}
                 </Chip>
               )}
               {!server.enabled && <Chip dense>{tr('已停用', 'disabled')}</Chip>}
@@ -1800,17 +1798,7 @@ function ServerEditor({
           />
         </Field>
 
-        <Toggle
-          label={tr('Trusted（映射为 never）', 'Trusted (maps to never)')}
-          checked={input.trusted}
-          onChange={(v) =>
-            onChange({
-              trusted: v,
-              approval_policy: v ? 'never' : input.approval_policy === 'never' ? 'always' : input.approval_policy,
-            })
-          }
-        />
-        {input.trusted && (
+        {input.approval_policy === 'never' && (
           <div className="flex items-start gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[11.5px] leading-5 text-warn">
             <AlertTriangle size={13} className="mt-0.5 shrink-0" />
             <span>{tr('免审直跑：仅建议给只读服务，跳过人工确认。', 'Runs without approval. Recommended for read-only servers only.')}</span>
@@ -1822,10 +1810,7 @@ function ServerEditor({
             label={tr('审批策略', 'Approval policy')}
             value={input.approval_policy}
             onValueChange={(v) =>
-              onChange({
-                approval_policy: v as McpServerInput['approval_policy'],
-                trusted: v === 'never',
-              })
+              onChange({ approval_policy: v as McpServerInput['approval_policy'] })
             }
             className="w-full"
           >

@@ -10,7 +10,6 @@ export interface McpServer {
   endpoint: string;
   credential: string;
   header_template_json: string;
-  trusted: boolean;
   approval_policy: McpApprovalPolicy;
   enabled: boolean;
   status: string;
@@ -53,7 +52,6 @@ export interface McpServerInput {
   endpoint: string;
   credential: string;
   header_template_json: string;
-  trusted: boolean;
   approval_policy: McpApprovalPolicy;
   enabled: boolean;
 }

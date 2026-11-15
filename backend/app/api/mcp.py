@@ -34,7 +34,6 @@ class McpServerInput(BaseModel):
     endpoint: str = Field(min_length=1)
     credential: str
     header_template_json: str
-    trusted: bool
     enabled: bool
     # never | non_readonly | always；缺省 always
     approval_policy: str = "always"
@@ -70,7 +69,6 @@ async def create_server(
             endpoint=body.endpoint,
             credential=body.credential,
             header_template_json=body.header_template_json,
-            trusted=body.trusted,
             enabled=body.enabled,
             approval_policy=body.approval_policy,
         )
@@ -89,7 +87,6 @@ async def create_server(
             "name": row.name,
             "transport": row.transport,
             "endpoint": row.endpoint,
-            "trusted": row.trusted,
             "enabled": row.enabled,
             "approval_policy": row.approval_policy,
         },
@@ -113,7 +110,6 @@ async def update_server(
             endpoint=body.endpoint,
             credential=body.credential,
             header_template_json=body.header_template_json,
-            trusted=body.trusted,
             enabled=body.enabled,
             approval_policy=body.approval_policy,
         )
@@ -133,7 +129,6 @@ async def update_server(
             "name": row.name,
             "transport": row.transport,
             "endpoint": row.endpoint,
-            "trusted": row.trusted,
             "enabled": row.enabled,
             "approval_policy": row.approval_policy,
         },

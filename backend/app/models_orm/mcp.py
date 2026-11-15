@@ -26,8 +26,7 @@ class McpServer(Base):
     endpoint: Mapped[str] = mapped_column(String(1024), nullable=False)
     credential: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     header_template_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
-    trusted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # never | non_readonly | always；trusted=true 时运行时视为 never
+    # never | non_readonly | always
     approval_policy: Mapped[str] = mapped_column(String(32), nullable=False, default="always")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="")

@@ -26,10 +26,8 @@ _APPROVAL_POLICIES = frozenset({"never", "non_readonly", "always"})
 
 
 def effective_approval_policy(server: McpServer) -> str:
-    """trusted 视为 never；否则使用 approval_policy。"""
+    """取审批策略并校验取值（never | non_readonly | always）。"""
 
-    if server.trusted:
-        return "never"
     policy = server.approval_policy
     if policy not in _APPROVAL_POLICIES:
         raise ValueError(f"MCP Server {server.name} approval_policy 非法: {policy}")
@@ -60,7 +58,6 @@ def server_to_wire(s: McpServer, *, oauth_status: str = "none") -> dict:
         "endpoint": s.endpoint,
         "credential": s.credential,
         "header_template_json": s.header_template_json,
-        "trusted": s.trusted,
         "approval_policy": effective_approval_policy(s),
         "enabled": s.enabled,
         "status": s.status,
@@ -313,7 +310,7 @@ def confirm_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
 
 
 def all_business_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
-    """所有可用 MCP server 的业务工具 wire 名（含 trusted）。
+    """所有可用 MCP server 的业务工具 wire 名（含免审策略 never 的）。
 
     助理只读模式用：把所有工具都拉进审批名单。
     与 confirm_tool_names_for_servers 的可用性判定保持一致
@@ -414,12 +411,12 @@ async def build_searchable_mcp_toolsets(
             _bind_tool_wire_name(discovery, f"{prefix}{discovery.name}")
         toolsets.append(searchable)
         logger.info(
-            "装配可搜索 MCP toolset id=%s name=%s prefix=%s trusted=%s "
+            "装配可搜索 MCP toolset id=%s name=%s prefix=%s policy=%s "
             "searchable_tools=%s index=embedding source=cache",
             server.id,
             server.name,
             prefix,
-            server.trusted,
+            server.approval_policy,
             len(permitted),
         )
     if skipped:
@@ -657,7 +654,6 @@ async def create_server(
     endpoint: str,
     credential: str,
     header_template_json: str,
-    trusted: bool,
     enabled: bool,
     approval_policy: str = "always",
 ) -> McpServer:
@@ -679,8 +675,7 @@ async def create_server(
         endpoint=endpoint,
         credential=credential,
         header_template_json=header_template_json,
-        trusted=trusted,
-        approval_policy="never" if trusted else approval_policy,
+        approval_policy=approval_policy,
         enabled=enabled,
         status="",
         last_error="",
@@ -710,7 +705,6 @@ async def update_server(
     endpoint: str,
     credential: str,
     header_template_json: str,
-    trusted: bool,
     enabled: bool,
     approval_policy: str = "always",
 ) -> McpServer:
@@ -734,8 +728,7 @@ async def update_server(
     row.endpoint = endpoint
     row.credential = credential
     row.header_template_json = header_template_json
-    row.trusted = trusted
-    row.approval_policy = "never" if trusted else approval_policy
+    row.approval_policy = approval_policy
     row.enabled = enabled
     await db.commit()
     await db.refresh(row)
