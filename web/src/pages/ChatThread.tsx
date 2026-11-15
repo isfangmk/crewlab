@@ -3,6 +3,8 @@ import { useAssistantPage } from '@/lib/assistantPage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { errorText } from '@/lib/errors';
 
+import { clearAllPending, clearPendingExcept } from '@/lib/messagePending';
+
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { ChatInput, type ModelSelection, type SubmitPayload } from '@/components/ChatInput';
@@ -1201,13 +1203,11 @@ export default function ChatThreadPage() {
             }
 
             // 最优打字机：直接 append SSE 增量，不做前端假动画
-            // 正文到达后结束思考段 pending，便于 UI 收起
+            // 新气泡开写即收口其余气泡的 pending（收尾帧会被后端去重跳过，等不到）
 
             setMessages((prev) => {
 
-              const closed = prev.map((m) =>
-                m.kind === 'thinking' && m.pending ? { ...m, pending: false } : m,
-              );
+              const closed = clearPendingExcept(prev, e.message_id);
 
               const idx = closed.findIndex((m) => m.id === e.message_id);
 
@@ -1472,7 +1472,9 @@ export default function ChatThreadPage() {
 
             setMessages((prev) => {
 
-              const mapped = prev.map((m) => (m.kind === 'thinking' ? { ...m, pending: false } : m));
+              // done 之后没有任何消息还在写：所有气泡收口 pending，
+              // 否则收尾帧被去重跳过后气泡会永远压住建议卡（!message.pending 门）
+              const mapped = clearAllPending(prev);
 
               if (stats === null) return mapped;
 
