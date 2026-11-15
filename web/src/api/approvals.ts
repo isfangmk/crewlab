@@ -20,6 +20,8 @@ export interface Approval {
   decision_reason?: string;
   result?: string;
   created_at: string;
+  /** 失效时间 = 创建 + 审批超时小时数；到点未决即标 expired */
+  expires_at?: string | null;
   decided_at?: string;
   executed_at?: string;
 }

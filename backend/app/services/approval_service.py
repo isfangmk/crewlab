@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +27,8 @@ from app.tools.user_input import (
 logger = logging.getLogger(__name__)
 
 
-def approval_to_wire(a: Approval) -> dict:
+def approval_to_wire(a: Approval, timeout_hours: int) -> dict:
+    """出参；expires_at = created_at + 超时小时数（到点未决即失效，绝不自动批准）。"""
     return {
         "id": a.id,
         "kind": a.kind,
@@ -43,9 +44,24 @@ def approval_to_wire(a: Approval) -> dict:
         "decision_reason": a.decision_reason,
         "result": a.result,
         "created_at": a.created_at.isoformat(),
+        "expires_at": (a.created_at + timedelta(hours=timeout_hours)).isoformat(),
         "decided_at": a.decided_at.isoformat() if a.decided_at else None,
         "executed_at": a.executed_at.isoformat() if a.executed_at else None,
     }
+
+
+async def get_approval_timeout_hours(db: AsyncSession) -> int:
+    """审批超时小时数（knowledge.approval_timeout_hours）；到点未决标 expired。"""
+
+    from app.models_orm.llm import AppSetting
+
+    timeout_row = await db.get(AppSetting, "knowledge.approval_timeout_hours")
+    if timeout_row is None:
+        raise ValueError("缺少 knowledge.approval_timeout_hours")
+    hours = int(timeout_row.value)
+    if hours < 1:
+        raise ValueError("approval_timeout_hours 必须 >= 1")
+    return hours
 
 
 async def create_pending_approval(
@@ -116,14 +132,7 @@ async def expire_stale_pending(db: AsyncSession) -> int:
 
     from datetime import timedelta
 
-    from app.models_orm.llm import AppSetting
-
-    timeout_row = await db.get(AppSetting, "knowledge.approval_timeout_hours")
-    if timeout_row is None:
-        raise ValueError("缺少 knowledge.approval_timeout_hours")
-    hours = int(timeout_row.value)
-    if hours < 1:
-        raise ValueError("approval_timeout_hours 必须 >= 1")
+    hours = await get_approval_timeout_hours(db)
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     rows = (
         await db.scalars(select(Approval).where(Approval.status == "pending"))
@@ -557,7 +566,10 @@ async def stream_decide(
         row.status,
         confirmed,
     )
-    yield SseFrame(event="approval_done", data=approval_to_wire(row))
+    yield SseFrame(
+        event="approval_done",
+        data=approval_to_wire(row, await get_approval_timeout_hours(db)),
+    )
 
 
 async def _decide(

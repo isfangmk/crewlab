@@ -92,6 +92,12 @@ export default function ApprovalsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // null=关闭；'batch'=批量拒绝；否则为单条审批。
   const [rejectTarget, setRejectTarget] = useState<'batch' | Approval | null>(null);
+  // 失效倒计时随时间推进；只驱动展示，不重新拉列表
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // 自定义时间只填了一边时不发请求：先提示补齐，避免拿「全部时间」冒充自定义结果。
   const customIncomplete =
@@ -636,6 +642,7 @@ export default function ApprovalsPage() {
                   <col className={COL.tag} />
                   <col className={COL.tag} />
                   <col className={COL.time} />
+                  <col className={COL.time} />
                   <col className={COL.actions} />
                 </colgroup>
                 <TableHead>
@@ -661,6 +668,9 @@ export default function ApprovalsPage() {
                         setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
                       }}
                     />
+                    <th scope="col" className="whitespace-nowrap px-3 py-2 text-left font-medium">
+                      {tr('失效时间', 'Expires')}
+                    </th>
                     <th scope="col" className="whitespace-nowrap px-3 py-2 text-right font-medium">
                       {tr('操作', 'Actions')}
                     </th>
@@ -674,6 +684,7 @@ export default function ApprovalsPage() {
                       expanded={expanded[a.id] === true}
                       checked={selected.has(a.id)}
                       busy={busy === a.id || busy === 'batch'}
+                      nowMs={nowMs}
                       onToggleExpand={() => setExpanded((e) => ({ ...e, [a.id]: !e[a.id] }))}
                       onToggleChecked={() => toggleSelected(a.id)}
                       onApprove={() => void onApprove(a)}
@@ -697,11 +708,32 @@ export default function ApprovalsPage() {
   );
 }
 
+// 距失效的剩余时长：按天/小时/分钟就近取整；不足 1 分钟按 1 分钟显示。
+function remainingLabel(
+  ms: number,
+  tr: ReturnType<typeof useI18n>['tr'],
+): { text: string; urgent: boolean } {
+  if (ms <= 0) return { text: tr('已过期', 'Expired'), urgent: true };
+  const totalMinutes = Math.floor(ms / 60_000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const mins = totalMinutes % 60;
+  const text =
+    days > 0
+      ? tr(`还剩 ${days} 天`, `${days}d left`)
+      : hours > 0
+        ? tr(`还剩 ${hours} 小时`, `${hours}h left`)
+        : tr(`还剩 ${Math.max(mins, 1)} 分钟`, `${Math.max(mins, 1)}m left`);
+  // 不足 1 小时算紧急，给警示色
+  return { text, urgent: ms < 3_600_000 };
+}
+
 function ApprovalRow({
   approval: a,
   expanded,
   checked,
   busy,
+  nowMs,
   onToggleExpand,
   onToggleChecked,
   onApprove,
@@ -712,6 +744,7 @@ function ApprovalRow({
   expanded: boolean;
   checked: boolean;
   busy: boolean;
+  nowMs: number;
   onToggleExpand(): void;
   onToggleChecked(): void;
   onApprove(): void;
@@ -806,6 +839,30 @@ function ApprovalRow({
             </div>
           ) : null}
         </td>
+        <td className="whitespace-nowrap px-3 py-2 text-[11px] leading-4 text-zinc-400">
+          {a.expires_at ? (
+            <>
+              <div className="tabular-nums">{fullDateTime(a.expires_at)}</div>
+              {pending ? (
+                (() => {
+                  const remaining = remainingLabel(new Date(a.expires_at as string).getTime() - nowMs, tr);
+                  return (
+                    <div
+                      className={cn(
+                        'text-[10px] tabular-nums',
+                        remaining.urgent ? 'text-warn' : 'text-zinc-600',
+                      )}
+                    >
+                      {remaining.text}
+                    </div>
+                  );
+                })()
+              ) : null}
+            </>
+          ) : (
+            <span className="text-zinc-600">—</span>
+          )}
+        </td>
         <td className="whitespace-nowrap px-3 py-2 text-right">
           {pending ? (
             <div className="flex items-center justify-end gap-1.5">
@@ -844,7 +901,7 @@ function ApprovalRow({
       </tr>
       {expanded ? (
         <tr data-row-tone="detail">
-          <td colSpan={6} className="px-3 pb-3 pt-0">
+          <td colSpan={7} className="px-3 pb-3 pt-0">
             <div className="ml-[3.625rem] space-y-2.5">
               <PayloadBlock title={tr('操作内容', 'Action payload')} body={prettify(a.payload)} />
               {a.result ? <PayloadBlock title={tr('执行结果', 'Result')} body={prettify(a.result)} /> : null}

@@ -71,8 +71,9 @@ async def list_approvals(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    timeout_hours = await approval_service.get_approval_timeout_hours(db)
     return {
-        "items": [approval_service.approval_to_wire(a) for a in items],
+        "items": [approval_service.approval_to_wire(a, timeout_hours) for a in items],
         "total": total,
         "counts": counts,
     }
@@ -96,7 +97,9 @@ async def get_approval(
         row = await approval_service.get_approval(db, approval_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return approval_service.approval_to_wire(row)
+    return approval_service.approval_to_wire(
+        row, await approval_service.get_approval_timeout_hours(db)
+    )
 
 
 @router.post("/approvals/{approval_id}/approve")
@@ -121,7 +124,9 @@ async def approve(
         resource_id=row.id,
         detail={"kind": row.kind, "reason": body.reason},
     )
-    return approval_service.approval_to_wire(row)
+    return approval_service.approval_to_wire(
+        row, await approval_service.get_approval_timeout_hours(db)
+    )
 
 
 @router.post("/approvals/batch")
@@ -149,7 +154,10 @@ async def batch_decide(
         resource_id="",
         detail={"count": len(items), "ids": body.ids, "reason": body.reason},
     )
-    return {"items": [approval_service.approval_to_wire(a) for a in items]}
+    timeout_hours = await approval_service.get_approval_timeout_hours(db)
+    return {
+        "items": [approval_service.approval_to_wire(a, timeout_hours) for a in items]
+    }
 
 
 @router.post("/approvals/{approval_id}/approve/stream")
