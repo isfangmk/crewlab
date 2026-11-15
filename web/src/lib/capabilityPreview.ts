@@ -13,9 +13,12 @@
 //   - 禁用名单：`adk_runtime.tool_approval.before_tool_callback` 在执行前直接拒绝，
 //     只影响可执行性，不会从目录里消失
 
+import type { ToolRisk } from '@/api/tools';
+
 export type BuiltinToolCapability = {
   name: string;
   description: string;
+  risk: ToolRisk;
   mount: 'always' | 'per_turn';
 };
 
@@ -29,6 +32,7 @@ export type McpToolCapability = {
   /** 与后端 mcp_tool_wire_name 一致：mcp__<server>__<tool> */
   wire: string;
   description: string;
+  risk: ToolRisk;
 };
 
 export type McpServerCapability = {

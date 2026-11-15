@@ -18,6 +18,8 @@ import {
   ErrorBanner, Checkbox, SearchInput,
 } from '@/components/ui';
 import { Button, Chip } from '@/components/ui';
+import { RiskBadge } from '@/components/RiskBadge';
+import type { ToolRisk } from '@/api/tools';
 import { Hint } from '@/components/ui/Tooltip';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
@@ -328,6 +330,7 @@ export function CapabilityBinding({
                       key={tool.name}
                       name={tool.name}
                       description={tool.description}
+                      risk={tool.risk}
                       blocked={disallowedTools.includes(tool.name)}
                       locked={preview.lockedTools.includes(tool.name)}
                       onToggleBlocked={() => toggleBlocked(tool.name)}
@@ -509,6 +512,7 @@ export function CapabilityBinding({
                                     key={tool.wire}
                                     name={tool.wire}
                                     description={tool.description}
+                                    risk={tool.risk}
                                     blocked={disallowedTools.includes(tool.wire)}
                                     locked={preview.lockedTools.includes(tool.wire)}
                                     onToggleBlocked={() => toggleBlocked(tool.wire)}
@@ -700,6 +704,7 @@ function CapabilityGroup({
 function ToolRow({
   name,
   description,
+  risk,
   blocked,
   locked,
   binding,
@@ -707,6 +712,8 @@ function ToolRow({
 }: {
   name: string;
   description?: string;
+  // 风险标签：内置 / MCP 目录行必传；技能声明行不传（语义是绑定关系）
+  risk?: ToolRisk;
   blocked: boolean;
   // 技能声明：不可屏蔽
   locked: boolean;
@@ -758,6 +765,7 @@ function ToolRow({
       ) : (
         <span className="min-w-0 flex-1" />
       )}
+      {risk !== undefined && <RiskBadge value={risk} />}
       {binding}
       {locked ? (
         <Hint content={tr('技能要靠声明的工具工作，取消勾选技能才能去掉', 'Skills need their declared tools; uncheck the skill to remove them')}>

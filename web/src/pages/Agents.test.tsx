@@ -192,6 +192,7 @@ describe('AgentsPage', () => {
           credential: '',
           header_template_json: '{}',
           approval_policy: 'always',
+          tool_risks: { get_service_health: 'approval_required' },
           enabled: true,
           status: 'ok',
           last_error: '',
@@ -481,8 +482,8 @@ describe('AgentsPage', () => {
       http.get('/api/v1/tools/builtin', () =>
         HttpResponse.json({
           items: [
-            { name: 'query_promql', description: 'Query Prometheus', mount: 'always' },
-            { name: 'query_incidents', description: 'List incidents', mount: 'always' },
+            { name: 'query_promql', description: 'Query Prometheus', risk: 'safe', mount: 'always' },
+            { name: 'query_incidents', description: 'List incidents', risk: 'approval_required', mount: 'always' },
           ],
           total: 2,
         }),
@@ -506,6 +507,7 @@ describe('AgentsPage', () => {
             credential: '',
             header_template_json: '{}',
             approval_policy: 'always',
+            tool_risks: { get_service_health: 'approval_required' },
             enabled: true,
             status: 'ok',
             last_error: '',
@@ -535,6 +537,8 @@ describe('AgentsPage', () => {
     await userEvent.type(search, 'promql');
     expect(await within(dialog).findByText('匹配 2 项')).toBeInTheDocument();
     expect(within(dialog).getByText('query_promql')).toBeInTheDocument();
+    // 风险标签随目录行渲染：内置安全工具标「安全」
+    expect(within(dialog).getByText('安全')).toBeInTheDocument();
     expect(within(dialog).queryByText('query_incidents')).not.toBeInTheDocument();
     expect(within(dialog).getByText('sre-runbook')).toBeInTheDocument();
     expect(within(dialog).queryByText('k8s-ops')).not.toBeInTheDocument();
@@ -547,6 +551,8 @@ describe('AgentsPage', () => {
     expect(
       within(dialog).getByText('mcp__demo-operations__get_service_health'),
     ).toBeInTheDocument();
+    // MCP 工具行按 tool_risks 渲染「需审批」
+    expect(within(dialog).getByText('需审批')).toBeInTheDocument();
   });
 
   it('详情弹窗展示知识范围与输出格式', async () => {

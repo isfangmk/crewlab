@@ -1,5 +1,8 @@
 import { request } from './client';
 
+/** 工具风险标签：安全 / 需审批。内置与 MCP 工具共用同一词汇。 */
+export type ToolRisk = 'safe' | 'approval_required';
+
 export type BuiltinToolParam = {
   name: string;
   type: string;
@@ -13,7 +16,7 @@ export type BuiltinTool = {
   name: string;
   group: string;
   description: string;
-  risk: string;
+  risk: ToolRisk;
   /** always = 随 SkillToolset 始终装配；per_turn = 由对话开关（如联网）决定 */
   mount: 'always' | 'per_turn';
   params: BuiltinToolParam[];

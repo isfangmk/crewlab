@@ -10,8 +10,8 @@ import {
 function catalog(): CapabilityCatalog {
   return {
     builtin: [
-      { name: 'query_knowledge', description: '检索知识库', mount: 'always' },
-      { name: 'web_search', description: '联网搜索', mount: 'per_turn' },
+      { name: 'query_knowledge', description: '检索知识库', risk: 'safe', mount: 'always' },
+      { name: 'web_search', description: '联网搜索', risk: 'safe', mount: 'per_turn' },
     ],
     skills: [{ key: 'knowledge-search', description: '知识检索', tools: ['query_knowledge'] }],
     mcpServers: [
@@ -20,27 +20,27 @@ function catalog(): CapabilityCatalog {
         enabled: true,
         status: 'ok',
         tools: [
-          { wire: 'mcp__ai-engine__ask', description: 'ask' },
-          { wire: 'mcp__ai-engine__rerank', description: 'rerank' },
+          { wire: 'mcp__ai-engine__ask', description: 'ask', risk: 'safe' },
+          { wire: 'mcp__ai-engine__rerank', description: 'rerank', risk: 'safe' },
         ],
       },
       {
         name: 'observability',
         enabled: true,
         status: 'ok',
-        tools: [{ wire: 'mcp__observability__query_metrics', description: 'query' }],
+        tools: [{ wire: 'mcp__observability__query_metrics', description: 'query', risk: 'safe' }],
       },
       {
         name: 'never-probed',
         enabled: true,
         status: 'error',
-        tools: [{ wire: 'mcp__never-probed__ping', description: 'ping' }],
+        tools: [{ wire: 'mcp__never-probed__ping', description: 'ping', risk: 'approval_required' }],
       },
       {
         name: 'disabled-one',
         enabled: false,
         status: 'ok',
-        tools: [{ wire: 'mcp__disabled-one__run', description: 'run' }],
+        tools: [{ wire: 'mcp__disabled-one__run', description: 'run', risk: 'approval_required' }],
       },
     ],
   };

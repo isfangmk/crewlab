@@ -1,4 +1,5 @@
 import { request } from './client';
+import type { ToolRisk } from './tools';
 
 /** MCP Server 列表/详情响应字段。 */
 export type McpApprovalPolicy = 'never' | 'non_readonly' | 'always';
@@ -11,6 +12,8 @@ export interface McpServer {
   credential: string;
   header_template_json: string;
   approval_policy: McpApprovalPolicy;
+  /** 每个缓存工具的风险标签：工具名 → safe | approval_required（后端按审批策略现算） */
+  tool_risks: Record<string, ToolRisk>;
   enabled: boolean;
   status: string;
   updated_at?: string | null;
@@ -43,6 +46,7 @@ export interface McpTool {
   name: string;
   description: string;
   input_schema: McpJsonSchema;
+  risk: ToolRisk;
 }
 
 /** 创建/更新 MCP Server 的请求体。 */
@@ -72,8 +76,8 @@ export type McpToolRunResp = {
   result_text: string;
 };
 
-/** 解析 tools_cache_json；结构不符则显式抛错。 */
-export function parseToolsCache(raw: string): McpTool[] {
+/** 解析 tools_cache_json 并按 tool_risks 附风险标签；结构不符则显式抛错。 */
+export function parseToolsCache(raw: string, toolRisks: Record<string, ToolRisk>): McpTool[] {
   const arr = JSON.parse(raw) as unknown;
   if (!Array.isArray(arr)) {
     throw new Error('tools_cache_json 必须是数组');
@@ -96,6 +100,8 @@ export function parseToolsCache(raw: string): McpTool[] {
       name: row.name,
       description: row.description,
       input_schema: row.input_schema as McpJsonSchema,
+      // 查不到按需审批兜底（fail-closed），宁可多弹不漏弹
+      risk: toolRisks[row.name] ?? 'approval_required',
     };
   });
 }

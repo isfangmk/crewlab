@@ -83,6 +83,7 @@ const mcpServers = [
     credential: '',
     header_template_json: '{}',
     approval_policy: 'never',
+    tool_risks: { get_host_load: 'safe' },
     enabled: true,
     status: 'ok',
     last_error: '',

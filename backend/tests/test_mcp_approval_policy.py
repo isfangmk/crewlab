@@ -5,7 +5,12 @@ from __future__ import annotations
 import pytest
 
 from app.models_orm.mcp import McpServer
-from app.services.mcp_service import confirm_tool_names_for_servers, effective_approval_policy
+from app.services.mcp_service import (
+    confirm_tool_names_for_servers,
+    effective_approval_policy,
+    mcp_tool_wire_name,
+    tool_risk_map,
+)
 
 
 def _server(
@@ -60,3 +65,42 @@ def test_non_readonly_skips_list_prefix() -> None:
     names = confirm_tool_names_for_servers([s])
     assert not any(n.endswith("__list_items") for n in names)
     assert any(n.endswith("__delete_item") for n in names)
+
+
+def test_tool_risk_map_never_and_always() -> None:
+    tools = [
+        {"name": "list_items", "description": "list all"},
+        {"name": "delete_item", "description": "delete"},
+    ]
+    never = _server(name="svc", policy="never", tools=tools)
+    always = _server(name="svc2", policy="always", tools=tools)
+    assert tool_risk_map(never) == {"list_items": "safe", "delete_item": "safe"}
+    assert tool_risk_map(always) == {
+        "list_items": "approval_required",
+        "delete_item": "approval_required",
+    }
+
+
+def test_tool_risk_map_non_readonly_mixed() -> None:
+    tools = [
+        {"name": "list_items", "description": "list all"},
+        {"name": "delete_item", "description": "delete"},
+    ]
+    s = _server(name="svc", policy="non_readonly", tools=tools)
+    assert tool_risk_map(s) == {"list_items": "safe", "delete_item": "approval_required"}
+
+
+def test_tool_risk_map_matches_confirm_gate() -> None:
+    """展示口径与闸门口径同源：approval_required ⟺ 工具在确认名单。"""
+
+    tools = [
+        {"name": "list_items", "description": "list all"},
+        {"name": "delete_item", "description": "delete"},
+    ]
+    for policy in ("always", "non_readonly", "never"):
+        s = _server(name=f"svc-{policy}", policy=policy, tools=tools)
+        risks = tool_risk_map(s)
+        names = confirm_tool_names_for_servers([s])
+        for tool in tools:
+            wire = mcp_tool_wire_name(s.name, tool["name"])
+            assert (risks[tool["name"]] == "approval_required") == (wire in names)

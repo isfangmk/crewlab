@@ -162,7 +162,7 @@ export function SkillEditor({
         for (const server of servers) {
           if (server.tools_cache_json === '') continue;
           const available = server.enabled && server.status === 'ok';
-          for (const tool of parseToolsCache(server.tools_cache_json)) {
+          for (const tool of parseToolsCache(server.tools_cache_json, server.tool_risks)) {
             options.push({
               name: mcpToolWireName(server.name, tool.name),
               description: tool.description,

@@ -13,6 +13,7 @@ import {
 } from '@/api/tools';
 import { ApiError } from '@/api/client';
 import { Modal } from '@/components/Modal';
+import { RiskBadge } from '@/components/RiskBadge';
 import {
   Button,
   Chip,
@@ -29,7 +30,6 @@ import {
   PageHeader,
   RowAction,
   SearchInput,
-  StatusPill,
   ErrorBanner,
   TableCard,
   TableHead,
@@ -357,17 +357,6 @@ export default function ToolsPage() {
       {running && <ToolRunModal tool={running} onClose={() => setRunning(null)} />}
     </main>
   );
-}
-
-function RiskBadge({ value }: { value: string }) {
-  const { tr } = useI18n();
-  if (value === 'safe') {
-    return <StatusPill tone="ok" label={tr('安全', 'safe')} />;
-  }
-  if (value === 'approval_required') {
-    return <StatusPill tone="warn" label={tr('需审批', 'approval')} />;
-  }
-  throw new Error(`未知 Tool risk: ${value}`);
 }
 
 function ToolRow({

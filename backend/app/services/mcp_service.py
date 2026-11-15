@@ -59,6 +59,7 @@ def server_to_wire(s: McpServer, *, oauth_status: str = "none") -> dict:
         "credential": s.credential,
         "header_template_json": s.header_template_json,
         "approval_policy": effective_approval_policy(s),
+        "tool_risks": tool_risk_map(s),
         "enabled": s.enabled,
         "status": s.status,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
@@ -277,6 +278,32 @@ def _tool_looks_readonly(tool_name: str, description: str) -> bool:
     return False
 
 
+def _needs_approval(policy: str, tool_name: str, description: str) -> bool:
+    """单个工具是否进审批名单：闸门口径与展示口径共用这一个判定。"""
+
+    if policy == "never":
+        return False
+    if policy == "always":
+        return True
+    return not _tool_looks_readonly(tool_name, description)
+
+
+def tool_risk_map(server: McpServer) -> dict[str, str]:
+    """每个缓存工具的风险标签：safe | approval_required（与内置工具 risk 词汇对齐）。
+
+    只做展示；判定与 confirm_tool_names_for_servers 同源（_needs_approval）。
+    """
+
+    policy = effective_approval_policy(server)
+    result: dict[str, str] = {}
+    for item in parse_cached_tools(
+        server.tools_cache_json, server_name=server.name, require_schema=False
+    ):
+        needs = _needs_approval(policy, item["name"], item["description"])
+        result[item["name"]] = "approval_required" if needs else "safe"
+    return result
+
+
 def confirm_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
     """按 approval_policy 收集需审批的业务工具 wire 名。
 
@@ -302,7 +329,7 @@ def confirm_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
             server.tools_cache_json, server_name=server.name, require_schema=False
         )
         for item in cached:
-            if policy == "non_readonly" and _tool_looks_readonly(item["name"], item["description"]):
+            if not _needs_approval(policy, item["name"], item["description"]):
                 continue
             names.add(mcp_tool_wire_name(server.name, item["name"]))
     logger.info("需审批 MCP 工具数=%s", len(names))

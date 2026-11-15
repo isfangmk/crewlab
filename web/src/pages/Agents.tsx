@@ -875,6 +875,7 @@ function AgentEditor({
           builtin: builtins.items.map((tool) => ({
             name: tool.name,
             description: tool.description,
+            risk: tool.risk,
             mount: tool.mount,
           })),
           skills: skills.items.map((skill) => ({
@@ -889,9 +890,10 @@ function AgentEditor({
             // 未探测过的 Server 没有工具缓存（空串），按 0 个工具展示
             tools: server.tools_cache_json === ''
               ? []
-              : parseToolsCache(server.tools_cache_json).map((tool) => ({
+              : parseToolsCache(server.tools_cache_json, server.tool_risks).map((tool) => ({
                   wire: mcpToolWireName(server.name, tool.name),
                   description: tool.description,
+                  risk: tool.risk,
                 })),
           })),
         });

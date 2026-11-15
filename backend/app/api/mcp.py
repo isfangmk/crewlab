@@ -170,6 +170,10 @@ async def test_server(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # risk 只做展示，现算注入；不写 tools_cache_json（缓存保持纯工具描述）
+    row = await mcp_service.get_server(db, server_id)
+    risks = mcp_service.tool_risk_map(row)
+    tools = [{**t, "risk": risks.get(t["name"], "approval_required")} for t in tools]
     await write_audit(
         actor_user_id=user.id,
         action="mcp.server_test",

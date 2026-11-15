@@ -1,6 +1,7 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { flash, FilterBar, Label, Input, SearchInput, TableHead, Textarea } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
+import { RiskBadge } from '@/components/RiskBadge';
 import { useTimeout } from '@/lib/useTimeout';
 import { useRequestSeq } from '@/lib/requestSeq';
 import { Switch } from '@/components/ui/Switch';
@@ -353,7 +354,7 @@ function toInput(s: McpServer): McpServerInput {
 function loadServerTools(server: McpServer, probed?: McpTool[]): { tools: McpTool[]; error: string | null } {
   if (probed) return { tools: probed, error: null };
   try {
-    return { tools: parseToolsCache(server.tools_cache_json), error: null };
+    return { tools: parseToolsCache(server.tools_cache_json, server.tool_risks), error: null };
   } catch (e) {
     return { tools: [], error: errorText(e) };
   }
@@ -634,6 +635,7 @@ function ToolRow({
           </div>
         </button>
         <div className="flex h-7 shrink-0 items-center gap-1.5">
+          <RiskBadge value={tool.risk} />
           <Chip tone="info" dense>
             {tr(`${fields.length} 个参数`, `${fields.length} parameter${fields.length === 1 ? '' : 's'}`)}
           </Chip>

@@ -24,6 +24,7 @@ const mcpServer = {
   credential: '',
   header_template_json: '{}',
   approval_policy: 'always',
+  tool_risks: { add: 'approval_required', echo: 'approval_required', current_time: 'approval_required' },
   enabled: true,
   status: 'ok',
   last_error: '',
@@ -96,6 +97,15 @@ describe('MCP 服务卡片', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(await screen.findByText('工具清单')).toBeInTheDocument();
     expect(screen.getByText('mcp__demo-tools__echo')).toBeInTheDocument();
+  });
+
+  it('工具行按 tool_risks 渲染风险标签', async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /demo-tools/ }));
+    await screen.findByText('工具清单');
+    // 该服务审批策略为 always，全部工具标「需审批」
+    expect(screen.getAllByText('需审批').length).toBe(3);
+    expect(screen.queryByText('安全')).not.toBeInTheDocument();
   });
 
   it('摘要行显示资源与提示词计数', async () => {
