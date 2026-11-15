@@ -53,9 +53,9 @@ class Settings(BaseSettings):
         alias="KNOWLEDGE_UPLOAD_DIR", default="./data/uploads"
     )
     # 内置知识库语料目录：目录内 .md/.txt 改动自动同步为内置（vault）文档，
-    # 文件是唯一事实源，应用内 vault 文档只读
+    # 文件是唯一事实源，应用内 vault 文档只读。语料在仓库根目录，随 git 管理。
     knowledge_vault_dir: str = Field(
-        alias="KNOWLEDGE_VAULT_DIR", default="./data/内置知识库"
+        alias="KNOWLEDGE_VAULT_DIR", default="../内置知识库"
     )
     host: str = Field(alias="HOST")
     port: int = Field(alias="PORT")
