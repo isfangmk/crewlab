@@ -205,7 +205,8 @@ def message_to_wire(m: ChatMessage, *, attachments: list[dict] | None = None) ->
     wire = {
         "id": m.id,
         "role": role,
-        "kind": kind if kind == "tool_card" else ("tool_intent" if kind == "tool_intent" else "message"),
+        # tool_card / tool_intent / thinking 原样透传；其余历史 kind 统一为 message
+        "kind": kind if kind in ("tool_card", "tool_intent", "thinking") else "message",
         "content": m.content,
         "tool_call": tool_call,
         "created_at": m.created_at.isoformat(),
@@ -1189,41 +1190,92 @@ class AdkFramePersister:
         self._session_id = session_id
         # 本回合 Trace：工具/技能调用要挂到同一条观测记录上
         self._trace_id = trace_id
-        # 按 message_id 分段落库，保持与 SSE 时间线一致
+        # 按 message_id 分段落库，保持与 SSE 时间线一致；
+        # 思考段（kind=thinking）与正文段同款缓冲，历史回放要能看到思考过程
         self._assistant_segments: dict[str, list[str]] = {}
         self._current_assistant_id: str | None = None
+        self._current_assistant_key: str | None = None
+        self._thinking_segments: dict[str, list[str]] = {}
+        self._current_thinking_id: str | None = None
+        # (kind, message_id) 首次到达顺序：跨类型刷库时按此序落行，时间线不乱序
+        self._segment_order: list[tuple[str, str]] = []
+        # 已落库的行 id：同一 message_id 跨边界再到达时换后缀行，防主键撞车丢文本
+        self._written_ids: set[str] = set()
         # 本回合实际使用的模型上下文；审批恢复必须沿用它
         self._turn_context: dict | None = turn_context
 
-    async def _flush_assistant_segment(
-        self, message_id: str, stats: dict | None = None
+    def _buffer_delta(self, kind: str, message_id: str, delta: str) -> str:
+        """缓冲正文/思考增量，返回本段实际行 id；首次到达记序保证跨类型落库顺序。"""
+
+        segments = (
+            self._thinking_segments if kind == "thinking" else self._assistant_segments
+        )
+        key = message_id
+        if key in self._written_ids:
+            n = 2
+            while f"{message_id}~{n}" in self._written_ids:
+                n += 1
+            key = f"{message_id}~{n}"
+        bucket = segments.get(key)
+        if bucket is None:
+            bucket = []
+            segments[key] = bucket
+            self._segment_order.append((kind, key))
+        bucket.append(delta)
+        return key
+
+    async def _flush_segment(
+        self, kind: str, message_id: str, stats: dict | None = None
     ) -> None:
-        parts = self._assistant_segments.pop(message_id, None)
+        segments = (
+            self._thinking_segments if kind == "thinking" else self._assistant_segments
+        )
+        parts = segments.pop(message_id, None)
         if parts is None or len(parts) == 0:
             return
         content = "".join(parts)
         logger.debug(
-            "落库助理正文 session_id=%s message_id=%s content_len=%s preview=%s",
+            "落库 %s session_id=%s message_id=%s content_len=%s",
+            "思考段" if kind == "thinking" else "助理正文",
             self._session_id,
             message_id,
             len(content),
-            content if len(content) <= 80 else content[:80] + "…",
         )
+        self._written_ids.add(message_id)
         await _add_message(
             self._db,
             message_id=message_id,
             session_id=self._session_id,
             role="assistant",
-            kind="message",
+            kind="thinking" if kind == "thinking" else "message",
             content=content,
             tool_call=None,
             stats=stats,
         )
 
+    async def _flush_all(
+        self, *, stats_for: str | None = None, stats: dict | None = None
+    ) -> None:
+        """按到达顺序落库全部缓冲段；回合统计只挂 stats_for 对应的正文段。"""
+
+        order = self._segment_order
+        self._segment_order = []
+        self._current_assistant_id = None
+        self._current_assistant_key = None
+        self._current_thinking_id = None
+        for kind, message_id in order:
+            await self._flush_segment(
+                kind,
+                message_id,
+                stats if (kind == "message" and message_id == stats_for) else None,
+            )
+
     async def persist(self, frame: SseFrame) -> SseFrame:
         """落库单帧，并返回要下发给前端的帧（解释器产出物落库后补全结果）。"""
 
         if frame.event == "tool_intent":
+            # 先落此前缓冲的正文/思考，意图行不能插到它们前面
+            await self._flush_all()
             await _add_message(
                 self._db,
                 message_id=frame.data["message_id"],
@@ -1235,10 +1287,8 @@ class AdkFramePersister:
             )
             return frame
         if frame.event == "tool_start":
-            # 工具卡落库前先刷出已到正文，避免轮询后正文跑到卡片下面
-            if self._current_assistant_id is not None:
-                await self._flush_assistant_segment(self._current_assistant_id)
-                self._current_assistant_id = None
+            # 工具卡落库前先刷出已到正文/思考，避免轮询后它们跑到卡片下面
+            await self._flush_all()
             # 与前端 toolCardId(`tool-card-${tool_call_id}`) 保持同一 id
             tool_call_id = frame.data["tool_call_id"]
             await observation_service.record_tool_start(
@@ -1263,6 +1313,7 @@ class AdkFramePersister:
             )
             return frame
         if frame.event == "tool_end":
+            await self._flush_all()
             duration_ms = frame.data["duration_ms"]
             if not isinstance(duration_ms, int):
                 raise TypeError("tool_end.duration_ms 必须是 int")
@@ -1331,6 +1382,7 @@ class AdkFramePersister:
                 return SseFrame(event=frame.event, data={**frame.data, "result": result})
             return frame
         if frame.event == "approval_pending":
+            await self._flush_all()
             arguments = frame.data["arguments"]
             if not isinstance(arguments, dict):
                 raise TypeError("approval_pending.arguments 必须是 dict")
@@ -1397,17 +1449,23 @@ class AdkFramePersister:
             delta = frame.data["delta"]
             if not isinstance(delta, str):
                 raise TypeError("assistant_delta.delta 必须是 str")
-            if (
-                self._current_assistant_id is not None
-                and self._current_assistant_id != message_id
-            ):
-                await self._flush_assistant_segment(self._current_assistant_id)
-            self._current_assistant_id = message_id
-            bucket = self._assistant_segments.get(message_id)
-            if bucket is None:
-                bucket = []
-                self._assistant_segments[message_id] = bucket
-            bucket.append(delta)
+            if message_id != self._current_assistant_id:
+                # 新段开写：先按到达顺序落库此前缓冲的段（含思考段）
+                await self._flush_all()
+                self._current_assistant_id = message_id
+            self._current_assistant_key = self._buffer_delta("message", message_id, delta)
+            return frame
+        if frame.event == "thinking_delta":
+            message_id = frame.data["message_id"]
+            if not isinstance(message_id, str) or message_id == "":
+                raise ValueError("thinking_delta 缺少 message_id")
+            delta = frame.data["delta"]
+            if not isinstance(delta, str):
+                raise TypeError("thinking_delta.delta 必须是 str")
+            if message_id != self._current_thinking_id:
+                await self._flush_all()
+                self._current_thinking_id = message_id
+            self._buffer_delta("thinking", message_id, delta)
             return frame
         if frame.event == "done":
             # 运行统计（耗时 / token）挂到本运行最后一条 assistant 气泡；缺失键不写，禁止假 0
@@ -1422,16 +1480,14 @@ class AdkFramePersister:
                     value = usage.get(key)
                     if isinstance(value, int):
                         stats[key] = value
-            if self._current_assistant_id is not None:
-                await self._flush_assistant_segment(
-                    self._current_assistant_id, stats=stats if stats else None
-                )
-                self._current_assistant_id = None
-            for leftover_id, leftover_parts in list(self._assistant_segments.items()):
-                if len(leftover_parts) == 0:
-                    continue
+            await self._flush_all(
+                stats_for=self._current_assistant_key,
+                stats=stats if stats else None,
+            )
+            if self._assistant_segments or self._thinking_segments:
                 raise RuntimeError(
-                    f"done 时仍有未落库助理正文 message_id={leftover_id} parts={len(leftover_parts)}"
+                    "done 时仍有未落库正文/思考段"
+                    f" assistant={list(self._assistant_segments)} thinking={list(self._thinking_segments)}"
                 )
         return frame
 

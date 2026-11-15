@@ -25,6 +25,7 @@ import { emitChatLive } from '@/lib/chatLiveBus';
 import { cn } from '@/lib/cn';
 import { isConfigDraftConfirmationMessage } from '@/lib/configDraftConfirmation';
 import { parseFollowups } from '@/lib/followups';
+import { formatClock } from '@/lib/timeline';
 import { useI18n } from '@/i18n/locale';
 import { useTimeout } from '@/lib/useTimeout';
 import { Button, Chip, ChoiceChip, CodeBlock, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, Label, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
@@ -144,6 +145,29 @@ function safeParse(s: string): unknown {
   }
 }
 
+// 原始错误收集：call.error 是短错误行，完整错误/堆栈在 result 的
+// error/traceback/stack 字段里——失败工具要能单独展开看，不与结果混排。
+function rawErrorOf(call: { error?: string; result?: unknown }): string | null {
+  const parts: string[] = [];
+  if (call.error && call.error.trim() !== '') parts.push(call.error);
+  const result =
+    call.result && typeof call.result === 'object' && !Array.isArray(call.result)
+      ? (call.result as Record<string, unknown>)
+      : undefined;
+  if (result) {
+    for (const key of ['error', 'traceback', 'stack']) {
+      const value = result[key];
+      if (typeof value === 'string' && value.trim() !== '') {
+        if (!parts.includes(value)) parts.push(value);
+      } else if (value && typeof value === 'object') {
+        const text = JSON.stringify(value, null, 2);
+        if (!parts.includes(text)) parts.push(text);
+      }
+    }
+  }
+  return parts.length > 0 ? parts.join('\n\n') : null;
+}
+
 function CopyButton({ text }: { text: string }) {
   const { tr } = useI18n();
   const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle');
@@ -210,6 +234,11 @@ function UserBubble({ message, sessionId, actionsDisabled, onEditResend, onRegen
         )}
         {content && <div>{content}</div>}
       </div>
+      {message.created_at && (
+        <time className="px-1 font-sans text-[10.5px] tabular-nums text-zinc-500" dateTime={message.created_at}>
+          {formatClock(message.created_at)}
+        </time>
+      )}
       {editing ? (
         <div className="w-full max-w-[78%] space-y-2 rounded-xl border border-zinc-700/60 bg-zinc-900/60 p-2">
           <Textarea
@@ -408,35 +437,41 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
           </div>
         </div>
       )}
-      {stats != null && Object.keys(stats).length > 0 && (
+      {(stats != null && Object.keys(stats).length > 0) || message.created_at ? (
         <div
           className="ml-auto flex items-center gap-1.5 text-[10.5px] text-zinc-500"
           title={
-            stats.total_tokens !== undefined
+            stats?.total_tokens !== undefined
               ? `${tr('总计', 'total')} ${fmtTokens(stats.total_tokens)} tokens`
               : undefined
           }
         >
-          {stats.duration_ms !== undefined && (
+          {message.created_at && (
+            <time className="font-sans tabular-nums" dateTime={message.created_at}>
+              {formatClock(message.created_at)}
+            </time>
+          )}
+          {stats?.duration_ms !== undefined && <span>·</span>}
+          {stats?.duration_ms !== undefined && (
             <span>{tr(`耗时 ${formatDuration(stats.duration_ms)}`, formatDuration(stats.duration_ms))}</span>
           )}
-          {stats.duration_ms !== undefined && <span>·</span>}
-          {stats.prompt_tokens !== undefined && stats.completion_tokens !== undefined ? (
+          {stats?.duration_ms !== undefined && (stats.prompt_tokens !== undefined || stats.completion_tokens !== undefined) && <span>·</span>}
+          {stats?.prompt_tokens !== undefined && stats.completion_tokens !== undefined ? (
             <span>
               {tr(
                 `输入 ${fmtTokens(stats.prompt_tokens)} / 输出 ${fmtTokens(stats.completion_tokens)} tokens`,
                 `in ${fmtTokens(stats.prompt_tokens)} / out ${fmtTokens(stats.completion_tokens)} tokens`,
               )}
             </span>
-          ) : stats.prompt_tokens !== undefined ? (
+          ) : stats?.prompt_tokens !== undefined ? (
             <span>{tr(`输入 ${fmtTokens(stats.prompt_tokens)} tokens`, `in ${fmtTokens(stats.prompt_tokens)} tokens`)}</span>
-          ) : stats.completion_tokens !== undefined ? (
+          ) : stats?.completion_tokens !== undefined ? (
             <span>{tr(`输出 ${fmtTokens(stats.completion_tokens)} tokens`, `out ${fmtTokens(stats.completion_tokens)} tokens`)}</span>
-          ) : stats.total_tokens !== undefined ? (
+          ) : stats?.total_tokens !== undefined ? (
             <span>{fmtTokens(stats.total_tokens)} tokens</span>
           ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -446,13 +481,19 @@ function ToolBubble({ message, onConfirmConfigDraft }: Props) {
   // carries the tool name + JSON result string. We don't have args for
   // these (would need to join chat_tool_calls); show what we have.
   const result = message.content ? safeParse(message.content) : undefined;
+  const rec =
+    result && typeof result === 'object' && !Array.isArray(result)
+      ? (result as Record<string, unknown>)
+      : undefined;
   return (
     <ToolCallBlock
       onConfirmConfigDraft={onConfirmConfigDraft}
       call={{
         name: message.tool_name ?? 'tool',
-        // 历史消息没有执行状态，仅从明确的结果字段恢复。
+        // 历史消息没有执行状态，仅从明确的结果字段恢复；错误/耗时同源恢复
         result,
+        error: typeof rec?.error === 'string' ? rec.error : undefined,
+        duration_ms: typeof rec?.duration_ms === 'number' ? rec.duration_ms : undefined,
       }}
     />
   );
@@ -524,6 +565,7 @@ function ToolCallSummaryBlock({
   const status = resolveToolStatus(call);
   const isPending = status === 'pending';
   const isError = status === 'error' || status === 'timeout' || !!call.error;
+  const rawError = isError ? rawErrorOf(call) : null;
   const hint = argSummary(call.arguments);
   // 工具结果 status=pending_input 时，在会话内渲染澄清提问卡。
   const input = pendingInput(call.result);
@@ -574,11 +616,25 @@ function ToolCallSummaryBlock({
           )}
         </span>
       </button>
+      {/* 失败工具的错误预览：折叠态也露出一行，不用先展开才知道为什么失败 */}
+      {rawError && (
+        <div className="border-t border-danger/20 bg-danger/5 px-3 py-1.5">
+          <p className="line-clamp-2 whitespace-pre-wrap break-words text-[11px] leading-4 text-danger">
+            {rawError}
+          </p>
+        </div>
+      )}
       {configDraft && (
         <ConfigDraftCard draft={configDraft} onConfirm={onConfirmConfigDraft} />
       )}
       {open && (
         <div className="border-t border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
+          {rawError && (
+            <div className="mb-2">
+              <div className="mb-1 text-[11px] uppercase tracking-wide text-danger">{tr('原始错误', 'Raw error')}</div>
+              <CodeBlock maxHeightClassName="max-h-48">{rawError}</CodeBlock>
+            </div>
+          )}
           {call.arguments !== undefined && (
             <div className="mb-2">
               <div className="mb-1 text-[11px] uppercase tracking-wide text-zinc-500">{tr('参数', 'Arguments')}</div>
@@ -595,10 +651,7 @@ function ToolCallSummaryBlock({
               </CodeBlock>
             </div>
           )}
-          {call.error && (
-            <div className="mt-1 text-[11px] text-danger">{call.error}</div>
-          )}
-          {!call.error && call.result === undefined && isPending && (
+          {!rawError && call.result === undefined && isPending && (
             <div className="text-[11px] text-zinc-500">{tr('等待结果…', 'Waiting for result…')}</div>
           )}
         </div>

@@ -18,6 +18,8 @@ import {
   type ConfigDraftResult,
 
 } from '@/components/MessageBubble';
+import { TurnTimeline } from '@/components/TurnTimeline';
+import { groupTurns } from '@/lib/timeline';
 
 import { AgentBadge } from '@/components/AgentBadge';
 import { ArtifactsPanel } from '@/components/ArtifactsPanel';
@@ -784,6 +786,8 @@ export default function ChatThreadPage() {
               content: e.delta,
               pending: e.partial === true,
               kind: 'thinking',
+              // 流式合成卡先记本地首达时刻，refetch 后以服务端为准
+              created_at: new Date().toISOString(),
             },
           ];
         });
@@ -814,6 +818,8 @@ export default function ChatThreadPage() {
               role: 'assistant',
               content: e.delta,
               pending: e.partial === true,
+              // 流式合成卡先记本地首达时刻，refetch 后以服务端为准
+              created_at: new Date().toISOString(),
             },
           ];
         });
@@ -825,6 +831,8 @@ export default function ChatThreadPage() {
           id: `tool-card-${t.tool_call_id}`,
           role: 'tool',
           kind: 'tool_card',
+          // 流式合成卡先记本地首达时刻，refetch 后以服务端为准
+          created_at: new Date().toISOString(),
           tool_call: {
             id: t.tool_call_id,
             name: t.name,
@@ -1053,7 +1061,7 @@ export default function ChatThreadPage() {
 
         ...prev,
 
-        { id: userMessageId, role: 'user', content: opts.displayContent ?? content, attachments: uploadedAttachments },
+        { id: userMessageId, role: 'user', content: opts.displayContent ?? content, attachments: uploadedAttachments, created_at: new Date().toISOString() },
 
       ]);
 
@@ -1097,7 +1105,7 @@ export default function ChatThreadPage() {
 
                 ...prev,
 
-                { id: e.message_id, role: 'user', content, attachments: editingAttachments },
+                { id: e.message_id, role: 'user', content, attachments: editingAttachments, created_at: new Date().toISOString() },
 
               ]);
 
@@ -1178,6 +1186,10 @@ export default function ChatThreadPage() {
 
                   kind: 'thinking',
 
+                  // 流式合成卡先记本地首达时刻，refetch 后以服务端为准
+
+                  created_at: new Date().toISOString(),
+
                 },
 
               ];
@@ -1245,6 +1257,10 @@ export default function ChatThreadPage() {
 
                   pending: e.partial === true,
 
+                  // 流式合成卡先记本地首达时刻，refetch 后以服务端为准
+
+                  created_at: new Date().toISOString(),
+
                 },
 
               ];
@@ -1264,6 +1280,10 @@ export default function ChatThreadPage() {
               role: 'tool',
 
               kind: 'tool_card',
+
+              // 流式合成卡先记本地首达时刻，refetch 后以服务端为准
+
+              created_at: new Date().toISOString(),
 
               tool_call: {
 
@@ -1441,6 +1461,10 @@ export default function ChatThreadPage() {
                   role: 'tool',
 
                   kind: 'tool_card',
+
+                  // 流式合成卡先记本地首达时刻，refetch 后以服务端为准
+
+                  created_at: new Date().toISOString(),
 
                   tool_call: {
 
@@ -1815,6 +1839,10 @@ export default function ChatThreadPage() {
 
       kind: 'tool_card',
 
+      // 审批单自带创建时刻，直接用作时间线刻度
+
+      created_at: a.created_at,
+
       tool_call: {
 
         id: a.id,
@@ -1868,6 +1896,9 @@ export default function ChatThreadPage() {
   const hiddenCount = collapsedMessageCount(messages.length, showAllHistory);
 
   const renderedMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
+
+  // 回合时间线分组：纯视图变换，消息状态结构与流式合并不动
+  const turnGroups = useMemo(() => groupTurns(renderedMessages), [renderedMessages]);
 
   useAssistantPage('完整会话', 'Conversation', {
 
@@ -2030,29 +2061,39 @@ export default function ChatThreadPage() {
 
             ) : (
 
-              renderedMessages.map((m) => (
+              turnGroups.map((group) => (
 
-                <MessageBubble
+                <TurnTimeline
 
-                  key={m.id}
+                  key={group.key}
 
-                  message={m}
+                  group={group}
 
-                  sessionId={sessionId}
+                  renderMessage={(m) => (
 
-                  actionsDisabled={submitting}
+                    <MessageBubble
 
-                  followupsActive={!isViewer && m.id === latestAssistantId}
+                      message={m}
 
-                  onUseSuggestion={isViewer ? undefined : useSuggestion}
+                      sessionId={sessionId}
 
-                  onRegenerate={isViewer ? undefined : regenerate}
+                      actionsDisabled={submitting}
 
-                  onFork={isViewer ? undefined : forkFrom}
+                      followupsActive={!isViewer && m.id === latestAssistantId}
 
-                  onEditResend={isViewer ? undefined : editResend}
+                      onUseSuggestion={isViewer ? undefined : useSuggestion}
 
-                  onConfirmConfigDraft={isViewer ? undefined : confirmConfigDraft}
+                      onRegenerate={isViewer ? undefined : regenerate}
+
+                      onFork={isViewer ? undefined : forkFrom}
+
+                      onEditResend={isViewer ? undefined : editResend}
+
+                      onConfirmConfigDraft={isViewer ? undefined : confirmConfigDraft}
+
+                    />
+
+                  )}
 
                 />
 

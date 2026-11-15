@@ -18,6 +18,7 @@ from app.adk_runtime.stream_bridge import SseFrame
 from app.db import create_db_engine
 from app.models.base import Base
 from app.models.chat import ChatMessage, ChatSession
+from app.models.observation import ObservationTurn
 from app.services.chat.chat_service import AdkFramePersister, message_to_wire
 
 
@@ -37,6 +38,17 @@ async def _persist_frames(frames: list[SseFrame], db_path) -> list[ChatMessage]:
                     provider="deepseek",
                     model="deepseek-flash",
                     adk_user_id="user-1",
+                )
+            )
+            # 工具帧要挂观测记录：真实链路 start_chat_turn 先建 turn，这里同款预置
+            db.add(
+                ObservationTurn(
+                    id="trace-1",
+                    session_id="session-1",
+                    agent_id="agent-1",
+                    provider="deepseek",
+                    model="deepseek-flash",
+                    status="running",
                 )
             )
             await db.commit()
@@ -138,6 +150,150 @@ def test_message_to_wire_exposes_stats() -> None:
     )
     assert message_to_wire(with_stats)["stats"] == {"duration_ms": 10, "total_tokens": 5}
     assert message_to_wire(without_stats)["stats"] is None
+
+
+def _think(message_id: str, text: str) -> SseFrame:
+    return SseFrame(
+        event="thinking_delta",
+        data={"message_id": message_id, "delta": text, "partial": False},
+    )
+
+
+@pytest.mark.asyncio
+async def test_thinking_segments_persist_in_arrival_order(tmp_path) -> None:
+    """思考段落库 kind=thinking，与正文按到达顺序成行；统计只挂正文气泡。"""
+
+    done = SseFrame(
+        event="done",
+        data={"usage": {"total_tokens": 10}, "duration_ms": 100},
+    )
+    rows = await _persist_frames(
+        [_think("t1", "先想"), _think("t1", "一想"), _delta("m1", "答案"), done],
+        tmp_path / "think1.db",
+    )
+    assert [(r.id, r.kind, r.content) for r in rows] == [
+        ("t1", "thinking", "先想一想"),
+        ("m1", "message", "答案"),
+    ]
+    assert rows[0].stats_json is None
+    assert json.loads(rows[1].stats_json or "{}")["total_tokens"] == 10
+
+
+@pytest.mark.asyncio
+async def test_thinking_flushes_before_tool_card(tmp_path) -> None:
+    """工具边界先落思考段：思考不能插到工具卡后面去。
+
+    工具帧要写观测记录，观测服务走独立会话（真实库）；沿用
+    test_session_stats 的口径：专属 id 进真库、用完即清。
+    """
+
+    import uuid as _uuid
+
+    from sqlalchemy import delete as sa_delete
+
+    from app.config import get_settings
+    from app.models.observation import ObservationToolCall
+
+    engine = create_db_engine(get_settings().database_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    trace_id = f"trace-think-{_uuid.uuid4().hex[:8]}"
+    sid = f"s_think_{_uuid.uuid4().hex[:8]}"
+    try:
+        async with session_factory() as db:
+            db.add(
+                ChatSession(
+                    id=sid,
+                    title="思考边界测试",
+                    provider="deepseek",
+                    model="deepseek-flash",
+                    adk_user_id="user-1",
+                )
+            )
+            db.add(
+                ObservationTurn(
+                    id=trace_id,
+                    session_id=sid,
+                    agent_id="agent-1",
+                    provider="deepseek",
+                    model="deepseek-flash",
+                    status="running",
+                )
+            )
+            await db.commit()
+        async with session_factory() as db:
+            persister = AdkFramePersister(db, sid, trace_id=trace_id)
+            for frame in [
+                _think("t1", "调工具前想的"),
+                SseFrame(
+                    event="tool_start",
+                    data={
+                        "tool_call_id": "c1",
+                        "name": "query_metric",
+                        "status": "pending",
+                        "arguments": {"q": "cpu"},
+                    },
+                ),
+                SseFrame(
+                    event="tool_end",
+                    data={
+                        "tool_call_id": "c1",
+                        "name": "query_metric",
+                        "status": "success",
+                        "duration_ms": 12,
+                        "result": {"ok": True},
+                        "error": "",
+                    },
+                ),
+                _delta("m1", "结论"),
+                SseFrame(event="done", data={}),
+            ]:
+                await persister.persist(frame)
+            rows = list(
+                (
+                    await db.execute(
+                        select(ChatMessage)
+                        .where(ChatMessage.session_id == sid)
+                        .order_by(ChatMessage.seq.asc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert [r.kind for r in rows] == ["thinking", "tool_card", "message"]
+            assert rows[0].content == "调工具前想的"
+            assert rows[2].content == "结论"
+    finally:
+        async with session_factory() as db:
+            await db.execute(sa_delete(ChatMessage).where(ChatMessage.session_id == sid))
+            await db.execute(
+                sa_delete(ObservationToolCall).where(
+                    ObservationToolCall.trace_id == trace_id
+                )
+            )
+            turn = await db.get(ObservationTurn, trace_id)
+            if turn is not None:
+                await db.delete(turn)
+            session = await db.get(ChatSession, sid)
+            if session is not None:
+                await db.delete(session)
+            await db.commit()
+        await engine.dispose()
+
+
+def test_message_to_wire_passes_thinking_kind() -> None:
+    now = datetime.now(timezone.utc)
+    row = ChatMessage(
+        id="t1",
+        session_id="session-1",
+        role="assistant",
+        kind="thinking",
+        content="想",
+        seq=1,
+        created_at=now,
+    )
+    wire = message_to_wire(row)
+    assert wire["kind"] == "thinking"
+    assert wire["role"] == "assistant"
 
 
 def test_followups_instruction_gating() -> None:

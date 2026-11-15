@@ -48,7 +48,7 @@ class ChatMessage(Base):
         String(36), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False
     )
     role: Mapped[str] = mapped_column(String(32), nullable=False)
-    # user | assistant | tool_intent | tool_card | system
+    # user | assistant | tool_intent | tool_card | thinking | system
     kind: Mapped[str] = mapped_column(String(32), nullable=False, default="message")
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_call_json: Mapped[str | None] = mapped_column(Text, nullable=True)

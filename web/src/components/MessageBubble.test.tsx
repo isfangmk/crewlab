@@ -801,3 +801,114 @@ describe('MessageBubble 建议问题与回答统计', () => {
     expect(screen.queryByText(/耗时/)).not.toBeInTheDocument();
   });
 });
+
+describe('MessageBubble 时间戳', () => {
+  it('用户气泡带创建时刻', () => {
+    const iso = new Date(2026, 10, 15, 8, 9, 10).toISOString();
+    render(<MessageBubble message={{ id: 'u1', role: 'user', content: '你好', created_at: iso }} />);
+    expect(screen.getByText('08:09:10')).toBeInTheDocument();
+  });
+
+  it('无统计但有时刻时统计行只显示时间，不带 tokens/耗时', () => {
+    const iso = new Date(2026, 10, 15, 20, 30, 0).toISOString();
+    render(<MessageBubble message={{ id: 'a1', role: 'assistant', content: '好', created_at: iso }} />);
+    expect(screen.getByText('20:30:00')).toBeInTheDocument();
+    expect(screen.queryByText(/tokens/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/耗时/)).not.toBeInTheDocument();
+  });
+});
+
+describe('MessageBubble 失败工具原始错误', () => {
+  it('折叠态露出错误预览，展开后「原始错误」独立成区且与结果分开', async () => {
+    render(<MessageBubble message={{
+      id: 'tool-card-fail',
+      role: 'tool',
+      kind: 'tool_card',
+      tool_call: {
+        id: 'call-fail',
+        name: 'query_metric',
+        status: 'error',
+        error: 'query_metric 调用失败',
+        duration_ms: 80,
+        arguments: { q: 'cpu' },
+        result: {
+          ok: false,
+          error: 'connection refused',
+          traceback: 'Traceback (most recent call last):\n  File "x.py", line 1',
+          rows: 3,
+        },
+      },
+    }} />);
+
+    // 折叠态就有错误预览，不用先展开才知道为什么失败
+    expect(screen.getByText(/query_metric 调用失败/)).toBeInTheDocument();
+    expect(screen.getByText('80ms')).toBeInTheDocument();
+    expect(screen.queryByText('原始错误')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '工具调用 query_metric' }));
+
+    expect(screen.getByText('原始错误')).toBeInTheDocument();
+    // call.error 与 result 的 error/traceback 合并进原始错误区（预览条 + 展开区两处；
+    // 结果块里 JSON 转义的 \"x.py\" 不匹配带真实引号的片段）
+    const rawBlocks = screen.getAllByText(/File "x\.py", line 1/);
+    expect(rawBlocks).toHaveLength(2);
+    for (const block of rawBlocks) {
+      expect(block.textContent).toContain('query_metric 调用失败');
+      expect(block.textContent).toContain('connection refused');
+      expect(block.textContent).toContain('Traceback (most recent call last)');
+    }
+    // 结果块独立存在，不与原始错误混排
+    expect(screen.getByText('结果')).toBeInTheDocument();
+    expect(screen.getByText(/"rows": 3/)).toBeInTheDocument();
+  });
+
+  it('只有 call.error（结果是字符串）也进原始错误区', async () => {
+    render(<MessageBubble message={{
+      id: 'tool-card-fail-2',
+      role: 'tool',
+      kind: 'tool_card',
+      tool_call: {
+        id: 'call-fail-2',
+        name: 'run_cmd',
+        status: 'error',
+        error: 'exit 1',
+        result: 'command output',
+      },
+    }} />);
+
+    expect(screen.getByText('exit 1')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '工具调用 run_cmd' }));
+    expect(screen.getByText('原始错误')).toBeInTheDocument();
+    expect(screen.getByText('command output')).toBeInTheDocument();
+  });
+
+  it('成功工具没有错误预览与原始错误区', () => {
+    render(<MessageBubble message={{
+      id: 'tool-card-ok',
+      role: 'tool',
+      kind: 'tool_card',
+      tool_call: {
+        id: 'call-ok',
+        name: 'query_metric',
+        status: 'success',
+        result: { ok: true },
+      },
+    }} />);
+
+    expect(screen.queryByText('原始错误')).not.toBeInTheDocument();
+    expect(screen.queryByText(/connection refused/)).not.toBeInTheDocument();
+  });
+
+  it('历史降级行从结果记录恢复错误与耗时', () => {
+    render(<MessageBubble message={{
+      id: 'legacy-tool',
+      role: 'tool',
+      tool_name: 'run_cmd',
+      content: JSON.stringify({ ok: false, error: 'exit 1', duration_ms: 42 }),
+    }} />);
+
+    expect(screen.getByText('run_cmd')).toBeInTheDocument();
+    expect(screen.getByText('42ms')).toBeInTheDocument();
+    expect(screen.getByText(/exit 1/)).toBeInTheDocument();
+  });
+});
