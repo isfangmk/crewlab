@@ -5,6 +5,7 @@ import { createContext, useContext, useState } from 'react';
 import { Download } from 'lucide-react';
 import { ChartCanvas } from './ChartCanvas';
 import { downloadArtifact } from '@/api/artifacts';
+import { saveBlob } from '@/lib/download';
 import { errorText } from '@/lib/errors';
 import { useI18n } from '@/i18n/locale';
 
@@ -43,12 +44,7 @@ function ArtifactFileButton({ artifact }: { artifact: InterpreterArtifact }) {
         artifact.id,
         shareToken ?? undefined,
       );
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename || artifact.file_name || artifact.title || 'download';
-      a.click();
-      URL.revokeObjectURL(url);
+      saveBlob(blob, filename || artifact.file_name || artifact.title || 'download');
     } catch (e) {
       setErr(errorText(e));
     } finally {

@@ -1,4 +1,5 @@
 import { request, requestFile } from './client';
+import { saveBlob } from '@/lib/download';
 import { tr as trInline } from '@/i18n/locale';
 
 export type SkillClass = 'safe' | 'mutating' | 'dangerous';
@@ -184,12 +185,7 @@ export function importSkillZip(file: File, opts?: { risk?: SkillClass; group?: S
 /** 导出技能包为 zip 并触发浏览器下载。 */
 export async function exportSkillZip(key: string): Promise<string> {
   const { blob, filename } = await requestFile(`/skills/${encodeURIComponent(key)}/export`);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  saveBlob(blob, filename);
   return filename;
 }
 

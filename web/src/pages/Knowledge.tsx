@@ -74,7 +74,7 @@ import {
   tableLayout,
 } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
-import { fullDateTime } from '@/lib/format';
+import { formatBytes, fullDateTime } from '@/lib/format';
 import {
   createDoc,
   deleteDoc,
@@ -173,12 +173,9 @@ const DOC_KIND_TONE: Record<string, 'accent' | 'info' | 'warning' | 'success' | 
   FILE: 'default',
 };
 
-// 列表只回传正文 UTF-8 字节数，按 B / KB / MB 归一展示
+// 列表只回传正文 UTF-8 字节数，按 lib/format 的全站口径展示
 function formatDocBytes(bytes: number | undefined): string {
-  if (bytes === undefined) return '—';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return bytes === undefined ? '—' : formatBytes(bytes);
 }
 
 function sourceLabel(doc: KnowledgeDoc, tr: (zh: string, en: string) => string): string {

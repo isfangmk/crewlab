@@ -229,7 +229,7 @@ describe('KnowledgePage', () => {
     await waitFor(() => expect(toggleBody).toEqual({ enabled: false }));
     expect(await screen.findByText('已停用')).toBeInTheDocument();
     expect(screen.getByText('2 块')).toBeInTheDocument();
-    expect(screen.getByText('12 B')).toBeInTheDocument();
+    expect(screen.getByText('12.0 B')).toBeInTheDocument();
     expect(screen.getByText('已索引')).toBeInTheDocument();
   });
 
@@ -250,7 +250,7 @@ describe('KnowledgePage', () => {
   it('索引列：展示分块数、文件大小、已索引状态与命中次数', async () => {
     render(<KnowledgePage />);
     expect(await screen.findByText('2 块')).toBeInTheDocument();
-    expect(screen.getByText('12 B')).toBeInTheDocument();
+    expect(screen.getByText('12.0 B')).toBeInTheDocument();
     expect(screen.getByText('已索引')).toBeInTheDocument();
     expect(screen.getByText('3 次命中')).toBeInTheDocument();
   });
@@ -276,7 +276,7 @@ describe('KnowledgePage', () => {
     expect(await screen.findByText('巡检记录.pdf')).toBeInTheDocument();
     expect(screen.getByText('PDF')).toBeInTheDocument();
     // 大小只在索引列出现一次，元信息行不再重复
-    expect(screen.getByText('12 B')).toBeInTheDocument();
+    expect(screen.getByText('12.0 B')).toBeInTheDocument();
     expect(screen.queryByText(/248\.0 KB/)).not.toBeInTheDocument();
   });
 

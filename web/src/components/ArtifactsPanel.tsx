@@ -20,6 +20,7 @@ import {
   type ArtifactKind,
 } from '@/api/artifacts';
 import { errorText } from '@/lib/errors';
+import { saveBlob } from '@/lib/download';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
 
@@ -72,12 +73,7 @@ export function ArtifactsPanel({
     setBusyId(item.id);
     try {
       const { blob, filename } = await downloadArtifact(item.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename || item.file_name || `${item.title || item.id}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      saveBlob(blob, filename || item.file_name || `${item.title || item.id}.json`);
     } catch (e) {
       setErr(errorText(e));
     } finally {
