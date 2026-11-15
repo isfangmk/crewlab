@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { MermaidBlock } from '@/components/MermaidBlock';
 import { cn } from '@/lib/cn';
 import { splitFrontmatter } from '@/lib/frontmatter';
 import type { IconType } from '@/lib/icon';
@@ -1449,8 +1450,25 @@ function DocBody({ content }: { content: string }) {
           ))}
         </dl>
       )}
-      {/* remark-gfm：表格 / 删除线 / 任务列表等 GFM 语法 */}
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{fm ? fm.body : content}</ReactMarkdown>
+      {/* remark-gfm：表格 / 删除线 / 任务列表等 GFM 语法；mermaid 围栏渲染成图 */}
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          pre({ children }) {
+            const child = Array.isArray(children) ? children[0] : children;
+            const props = (child as { props?: { className?: string; children?: unknown } })
+              ?.props;
+            const isMermaid =
+              props?.className !== undefined && /language-mermaid/.test(props.className);
+            if (isMermaid) {
+              return <MermaidBlock code={String(props?.children ?? '').replace(/\n$/, '')} />;
+            }
+            return <>{children}</>;
+          },
+        }}
+      >
+        {fm ? fm.body : content}
+      </ReactMarkdown>
     </div>
   );
 }

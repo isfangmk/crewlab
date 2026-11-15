@@ -542,6 +542,100 @@ async def upsert_external_doc(
     return doc, True
 
 
+async def upsert_vault_doc(
+    db: AsyncSession,
+    *,
+    external_key: str,
+    external_hash: str,
+    title: str,
+    content: str,
+    path: str,
+) -> tuple[KnowledgeDoc, str]:
+    """同步写入一篇内置知识库（vault）文档；返回 (文档, created|updated|unchanged)。
+
+    身份 = external_key（语料文件的绝对路径），external_hash 跳过未变化文件，
+    与外部源增量同步同口径。仅同步层调用：应用内 vault 文档只读。
+    """
+
+    key = external_key.strip().replace("\\", "/")
+    if key == "":
+        raise ValueError("external_key 不能为空")
+    doc = await db.scalar(
+        select(KnowledgeDoc).where(
+            KnowledgeDoc.source_type == "vault",
+            KnowledgeDoc.external_key == key,
+        )
+    )
+    target_title = title.strip() or key.rsplit("/", 1)[-1]
+    target_path = _resolve_path(path)
+    if doc is None:
+        doc = KnowledgeDoc(
+            id=str(uuid.uuid4()),
+            source_type="vault",
+            title=target_title,
+            content=content,
+            path=target_path,
+            url=None,
+            tags=[],
+            enabled=True,
+            external_key=key,
+            external_hash=external_hash,
+            source_filename=key.rsplit("/", 1)[-1],
+        )
+        db.add(doc)
+        await db.flush()
+        n = await _replace_chunks(db, doc)
+        await db.commit()
+        await db.refresh(doc)
+        logger.info("内置知识文档首次入库 doc_id=%s key=%s chunks=%s", doc.id, key, n)
+        return doc, "created"
+
+    if doc.external_hash == external_hash and doc.content == content:
+        # 内容未变：只同步可能被文件移动改过的标题与目录
+        changed = False
+        if doc.title != target_title:
+            doc.title = target_title
+            changed = True
+        if doc.path != target_path:
+            doc.path = target_path
+            changed = True
+        if changed:
+            doc.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+            await db.refresh(doc)
+        return doc, "updated" if changed else "unchanged"
+
+    doc.title = target_title
+    doc.content = content
+    doc.path = target_path
+    doc.external_hash = external_hash
+    doc.updated_at = datetime.now(timezone.utc)
+    n = await _replace_chunks(db, doc)
+    await db.commit()
+    await db.refresh(doc)
+    logger.info("内置知识文档更新 doc_id=%s key=%s chunks=%s", doc.id, key, n)
+    return doc, "updated"
+
+
+async def delete_vault_doc(db: AsyncSession, *, external_key: str) -> bool:
+    """同步层按文件删除内置文档（文件消失即删，含切块与向量）。
+
+    仅同步层调用：应用内 vault 文档只读、不可删除。
+    """
+
+    key = external_key.strip().replace("\\", "/")
+    doc = await db.scalar(
+        select(KnowledgeDoc).where(
+            KnowledgeDoc.source_type == "vault",
+            KnowledgeDoc.external_key == key,
+        )
+    )
+    if doc is None:
+        return False
+    await _purge_doc(db, doc)
+    return True
+
+
 async def set_doc_enabled(db: AsyncSession, doc_id: str, enabled: bool) -> KnowledgeDoc:
     """切换文档是否参与检索；只改开关，不重建切块。"""
 
@@ -572,18 +666,26 @@ async def delete_doc(db: AsyncSession, doc_id: str) -> None:
     doc = await get_doc(db, doc_id)
     if doc.source_type == "vault":
         raise PermissionError("内置知识库文档只读，禁止删除")
+    await _purge_doc(db, doc)
+
+
+async def _purge_doc(db: AsyncSession, doc: KnowledgeDoc) -> None:
+    """删文档行并清切块、向量与上传原件；API 层与同步层共用。"""
+
     # 先记切块 id：业务行删掉后就查不到要清哪些向量了
     chunk_ids: list[int] = list(
-        (await db.scalars(select(KnowledgeChunk.id).where(KnowledgeChunk.doc_id == doc_id))).all()
+        (await db.scalars(select(KnowledgeChunk.id).where(KnowledgeChunk.doc_id == doc.id))).all()
     )
+    doc_id = doc.id
+    source_filename = doc.source_filename
     await db.delete(doc)
     await db.commit()
     vs = get_vector_store()
     if vs is not None and chunk_ids:
         await vs.delete_refs(KNOWLEDGE_NAMESPACE, [str(i) for i in chunk_ids])
     # 原件与文档同生命周期；文件缺失（老数据/手工清理）不阻塞删除
-    if doc.source_filename:
-        delete_source_file(doc_id=doc_id, filename=doc.source_filename)
+    if source_filename:
+        delete_source_file(doc_id=doc_id, filename=source_filename)
     logger.info("删除文档 doc_id=%s chunks=%s", doc_id, len(chunk_ids))
 
 

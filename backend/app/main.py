@@ -180,7 +180,13 @@ async def lifespan(_app: FastAPI):
 
     await start_scheduler()
 
+    # 内置知识库文件同步：启动即导入一轮，之后按间隔轮询语料目录
+    from app.services.knowledge_vault_sync import start_vault_sync, stop_vault_sync
+
+    await start_vault_sync()
+
     yield
+    await stop_vault_sync()
     await stop_scheduler()
     await engine.dispose()
     logger.info("后端已关闭")

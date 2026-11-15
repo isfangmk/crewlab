@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     knowledge_upload_dir: str = Field(
         alias="KNOWLEDGE_UPLOAD_DIR", default="./data/uploads"
     )
+    # 内置知识库语料目录：目录内 .md/.txt 改动自动同步为内置（vault）文档，
+    # 文件是唯一事实源，应用内 vault 文档只读
+    knowledge_vault_dir: str = Field(
+        alias="KNOWLEDGE_VAULT_DIR", default="./data/内置知识库"
+    )
     host: str = Field(alias="HOST")
     port: int = Field(alias="PORT")
     # 对外可达的后端基址（OAuth 回调等需要浏览器访问的场景）；
