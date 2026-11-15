@@ -137,10 +137,6 @@ async def lifespan(_app: FastAPI):
         if engine.dialect.name == "postgresql":
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
-    # create_all 只建缺失的表；既有库的新增列在启动期幂等补齐
-    from app.db_schema import ensure_schema
-
-    await ensure_schema(engine)
 
     # 上次进程退出时可能留下 syncing 状态；启动后统一标为可重试的失败
     from app.services.knowledge_source_service import recover_interrupted_syncs
