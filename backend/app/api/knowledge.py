@@ -391,6 +391,8 @@ async def search_knowledge(
     builtin: bool | None = Query(None),
     # 来源类型：组织文档里 manual / upload / repo 混排，前端按「来源」筛选收口
     source_type: str | None = Query(None),
+    # RRF 阈值覆盖（检索试跑页试调用）；不传 = 全局 knowledge.rrf_min_score
+    min_score: float | None = Query(None, ge=0),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
@@ -413,6 +415,7 @@ async def search_knowledge(
             scope=scope,
             builtin=builtin,
             source_type=source_type,
+            min_score=min_score,
         )
     except (EmbeddingServiceUnavailable, VectorStoreUnavailable) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

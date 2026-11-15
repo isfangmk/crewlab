@@ -29,9 +29,10 @@ const ROUTE_DEFS: RouteDef[] = [
   { path: '/mcp', zh: 'MCP', en: 'MCP', keywords: ['mcp', 'server'], group: '能力' },
   { path: '/sandbox', zh: '沙箱', en: 'Sandbox', keywords: ['sandbox', 'shaxiang', 'code', 'exec', 'python'], group: '能力' },
 
-  // 知识库：文档、外部来源与检索；后续可挂检索试跑子页
+  // 知识库：文档、外部来源与检索试跑
   { path: '/knowledge', zh: '知识库', en: 'Knowledge', keywords: ['knowledge', 'kb', 'docs', 'rag', 'zhishiku', 'upload'], group: '知识库' },
   { path: '/knowledge/sources', zh: '外部知识源', en: 'External sources', keywords: ['sources', 'external', 'url', 'git', 'sync', 'waibuyuan'], group: '知识库' },
+  { path: '/knowledge/playground', zh: '检索试跑', en: 'Retrieval playground', keywords: ['search', 'retrieval', 'rrf', 'scope', 'jiansuo', 'shiyao'], group: '知识库' },
 
   // 工作流：编排、运行记录与自动化触发
   { path: '/workflows', zh: '工作流', en: 'Workflows', keywords: ['workflows', 'flow', 'canvas', 'gongzuoliu'], group: '工作流' },

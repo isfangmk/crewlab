@@ -781,6 +781,7 @@ async def search_docs(
     scope: KnowledgeScope | None = None,
     builtin: bool | None = None,
     source_type: str | None = None,
+    min_score: float | None = None,
 ) -> list[KnowledgeHit]:
     """混合检索：向量余弦 + 关键词 ILIKE，RRF 融合后聚合到文档。
 
@@ -877,7 +878,11 @@ async def search_docs(
             score += 1.0 / (_RRF_K + keyword_rank[doc_id])
         rrf[doc_id] = score
 
-    min_score = await resolve_rrf_min_score(db)
+    # 阈值可被调用方覆盖（检索试跑页试调），未传仍走全局设置
+    if min_score is None:
+        min_score = await resolve_rrf_min_score(db)
+    elif not math.isfinite(min_score) or min_score < 0:
+        raise ValueError("min_score 必须 >= 0")
     ranked_ids = sorted(
         (i for i in rrf if rrf[i] >= min_score),
         key=lambda i: rrf[i],

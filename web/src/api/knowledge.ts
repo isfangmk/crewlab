@@ -140,6 +140,8 @@ export function searchKnowledge(
     builtin?: boolean;
     // 来源类型：与侧边栏分组正交，用于组织文档内按 manual / upload / repo 收口
     sourceType?: DocSource;
+    // RRF 阈值覆盖（检索试跑页试调）；不传 = 服务端全局 knowledge.rrf_min_score
+    minScore?: number;
   },
 ) {
   const params = new URLSearchParams();
@@ -149,6 +151,7 @@ export function searchKnowledge(
   if (opts?.pathPrefix) params.set('path_prefix', opts.pathPrefix);
   if (opts?.builtin !== undefined) params.set('builtin', String(opts.builtin));
   if (opts?.sourceType) params.set('source_type', opts.sourceType);
+  if (opts?.minScore !== undefined) params.set('min_score', String(opts.minScore));
   for (const t of opts?.tags ?? []) params.append('tag', t);
   for (const p of opts?.scope?.paths ?? []) params.append('scope_path', p);
   for (const d of opts?.scope?.doc_ids ?? []) params.append('scope_doc', d);

@@ -187,6 +187,51 @@ async def test_rrf_min_score_filters_hits(env: dict[str, str], api_base: str) ->
 
 
 @pytest.mark.asyncio
+async def test_search_min_score_override(env: dict[str, str], api_base: str) -> None:
+    """请求级 min_score 覆盖全局阈值（检索试跑页试调用）；负值显式拒绝。"""
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=120.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+        marker = f"阈值覆盖{uuid.uuid4().hex[:8]}"
+        doc = await _upload_doc(client, headers, marker, f"阈值覆盖验证文档：{marker}")
+        setting_url = "/api/v1/system-settings/knowledge/rrf_min_score"
+
+        async def hit_ids(min_score: float | None = None) -> list[str]:
+            params: dict[str, str | int | float] = {"q": marker, "limit": 10}
+            if min_score is not None:
+                params["min_score"] = min_score
+            res = await client.get("/api/v1/knowledge/search", headers=headers, params=params)
+            assert res.status_code == 200, res.text
+            return [i["doc"]["id"] for i in res.json()["items"]]
+
+        try:
+            # 全局阈值放到 0.05：默认口径下被过滤
+            put = await client.put(setting_url, headers=headers, json={"value": "0.05"})
+            assert put.status_code == 200, put.text
+            assert doc["id"] not in await hit_ids()
+            # 请求级 min_score=0 覆盖全局：召回恢复
+            assert doc["id"] in await hit_ids(0)
+            # 全局 0 时请求级 min_score=0.05 反向覆盖：同样生效
+            restored = await client.put(setting_url, headers=headers, json={"value": "0"})
+            assert restored.status_code == 200, restored.text
+            assert doc["id"] not in await hit_ids(0.05)
+            assert doc["id"] in await hit_ids()
+
+            bad = await client.get(
+                "/api/v1/knowledge/search",
+                headers=headers,
+                params={"q": marker, "limit": 10, "min_score": -1},
+            )
+            assert bad.status_code == 422, bad.text
+        finally:
+            await client.put(setting_url, headers=headers, json={"value": "0"})
+            await client.delete(f"/api/v1/knowledge/docs/{doc['id']}", headers=headers)
+
+
+@pytest.mark.asyncio
 async def test_search_source_type_filter(env: dict[str, str], api_base: str) -> None:
     """来源筛选：按 source_type 收口检索，非法来源显式 400。"""
 
