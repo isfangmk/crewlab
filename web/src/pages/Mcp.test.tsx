@@ -18,20 +18,20 @@ vi.mock('@/store/auth', () => ({
 
 const mcpServer = {
   id: 1,
-  name: 'demo-tools',
+  name: 'obs-tools',
   transport: 'sse',
   endpoint: 'http://127.0.0.1:18099/sse',
   credential: '',
   header_template_json: '{}',
-  approval_policy: 'always',
-  tool_risks: { add: 'approval_required', echo: 'approval_required', current_time: 'approval_required' },
+  approval_policy: 'non_readonly',
+  tool_risks: { query_metric: 'safe', list_alerts: 'safe', acknowledge_alert: 'approval_required' },
   enabled: true,
   status: 'ok',
   last_error: '',
   tools_cache_json: JSON.stringify([
-    { name: 'add', description: '两数相加。', input_schema: { type: 'object', properties: {} } },
-    { name: 'echo', description: '原样返回输入。', input_schema: { type: 'object', properties: {} } },
-    { name: 'current_time', description: '返回服务器时间。', input_schema: { type: 'object', properties: {} } },
+    { name: 'query_metric', description: '指标范围查询。', input_schema: { type: 'object', properties: {} } },
+    { name: 'list_alerts', description: '列出告警实例。', input_schema: { type: 'object', properties: {} } },
+    { name: 'acknowledge_alert', description: '认领告警。', input_schema: { type: 'object', properties: {} } },
   ]),
   resources_count: 1,
   prompts_count: 1,
@@ -83,29 +83,29 @@ function renderPage() {
 describe('MCP 服务卡片', () => {
   it('默认展示连接摘要，展开后显示工具清单', async () => {
     renderPage();
-    expect(await screen.findByText('demo-tools')).toBeInTheDocument();
+    expect(await screen.findByText('obs-tools')).toBeInTheDocument();
     expect(screen.getByText('共 1 个服务')).toBeInTheDocument();
     expect(screen.getByText('http://127.0.0.1:18099/sse')).toBeInTheDocument();
     expect(screen.getByText('3 个工具')).toBeInTheDocument();
-    expect(screen.getByText('每次审批')).toBeInTheDocument();
+    expect(screen.getByText('写操作审批')).toBeInTheDocument();
     expect(screen.getByText('索引 3')).toBeInTheDocument();
-    expect(screen.queryByText('mcp__demo-tools__echo')).not.toBeInTheDocument();
+    expect(screen.queryByText('mcp__obs-tools__list_alerts')).not.toBeInTheDocument();
 
-    const toggle = screen.getByRole('button', { name: /demo-tools/ });
+    const toggle = screen.getByRole('button', { name: /obs-tools/ });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(await screen.findByText('工具清单')).toBeInTheDocument();
-    expect(screen.getByText('mcp__demo-tools__echo')).toBeInTheDocument();
+    expect(screen.getByText('mcp__obs-tools__list_alerts')).toBeInTheDocument();
   });
 
   it('工具行按 tool_risks 渲染风险标签', async () => {
     renderPage();
-    await userEvent.click(await screen.findByRole('button', { name: /demo-tools/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /obs-tools/ }));
     await screen.findByText('工具清单');
-    // 该服务审批策略为 always，全部工具标「需审批」
-    expect(screen.getAllByText('需审批').length).toBe(3);
-    expect(screen.queryByText('安全')).not.toBeInTheDocument();
+    // non_readonly 策略：查询工具「安全」，写工具 acknowledge_alert「需审批」
+    expect(screen.getAllByText('安全').length).toBe(2);
+    expect(screen.getAllByText('需审批').length).toBe(1);
   });
 
   it('摘要行显示资源与提示词计数', async () => {
@@ -131,7 +131,7 @@ describe('MCP 服务卡片', () => {
       ),
     );
     renderPage();
-    await userEvent.click(await screen.findByRole('button', { name: /demo-tools/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /obs-tools/ }));
 
     // 资源分组：uri / 名称 / 类型 + 读取入口
     expect(await screen.findByText('demo://greeting')).toBeInTheDocument();
@@ -317,7 +317,7 @@ describe('OAuth 授权', () => {
     );
     renderPage();
     await userEvent.click(await screen.findByRole('button', { name: 'OAuth 授权' }));
-    const dialog = await screen.findByRole('dialog', { name: 'OAuth 授权 · demo-tools' });
+    const dialog = await screen.findByRole('dialog', { name: 'OAuth 授权 · obs-tools' });
     await userEvent.click(within(dialog).getByRole('button', { name: '手动粘贴 Token' }));
     await userEvent.type(within(dialog).getByRole('textbox', { name: /Access Token/ }), 'tok-1');
     await userEvent.click(within(dialog).getByRole('button', { name: '保存 Token' }));
@@ -338,7 +338,7 @@ describe('OAuth 授权', () => {
     );
     renderPage();
     await userEvent.click(await screen.findByRole('button', { name: 'OAuth 授权' }));
-    const dialog = await screen.findByRole('dialog', { name: 'OAuth 授权 · demo-tools' });
+    const dialog = await screen.findByRole('dialog', { name: 'OAuth 授权 · obs-tools' });
     await userEvent.click(within(dialog).getByRole('button', { name: '解绑' }));
     const confirm = await screen.findByRole('dialog', { name: '解绑 Token？' });
     await userEvent.click(within(confirm).getByRole('button', { name: '解绑' }));

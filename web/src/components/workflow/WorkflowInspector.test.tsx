@@ -31,18 +31,18 @@ const catalog: WorkflowCatalog = {
       params_known: true,
     },
     {
-      server: 'demo-tools',
-      tool: 'add',
-      title: 'add',
-      description: '两数相加。',
+      server: 'obs-tools',
+      tool: 'query_metric',
+      title: 'query_metric',
+      description: '指标范围查询。',
       params: [
-        { name: 'a', type: 'int', required: true },
-        { name: 'b', type: 'int', required: true },
+        { name: 'metric', type: 'string', required: true },
+        { name: 'step', type: 'string', required: false, default: '60s' },
       ],
       params_known: true,
     },
     {
-      server: 'demo-tools',
+      server: 'obs-tools',
       tool: 'legacy',
       title: 'legacy',
       description: '旧缓存没有 schema',
@@ -120,8 +120,8 @@ describe('节点设置表单宽度', () => {
 describe('工具节点来源页签', () => {
   it('选中页签用主色实底，未选中页签保持弱化', () => {
     renderNode('mcp', (node) => {
-      node.mcp_server = 'demo-tools';
-      node.mcp_tool = 'add';
+      node.mcp_server = 'obs-tools';
+      node.mcp_tool = 'query_metric';
     });
 
     expect(screen.getByRole('tab', { name: 'MCP 工具' })).toHaveClass('bg-indigo-500');
@@ -181,20 +181,20 @@ describe('工具节点来源页签', () => {
 describe('MCP 工具参数', () => {
   it('按工具 input_schema 渲染参数表单', () => {
     renderNode('mcp', (node) => {
-      node.mcp_server = 'demo-tools';
-      node.mcp_tool = 'add';
-      node.arguments = { a: '{{x}}', b: '3' };
+      node.mcp_server = 'obs-tools';
+      node.mcp_tool = 'query_metric';
+      node.arguments = { metric: '{{x}}', step: '60s' };
     });
 
-    expect(screen.getByText('两数相加。')).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'a' })).toHaveValue('{{x}}');
-    expect(screen.getByRole('textbox', { name: 'b' })).toHaveValue('3');
-    expect(screen.getByRole('textbox', { name: 'a' })).toHaveAttribute('placeholder', '固定值或 {{变量}}');
+    expect(screen.getByText('指标范围查询。')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'metric' })).toHaveValue('{{x}}');
+    expect(screen.getByRole('textbox', { name: 'step' })).toHaveValue('60s');
+    expect(screen.getByRole('textbox', { name: 'metric' })).toHaveAttribute('placeholder', '固定值或 {{变量}}');
   });
 
   it('缓存没有 schema 时退回手动参数表', () => {
     renderNode('mcp', (node) => {
-      node.mcp_server = 'demo-tools';
+      node.mcp_server = 'obs-tools';
       node.mcp_tool = 'legacy';
     });
 

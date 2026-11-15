@@ -1,15 +1,15 @@
-# AI workbench service manager: backend (uvicorn :18080) + frontend (Vite :5173)
+# AI workbench service manager: backend (uvicorn :18080) + frontend (Vite :5173) + mcp (obs-tools SSE :18099)
 # Usage:
-#   scripts/service.ps1 start   [backend|frontend|all]   (default all)
-#   scripts/service.ps1 stop    [backend|frontend|all]
-#   scripts/service.ps1 restart [backend|frontend|all]
+#   scripts/service.ps1 start   [backend|frontend|mcp|all]   (default all)
+#   scripts/service.ps1 stop    [backend|frontend|mcp|all]
+#   scripts/service.ps1 restart [backend|frontend|mcp|all]
 param(
   [Parameter(Position = 0, Mandatory = $true)]
   [ValidateSet('start', 'stop', 'restart')]
   [string]$Action,
 
   [Parameter(Position = 1)]
-  [ValidateSet('backend', 'frontend', 'all')]
+  [ValidateSet('backend', 'frontend', 'mcp', 'all')]
   [string]$Target = 'all'
 )
 
@@ -81,6 +81,18 @@ function Start-One([string]$Name) {
       $Npm = (Get-Command npm.cmd -ErrorAction Stop).Source
       $Arg = "/c `"`"$Npm`" run dev`""
     }
+    'mcp' {
+      # 可观测 MCP（obs-tools）：SSE :18099，日志重定向到 logs/mcp.log
+      $Port = 18099
+      $WorkDir = Join-Path $Root "scripts\mcp-obs"
+      $Python = Join-Path $Root "backend\.venv\Scripts\python.exe"
+      if (-not (Test-Path $Python)) {
+        Write-Error "mcp missing backend/.venv; run: uv sync (in backend/)"
+      }
+      $env:PYTHONUTF8 = "1"
+      $LogFile = Join-Path $Logs "mcp.log"
+      $Arg = "/c `"`"$Python`" server.py > `"$LogFile`" 2>&1`""
+    }
   }
 
   $PidFile = Join-Path $Logs "$Name.pid"
@@ -107,8 +119,8 @@ function Start-One([string]$Name) {
   Write-Host "log=$Logs\$Name.log (logger overwrite)"
 }
 
-$ports = @{ backend = 18080; frontend = 5173 }
-$names = if ($Target -eq 'all') { @('backend', 'frontend') } else { @($Target) }
+$ports = @{ backend = 18080; frontend = 5173; mcp = 18099 }
+$names = if ($Target -eq 'all') { @('backend', 'frontend', 'mcp') } else { @($Target) }
 
 foreach ($name in $names) {
   switch ($Action) {

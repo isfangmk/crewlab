@@ -292,8 +292,11 @@ def tool_risk_map(server: McpServer) -> dict[str, str]:
     """每个缓存工具的风险标签：safe | approval_required（与内置工具 risk 词汇对齐）。
 
     只做展示；判定与 confirm_tool_names_for_servers 同源（_needs_approval）。
+    缓存为空（未探测/待重探）返回空映射——展示层不报错，执行层才要求缓存可用。
     """
 
+    if not server.tools_cache_json or server.tools_cache_json == "[]":
+        return {}
     policy = effective_approval_policy(server)
     result: dict[str, str] = {}
     for item in parse_cached_tools(
