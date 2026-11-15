@@ -94,12 +94,12 @@ export type UserInputAnswer = {
 };
 
 /** 批准并续跑：SSE 增量，供会话内打字机渲染。answer 仅澄清提问（ask_user）携带；
- * trustSession 是「本次对话后续不再询问」，置会话级免审（不豁免澄清提问）。 */
+ * trustScope 是免审范围：'tool' 本会话不再询问此工具 / 'all' 本会话不再询问所有工具。 */
 export async function streamApproveApproval(
   id: string,
   reason: string,
   cbs: StreamCallbacks,
-  opts?: { answer?: UserInputAnswer; signal?: AbortSignal; trustSession?: boolean },
+  opts?: { answer?: UserInputAnswer; signal?: AbortSignal; trustScope?: 'tool' | 'all' },
 ): Promise<Approval | null> {
   const headers: Record<string, string> = {
     Accept: 'text/event-stream',
@@ -115,7 +115,7 @@ export async function streamApproveApproval(
     body: JSON.stringify({
       reason,
       ...(opts?.answer ? { answer: opts.answer } : {}),
-      ...(opts?.trustSession ? { trust_session: true } : {}),
+      ...(opts?.trustScope ? { trust_scope: opts.trustScope } : {}),
     }),
     signal: opts?.signal,
   });

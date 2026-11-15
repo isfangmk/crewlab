@@ -358,12 +358,12 @@ async def stream_decide(
     confirmed: bool,
     reason: str,
     answer: dict | None = None,
-    trust_session: bool = False,
+    trust_scope: str | None = None,
 ) -> AsyncIterator[SseFrame]:
     """审批后续跑：边执行边产出与聊天流同构的 SSE 帧（含 assistant_delta）。
 
     answer 是澄清提问（kind=user_input）的用户回答；普通审批不带 answer。
-    trust_session 是「本次对话后续不再询问」：置会话级免审（仅审批闸门，不豁免提问）。
+    trust_scope 是免审范围（"tool" 仅此工具 / "all" 所有工具），仅审批闸门生效。
     """
 
     # 拒绝必须写原因；批准允许空说明
@@ -488,7 +488,7 @@ async def stream_decide(
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,
             answer=answer,
-            trust_session=trust_session,
+            trust_scope=trust_scope,
             sub_agents=await build_sub_agents_for_agent(
                 db,
                 resolved_agent,
@@ -582,7 +582,7 @@ async def _decide(
     confirmed: bool,
     reason: str,
     answer: dict | None = None,
-    trust_session: bool = False,
+    trust_scope: str | None = None,
 ) -> Approval:
     async for _frame in stream_decide(
         db,
@@ -590,7 +590,7 @@ async def _decide(
         confirmed=confirmed,
         reason=reason,
         answer=answer,
-        trust_session=trust_session,
+        trust_scope=trust_scope,
     ):
         pass
     return await get_approval(db, approval_id)
@@ -602,7 +602,7 @@ async def approve(
     *,
     reason: str = "",
     answer: dict | None = None,
-    trust_session: bool = False,
+    trust_scope: str | None = None,
 ) -> Approval:
     row = await _decide(
         db,
@@ -610,7 +610,7 @@ async def approve(
         confirmed=True,
         reason=reason,
         answer=answer,
-        trust_session=trust_session,
+        trust_scope=trust_scope,
     )
     row.decision_reason = reason
     await db.commit()

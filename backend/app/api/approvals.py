@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -30,8 +31,9 @@ class ApproveBody(BaseModel):
     reason: str = ""
     # 澄清提问（kind=user_input）的用户回答 {selected, values, text}；普通审批不带
     answer: dict | None = None
-    # 「本次对话后续不再询问」：置会话级免审（仅审批闸门，不豁免澄清提问）
-    trust_session: bool = False
+    # 免审范围：仅审批闸门生效，不豁免澄清提问
+    #   "tool" = 本次对话不再询问此工具；"all" = 本次对话不再询问所有工具；None = 仅本次
+    trust_scope: Literal["tool", "all"] | None = None
 
 
 class BatchDecideBody(BaseModel):
@@ -117,7 +119,7 @@ async def approve(
             approval_id,
             reason=body.reason,
             answer=body.answer,
-            trust_session=body.trust_session,
+            trust_scope=body.trust_scope,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -183,7 +185,7 @@ async def approve_stream(
                 confirmed=True,
                 reason=body.reason,
                 answer=body.answer,
-                trust_session=body.trust_session,
+                trust_scope=body.trust_scope,
             ):
                 yield {
                     "event": frame.event,

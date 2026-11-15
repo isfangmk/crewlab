@@ -1,4 +1,4 @@
-"""会话级免审：批准时勾「后续不再询问」后确认名单内工具放行；澄清提问不受影响。"""
+"""会话级免审：批准时选免审范围后，名单内工具放行；澄清提问不受影响。"""
 
 from __future__ import annotations
 
@@ -39,17 +39,31 @@ class _FakeTool:
 
 
 @pytest.mark.asyncio
-async def test_trust_payload_opens_session_trust() -> None:
-    """确认帧带 trust_session 时置会话级免审并放行本次调用。"""
+async def test_trust_all_payload_opens_trust_for_all_tools() -> None:
+    """确认帧带 trust_session="all" 时置全量免审并放行本次调用。"""
 
     callback = build_before_tool_callback({"mcp__add-work__whoami"})
     ctx, requested = _fake_tool_context(
-        ToolConfirmation(confirmed=True, payload={"trust_session": True})
+        ToolConfirmation(confirmed=True, payload={"trust_session": "all"})
     )
     result = await callback(_FakeTool(), {"real_name": "测试"}, ctx)
     assert result is None
     assert requested == []
-    assert ctx.state[SESSION_TRUST_KEY] is True
+    assert ctx.state[SESSION_TRUST_KEY] == "all"
+
+
+@pytest.mark.asyncio
+async def test_trust_tool_payload_opens_trust_for_single_tool() -> None:
+    """确认帧带 trust_session="tool" 时把该工具加进免审名单。"""
+
+    callback = build_before_tool_callback({"mcp__add-work__whoami"})
+    ctx, requested = _fake_tool_context(
+        ToolConfirmation(confirmed=True, payload={"trust_session": "tool"})
+    )
+    result = await callback(_FakeTool(), {}, ctx)
+    assert result is None
+    assert requested == []
+    assert ctx.state[SESSION_TRUST_KEY] == ["mcp__add-work__whoami"]
 
 
 @pytest.mark.asyncio
@@ -57,10 +71,29 @@ async def test_session_trust_skips_confirmation() -> None:
     """已置免审的会话，名单内工具直接放行，不再弹审批。"""
 
     callback = build_before_tool_callback({"mcp__add-work__whoami"})
-    ctx, requested = _fake_tool_context(None, state={SESSION_TRUST_KEY: True})
-    result = await callback(_FakeTool(), {}, ctx)
-    assert result is None
-    assert requested == []
+
+    ctx_all, requested_all = _fake_tool_context(None, state={SESSION_TRUST_KEY: "all"})
+    assert await callback(_FakeTool(), {}, ctx_all) is None
+    assert requested_all == []
+
+    ctx_tool, requested_tool = _fake_tool_context(
+        None, state={SESSION_TRUST_KEY: ["mcp__add-work__whoami"]}
+    )
+    assert await callback(_FakeTool(), {}, ctx_tool) is None
+    assert requested_tool == []
+
+
+@pytest.mark.asyncio
+async def test_trust_single_tool_does_not_cover_other_tools() -> None:
+    """单工具免审只覆盖名单内的工具；名单外的工具照常暂停等确认。"""
+
+    callback = build_before_tool_callback({"mcp__add-work__whoami", "mcp__add-work__list_dir"})
+    ctx, requested = _fake_tool_context(
+        None, state={SESSION_TRUST_KEY: ["mcp__add-work__whoami"]}
+    )
+    result = await callback(SimpleNamespace(name="mcp__add-work__list_dir"), {}, ctx)
+    assert result == {"error": _PENDING_CONFIRMATION_ERROR}
+    assert len(requested) == 1
 
 
 @pytest.mark.asyncio
@@ -79,7 +112,7 @@ async def test_session_trust_does_not_skip_ask_user() -> None:
     """澄清提问不是审批：会话级免审不豁免 ask_user，照常暂停等作答。"""
 
     callback = build_before_tool_callback(set(), set())
-    ctx, requested = _fake_tool_context(None, state={SESSION_TRUST_KEY: True})
+    ctx, requested = _fake_tool_context(None, state={SESSION_TRUST_KEY: "all"})
     result = await callback(
         SimpleNamespace(name="ask_user"),
         {"question": "请补充中文姓名", "options": ["周一", "周三"], "fields": []},

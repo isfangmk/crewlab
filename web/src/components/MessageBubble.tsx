@@ -25,7 +25,7 @@ import { cn } from '@/lib/cn';
 import { isConfigDraftConfirmationMessage } from '@/lib/configDraftConfirmation';
 import { useI18n } from '@/i18n/locale';
 import { useTimeout } from '@/lib/useTimeout';
-import { Button, Checkbox, Chip, ChoiceChip, CodeBlock, Input, Label, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
+import { Button, Chip, ChoiceChip, CodeBlock, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, Label, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
 import { Modal } from '@/components/Modal';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
@@ -803,8 +803,6 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
   const [approvedToolName, setApprovedToolName] = useState(toolName);
   const [creds, setCreds] = useState<string[]>([]);
   const [rejectOpen, setRejectOpen] = useState(false);
-  // 「本次对话后续不再询问」：批准时随确认帧置会话级免审（不豁免澄清提问）
-  const [trustSession, setTrustSession] = useState(false);
   const isHostBash = approvalKind === 'host_bash';
 
   // 与审批页权威状态对齐：mount 拉一次；idle 时短轮询，跨页批准后能切到已执行。
@@ -898,8 +896,8 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [approvalID]);
 
-  // 批准直接执行，不再二次确认弹窗。
-  const approve = async () => {
+  // 批准直接执行，不再二次确认弹窗；trustScope 决定本会话免审范围（缺省仅本次）。
+  const approve = async (trustScope?: 'tool' | 'all') => {
     setState('busy');
     emitChatLive({ type: 'approval_decided', approvalId: approvalID });
     emitChatLive({ type: 'busy', busy: true });
@@ -915,7 +913,7 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
           onToolEnd: (event) => emitChatLive({ type: 'tool_end', event }),
           onApprovalPending: (event) => emitChatLive({ type: 'approval_pending', event }),
         },
-        { trustSession: trustSession || undefined },
+        { trustScope },
       );
       if (a === null) {
         throw new Error('审批流未返回 approval_done');
@@ -1001,38 +999,56 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
           </div>
         )}
         {state === 'idle' && (
-          <div className="space-y-2">
-            <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-zinc-400">
-              <Checkbox
-                checked={trustSession}
-                onCheckedChange={(v) => setTrustSession(v === true)}
-                aria-label={tr('本次对话后续不再询问', 'Do not ask again in this conversation')}
-              />
-              <span
-                title={tr(
-                  '勾选后，本会话内所有需确认的工具将直接执行；智能体的澄清提问仍会询问',
-                  'Once checked, all confirmation-gated tools run without asking in this conversation; agent questions are still asked',
-                )}
-              >
-                {tr('本次对话后续不再询问', 'Do not ask again in this conversation')}
-              </span>
-            </label>
-            <div className="flex gap-2">
-              <Button variant="primary" size="sm"
+          <div className="flex items-center gap-2">
+            {/* 主按钮 = 仅本次批准；箭头下拉 = 本会话免审范围（此工具 / 所有工具） */}
+            <div className="flex items-center">
+              <Button
+                variant="primary"
+                size="sm"
                 type="button"
+                className="rounded-r-none"
+                title={tr('仅本次批准，下次调用仍会询问', 'Approve once; the next call will ask again')}
                 onClick={() => void approve()}
               >
                 <Check size={12} />
                 {tr('批准并执行', 'Approve & run')}
               </Button>
-              <Button variant="dangerGhost" size="sm"
-                type="button"
-                onClick={() => setRejectOpen(true)}
-              >
-                <X size={12} />
-                {tr('拒绝', 'Reject')}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="rounded-l-none border-l border-white/20 px-1"
+                      aria-label={tr('批准选项', 'Approve options')}
+                    />
+                  }
+                >
+                  <ChevronDown size={12} aria-hidden />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    title={tr('本会话内此工具的后续调用直接执行', 'Later calls of this tool run without asking in this conversation')}
+                    onClick={() => void approve('tool')}
+                  >
+                    {tr('批准并在本会话中信任此工具', 'Approve and trust this tool in this conversation')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    title={tr('本会话内所有需确认工具直接执行；澄清提问仍会询问', 'All confirmation-gated tools run without asking in this conversation; agent questions are still asked')}
+                    onClick={() => void approve('all')}
+                  >
+                    {tr('批准并在本会话中信任所有工具', 'Approve and trust all tools in this conversation')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
+            <Button variant="dangerGhost" size="sm"
+              type="button"
+              onClick={() => setRejectOpen(true)}
+            >
+              <X size={12} />
+              {tr('拒绝', 'Reject')}
+            </Button>
           </div>
         )}
         {state === 'busy' && <div className="flex items-center gap-1.5 text-zinc-400"><Loader2 size={12} className="animate-spin" />{tr('执行中…', 'Running…')}</div>}
