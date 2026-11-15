@@ -802,22 +802,6 @@ describe('MessageBubble 建议问题与回答统计', () => {
   });
 });
 
-describe('MessageBubble 时间戳', () => {
-  it('用户气泡带创建时刻', () => {
-    const iso = new Date(2026, 10, 15, 8, 9, 10).toISOString();
-    render(<MessageBubble message={{ id: 'u1', role: 'user', content: '你好', created_at: iso }} />);
-    expect(screen.getByText('08:09:10')).toBeInTheDocument();
-  });
-
-  it('无统计但有时刻时统计行只显示时间，不带 tokens/耗时', () => {
-    const iso = new Date(2026, 10, 15, 20, 30, 0).toISOString();
-    render(<MessageBubble message={{ id: 'a1', role: 'assistant', content: '好', created_at: iso }} />);
-    expect(screen.getByText('20:30:00')).toBeInTheDocument();
-    expect(screen.queryByText(/tokens/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/耗时/)).not.toBeInTheDocument();
-  });
-});
-
 describe('MessageBubble 失败工具原始错误', () => {
   it('折叠态露出错误预览，展开后「原始错误」独立成区且与结果分开', async () => {
     render(<MessageBubble message={{

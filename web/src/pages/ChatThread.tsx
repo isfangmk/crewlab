@@ -18,8 +18,6 @@ import {
   type ConfigDraftResult,
 
 } from '@/components/MessageBubble';
-import { TurnTimeline } from '@/components/TurnTimeline';
-import { groupTurns } from '@/lib/timeline';
 
 import { AgentBadge } from '@/components/AgentBadge';
 import { ArtifactsPanel } from '@/components/ArtifactsPanel';
@@ -1897,9 +1895,6 @@ export default function ChatThreadPage() {
 
   const renderedMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
 
-  // 回合时间线分组：纯视图变换，消息状态结构与流式合并不动
-  const turnGroups = useMemo(() => groupTurns(renderedMessages), [renderedMessages]);
-
   useAssistantPage('完整会话', 'Conversation', {
 
     session_id: sessionId,
@@ -2061,44 +2056,33 @@ export default function ChatThreadPage() {
 
             ) : (
 
-              turnGroups.map((group) => (
+              renderedMessages.map((m) => (
 
-                <TurnTimeline
+                <MessageBubble
 
-                  key={group.key}
+                  key={m.id}
 
-                  group={group}
+                  message={m}
 
-                  renderMessage={(m) => (
+                  sessionId={sessionId}
 
-                    <MessageBubble
+                  actionsDisabled={submitting}
 
-                      message={m}
+                  followupsActive={!isViewer && m.id === latestAssistantId}
 
-                      sessionId={sessionId}
+                  onUseSuggestion={isViewer ? undefined : useSuggestion}
 
-                      actionsDisabled={submitting}
+                  onRegenerate={isViewer ? undefined : regenerate}
 
-                      followupsActive={!isViewer && m.id === latestAssistantId}
+                  onFork={isViewer ? undefined : forkFrom}
 
-                      onUseSuggestion={isViewer ? undefined : useSuggestion}
+                  onEditResend={isViewer ? undefined : editResend}
 
-                      onRegenerate={isViewer ? undefined : regenerate}
-
-                      onFork={isViewer ? undefined : forkFrom}
-
-                      onEditResend={isViewer ? undefined : editResend}
-
-                      onConfirmConfigDraft={isViewer ? undefined : confirmConfigDraft}
-
-                    />
-
-                  )}
+                  onConfirmConfigDraft={isViewer ? undefined : confirmConfigDraft}
 
                 />
 
               ))
-
             )}
 
             {submitting &&

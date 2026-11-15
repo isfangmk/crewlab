@@ -25,7 +25,6 @@ import { emitChatLive } from '@/lib/chatLiveBus';
 import { cn } from '@/lib/cn';
 import { isConfigDraftConfirmationMessage } from '@/lib/configDraftConfirmation';
 import { parseFollowups } from '@/lib/followups';
-import { formatClock } from '@/lib/timeline';
 import { useI18n } from '@/i18n/locale';
 import { useTimeout } from '@/lib/useTimeout';
 import { Button, Chip, ChoiceChip, CodeBlock, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, Label, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
@@ -234,11 +233,6 @@ function UserBubble({ message, sessionId, actionsDisabled, onEditResend, onRegen
         )}
         {content && <div>{content}</div>}
       </div>
-      {message.created_at && (
-        <time className="px-1 font-sans text-[10.5px] tabular-nums text-zinc-500" dateTime={message.created_at}>
-          {formatClock(message.created_at)}
-        </time>
-      )}
       {editing ? (
         <div className="w-full max-w-[78%] space-y-2 rounded-xl border border-zinc-700/60 bg-zinc-900/60 p-2">
           <Textarea
@@ -437,7 +431,7 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
           </div>
         </div>
       )}
-      {(stats != null && Object.keys(stats).length > 0) || message.created_at ? (
+      {stats != null && Object.keys(stats).length > 0 ? (
         <div
           className="ml-auto flex items-center gap-1.5 text-[10.5px] text-zinc-500"
           title={
@@ -446,12 +440,6 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
               : undefined
           }
         >
-          {message.created_at && (
-            <time className="font-sans tabular-nums" dateTime={message.created_at}>
-              {formatClock(message.created_at)}
-            </time>
-          )}
-          {stats?.duration_ms !== undefined && <span>·</span>}
           {stats?.duration_ms !== undefined && (
             <span>{tr(`耗时 ${formatDuration(stats.duration_ms)}`, formatDuration(stats.duration_ms))}</span>
           )}
