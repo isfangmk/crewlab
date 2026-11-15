@@ -1,5 +1,5 @@
 import { Hint } from '@/components/ui/Tooltip';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { resolveToolStatus } from '@/lib/toolStatus';
 import {
   AlertCircle,
@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Copy,
   GitBranch,
+  Lightbulb,
   Loader2,
   MessageSquare,
   Pencil,
@@ -23,6 +24,7 @@ import { streamApproveApproval, rejectApproval, getApproval, type UserInputAnswe
 import { emitChatLive } from '@/lib/chatLiveBus';
 import { cn } from '@/lib/cn';
 import { isConfigDraftConfirmationMessage } from '@/lib/configDraftConfirmation';
+import { parseFollowups } from '@/lib/followups';
 import { useI18n } from '@/i18n/locale';
 import { useTimeout } from '@/lib/useTimeout';
 import { Button, Chip, ChoiceChip, CodeBlock, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, Label, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
@@ -62,6 +64,10 @@ type Props = {
   onRegenerate?(message: ChatMessage): void;
   onFork?(message: ChatMessage): void;
   onEditResend?(message: ChatMessage, content: string): void;
+  /** 建议问题可点：仅会话中最新一条回答且未点过为 true；其余整组禁用 */
+  followupsActive?: boolean;
+  /** 点击建议问题：填入输入框并立即发送 */
+  onUseSuggestion?(text: string): void;
 };
 
 export function MessageBubble({
@@ -72,6 +78,8 @@ export function MessageBubble({
   onRegenerate,
   onFork,
   onEditResend,
+  followupsActive,
+  onUseSuggestion,
 }: Props) {
   if ((message.kind === 'tool_card' || message.role === 'tool') && message.tool_call) {
     return <ToolCallBlock call={fromSummary(message.tool_call)} onConfirmConfigDraft={onConfirmConfigDraft} />;
@@ -106,6 +114,8 @@ export function MessageBubble({
     <AssistantBubble
       message={message}
       onConfirmConfigDraft={onConfirmConfigDraft}
+      followupsActive={followupsActive}
+      onUseSuggestion={onUseSuggestion}
     />
   );
 }
@@ -323,15 +333,23 @@ function compactUserContent(
   return tr('确认创建这条告警规则', 'Confirm creating this alert rule');
 }
 
-function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
+function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUseSuggestion }: Props) {
   // Codex-style: no rounded card around assistant prose. Render markdown
   // flush against the column so headings/lists/code blocks read like a
   // document. Tool calls (when attached) appear as their own rows inside
   // the same column, matching the doc-card aesthetic.
   // 流式只渲染已到正文；底部 ThinkingIndicator 表示进行中，不在气泡内再叠三点。
-  const body = message.content ?? '';
+  const { tr } = useI18n();
+  // 建议问题块是界面元数据：剥离出正文，单独渲染成可点 chip 组
+  const { body, questions } = useMemo(() => parseFollowups(message.content ?? ''), [message.content]);
+  // 记住被点的那条并高亮「已提问」；点一次即发问，整组随即失效
+  const [usedQuestion, setUsedQuestion] = useState<string | null>(null);
   // 本回答用到的检索结果统一收口到气泡底部一块，工具卡内与卡下都不重复列
   const sources = collectToolSources(message.tool_calls);
+  const stats = message.stats ?? null;
+  const followupsDisabled =
+    usedQuestion !== null || followupsActive === false || onUseSuggestion === undefined;
+  const fmtTokens = (n: number) => n.toLocaleString('en-US');
   return (
     <div className="flex flex-col items-stretch gap-2">
       {body !== '' && (
@@ -349,6 +367,77 @@ function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
         />
       ))}
       {sources.length > 0 && <SearchResults sources={sources} />}
+      {questions.length > 0 && !message.pending && (
+        // 建议组是可点入口而非消息气泡：独立面板与用户后续提问明显区分
+        <div className="flex flex-col gap-2 rounded-lg border border-zinc-800/60 bg-zinc-900/40 px-3.5 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-indigo-500/25 via-indigo-500/10 to-transparent text-indigo-300 ring-1 ring-inset ring-indigo-500/20">
+              <Lightbulb size={12} />
+            </span>
+            <span className="text-[11px] font-medium text-zinc-300">{tr('猜你想问', 'You may want to ask')}</span>
+            <span className="ml-auto text-[10px] text-zinc-600">{tr('点击直接提问', 'Click to ask')}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {questions.map((q) => {
+              const used = usedQuestion === q;
+              return (
+                <button
+                  key={q}
+                  type="button"
+                  disabled={followupsDisabled}
+                  onClick={() => {
+                    setUsedQuestion(q);
+                    onUseSuggestion?.(q);
+                  }}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-left text-[11.5px] leading-none transition-colors',
+                    used
+                      ? // 被点的那条：高亮 + 对勾 + 「已提问」，一眼看出选了哪个
+                        'border-indigo-500/50 bg-indigo-500/15 text-indigo-200'
+                      : 'border-zinc-800/60 bg-zinc-900/50 text-zinc-300 hover:border-indigo-500/40 hover:bg-indigo-500/10 hover:text-indigo-200',
+                    !used &&
+                      followupsDisabled &&
+                      'cursor-not-allowed border-zinc-800/60 bg-zinc-900/40 text-zinc-600 opacity-60 hover:border-zinc-800/60 hover:bg-zinc-900/40 hover:text-zinc-600',
+                  )}
+                >
+                  {used && <Check size={11} className="shrink-0" />}
+                  <span>{q}</span>
+                  {used && <span className="shrink-0 text-[10px] text-indigo-300/70">{tr('已提问', 'Asked')}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {stats != null && Object.keys(stats).length > 0 && (
+        <div
+          className="ml-auto flex items-center gap-1.5 text-[10.5px] text-zinc-500"
+          title={
+            stats.total_tokens !== undefined
+              ? `${tr('总计', 'total')} ${fmtTokens(stats.total_tokens)} tokens`
+              : undefined
+          }
+        >
+          {stats.duration_ms !== undefined && (
+            <span>{tr(`耗时 ${formatDuration(stats.duration_ms)}`, formatDuration(stats.duration_ms))}</span>
+          )}
+          {stats.duration_ms !== undefined && <span>·</span>}
+          {stats.prompt_tokens !== undefined && stats.completion_tokens !== undefined ? (
+            <span>
+              {tr(
+                `输入 ${fmtTokens(stats.prompt_tokens)} / 输出 ${fmtTokens(stats.completion_tokens)} tokens`,
+                `in ${fmtTokens(stats.prompt_tokens)} / out ${fmtTokens(stats.completion_tokens)} tokens`,
+              )}
+            </span>
+          ) : stats.prompt_tokens !== undefined ? (
+            <span>{tr(`输入 ${fmtTokens(stats.prompt_tokens)} tokens`, `in ${fmtTokens(stats.prompt_tokens)} tokens`)}</span>
+          ) : stats.completion_tokens !== undefined ? (
+            <span>{tr(`输出 ${fmtTokens(stats.completion_tokens)} tokens`, `out ${fmtTokens(stats.completion_tokens)} tokens`)}</span>
+          ) : stats.total_tokens !== undefined ? (
+            <span>{fmtTokens(stats.total_tokens)} tokens</span>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

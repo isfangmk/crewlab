@@ -71,29 +71,35 @@ export function FilterPill({ label, active, onClear, width, children }: FilterPi
   );
 }
 
-// 单选条件胶囊：用于风险、类别、状态等固定枚举筛选。
+// 单选条件胶囊：用于风险、类别、状态等固定枚举筛选；也可作一次性点击入口（disabled）。
 export function ChoiceChip({
   active,
   label,
   count,
+  disabled,
   onClick,
 }: {
   active: boolean;
   label: string;
   /** 可选的计数，展示在文案右侧。 */
   count?: number;
+  /** 禁用（如已用过的建议问题）：降透明度、禁止点击 */
+  disabled?: boolean;
   onClick(): void;
 }) {
   return (
     <button
       type="button"
       aria-pressed={active}
+      disabled={disabled}
       onClick={onClick}
       className={cn(
         'inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] leading-none transition-colors',
         active
           ? 'border-zinc-600 bg-zinc-800 text-zinc-100'
           : 'border-zinc-800/60 bg-zinc-900/50 text-zinc-400 hover:border-zinc-700 hover:bg-zinc-800/60 hover:text-zinc-200',
+        disabled &&
+          'cursor-not-allowed opacity-40 hover:border-zinc-800/60 hover:bg-zinc-900/50 hover:text-zinc-400',
       )}
     >
       {label}

@@ -211,6 +211,8 @@ def message_to_wire(m: ChatMessage, *, attachments: list[dict] | None = None) ->
         "content": m.content,
         "tool_call": tool_call,
         "created_at": m.created_at.isoformat(),
+        # 回答统计（耗时 / token）；无统计为 None，禁止假 0
+        "stats": json.loads(m.stats_json) if m.stats_json else None,
     }
     if attachments is not None and len(attachments) > 0:
         wire["attachments"] = attachments
@@ -1106,6 +1108,7 @@ async def _add_message(
     content: str | None,
     tool_call: dict | None,
     attachment_ids: list[str] | None = None,
+    stats: dict | None = None,
 ) -> ChatMessage:
     seq = await _next_seq(db, session_id)
     attachments_json = None
@@ -1123,6 +1126,7 @@ async def _add_message(
             else None
         ),
         attachments_json=attachments_json,
+        stats_json=json.dumps(stats, ensure_ascii=False) if stats else None,
         seq=seq,
     )
     db.add(msg)
@@ -1193,7 +1197,9 @@ class AdkFramePersister:
         # 本回合实际使用的模型上下文；审批恢复必须沿用它
         self._turn_context: dict | None = turn_context
 
-    async def _flush_assistant_segment(self, message_id: str) -> None:
+    async def _flush_assistant_segment(
+        self, message_id: str, stats: dict | None = None
+    ) -> None:
         parts = self._assistant_segments.pop(message_id, None)
         if parts is None or len(parts) == 0:
             return
@@ -1213,6 +1219,7 @@ class AdkFramePersister:
             kind="message",
             content=content,
             tool_call=None,
+            stats=stats,
         )
 
     async def persist(self, frame: SseFrame) -> SseFrame:
@@ -1405,8 +1412,22 @@ class AdkFramePersister:
             bucket.append(delta)
             return frame
         if frame.event == "done":
+            # 运行统计（耗时 / token）挂到本运行最后一条 assistant 气泡；缺失键不写，禁止假 0
+            stats: dict = {}
+            data = frame.data if isinstance(frame.data, dict) else {}
+            duration_ms = data.get("duration_ms")
+            if isinstance(duration_ms, int):
+                stats["duration_ms"] = duration_ms
+            usage = data.get("usage")
+            if isinstance(usage, dict):
+                for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                    value = usage.get(key)
+                    if isinstance(value, int):
+                        stats[key] = value
             if self._current_assistant_id is not None:
-                await self._flush_assistant_segment(self._current_assistant_id)
+                await self._flush_assistant_segment(
+                    self._current_assistant_id, stats=stats if stats else None
+                )
                 self._current_assistant_id = None
             for leftover_id, leftover_parts in list(self._assistant_segments.items()):
                 if len(leftover_parts) == 0:

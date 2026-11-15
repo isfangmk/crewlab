@@ -103,6 +103,8 @@ async def build_sub_agents_for_agent(
                 include_builtin_tools=True,
                 # 子 Agent 无人值守：澄清提问只在根 Agent（与用户直接对话）上
                 include_ask_user=False,
+                # 建议问题块也只在与用户直接对话时输出
+                include_followups=False,
                 sub_agents=await build_sub_agents_for_agent(
                     db,
                     sub,

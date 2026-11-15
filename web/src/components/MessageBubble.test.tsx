@@ -741,3 +741,63 @@ describe('MessageBubble 正文围栏', () => {
     expect(screen.queryByText('图表生成中…')).not.toBeInTheDocument();
   });
 });
+
+describe('MessageBubble 建议问题与回答统计', () => {
+  const contentWithFollowups = '这是回答。\n\n```suggestions\n查上周的工时\n导出为表格\n```';
+
+  it('剥离建议块正文并渲染可点建议组', async () => {
+    const onUseSuggestion = vi.fn();
+    render(<MessageBubble
+      message={{ id: 'a1', role: 'assistant', content: contentWithFollowups }}
+      followupsActive
+      onUseSuggestion={onUseSuggestion}
+    />);
+    expect(screen.getByText('这是回答。')).toBeInTheDocument();
+    // 建议块是元数据：不进正文
+    expect(screen.queryByText(/```suggestions/)).not.toBeInTheDocument();
+    expect(screen.getByText('猜你想问')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '查上周的工时' }));
+    expect(onUseSuggestion).toHaveBeenCalledWith('查上周的工时');
+  });
+
+  it('点中的选项高亮「已提问」，其余整组失效；历史回答整组禁用', async () => {
+    const onUseSuggestion = vi.fn();
+    const { rerender } = render(<MessageBubble
+      message={{ id: 'a1', role: 'assistant', content: contentWithFollowups }}
+      followupsActive
+      onUseSuggestion={onUseSuggestion}
+    />);
+    await userEvent.click(screen.getByRole('button', { name: '查上周的工时' }));
+    // 被点的那条可见「已提问」标记，一眼看出选了哪个
+    expect(screen.getByText('已提问')).toBeInTheDocument();
+    // 点过的与未点过的都不能再点
+    expect(screen.getByRole('button', { name: /查上周的工时/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '导出为表格' })).toBeDisabled();
+    // 历史回答（会话已推进）：整组禁用
+    rerender(<MessageBubble
+      message={{ id: 'a1', role: 'assistant', content: contentWithFollowups }}
+      followupsActive={false}
+      onUseSuggestion={onUseSuggestion}
+    />);
+    expect(screen.getByRole('button', { name: /查上周的工时/ })).toBeDisabled();
+  });
+
+  it('右下角渲染耗时与 token 输入/输出拆分', () => {
+    render(<MessageBubble message={{
+      id: 'a2',
+      role: 'assistant',
+      content: '好',
+      stats: { duration_ms: 3210, prompt_tokens: 900, completion_tokens: 334, total_tokens: 1234 },
+    }} />);
+    expect(screen.getByText(/耗时 3\.2s/)).toBeInTheDocument();
+    expect(screen.getByText(/输入 900 \/ 输出 334 tokens/)).toBeInTheDocument();
+    // 总量放悬浮提示
+    expect(screen.getByTitle('总计 1,234 tokens')).toBeInTheDocument();
+  });
+
+  it('无统计不渲染统计行（禁止假 0）', () => {
+    render(<MessageBubble message={{ id: 'a3', role: 'assistant', content: '好' }} />);
+    expect(screen.queryByText(/tokens/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/耗时/)).not.toBeInTheDocument();
+  });
+});

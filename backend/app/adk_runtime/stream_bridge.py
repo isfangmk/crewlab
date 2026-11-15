@@ -268,6 +268,7 @@ async def _iter_runner_events(
     # 审批恢复：新缓冲没有 tool_start，用决策时刻作为耗时起点
     if seed_tool_started_at is not None:
         buf.pending_tool_started_at.update(seed_tool_started_at)
+    run_started_at = time.monotonic()
     adk_seq = 0
     sse_seq = 0
     # 累计 ADK usage；拿不到则 done 里显式 null，禁止假 0
@@ -569,6 +570,7 @@ async def _iter_runner_events(
                 "completion_tokens": usage_completion,
                 "total_tokens": usage_total,
             },
+            "duration_ms": round((time.monotonic() - run_started_at) * 1000),
             "iterations": 1,
             "had_final_text": buf.had_answer_text,
         },
@@ -622,6 +624,7 @@ async def stream_adk_turn(
     knowledge_scope: KnowledgeScope | None = None,
     skills: list[Any] | None = None,
     sub_agents: list[Any] | None = None,
+    include_followups: bool = True,
 ) -> AsyncIterator[SseFrame]:
     """跑一轮用户对话；可附带图片多模态 parts。"""
 
@@ -644,6 +647,7 @@ async def stream_adk_turn(
         knowledge_scope=knowledge_scope,
         skills=skills,
         sub_agents=sub_agents,
+        include_followups=include_followups,
     )
     runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
     existing = await session_service.get_session(

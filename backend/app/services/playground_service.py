@@ -107,6 +107,8 @@ async def stream_preview(
         knowledge_scope=agent.knowledge_scope,
         skills=tool_bundle.runtime_skills,
         sub_agents=None,
+        # 试跑台是原始文本面板，不输出建议问题块
+        include_followups=False,
     ):
         yield frame
     logger.info("Playground 试跑结束 session_id=%s model=%s", session_id, use_model)

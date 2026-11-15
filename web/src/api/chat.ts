@@ -28,6 +28,14 @@ export type ToolCallSummary = {
   result_raw?: string;
 };
 
+/** 回答统计（耗时 / token）；缺失键不显示，禁止假 0。 */
+export type MessageStats = {
+  duration_ms?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
 export type ChatMessage = {
   // 服务端消息 id 为 UUID；乐观渲染阶段客户端会先用短 id（如 user-<ts>）。
   id: string;
@@ -42,6 +50,8 @@ export type ChatMessage = {
   // tool_card / tool_intent / thinking（reasoning，与正文分离）
   kind?: 'tool_card' | 'tool_intent' | 'message' | 'thinking';
   tool_call?: ToolCallSummary;
+  /** 运行结束的最后一条 assistant 气泡携带；历史回放走同一字段 */
+  stats?: MessageStats | null;
 };
 
 export type ChatSession = {
@@ -94,6 +104,8 @@ export type PostMessageResponse = {
   assistant_message: AssistantMessage;
   tool_calls: ToolCallSummary[];
   usage: Usage;
+  /** 本次运行耗时（毫秒）；停止路径可能缺失 */
+  duration_ms?: number | null;
   iterations: number;
 };
 
@@ -443,9 +455,18 @@ export type StreamCallbacks = {
 export async function consumeSseResponse(res: Response, cbs: StreamCallbacks): Promise<void> {
   await readSseFrames(res, async (frame) => {
     if (frame.event === 'assistant_delta' || frame.event === 'thinking_delta') {
-      // 打字机按帧渲染：让出一帧再收下一帧，避免高频 delta 把主线程占满
+      // 打字机按帧渲染：让出一帧再收下一帧，避免高频 delta 把主线程占满。
+      // 隐藏/离屏页 rAF 不触发，必须用定时器兜底，否则读帧循环会饿死、流式永久卡住。
       await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve());
+        let settled = false;
+        const finish = () => {
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+        };
+        requestAnimationFrame(() => finish());
+        setTimeout(finish, 16);
       });
     }
     dispatchFrame(frame.event, frame.data, cbs);

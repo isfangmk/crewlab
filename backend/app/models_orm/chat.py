@@ -54,6 +54,8 @@ class ChatMessage(Base):
     tool_call_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 用户消息引用的附件 id 列表（JSON 数组）；无附件时为 NULL
     attachments_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 回答统计（耗时 / token），仅运行结束的最后一条 assistant 气泡写入；缺失为 NULL 不造假 0
+    stats_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         AwareDateTime(), server_default=func.now(), nullable=False

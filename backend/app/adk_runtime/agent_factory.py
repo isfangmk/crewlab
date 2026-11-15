@@ -37,6 +37,17 @@ CHAT_AGENT_INSTRUCTION = (
     "按最合理假设继续并在结果中注明假设。"
 )
 
+# 建议问题块：前端 parseFollowups 按同一规约解析（```suggestions 围栏、末尾、一行一问）。
+# 只在与用户直接对话的根 Agent 上启用（include_followups 闸门）。
+FOLLOWUPS_INSTRUCTION = (
+    "建议问题（仅与用户直接对话时）：每次向用户回答完毕后，末尾另起一段输出围栏块：\n"
+    "```suggestions\n问题一\n问题二\n```\n"
+    "给 2-3 个用户接下来最可能追问的相关问题，一行一个、简短疑问句，不重复已答内容；"
+    "没有自然的追问就不输出该块。该块是界面渲染用的元数据，不算正文，"
+    "输出格式要求只约束围栏块之前的回答；若输出格式要求严格 JSON 或纯清单，"
+    "则省略该块、格式优先。被委派的子任务结果不要带该块。"
+)
+
 
 def build_chat_agent(
     *,
@@ -61,6 +72,7 @@ def build_chat_agent(
     adk_name: str | None = None,
     include_builtin_tools: bool = True,
     include_ask_user: bool = True,
+    include_followups: bool = True,
 ) -> LlmAgent:
     """按配置-模型与助理人设装配 LlmAgent；extra_tools 挂 MCP SearchableToolset 等。
 
@@ -69,6 +81,7 @@ def build_chat_agent(
     不能对所有 provider 强加 openai/ 前缀或 DeepSeek 的 thinking 字段。
     max_turns 在此校验并记入装配日志；实际限轮由 Runner 的 RunConfig.max_llm_calls 生效。
     include_ask_user=False 用于子 Agent：澄清提问只在与用户直接对话的根 Agent 上。
+    include_followups=False 用于子 Agent 与试跑台：建议问题块只在与用户直接对话时输出。
     """
 
     if llm_timeout_seconds < 30 or llm_timeout_seconds > 900:
@@ -88,6 +101,8 @@ def build_chat_agent(
         instruction = CHAT_AGENT_INSTRUCTION
     else:
         instruction = f"{CHAT_AGENT_INSTRUCTION}\n\n{persona_instruction}"
+    if include_followups:
+        instruction = f"{instruction}\n\n{FOLLOWUPS_INSTRUCTION}"
 
     extra_body = dict(provider_extra_body) if provider_extra_body else {}
     # DeepSeek 等在 extra_body 声明了 thinking：按开关改写。

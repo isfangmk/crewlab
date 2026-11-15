@@ -61,6 +61,10 @@ import {
 
   type ImageAttachment,
 
+  type MessageStats,
+
+  type PostMessageResponse,
+
   type StreamCallbacks,
 
 } from '@/api/chat';
@@ -111,6 +115,29 @@ type LocationState = {
 
 
 
+/** done 帧 → 回答统计；只收已知键，缺失不补 0（禁止假 0）。 */
+function statsFromDone(reply: PostMessageResponse | undefined): MessageStats | null {
+
+  if (!reply) return null;
+
+  const stats: MessageStats = {};
+
+  if (typeof reply.duration_ms === 'number') stats.duration_ms = reply.duration_ms;
+
+  const usage = reply.usage;
+
+  if (usage && typeof usage.prompt_tokens === 'number') stats.prompt_tokens = usage.prompt_tokens;
+
+  if (usage && typeof usage.completion_tokens === 'number') stats.completion_tokens = usage.completion_tokens;
+
+  if (usage && typeof usage.total_tokens === 'number') stats.total_tokens = usage.total_tokens;
+
+  return Object.keys(stats).length > 0 ? stats : null;
+
+}
+
+
+
 export default function ChatThreadPage() {
 
   const { tr, locale } = useI18n();
@@ -149,6 +176,9 @@ export default function ChatThreadPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+
+  // 输入框草稿提升为受控：建议问题点击后借此把文本填进输入框
+  const [draft, setDraft] = useState('');
 
   const [loading, setLoading] = useState(true);
 
@@ -1434,13 +1464,33 @@ export default function ChatThreadPage() {
 
           },
 
-          onDone: () => {
+          onDone: (reply) => {
 
             if (activeSessionRef.current !== turnSessionID) return;
 
-            setMessages((prev) =>
-              prev.map((m) => (m.kind === 'thinking' ? { ...m, pending: false } : m)),
-            );
+            const stats = statsFromDone(reply);
+
+            setMessages((prev) => {
+
+              const mapped = prev.map((m) => (m.kind === 'thinking' ? { ...m, pending: false } : m));
+
+              if (stats === null) return mapped;
+
+              // 统计挂到本运行最后一条 assistant 正文气泡（done 帧带其 id）
+
+              const targetId = reply?.assistant_message?.id ?? '';
+
+              const target = targetId !== ''
+
+                ? mapped.find((m) => m.id === targetId)
+
+                : [...mapped].reverse().find((m) => m.role === 'assistant' && m.kind !== 'tool_card' && m.kind !== 'thinking');
+
+              if (!target) return mapped;
+
+              return mapped.map((m) => (m.id === target.id ? { ...m, stats } : m));
+
+            });
 
             invalidateChatSessions();
 
@@ -1633,6 +1683,23 @@ export default function ChatThreadPage() {
 
 
   // 编辑重发：截断该消息及其后的投影，用新正文重跑；后端会同步重建 ADK 历史。
+  // 建议问题：填入输入框并立即发送；文本未被改动则发送后清掉
+  const useSuggestion = (text: string) => {
+    setDraft(text);
+    void send(text, [], {}).finally(() => {
+      setDraft((cur) => (cur === text ? '' : cur));
+    });
+  };
+
+  // 建议组只在最新一条回答上可点：会话推进后历史建议整组失效
+  const latestAssistantId = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role === 'assistant' && m.kind !== 'thinking' && m.kind !== 'tool_card') return m.id;
+    }
+    return '';
+  })();
+
   function editResend(message: ChatMessage, content: string) {
     void send(content, [], {
       editMessageId: message.id,
@@ -1973,6 +2040,10 @@ export default function ChatThreadPage() {
 
                   actionsDisabled={submitting}
 
+                  followupsActive={!isViewer && m.id === latestAssistantId}
+
+                  onUseSuggestion={isViewer ? undefined : useSuggestion}
+
                   onRegenerate={isViewer ? undefined : regenerate}
 
                   onFork={isViewer ? undefined : forkFrom}
@@ -2049,7 +2120,17 @@ export default function ChatThreadPage() {
 
             <ChatInput
 
-              onSubmit={(p: SubmitPayload) => void send(p.text, p.mentions, { attachments: p.attachments })}
+              value={draft}
+
+              onChange={setDraft}
+
+              onSubmit={(p: SubmitPayload) => {
+
+                setDraft('');
+
+                void send(p.text, p.mentions, { attachments: p.attachments });
+
+              }}
 
               allowAttachments
 
