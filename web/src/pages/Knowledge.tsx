@@ -10,7 +10,16 @@
 // 因此页面不再提供「重建索引」手动入口。
 import { useAssistantPage } from '@/lib/assistantPage';
 import { usePermissions } from '@/store/me';
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from 'react';
 import {
   BookOpen,
   ChevronRight,
@@ -29,8 +38,9 @@ import {
   Download,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import rehypeMermaid from 'rehype-mermaid';
 import remarkGfm from 'remark-gfm';
-import { MermaidBlock } from '@/components/MermaidBlock';
+import { useThemeMode } from '@/store/mode';
 import { cn } from '@/lib/cn';
 import { splitFrontmatter } from '@/lib/frontmatter';
 import type { IconType } from '@/lib/icon';
@@ -1430,6 +1440,32 @@ function SemanticSearchPanel({
 // 阅读态正文：先剥离 YAML frontmatter 再渲染；元信息以弱化键值行单独展示。
 function DocBody({ content }: { content: string }) {
   const fm = useMemo(() => splitFrontmatter(content), [content]);
+  const { resolved } = useThemeMode();
+  const body = fm ? fm.body : content;
+  // mermaid 围栏由 rehype-mermaid 归一为 pre.mermaid；这里按官方客户端用法
+  // 调 mermaid.run 渲染，主题用 mermaid 内置主题跟随明暗模式。
+  // 明暗切换时整段重挂（key）让 pre.mermaid 重新生成再渲染。
+  useLayoutEffect(() => {
+    let cancelled = false;
+    void import('mermaid')
+      .then(({ default: mermaid }) => {
+        if (cancelled) return;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: resolved === 'dark' ? 'dark' : 'default',
+        });
+        return mermaid.run({ querySelector: 'pre.mermaid' });
+      })
+      .catch(() => {
+        // 渲染失败（语法错/环境缺能力）：标出来让源码可见
+        document
+          .querySelectorAll('pre.mermaid')
+          .forEach((el) => el.classList.add('mermaid-failed'));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [resolved, body]);
   return (
     <div className="md-body text-sm text-zinc-200">
       {fm && (
@@ -1450,25 +1486,15 @@ function DocBody({ content }: { content: string }) {
           ))}
         </dl>
       )}
-      {/* remark-gfm：表格 / 删除线 / 任务列表等 GFM 语法；mermaid 围栏渲染成图 */}
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          pre({ children }) {
-            const child = Array.isArray(children) ? children[0] : children;
-            const props = (child as { props?: { className?: string; children?: unknown } })
-              ?.props;
-            const isMermaid =
-              props?.className !== undefined && /language-mermaid/.test(props.className);
-            if (isMermaid) {
-              return <MermaidBlock code={String(props?.children ?? '').replace(/\n$/, '')} />;
-            }
-            return <>{children}</>;
-          },
-        }}
-      >
-        {fm ? fm.body : content}
-      </ReactMarkdown>
+      {/* remark-gfm：表格 / 删除线 / 任务列表等 GFM 语法；mermaid 围栏交给 rehype-mermaid */}
+      <div key={resolved}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[[rehypeMermaid, { strategy: 'pre-mermaid' }]]}
+        >
+          {body}
+        </ReactMarkdown>
+      </div>
     </div>
   );
 }

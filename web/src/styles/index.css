@@ -603,6 +603,10 @@ html.light .thinking-shimmer {
 html.light *:focus-visible {
   outline-color: rgb(148 163 184); /* slate-400 — soft, not black */
 }
+/* mermaid 图（rehype-mermaid 产出 pre.mermaid，客户端 mermaid.run 渲染）：
+   渲染前隐藏源码避免半截闪烁，失败时退回源码展示、内容不丢 */
+pre.mermaid { visibility: hidden; }
+pre.mermaid[data-processed], pre.mermaid.mermaid-failed { visibility: visible; }
 /* Markdown body styling within assistant bubbles */
 .md-body {
   line-height: 1.65;
