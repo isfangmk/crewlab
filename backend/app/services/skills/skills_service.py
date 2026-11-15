@@ -34,8 +34,8 @@ from app.services.skills.skill_bundle import RISK_LEVELS, SkillPayload
 
 logger = logging.getLogger(__name__)
 
-# 内置技能目录锚定 backend/ 根：按 app 包位置推导，不随本模块所在层级搬动失效
-_SKILLS_DIR = Path(_app_pkg.__file__).resolve().parent.parent / "skills"
+# 内置技能目录锚定 app 包内（app/skills）：按 app 包位置推导，不随本模块所在层级搬动失效
+_SKILLS_DIR = Path(_app_pkg.__file__).resolve().parent / "skills"
 
 SkillSource = Literal["disk", "user"]
 # 技能来源类型：builtin = 随包发布的内置技能；created = 平台内新建；imported = zip 导入。

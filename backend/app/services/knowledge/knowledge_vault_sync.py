@@ -76,6 +76,11 @@ async def sync_vault_once(
     """把语料目录同步进内置知识库一轮，返回 {created, updated, unchanged, deleted}。"""
 
     root = root.resolve()
+    if not root.is_dir():
+        # 语料目录不可见（目录迁移/挂载抖动）时整轮跳过：此时把「扫描不到文件」
+        # 当成「文件已删除」会全量清掉内置知识库，代价远大于漏一轮同步。
+        logger.warning("内置知识库目录不可见，跳过本轮同步: %s", root)
+        return {"created": 0, "updated": 0, "unchanged": 0, "deleted": 0}
     prefix = root.as_posix().rstrip("/") + "/"
     files = scan_vault_files(root, fresh_grace_seconds=fresh_grace_seconds)
     stats = {"created": 0, "updated": 0, "unchanged": 0, "deleted": 0}
