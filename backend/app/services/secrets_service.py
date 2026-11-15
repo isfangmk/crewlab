@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models_orm.secret import SecretCredential
+from app.models.secret import SecretCredential
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +276,7 @@ async def rotate_secret(
 async def list_secret_usage(db: AsyncSession, name: str) -> list:
     """引用该凭证的 MCP Server：轮换前后都要能说清影响面。"""
 
-    from app.models_orm.mcp import McpServer
+    from app.models.mcp import McpServer
 
     rows = await db.scalars(
         select(McpServer).where(McpServer.credential == name).order_by(McpServer.id)

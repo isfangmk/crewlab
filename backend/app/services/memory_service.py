@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.memory import MemoryItem
+from app.models.memory import MemoryItem
 from app.services import agent_service
 from app.vector_store import MEMORY_NAMESPACE, get_vector_store, raise_vector_store_unavailable
 from app.services.embedding_client import embed_text

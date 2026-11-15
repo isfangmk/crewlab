@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_not_viewer
 from app.db import get_db
-from app.models_orm.memory import MemoryItem
+from app.models.memory import MemoryItem
 from app.services import memory_service
 from app.services.audit_service import write_audit
 from app.vector_store import VectorStoreUnavailable

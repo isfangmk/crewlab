@@ -7,7 +7,7 @@ import uuid
 import pytest
 
 from app.db import create_db_engine
-from app.models_orm.approval import Approval
+from app.models.approval import Approval
 from app.services import approval_service
 from app.services.approval_service import _claim_pending_approval
 

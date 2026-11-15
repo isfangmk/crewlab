@@ -119,7 +119,7 @@ def test_skill_execution_is_recorded(db_sessions) -> None:
 
     import asyncio
 
-    from app.models_orm.sandbox import SandboxExecution
+    from app.models.sandbox import SandboxExecution
 
     executor = SandboxCodeExecutor()
     executor.execute_code(

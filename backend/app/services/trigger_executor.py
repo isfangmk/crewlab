@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.trigger import TriggerRule, TriggerRun
+from app.models.trigger import TriggerRule, TriggerRun
 from app.services import workflow_runner
 from app.services.audit_service import write_audit
 

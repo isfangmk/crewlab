@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
 from app.db import get_db
-from app.models_orm.channel import PublishedChannel
+from app.models.channel import PublishedChannel
 from app.services import chat_service, publish_service
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser

@@ -32,8 +32,8 @@ async def list_workflows(status: str = "", keyword: str = "", limit: int = 20) -
 
     from sqlalchemy import func, or_, select
 
-    from app.models_orm.workflow import Workflow as WorkflowRow
-    from app.models_orm.workflow import WorkflowRun as WorkflowRunRow
+    from app.models.workflow import Workflow as WorkflowRow
+    from app.models.workflow import WorkflowRun as WorkflowRunRow
     from app.schemas.workflow import parse_definition
 
     if limit < 1 or limit > 50:
@@ -102,7 +102,7 @@ async def get_workflow(workflow_id: int) -> dict:
         workflow_id: 工作流 ID（从 list_workflows 拿）
     """
 
-    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.models.workflow import Workflow as WorkflowRow
     from app.schemas.workflow import parse_definition
 
     async with SessionLocal() as db:
@@ -159,7 +159,7 @@ async def run_workflow(workflow_id: int, values: dict[str, Any] | None = None) -
         values: 运行输入，键名见 list_workflows 返回的 inputs
     """
 
-    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.models.workflow import Workflow as WorkflowRow
     from app.services import workflow_service
 
     async with SessionLocal() as db:

@@ -14,10 +14,10 @@ import pytest
 from sqlalchemy import delete, select
 
 from app.db import SessionLocal
-from app.models_orm.approval import Approval
-from app.models_orm.attachment import ChatAttachment
-from app.models_orm.chat import ChatMessage, ChatSession
-from app.models_orm.observation import ObservationToolCall, ObservationTurn
+from app.models.approval import Approval
+from app.models.attachment import ChatAttachment
+from app.models.chat import ChatMessage, ChatSession
+from app.models.observation import ObservationToolCall, ObservationTurn
 from tests.conftest import login_access_token
 
 

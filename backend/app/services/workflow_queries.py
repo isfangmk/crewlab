@@ -11,8 +11,8 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.workflow import Workflow as WorkflowRow
-from app.models_orm.workflow import WorkflowRun as WorkflowRunRow
+from app.models.workflow import Workflow as WorkflowRow
+from app.models.workflow import WorkflowRun as WorkflowRunRow
 
 
 async def workflow_names(db: AsyncSession, ids: set[int]) -> dict[int, str]:

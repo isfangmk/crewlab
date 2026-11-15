@@ -13,7 +13,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models_orm.user import ApiToken, User
+from app.models.user import ApiToken, User
 
 logger = logging.getLogger(__name__)
 

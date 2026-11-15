@@ -20,7 +20,7 @@ from google.adk.tools.tool_context import ToolContext
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.mcp import McpServer, McpToolEmbedding
+from app.models.mcp import McpServer, McpToolEmbedding
 from app.services.embedding_client import embed_texts
 from app.vector_store import (
     MCP_TOOL_NAMESPACE,

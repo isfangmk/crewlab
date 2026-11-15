@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, Awaitable, Callable
 
 from app.db import SessionLocal
-from app.models_orm.workflow import Workflow as WorkflowRow
+from app.models.workflow import Workflow as WorkflowRow
 from app.services import workflow_service
 from app.services.workflow_events import workflow_events
 

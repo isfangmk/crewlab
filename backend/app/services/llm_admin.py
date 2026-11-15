@@ -11,7 +11,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.llm import AppSetting, LlmProvider
+from app.models.llm import AppSetting, LlmProvider
 from app.services.llm_config import split_models
 
 logger = logging.getLogger(__name__)

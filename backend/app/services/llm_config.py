@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models_orm.llm import AppSetting, LlmProvider
+from app.models.llm import AppSetting, LlmProvider
 
 logger = logging.getLogger(__name__)
 

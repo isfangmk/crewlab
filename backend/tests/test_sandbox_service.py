@@ -24,7 +24,7 @@ from app.adk_runtime.workflow_node_impl import (
     _parse_sandbox_payload,
     _parse_sandbox_reads,
 )
-from app.models_orm.sandbox import SandboxExecution
+from app.models.sandbox import SandboxExecution
 from app.services import sandbox_query_service, sandbox_service
 
 

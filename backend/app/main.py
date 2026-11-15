@@ -48,7 +48,7 @@ from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.logging_setup import setup_logging
 from app.middleware_request_id import RequestIdMiddleware
-from app.models_orm import Base
+from app.models import Base
 from app.services.auth_service import ensure_bootstrap_admin
 from app.services.llm_config import ensure_seed_provider
 from app.services.app_settings_service import (

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.eval_share import EvalShareToken
+from app.models.eval_share import EvalShareToken
 from app.services.auth_service import hash_token
 
 logger = logging.getLogger(__name__)

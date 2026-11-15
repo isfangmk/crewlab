@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.trigger import TriggerRule, TriggerRun
+from app.models.trigger import TriggerRule, TriggerRun
 from app.services import trigger_executor
 from app.services.app_settings_service import get_system_timezone
 from app.services.trigger_service import TriggerValidationError, compute_next_fire

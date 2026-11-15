@@ -9,7 +9,7 @@ import pytest
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models_orm.memory import MemoryItem
+from app.models.memory import MemoryItem
 from app.services import memory_service
 from tests.conftest import login_access_token
 

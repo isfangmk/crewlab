@@ -10,7 +10,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models_orm.base import AwareDateTime, Base
+from app.models.base import AwareDateTime, Base
 
 
 class PublishedChannel(Base):

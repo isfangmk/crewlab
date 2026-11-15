@@ -22,7 +22,7 @@ import httpx
 from sqlalchemy import func, select
 
 from app.db import SessionLocal
-from app.models_orm.knowledge import KnowledgeDoc
+from app.models.knowledge import KnowledgeDoc
 from app.services import knowledge_service, knowledge_source_service
 from app.services.audit_service import write_audit
 

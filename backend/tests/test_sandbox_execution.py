@@ -119,7 +119,7 @@ async def test_network_is_blocked_by_default(db_sessions) -> None:
 async def test_execution_is_recorded_with_context(db_sessions) -> None:
     """执行记录要带上来源、代码、输出与耗时。"""
 
-    from app.models_orm.sandbox import SandboxExecution
+    from app.models.sandbox import SandboxExecution
 
     async with db_sessions() as db:
         result = await sandbox_service.run_code(
@@ -191,7 +191,7 @@ async def test_record_keeps_real_start_and_finish(db_sessions) -> None:
     列表按 started_at 排序与筛选，记错会让「某段时间跑了什么」查不准。
     """
 
-    from app.models_orm.sandbox import SandboxExecution
+    from app.models.sandbox import SandboxExecution
 
     async with db_sessions() as db:
         result = await sandbox_service.run_code(
@@ -219,7 +219,7 @@ async def test_large_output_is_capped(db_sessions) -> None:
     容器磁盘没有配额，代码可以一直打印；整份读进内存会把 API 进程拖垮。
     """
 
-    from app.models_orm.sandbox import SandboxExecution
+    from app.models.sandbox import SandboxExecution
 
     printed = 400_000
     async with db_sessions() as db:

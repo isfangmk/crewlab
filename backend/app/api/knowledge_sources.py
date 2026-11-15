@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
-from app.models_orm.knowledge import KnowledgeDoc
+from app.models.knowledge import KnowledgeDoc
 from app.services import knowledge_source_service, knowledge_sync
 from app.services.audit_service import write_audit
 from app.services.auth_service import AuthUser

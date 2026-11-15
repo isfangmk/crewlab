@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal
-from app.models_orm.eval import (
+from app.models.eval import (
     EvalCaseResult,
     EvalJudgeConfig,
     EvalJudgeScore,

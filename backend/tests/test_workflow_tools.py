@@ -49,7 +49,7 @@ async def _db_sessions() -> AsyncGenerator[object, None]:
 async def _create_workflow(definition: dict, name: str) -> int:
     """插入一张真实工作流，返回自增 ID。"""
 
-    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.models.workflow import Workflow as WorkflowRow
     from app.schemas.workflow import WorkflowDefinition
 
     parsed = WorkflowDefinition.model_validate(definition)
@@ -71,7 +71,7 @@ async def _create_workflow(definition: dict, name: str) -> int:
 async def _delete_workflow(workflow_id: int) -> None:
     from sqlalchemy import delete
 
-    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.models.workflow import Workflow as WorkflowRow
 
     async with _db_sessions() as maker:
         async with maker() as db:

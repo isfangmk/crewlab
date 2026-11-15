@@ -195,7 +195,7 @@ async def test_sandbox_mode_raises_on_code_error(db_sessions) -> None:
 async def test_sandbox_mode_records_execution(db_sessions) -> None:
     """代码节点的沙盒执行要落一条 workflow 来源的记录。"""
 
-    from app.models_orm.sandbox import SandboxExecution
+    from app.models.sandbox import SandboxExecution
 
     node = _make_node("def run(state):\n    return 1\n")
     node.run_ctx.run_uid = "run_uid_test"

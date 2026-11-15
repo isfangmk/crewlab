@@ -14,7 +14,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal
-from app.models_orm.observation import ObservationToolCall, ObservationTurn
+from app.models.observation import ObservationToolCall, ObservationTurn
 from app.request_context import get_request_id
 
 logger = logging.getLogger(__name__)

@@ -14,7 +14,7 @@ from google.adk.tools.mcp_tool.mcp_session_manager import MCPSessionManager
 from mcp.types import Tool as McpSdkTool
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.mcp import McpServer
+from app.models.mcp import McpServer
 
 logger = logging.getLogger(__name__)
 

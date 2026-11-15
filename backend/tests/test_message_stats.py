@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.adk_runtime.agent_factory import FOLLOWUPS_INSTRUCTION, build_chat_agent
 from app.adk_runtime.stream_bridge import SseFrame
 from app.db import create_db_engine
-from app.models_orm.base import Base
-from app.models_orm.chat import ChatMessage, ChatSession
+from app.models.base import Base
+from app.models.chat import ChatMessage, ChatSession
 from app.services.chat_service import AdkFramePersister, message_to_wire
 
 

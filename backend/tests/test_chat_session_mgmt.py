@@ -378,10 +378,10 @@ async def test_session_model_filter_and_summary_stats(
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from app.config import get_settings
-    from app.models_orm.attachment import ChatAttachment
-    from app.models_orm.chat import ChatMessage
-    from app.models_orm.observation import ObservationTurn
-    from app.models_orm.share import ShareToken
+    from app.models.attachment import ChatAttachment
+    from app.models.chat import ChatMessage
+    from app.models.observation import ObservationTurn
+    from app.models.share import ShareToken
 
     long_answer = "根因是连接池耗尽，建议先扩池再排查慢查询。" * 20
 

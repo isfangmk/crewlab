@@ -94,7 +94,7 @@ async def test_resources_prompts_probe_and_read(
             from sqlalchemy import select
 
             from app.db import SessionLocal
-            from app.models_orm.mcp import McpServer
+            from app.models.mcp import McpServer
 
             async with SessionLocal() as db:
                 row = await db.scalar(select(McpServer).where(McpServer.name == name))
@@ -200,7 +200,7 @@ async def test_catalog_toolset_injects_resource_loader() -> None:
 
     from google.adk.tools.mcp_tool.mcp_session_manager import SseConnectionParams
 
-    from app.models_orm.mcp import McpServer
+    from app.models.mcp import McpServer
     from app.services.mcp_catalog_toolset import CachedMcpCatalogToolset
 
     tools_json = json.dumps(

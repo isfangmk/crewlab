@@ -17,7 +17,7 @@ from croniter import croniter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.trigger import TriggerRun, TriggerRule
+from app.models.trigger import TriggerRun, TriggerRule
 from app.services.audit_service import write_audit
 from app.services.auth_service import hash_token
 

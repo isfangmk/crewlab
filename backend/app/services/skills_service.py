@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.adk_runtime.sandbox_code_executor import SandboxCodeExecutor
 from app.adk_runtime.toolset import build_knowledge_tools
 from app.tools.catalog import tool_param_specs
-from app.models_orm.skill import UserSkill
+from app.models.skill import UserSkill
 from app.services import mcp_service, skill_bundle, skill_groups
 from app.services.knowledge_scope import KnowledgeScope
 from app.services.mcp_service import McpToolRef

@@ -12,7 +12,7 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.eval import EvalAnnotation, EvalCaseResult
+from app.models.eval import EvalAnnotation, EvalCaseResult
 from app.services import eval_service
 
 LABELS = ("good", "needs_work", "bad")

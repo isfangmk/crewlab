@@ -14,7 +14,7 @@ from uuid import uuid4
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.eval import EvalCase, EvalCaseResult, EvalDataset, EvalRun
+from app.models.eval import EvalCase, EvalCaseResult, EvalDataset, EvalRun
 from app.services import agent_service
 from app.services.llm_config import (
     get_default_selection,

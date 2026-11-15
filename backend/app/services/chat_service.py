@@ -18,12 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.adk_runtime.naming import root_adk_name
 from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.stream_bridge import APP_NAME, SseFrame, stream_adk_turn
-from app.models_orm.approval import Approval
-from app.models_orm.artifact import Artifact
-from app.models_orm.attachment import ChatAttachment
-from app.models_orm.chat import ChatMessage, ChatSession
-from app.models_orm.observation import ObservationTurn
-from app.models_orm.share import ShareToken
+from app.models.approval import Approval
+from app.models.artifact import Artifact
+from app.models.attachment import ChatAttachment
+from app.models.chat import ChatMessage, ChatSession
+from app.models.observation import ObservationTurn
+from app.models.share import ShareToken
 from app.schemas.chat import PageContextIn
 from app.services import (
     agent_service,
@@ -222,7 +222,7 @@ def message_to_wire(m: ChatMessage, *, attachments: list[dict] | None = None) ->
 async def messages_to_wire(db: AsyncSession, messages: list[ChatMessage]) -> list[dict]:
     """批量把消息转成前端形状，并回填用户消息附件元数据。"""
 
-    from app.models_orm.attachment import ChatAttachment
+    from app.models.attachment import ChatAttachment
     from app.services.attachment_service import attachment_to_wire
 
     needed_ids: list[str] = []
@@ -1447,8 +1447,8 @@ async def _hydrate_mentions(db: AsyncSession, mentions: list[dict]) -> str:
 
     if len(mentions) == 0:
         return ""
-    from app.models_orm.knowledge import KnowledgeDoc
-    from app.models_orm.mcp import McpServer
+    from app.models.knowledge import KnowledgeDoc
+    from app.models.mcp import McpServer
 
     lines: list[str] = []
     for mention in mentions:

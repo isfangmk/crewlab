@@ -10,7 +10,7 @@ import json
 
 from google.adk.skills import Frontmatter, Skill
 
-from app.models_orm.mcp import McpServer
+from app.models.mcp import McpServer
 from app.services.agent_service import (
     ResolvedAgent,
     effective_allowed_tools,

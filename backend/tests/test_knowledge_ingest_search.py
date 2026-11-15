@@ -16,7 +16,7 @@ def test_like_wildcards_are_escaped() -> None:
 
     from sqlalchemy.dialects import postgresql
 
-    from app.models_orm.knowledge import KnowledgeChunk
+    from app.models.knowledge import KnowledgeChunk
     from app.services.knowledge_scope import path_condition
     from app.services.knowledge_service import _escape_like
 

@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.artifact import Artifact
+from app.models.artifact import Artifact
 from app.tools.code_interpreter import take_pending, validate_artifacts
 
 logger = logging.getLogger(__name__)

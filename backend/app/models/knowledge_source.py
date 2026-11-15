@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models_orm.base import AwareDateTime, Base
+from app.models.base import AwareDateTime, Base
 
 if TYPE_CHECKING:
-    from app.models_orm.knowledge import KnowledgeDoc
+    from app.models.knowledge import KnowledgeDoc
 
 
 class KnowledgeSource(Base):

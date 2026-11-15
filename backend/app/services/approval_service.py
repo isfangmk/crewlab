@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.sub_agents import build_sub_agents_for_agent
 from app.adk_runtime.stream_bridge import SseFrame, stream_adk_confirmation
-from app.models_orm.approval import Approval
-from app.models_orm.chat import ChatSession
+from app.models.approval import Approval
+from app.models.chat import ChatSession
 from app.services import agent_service, chat_service
 from app.services.agent_tool_service import build_agent_tool_bundle
 from app.services.llm_config import resolve_model
@@ -53,7 +53,7 @@ def approval_to_wire(a: Approval, timeout_hours: int) -> dict:
 async def get_approval_timeout_hours(db: AsyncSession) -> int:
     """审批超时小时数（knowledge.approval_timeout_hours）；到点未决标 expired。"""
 
-    from app.models_orm.llm import AppSetting
+    from app.models.llm import AppSetting
 
     timeout_row = await db.get(AppSetting, "knowledge.approval_timeout_hours")
     if timeout_row is None:

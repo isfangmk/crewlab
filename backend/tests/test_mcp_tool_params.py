@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from app.models_orm.mcp import McpServer
+from app.models.mcp import McpServer
 from app.services.mcp_service import (
     coerce_arguments_from_schema,
     skill_params_from_schema,

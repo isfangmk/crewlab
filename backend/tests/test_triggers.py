@@ -278,7 +278,7 @@ async def test_cron_next_fire_is_timezone_aware(
     from sqlalchemy import select
 
     from app.db import SessionLocal
-    from app.models_orm.trigger import TriggerRule
+    from app.models.trigger import TriggerRule
     from tests.conftest import login_access_token
 
     async with httpx.AsyncClient(base_url=api_base, timeout=60.0) as client:

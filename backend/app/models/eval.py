@@ -11,7 +11,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models_orm.base import AwareDateTime, Base
+from app.models.base import AwareDateTime, Base
 
 
 class EvalDataset(Base):

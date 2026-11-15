@@ -26,8 +26,8 @@ from app.adk_runtime.workflow_nodes import (
     preview,
     preview_input,
 )
-from app.models_orm.workflow import Workflow as WorkflowRow
-from app.models_orm.workflow import WorkflowNodeRun, WorkflowRun
+from app.models.workflow import Workflow as WorkflowRow
+from app.models.workflow import WorkflowNodeRun, WorkflowRun
 from app.services import run_control
 from app.services.workflow_events import workflow_events
 from app.schemas.workflow import (

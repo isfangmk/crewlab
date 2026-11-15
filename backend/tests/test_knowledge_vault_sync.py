@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.db import SessionLocal
-from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
+from app.models.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.services.knowledge_vault_sync import sync_vault_once
 
 pytestmark = pytest.mark.asyncio

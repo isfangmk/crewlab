@@ -47,10 +47,10 @@ async def _cleanup_sessions(session_ids: list[str]) -> None:
     from sqlalchemy import delete, select
 
     from app.db import SessionLocal
-    from app.models_orm.approval import Approval
-    from app.models_orm.attachment import ChatAttachment
-    from app.models_orm.chat import ChatMessage, ChatSession
-    from app.models_orm.observation import ObservationToolCall, ObservationTurn
+    from app.models.approval import Approval
+    from app.models.attachment import ChatAttachment
+    from app.models.chat import ChatMessage, ChatSession
+    from app.models.observation import ObservationToolCall, ObservationTurn
 
     async with SessionLocal() as db:
         trace_ids = list(
@@ -172,7 +172,7 @@ async def test_share_report_public_redacted(env: dict[str, str], api_base: str) 
 
             # 过期 token 显式 404：直接插一条已过期的分享行
             from app.db import SessionLocal
-            from app.models_orm.eval_share import EvalShareToken
+            from app.models.eval_share import EvalShareToken
             from app.services.auth_service import hash_token
 
             expired_raw = f"expired-{uuid.uuid4().hex}"

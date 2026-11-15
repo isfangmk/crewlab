@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models_orm.knowledge import KnowledgeDoc
+from app.models.knowledge import KnowledgeDoc
 from app.services.knowledge_service import delete_vault_doc, upsert_vault_doc
 
 logger = logging.getLogger(__name__)

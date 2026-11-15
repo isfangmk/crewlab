@@ -22,8 +22,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models_orm.mcp import McpServer
-from app.models_orm.mcp_oauth import McpOauthState, McpOauthToken
+from app.models.mcp import McpServer
+from app.models.mcp_oauth import McpOauthState, McpOauthToken
 from app.services.secrets_service import decrypt_json, encrypt_json
 
 logger = logging.getLogger(__name__)

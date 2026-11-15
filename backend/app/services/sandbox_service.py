@@ -48,7 +48,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.config import get_settings
-from app.models_orm.sandbox import SandboxExecution
+from app.models.sandbox import SandboxExecution
 from app.schemas.workflow import PIP_NAME_PATTERN
 
 logger = logging.getLogger(__name__)

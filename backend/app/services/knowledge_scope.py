@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.knowledge import KnowledgeDoc
+from app.models.knowledge import KnowledgeDoc
 
 MAX_SCOPE_PATHS = 20
 MAX_SCOPE_DOC_IDS = 100

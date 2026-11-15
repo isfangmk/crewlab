@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.share import ShareToken
+from app.models.share import ShareToken
 from app.services.auth_service import hash_token
 
 logger = logging.getLogger(__name__)

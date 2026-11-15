@@ -11,7 +11,7 @@ import json
 import logging
 
 from app.db import SessionLocal
-from app.models_orm.audit import AuditLog
+from app.models.audit import AuditLog
 from app.request_context import get_request_id
 
 logger = logging.getLogger(__name__)

@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models_orm.base import AwareDateTime, Base
+from app.models.base import AwareDateTime, Base
 
 
 class UserSkill(Base):

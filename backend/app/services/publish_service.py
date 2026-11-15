@@ -15,9 +15,9 @@ from uuid import uuid4
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.channel import PublishedChannel
-from app.models_orm.chat import ChatSession
-from app.models_orm.observation import ObservationTurn
+from app.models.channel import PublishedChannel
+from app.models.chat import ChatSession
+from app.models.observation import ObservationTurn
 from app.services import agent_service, chat_service
 from app.services.auth_service import hash_token
 from app.services.llm_config import get_default_selection, resolve_model

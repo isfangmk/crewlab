@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.db import SessionLocal
-from app.models_orm.artifact import Artifact
+from app.models.artifact import Artifact
 from app.services import artifact_service, chat_service, share_service
 from app.services.chat_service import create_session
 from app.tools.code_interpreter import remember_pending

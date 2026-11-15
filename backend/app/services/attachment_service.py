@@ -9,7 +9,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.attachment import ChatAttachment
+from app.models.attachment import ChatAttachment
 
 logger = logging.getLogger(__name__)
 

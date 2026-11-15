@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
 from app.db import create_db_engine
-from app.models_orm.channel import PublishedChannel
-from app.models_orm.observation import ObservationTurn
+from app.models.channel import PublishedChannel
+from app.models.observation import ObservationTurn
 from app.services import chat_service
 from tests.conftest import login_access_token
 

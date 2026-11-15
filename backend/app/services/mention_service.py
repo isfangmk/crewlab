@@ -7,8 +7,8 @@ import logging
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.knowledge import KnowledgeDoc
-from app.models_orm.mcp import McpServer
+from app.models.knowledge import KnowledgeDoc
+from app.models.mcp import McpServer
 
 logger = logging.getLogger(__name__)
 

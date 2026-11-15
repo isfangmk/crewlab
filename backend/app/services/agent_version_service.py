@@ -12,7 +12,7 @@ import logging
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.agent_version import UserAgentVersion
+from app.models.agent_version import UserAgentVersion
 
 logger = logging.getLogger(__name__)
 

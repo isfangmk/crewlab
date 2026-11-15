@@ -12,8 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adk_runtime.naming import adk_identifier, root_adk_name
-from app.models_orm.agent import UserAgent
-from app.models_orm.mcp import McpServer
+from app.models.agent import UserAgent
+from app.models.mcp import McpServer
 from app.services import agent_version_service, app_settings_service
 from app.services.knowledge_scope import (
     KnowledgeScope,

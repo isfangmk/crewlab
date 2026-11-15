@@ -90,7 +90,7 @@ async def _upstream_reasoning_chunks(*, thinking_type: str) -> int:
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from app.config import get_settings
-    from app.models_orm.llm import LlmProvider
+    from app.models.llm import LlmProvider
 
     # 不复用 app.db 的全局连接池：同进程里前面的测试可能已在别的 event loop
     # 上建过连接，复用会撞上 "Event loop is closed"。这里自建自弃。

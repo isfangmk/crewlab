@@ -211,7 +211,7 @@ async def test_audit_export_redacts_stored_detail(env: dict[str, str], api_base:
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from app.config import get_settings
-    from app.models_orm.audit import AuditLog
+    from app.models.audit import AuditLog
 
     resource_id = f"redact-{uuid.uuid4().hex[:8]}"
     detail = {

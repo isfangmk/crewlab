@@ -805,7 +805,7 @@ async def test_code_node_reports_reads_through_key_lookups() -> None:
 
 
 async def _run(definition_payload: dict, values: dict) -> tuple[object, list, object]:
-    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.models.workflow import Workflow as WorkflowRow
     from app.services import workflow_service
 
     definition = WorkflowDefinition.model_validate(definition_payload)
@@ -903,7 +903,7 @@ async def test_stream_events_carry_node_input_and_output() -> None:
         ],
     }
 
-    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.models.workflow import Workflow as WorkflowRow
     from app.services import workflow_service
 
     definition = WorkflowDefinition.model_validate(payload)
@@ -1009,7 +1009,7 @@ async def test_run_loop_stops_on_condition() -> None:
 async def test_waiting_run_emits_pause_event_not_finish() -> None:
     """停在人工节点只发暂停事件：运行还没结束，订阅要继续开着。"""
 
-    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.models.workflow import Workflow as WorkflowRow
     from app.services import workflow_service
 
     payload = {
@@ -1097,7 +1097,7 @@ async def test_run_waits_at_approval_then_resumes() -> None:
     definition = WorkflowDefinition.model_validate(payload)
     engine, sessionmaker = _new_sessionmaker()
     async with sessionmaker() as db:
-        from app.models_orm.workflow import Workflow as WorkflowRow
+        from app.models.workflow import Workflow as WorkflowRow
 
         row = WorkflowRow(
             name=f"__test_wf_{uuid.uuid4().hex[:8]}__",
@@ -1156,7 +1156,7 @@ async def test_resume_in_background_records_approved_gate() -> None:
     definition = WorkflowDefinition.model_validate(payload)
     engine, sessionmaker = _new_sessionmaker()
     async with sessionmaker() as db:
-        from app.models_orm.workflow import Workflow as WorkflowRow
+        from app.models.workflow import Workflow as WorkflowRow
 
         row = WorkflowRow(
             name=f"__test_wf_{uuid.uuid4().hex[:8]}__",
@@ -1206,7 +1206,7 @@ async def test_missing_required_variable_fails_before_run() -> None:
 
 
 async def _probe(definition_payload: dict, node_id: str, values: dict) -> dict:
-    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.models.workflow import Workflow as WorkflowRow
     from app.services import workflow_service
 
     definition = WorkflowDefinition.model_validate(definition_payload)
@@ -1436,7 +1436,7 @@ async def test_llm_callbacks_tolerate_empty_response() -> None:
 async def test_resume_twice_keeps_earlier_gate_and_input() -> None:
     """连着两次人工恢复：第一次的审批记录与第二次的输入都不能丢。"""
 
-    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.models.workflow import Workflow as WorkflowRow
     from app.services import workflow_service
 
     payload = {
@@ -1599,7 +1599,7 @@ def test_definition_for_rejects_unknown_source() -> None:
 async def test_execute_run_records_source_and_snapshot() -> None:
     """运行记录要能看出这次跑的是快照还是草稿，正文也得是选中的那份。"""
 
-    from app.models_orm.workflow import Workflow as WorkflowRow
+    from app.models.workflow import Workflow as WorkflowRow
     from app.services import workflow_service
 
     name = f"__test_snapshot_{uuid.uuid4().hex[:8]}__"

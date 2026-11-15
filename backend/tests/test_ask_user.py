@@ -17,7 +17,7 @@ from app.adk_runtime.tool_approval import (
     build_before_tool_callback,
 )
 from app.db import create_db_engine
-from app.models_orm.approval import Approval
+from app.models.approval import Approval
 from app.services import approval_service
 from app.tools.user_input import (
     ask_user,

@@ -13,10 +13,10 @@ from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text, func, t
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models_orm.base import AwareDateTime, Base
+from app.models.base import AwareDateTime, Base
 
 if TYPE_CHECKING:
-    from app.models_orm.knowledge_source import KnowledgeSource
+    from app.models.knowledge_source import KnowledgeSource
 
 # PG 用 JSONB 支持 containment 过滤；SQLite 用 JSON 文本（过滤走 json_each）
 TagsJSON = JSON().with_variant(JSONB(), "postgresql")

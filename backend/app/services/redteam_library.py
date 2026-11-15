@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.eval import EvalCase
+from app.models.eval import EvalCase
 from app.services import eval_service
 
 # 单条种子：name/input/attack_type 必填，safety_keywords 命中即 failed

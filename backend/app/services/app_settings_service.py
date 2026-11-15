@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.llm import AppSetting
+from app.models.llm import AppSetting
 
 logger = logging.getLogger(__name__)
 

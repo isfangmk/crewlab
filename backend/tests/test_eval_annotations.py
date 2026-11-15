@@ -43,10 +43,10 @@ async def _cleanup_sessions(session_ids: list[str]) -> None:
     from sqlalchemy import delete, select
 
     from app.db import SessionLocal
-    from app.models_orm.approval import Approval
-    from app.models_orm.attachment import ChatAttachment
-    from app.models_orm.chat import ChatMessage, ChatSession
-    from app.models_orm.observation import ObservationToolCall, ObservationTurn
+    from app.models.approval import Approval
+    from app.models.attachment import ChatAttachment
+    from app.models.chat import ChatMessage, ChatSession
+    from app.models.observation import ObservationToolCall, ObservationTurn
 
     async with SessionLocal() as db:
         trace_ids = list(
@@ -207,7 +207,7 @@ async def test_annotation_claim_submit_consistency(
 
             # 第二个标注人直接写库，验证多人一致性统计
             from app.db import SessionLocal
-            from app.models_orm.eval import EvalAnnotation
+            from app.models.eval import EvalAnnotation
 
             async with SessionLocal() as db:
                 other = EvalAnnotation(

@@ -15,7 +15,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.eval import EvalCaseResult, EvalJudgeConfig, EvalJudgeScore
+from app.models.eval import EvalCaseResult, EvalJudgeConfig, EvalJudgeScore
 from app.services import chat_service, llm_config
 
 logger = logging.getLogger(__name__)

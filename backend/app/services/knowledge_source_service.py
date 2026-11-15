@@ -15,8 +15,8 @@ from uuid import uuid4
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.knowledge import KnowledgeDoc
-from app.models_orm.knowledge_source import KnowledgeSource
+from app.models.knowledge import KnowledgeDoc
+from app.models.knowledge_source import KnowledgeSource
 from app.services import knowledge_service
 
 SYNC_IDLE = "idle"

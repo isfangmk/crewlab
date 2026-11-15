@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models_orm.sandbox import SandboxExecution
+from app.models.sandbox import SandboxExecution
 
 logger = logging.getLogger(__name__)
 

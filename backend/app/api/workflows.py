@@ -16,8 +16,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import require_auth
 from app.db import get_db
-from app.models_orm.workflow import Workflow as WorkflowRow
-from app.models_orm.workflow import WorkflowRun as WorkflowRunRow
+from app.models.workflow import Workflow as WorkflowRow
+from app.models.workflow import WorkflowRun as WorkflowRunRow
 from app.schemas.workflow import (
     NODE_GROUPS,
     NODE_KINDS,

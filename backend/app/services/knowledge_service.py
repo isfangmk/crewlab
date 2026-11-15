@@ -25,7 +25,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
-from app.models_orm.knowledge import KnowledgeChunk, KnowledgeDoc
+from app.models.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.config import get_settings
 from app.services.embedding_client import embed_text, embed_texts
 from app.services.knowledge_scope import KnowledgeScope, path_condition, scope_condition
@@ -63,7 +63,7 @@ class KnowledgeHit:
 async def resolve_chunk_params(db: AsyncSession) -> tuple[int, int]:
     """从 AppSetting(knowledge.*) 读取切块参数；缺配置显式失败。"""
 
-    from app.models_orm.llm import AppSetting
+    from app.models.llm import AppSetting
 
     size_row = await db.get(AppSetting, "knowledge.chunk_size")
     overlap_row = await db.get(AppSetting, "knowledge.chunk_overlap")
@@ -756,7 +756,7 @@ def _source_condition(builtin: bool):
 async def resolve_rrf_min_score(db: AsyncSession) -> float:
     """读取 RRF 最低分阈值；缺配置或非法值显式失败。"""
 
-    from app.models_orm.llm import AppSetting
+    from app.models.llm import AppSetting
 
     row = await db.get(AppSetting, "knowledge.rrf_min_score")
     if row is None:

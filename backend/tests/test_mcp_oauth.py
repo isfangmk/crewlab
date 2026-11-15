@@ -103,7 +103,7 @@ async def _force_expire_token(server_id: int) -> None:
     from sqlalchemy import select
 
     from app.db import SessionLocal
-    from app.models_orm.mcp_oauth import McpOauthToken
+    from app.models.mcp_oauth import McpOauthToken
     from app.services.secrets_service import decrypt_json, encrypt_json
 
     async with SessionLocal() as db:
@@ -185,7 +185,7 @@ async def test_oauth_full_flow_refresh_and_state_guard(
 
             # 过期 state 同样失败并被清理
             from app.db import SessionLocal
-            from app.models_orm.mcp_oauth import McpOauthState
+            from app.models.mcp_oauth import McpOauthState
 
             async with SessionLocal() as db:
                 db.add(

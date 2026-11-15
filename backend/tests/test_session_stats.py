@@ -7,9 +7,9 @@ import uuid
 import pytest
 
 from app.db import create_db_engine
-from app.models_orm.approval import Approval
-from app.models_orm.artifact import Artifact
-from app.models_orm.chat import ChatSession
+from app.models.approval import Approval
+from app.models.artifact import Artifact
+from app.models.chat import ChatSession
 from app.services.chat_service import list_session_stats
 
 

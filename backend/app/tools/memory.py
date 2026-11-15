@@ -24,7 +24,7 @@ async def remember_memory(content: str, tool_context: Any = None) -> dict:
     agent_id = None
     created_by = None
     if session_id:
-        from app.models_orm.chat import ChatSession
+        from app.models.chat import ChatSession
 
         async with SessionLocal() as db:
             row = await db.get(ChatSession, session_id)
@@ -58,7 +58,7 @@ async def recall_memory(query: str, tool_context: Any = None) -> dict:
     session_id = getattr(session, "id", "") or ""
     agent_id = None
     if session_id:
-        from app.models_orm.chat import ChatSession
+        from app.models.chat import ChatSession
 
         async with SessionLocal() as db:
             row = await db.get(ChatSession, session_id)
