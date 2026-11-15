@@ -1495,7 +1495,7 @@ export default function ChatThreadPage() {
             setMessages((prev) => {
 
               // done 之后没有任何消息还在写：所有气泡收口 pending，
-              // 否则收尾帧被去重跳过后气泡会永远压住建议卡（!message.pending 门）
+              // 建议卡随流露出但到这一步才放开点击
               const mapped = clearAllPending(prev);
 
               if (stats === null) return mapped;

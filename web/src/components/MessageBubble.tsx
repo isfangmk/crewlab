@@ -370,8 +370,9 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
   // 本回答用到的检索结果统一收口到气泡底部一块，工具卡内与卡下都不重复列
   const sources = collectToolSources(message.tool_calls);
   const stats = message.stats ?? null;
+  // 回合未收口（pending）时建议先随流渐进露出但禁点，写完才放开交互
   const followupsDisabled =
-    usedQuestion !== null || followupsActive === false || onUseSuggestion === undefined;
+    usedQuestion !== null || followupsActive === false || onUseSuggestion === undefined || message.pending === true;
   const fmtTokens = (n: number) => n.toLocaleString('en-US');
   return (
     <div className="flex flex-col items-stretch gap-2">
@@ -390,7 +391,7 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
         />
       ))}
       {sources.length > 0 && <SearchResults sources={sources} />}
-      {questions.length > 0 && !message.pending && (
+      {questions.length > 0 && (
         // 建议组是可点入口而非消息气泡：独立面板与用户后续提问明显区分
         <div className="flex flex-col gap-2 rounded-lg border border-zinc-800/60 bg-zinc-900/40 px-3.5 py-2.5">
           <div className="flex items-center gap-2">

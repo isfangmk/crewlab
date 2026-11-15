@@ -782,6 +782,34 @@ describe('MessageBubble 建议问题与回答统计', () => {
     expect(screen.getByRole('button', { name: /查上周的工时/ })).toBeDisabled();
   });
 
+  it('流式中建议随写随出（半行不闪现），回合收口前禁点', () => {
+    const onUseSuggestion = vi.fn();
+    const base = { id: 'a1', role: 'assistant' as const };
+    const { rerender } = render(<MessageBubble
+      message={{ ...base, content: '这是回答。\n\n```suggestions\n查上周的工时\n', pending: true }}
+      followupsActive
+      onUseSuggestion={onUseSuggestion}
+    />);
+    // 第一行写完即出第一条；回合未收口，禁点
+    expect(screen.getByRole('button', { name: '查上周的工时' })).toBeDisabled();
+    // 正在写的半行不闪现
+    rerender(<MessageBubble
+      message={{ ...base, content: '这是回答。\n\n```suggestions\n查上周的工时\n导出为表', pending: true }}
+      followupsActive
+      onUseSuggestion={onUseSuggestion}
+    />);
+    expect(screen.queryByText('导出为表')).not.toBeInTheDocument();
+    expect(screen.getAllByText('查上周的工时')).toHaveLength(1);
+    // 围栏闭合、回合收口：两条都出，且可点
+    rerender(<MessageBubble
+      message={{ ...base, content: '这是回答。\n\n```suggestions\n查上周的工时\n导出为表格\n```' }}
+      followupsActive
+      onUseSuggestion={onUseSuggestion}
+    />);
+    expect(screen.getByRole('button', { name: '查上周的工时' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '导出为表格' })).toBeInTheDocument();
+  });
+
   it('右下角渲染耗时与 token 输入/输出拆分', () => {
     render(<MessageBubble message={{
       id: 'a2',
