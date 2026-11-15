@@ -375,7 +375,6 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
               <Lightbulb size={12} />
             </span>
             <span className="text-[11px] font-medium text-zinc-300">{tr('猜你想问', 'You may want to ask')}</span>
-            <span className="ml-auto text-[10px] text-zinc-600">{tr('点击直接提问', 'Click to ask')}</span>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             {questions.map((q) => {
