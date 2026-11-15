@@ -17,8 +17,10 @@ type Props = {
   onClose(): void;
 };
 
+// 选中行高亮与 og-menu-item 同一口径（text 色 7% 中性底）：
+// 变体类（data-[selected]）不会被浅色模式的 zinc 重映射命中，不能写死深色。
 const ITEM_CLASS =
-  'flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[12px] text-zinc-200 outline-none data-[selected=true]:bg-zinc-800 data-[selected=true]:text-zinc-50';
+  'flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[12px] text-text outline-none data-[selected=true]:bg-text/[0.07]';
 
 export function CommandPalette({ open, onClose }: Props) {
   const { tr } = useI18n();
