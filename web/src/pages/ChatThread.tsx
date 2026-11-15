@@ -43,7 +43,7 @@ import {
 
   forkSession,
 
-  exportSessionMarkdown,
+  exportSession,
 
   updateSessionModel,
 
@@ -1954,7 +1954,7 @@ export default function ChatThreadPage() {
 
                     void (async () => {
 
-                      const md = await exportSessionMarkdown(sessionId);
+                      const md = await exportSession(sessionId, 'markdown');
 
                       const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
 

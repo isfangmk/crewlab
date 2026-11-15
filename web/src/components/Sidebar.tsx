@@ -354,7 +354,7 @@ export function Sidebar() {
           defaultOpen
           items={[
             { key: 'sessions', to: '/sessions', icon: MessageSquare, label: tr('会话', 'Sessions') },
-            { key: 'share-export', icon: Share2, label: tr('导出与分享', 'Export & share'), planned: true },
+            { key: 'share-export', to: '/share-export', icon: Share2, label: tr('导出与分享', 'Export & share') },
           ]}
         />
 

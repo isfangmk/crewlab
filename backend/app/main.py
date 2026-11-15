@@ -38,6 +38,7 @@ from app.api import (
     publish,
     sandbox,
     secrets,
+    shares,
     skills,
     system_settings,
     tools,
@@ -236,6 +237,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge_sources.router, prefix="/api/v1")
     app.include_router(mentions.router, prefix="/api/v1")
     app.include_router(secrets.router, prefix="/api/v1")
+    app.include_router(shares.router, prefix="/api/v1")
     app.include_router(system_settings.router, prefix="/api/v1")
     app.include_router(integrations_llm.router, prefix="/api/v1")
     app.include_router(observability.router, prefix="/api/v1")

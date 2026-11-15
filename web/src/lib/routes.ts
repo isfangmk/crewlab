@@ -16,8 +16,9 @@ type RouteDef = { path: string; zh: string; en: string; keywords?: string[]; gro
 const ROUTE_DEFS: RouteDef[] = [
   { path: '/', zh: '首页', en: 'Home', keywords: ['home', 'shouye'], group: '主页' },
 
-  // 对话：会话管理；后续可挂导出中心等（不放助理能力）
+  // 对话：会话管理与分享管理（不放助理能力）
   { path: '/sessions', zh: '会话', en: 'Sessions', keywords: ['sessions', 'chat', 'huihua', 'duihua'], group: '对话' },
+  { path: '/share-export', zh: '导出与分享', en: 'Export & share', keywords: ['share', 'export', 'link', 'fenxiang', 'daochu', 'fenxianglianjie'], group: '对话' },
 
   // 助理：人设与装配；记忆是助理的跨会话上下文
   { path: '/agents', zh: '助理', en: 'Assistants', keywords: ['agents', 'assistant', 'bot', 'zhuli'], group: '助理' },

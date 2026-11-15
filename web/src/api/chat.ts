@@ -206,12 +206,18 @@ export function forkSession(sessionId: string, upToMessageId: string) {
   );
 }
 
-export async function exportSessionMarkdown(sessionId: string): Promise<string> {
+export type SessionExportFormat = 'markdown' | 'json';
+
+// 会话导出：markdown 为文档文本；json 为结构化消息（与只读分享同出参形状）。
+export async function exportSession(
+  sessionId: string,
+  format: SessionExportFormat,
+): Promise<string> {
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(
-    `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/export`,
+    `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/export?format=${format}`,
     { headers },
   );
   if (!res.ok) {

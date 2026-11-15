@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
@@ -270,10 +271,22 @@ async def fork_session(
 @router.get("/chat/sessions/{session_id}/export")
 async def export_session(
     session_id: str,
+    format: str = Query(default="markdown", pattern="^(markdown|json)$"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
-) -> PlainTextResponse:
+) -> Response:
+    """会话导出：markdown 为文档；json 为结构化消息（与只读分享同出参形状）。"""
+
     try:
+        if format == "json":
+            session = await chat_service.get_session(db, session_id)
+            messages = await chat_service.list_messages(db, session_id)
+            items = await chat_service.messages_to_wire(db, messages)
+            payload = {"session": _session_out(session), "items": items, "total": len(items)}
+            return Response(
+                content=json.dumps(jsonable_encoder(payload), ensure_ascii=False, indent=2),
+                media_type="application/json; charset=utf-8",
+            )
         md = await chat_service.export_session_markdown(db, session_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

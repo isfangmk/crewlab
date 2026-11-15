@@ -37,6 +37,8 @@ const AuditPage = lazy(() => import('@/pages/Audit'));
 const UsersPage = lazy(() => import('@/pages/Users'));
 const ShareViewPage = lazy(() => import('@/pages/ShareView'));
 const EvalShareViewPage = lazy(() => import('@/pages/EvalShareView'));
+const ExportSharePage = lazy(() => import('@/pages/ExportShare'));
+const ExportPrintPage = lazy(() => import('@/pages/ExportPrint'));
 const SettingsLayout = lazy(() => import('@/pages/SettingsLayout'));
 const SettingsLLM = lazy(() => import('@/pages/settings/LLM'));
 const SettingsPreferences = lazy(() => import('@/pages/settings/Preferences'));
@@ -104,6 +106,9 @@ export default function App() {
           <Route path="/chat/:sessionId" element={<ChatThreadPage />} />
         </Route>
         <Route path="/sessions" element={<SessionsPage />} />
+        <Route path="/share-export" element={<ExportSharePage />} />
+        <Route path="/print/session/:id" element={<ExportPrintPage kind="session" />} />
+        <Route path="/print/eval/:id" element={<ExportPrintPage kind="eval" />} />
         <Route path="/skills" element={<SkillsPage />} />
         <Route path="/tools" element={<ToolsPage />} />
         <Route path="/approvals" element={<ApprovalsPage />} />

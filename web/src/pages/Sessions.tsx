@@ -25,7 +25,7 @@ import {
 import {
   batchDeleteSessions,
   deleteSession,
-  exportSessionMarkdown,
+  exportSession,
   listSessionModels,
   listSessions,
   updateSessionFlags,
@@ -393,7 +393,7 @@ export default function SessionsPage() {
   const runExport = async (session: ChatSession) => {
     setBusyId(session.id);
     try {
-      const md = await exportSessionMarkdown(session.id);
+      const md = await exportSession(session.id, 'markdown');
       const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
