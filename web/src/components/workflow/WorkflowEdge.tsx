@@ -3,8 +3,9 @@
 // 交互上多做了一件事：鼠标悬到线上时中点浮出「+」，点开可以在两个节点之间
 // 直接插入一个节点，免得为了插一个步骤先删线再补两条。
 
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { autoUpdate, flip, offset, shift, useFloating } from '@floating-ui/react';
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -36,34 +37,6 @@ export type CanvasFlowEdge = Edge<WorkflowEdgeData, 'workflow'>;
 const POPUP_GAP = 8;
 const VIEWPORT_MARGIN = 8;
 
-export type EdgePopupAnchor = { left: number; top: number; bottom: number; width: number };
-export type EdgePopupSize = { width: number; height: number };
-export type EdgePopupViewport = { width: number; height: number };
-
-/**
- * 计算插入节点面板的 fixed 坐标：默认贴在「+」下方，下方放不下时向上翻，
- * 左右按视口夹住，避免面板伸出画布或被节点卡片盖住。
- */
-export function placeEdgePopup(
-  anchor: EdgePopupAnchor,
-  popup: EdgePopupSize,
-  viewport: EdgePopupViewport,
-): { left: number; top: number } {
-  const maxLeft = Math.max(VIEWPORT_MARGIN, viewport.width - popup.width - VIEWPORT_MARGIN);
-  const left = Math.min(Math.max(anchor.left + anchor.width / 2 - popup.width / 2, VIEWPORT_MARGIN), maxLeft);
-
-  const below = anchor.bottom + POPUP_GAP;
-  const above = anchor.top - POPUP_GAP - popup.height;
-  const fitsBelow = below + popup.height + VIEWPORT_MARGIN <= viewport.height;
-  const fitsAbove = above >= VIEWPORT_MARGIN;
-
-  let top = below;
-  if (!fitsBelow && fitsAbove) top = above;
-  const maxTop = Math.max(VIEWPORT_MARGIN, viewport.height - popup.height - VIEWPORT_MARGIN);
-  top = Math.min(Math.max(top, VIEWPORT_MARGIN), maxTop);
-  return { left, top };
-}
-
 export function WorkflowEdge({
   id,
   data,
@@ -81,9 +54,15 @@ export function WorkflowEdge({
   const [hovered, setHovered] = useState(false);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  const popupRef = useRef<HTMLDivElement>(null);
-  const [popupPos, setPopupPos] = useState<{ left: number; top: number } | null>(null);
+
+  // 定位由 floating-ui 负责：贴「+」下方居中，放不下向上翻，左右按视口收边；
+  // 首帧未定位前隐藏，避免闪现在 (0,0)。
+  const { refs, floatingStyles, update, isPositioned } = useFloating<HTMLButtonElement>({
+    placement: 'bottom',
+    strategy: 'fixed',
+    middleware: [offset(POPUP_GAP), flip({ padding: VIEWPORT_MARGIN }), shift({ padding: VIEWPORT_MARGIN })],
+    whileElementsMounted: autoUpdate,
+  });
 
   // 锚点盒的外缘就是卡片边缘，React Flow 直接取外缘作为端点；
   // 箭头 marker 也由 React Flow 生成，这里不再做偏移。
@@ -101,41 +80,18 @@ export function WorkflowEdge({
   const stroke = active ? EDGE_ACTIVE_COLOR : EDGE_COLOR[resolved];
   const filtered = useMemo(() => filterKinds(data?.kinds ?? [], query, zh), [data, query, zh]);
 
-  // 画布平移/缩放会改变连线中点，弹窗跟着锚点重新定位。
-  useLayoutEffect(() => {
-    if (!open) return;
-    const update = () => {
-      const anchor = anchorRef.current;
-      const popup = popupRef.current;
-      if (anchor === null || popup === null) return;
-      const next = placeEdgePopup(
-        anchor.getBoundingClientRect(),
-        { width: popup.offsetWidth, height: popup.offsetHeight },
-        { width: window.innerWidth, height: window.innerHeight },
-      );
-      setPopupPos((current) =>
-        current !== null && current.left === next.left && current.top === next.top ? current : next,
-      );
-    };
+  // 画布平移/缩放靠 CSS transform 移动锚点，autoUpdate 感知不到这类变化，
+  // 跟着 viewport 变化手动触发一次重定位。
+  useEffect(() => {
     update();
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, true);
-    return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update, true);
-    };
-  }, [open, query, labelX, labelY, viewportX, viewportY, viewportZoom]);
+  }, [viewportX, viewportY, viewportZoom, update]);
 
   // 面板挂到 body：React Flow 的节点层会盖住连线标签层，留在原地会被节点卡片遮住。
   const popup = data === undefined ? null : (
     <div
-      ref={popupRef}
-      className="nodrag nopan nowheel pointer-events-auto fixed z-50 w-[212px] overflow-hidden rounded-xl border border-border bg-card shadow-xl"
-      style={{
-        left: popupPos?.left ?? 0,
-        top: popupPos?.top ?? 0,
-        visibility: popupPos === null ? 'hidden' : 'visible',
-      }}
+      ref={refs.setFloating}
+      className="nodrag nopan nowheel pointer-events-auto z-50 w-[212px] overflow-hidden rounded-xl border border-border bg-card shadow-xl"
+      style={{ ...floatingStyles, visibility: isPositioned ? 'visible' : 'hidden' }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -209,7 +165,7 @@ export function WorkflowEdge({
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
             <button
-              ref={anchorRef}
+              ref={refs.setReference}
               type="button"
               aria-label={tr('在连线中间插入节点', 'Insert a node on this edge')}
               aria-expanded={open}

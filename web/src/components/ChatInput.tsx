@@ -1,3 +1,4 @@
+import { autoUpdate, flip, offset, shift, size, useFloating } from '@floating-ui/react';
 import { Button, Label, Textarea } from '@/components/ui';
 import {
   AgentDropdown,
@@ -12,6 +13,7 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Send,
   Mail,
@@ -597,15 +599,28 @@ function MentionPopover({
   anchorRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const { tr } = useI18n();
-  // Smart-flip: prefer above the input (chat dock at bottom of viewport),
-  // but if there isn't 320px of room above, drop below instead. Recomputed
-  // on every render so resize / scroll updates flow through.
-  const placeBelow = (() => {
-    const el = anchorRef.current;
-    if (!el) return false;
-    const rect = el.getBoundingClientRect();
-    return rect.top < 340;
-  })();
+  // 定位交给 floating-ui：优先贴输入框上方（对话坞在视口底部），上方放不下自动翻到
+  // 下方并贴视口收边；宽度跟随输入容器（左右各留 12px，与旧版 left-3 right-3 一致）。
+  // 弹层挂到 body：容器上的 backdrop-blur 会成为 fixed 定位的包含块，留在容器里坐标会算歪。
+  const { refs, floatingStyles, isPositioned } = useFloating<HTMLDivElement>({
+    placement: 'top',
+    strategy: 'fixed',
+    middleware: [
+      offset(4),
+      flip({ padding: 8 }),
+      shift({ padding: 8 }),
+      size({
+        apply({ rects, elements }) {
+          elements.floating.style.width = `${Math.max(rects.reference.width - 24, 240)}px`;
+        },
+      }),
+    ],
+    whileElementsMounted: autoUpdate,
+  });
+  // 锚点是外层输入容器（父组件传入）；挂载后交给 floating-ui 建立跟随关系。
+  useEffect(() => {
+    refs.setReference(anchorRef.current);
+  });
   // Group rendering: cluster by type so the user sees knowledge docs /
   // MCP servers in stable bands.
   const groups: Record<MentionType, MentionItem[]> = {
@@ -617,16 +632,13 @@ function MentionPopover({
   // (popoverIndex is over `items`, not over groups).
   const order: MentionType[] = ['file', 'server'];
 
-  return (
+  return createPortal(
     <div
+      ref={refs.setFloating}
       role="listbox"
       aria-label={tr('平台对象搜索结果', 'Platform object search results')}
-      className={cn(
-        'absolute left-3 right-3 z-30 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950 shadow-xl',
-        placeBelow
-          ? 'top-[calc(100%+0.25rem)]'
-          : 'top-[calc(100%-3.5rem)] -translate-y-full',
-      )}
+      className="z-30 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950 shadow-xl"
+      style={{ ...floatingStyles, visibility: isPositioned ? 'visible' : 'hidden' }}
     >
       {loading && items.length === 0 ? (
         <div className="px-3 py-3 text-[12px] text-zinc-500">{tr('搜索中…', 'Searching…')}</div>
@@ -683,7 +695,8 @@ function MentionPopover({
       <div className="flex items-center justify-between border-t border-zinc-800 px-3 py-1 text-[10px] text-zinc-600">
         <span>{tr('↑↓ 切换 · Enter 选择 · Esc 取消', '↑↓ navigate · Enter select · Esc cancel')}</span>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -17,9 +17,22 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type ReactNode,
 } from 'react';
+import {
+  closestCenter,
+  DndContext,
+  DragOverlay,
+  pointerWithin,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
 import {
   BookOpen,
   ChevronRight,
@@ -72,8 +85,18 @@ import { useI18n } from '@/i18n/locale';
 import { useRequestSeq } from '@/lib/requestSeq';
 import { errorText } from '@/lib/errors';
 
-// 拖拽移动组织文档时的 dataTransfer MIME；值为文档 id。
-const DOC_DND_MIME = 'application/x-ongrid-doc-id';
+// 拖放（@dnd-kit）：文档把手是 drag source，目录行是 drop target。
+// 目标 id 带来源分组前缀——组织库与内置库有同名目录，不加前缀会互相顶掉注册。
+const folderDropId = (group: 'org' | 'builtin', path: string) => `folder:${group}:${path}`;
+// 从 droppable id 还原目录路径（'folder:org:concepts/dns' → 'concepts/dns'，根 → ''）。
+const folderPathOf = (dropId: string) => dropId.split(':').slice(2).join(':');
+
+// 目录行很窄且彼此紧邻：以指针命中为准（pointerWithin），指针落在行间缝隙时
+// 才回落最近行（closestCenter），避免默认的 closestCenter 在行边界吸附到邻近目录。
+const collision: CollisionDetection = (args) => {
+  const hits = pointerWithin(args);
+  return hits.length > 0 ? hits : closestCenter(args);
+};
 
 // 分页规格与全站一致：默认 20 条/页，可选 20/50/100。
 const DEFAULT_PAGE_SIZE = 20;
@@ -226,6 +249,10 @@ export default function KnowledgePage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // 语义检索自己的请求序号：与文档列表互不干扰，避免旧检索结果覆盖新结果
   const searchSeq = useRef(0);
+  // 拖拽中的文档（DragOverlay 显示标题胶囊）；null = 未在拖拽
+  const [dragDoc, setDragDoc] = useState<KnowledgeDoc | null>(null);
+  // 拖拽在移动 6px 后才激活，避免行内点击被误判成拖拽
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   // 文档列表：服务端筛选（来源组 / 目录 / 来源类型 / 标题关键字）+ 分页
   const fetchList = useCallback(async (silent = false) => {
@@ -360,6 +387,23 @@ export default function KnowledgePage() {
     [fetchList, fetchTrees],
   );
 
+  // dnd-kit 生命周期：起拖记住文档给 DragOverlay，松手落在目录上才真正移动。
+  const onDragStart = useCallback((event: DragStartEvent) => {
+    const docId = String(event.active.id).slice('doc:'.length);
+    setDragDoc(items.find((d) => d.id === docId) ?? null);
+  }, [items]);
+
+  const onDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setDragDoc(null);
+      const overId = event.over?.id;
+      if (typeof overId !== 'string') return;
+      const docId = String(event.active.id).slice('doc:'.length);
+      if (docId !== '') void onMoveDoc(docId, folderPathOf(overId));
+    },
+    [onMoveDoc],
+  );
+
   // 文档启停只影响检索：停用后切块保留，可随时恢复
   const onToggleDocEnabled = useCallback(
     async (doc: KnowledgeDoc, enabled: boolean) => {
@@ -464,6 +508,7 @@ export default function KnowledgePage() {
 
   // 筛选卡只承载「文档标题」筛选；语义检索走独立的检索视图
   return (
+    <DndContext sensors={dndSensors} collisionDetection={collision} onDragStart={onDragStart} onDragEnd={onDragEnd}>
     <main className="anim-fade flex flex-1 flex-col overflow-hidden">
       {/* Tabs 只包页头：视图切换的标签栏与页头共用分隔线，样式与 PageHeader.navigation 一致。 */}
       <Tabs value={view} onValueChange={(v) => setView(v as ViewMode)} className="contents">
@@ -587,6 +632,7 @@ export default function KnowledgePage() {
             <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside className="hidden w-[15rem] shrink-0 flex-col overflow-y-auto border-r border-zinc-800/60 px-2 py-3 md:flex">
           <SourceGroupSection
+            group="org"
             label={tr('组织知识库', 'Organization')}
             icon={FileText}
             tree={orgTree}
@@ -618,6 +664,7 @@ export default function KnowledgePage() {
           />
           <div className="mx-2 my-2 h-px bg-zinc-800/60" />
           <SourceGroupSection
+            group="builtin"
             label={tr('内置知识库', 'Built-in')}
             icon={BookOpen}
             tree={builtinTree}
@@ -809,11 +856,21 @@ export default function KnowledgePage() {
       )}
 
     </main>
+    {/* 拖拽预览只保留标题胶囊，避免把整行的开关与操作按钮一起拎起 */}
+    <DragOverlay dropAnimation={null}>
+      {dragDoc !== null && (
+        <div className="max-w-[280px] truncate rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-[11.5px] font-medium text-zinc-100 shadow-xl">
+          {localizedDocTitle(dragDoc)}
+        </div>
+      )}
+    </DragOverlay>
+    </DndContext>
   );
 }
 
 // 来源分组：分组头本身是「查看整个分组」的入口，也是拖放到根目录的放置区。
 function SourceGroupSection({
+  group,
   label,
   icon: Icon,
   tree,
@@ -824,6 +881,7 @@ function SourceGroupSection({
   onMoveDoc,
   actions,
 }: {
+  group: 'org' | 'builtin';
   label: string;
   icon: IconType;
   tree: TreeNode;
@@ -834,41 +892,20 @@ function SourceGroupSection({
   onMoveDoc?: (docId: string, path: string) => void;
   actions?: ReactNode;
 }) {
-  const [dragOver, setDragOver] = useState(false);
-  const accepts = (e: DragEvent) => !!onMoveDoc && e.dataTransfer.types.includes(DOC_DND_MIME);
+  // 根目录是有效落点（移动到分组根 = 清空目录）；无 onMoveDoc 的组不接受放置。
+  const { setNodeRef, isOver } = useDroppable({ id: folderDropId(group, ''), disabled: !onMoveDoc });
   const rootActive = active && activePath === '';
 
   return (
     <div>
       <div className="flex items-center gap-0.5">
         <button
+          ref={setNodeRef}
           type="button"
           onClick={() => onPick('')}
-          onDragOver={
-            onMoveDoc
-              ? (e) => {
-                  if (!accepts(e)) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = 'move';
-                  setDragOver(true);
-                }
-              : undefined
-          }
-          onDragLeave={onMoveDoc ? () => setDragOver(false) : undefined}
-          onDrop={
-            onMoveDoc
-              ? (e) => {
-                  setDragOver(false);
-                  if (!accepts(e)) return;
-                  e.preventDefault();
-                  const id = e.dataTransfer.getData(DOC_DND_MIME);
-                  if (id) onMoveDoc(id, '');
-                }
-              : undefined
-          }
           className={cn(
             'relative flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors',
-            dragOver
+            isOver
               ? 'bg-info/10 ring-1 ring-inset ring-info/70'
               : rootActive
                 ? 'bg-indigo-500/10 text-zinc-100'
@@ -892,6 +929,7 @@ function SourceGroupSection({
               key={node.path}
               node={node}
               depth={0}
+              group={group}
               activePath={active ? activePath : ''}
               onPick={onPick}
               onMoveDoc={onMoveDoc}
@@ -905,12 +943,14 @@ function SourceGroupSection({
 function FolderNode({
   node,
   depth,
+  group,
   activePath,
   onPick,
   onMoveDoc,
 }: {
   node: TreeNode;
   depth: number;
+  group: 'org' | 'builtin';
   activePath: string;
   onPick(path: string): void;
   onMoveDoc?: (docId: string, path: string) => void;
@@ -919,7 +959,7 @@ function FolderNode({
   const isActive = activePath === node.path;
   const isAncestor = activePath.startsWith(`${node.path}/`);
   const [expanded, setExpanded] = useState(isActive || isAncestor);
-  const [dragOver, setDragOver] = useState(false);
+  const { setNodeRef, isOver } = useDroppable({ id: folderDropId(group, node.path), disabled: !onMoveDoc });
   const hasChildren = node.children.size > 0;
   const ChevronIcon = expanded ? FolderOpen : Folder;
 
@@ -927,37 +967,14 @@ function FolderNode({
     if (isActive || isAncestor) setExpanded(true);
   }, [isActive, isAncestor]);
 
-  const accepts = (e: DragEvent) => !!onMoveDoc && e.dataTransfer.types.includes(DOC_DND_MIME);
-
   return (
     <div>
       <div
-        onDragOver={
-          onMoveDoc
-            ? (e) => {
-                if (!accepts(e)) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-                setDragOver(true);
-              }
-            : undefined
-        }
-        onDragLeave={onMoveDoc ? () => setDragOver(false) : undefined}
-        onDrop={
-          onMoveDoc
-            ? (e) => {
-                setDragOver(false);
-                if (!accepts(e)) return;
-                e.preventDefault();
-                const id = e.dataTransfer.getData(DOC_DND_MIME);
-                if (id) onMoveDoc(id, node.path);
-              }
-            : undefined
-        }
+        ref={setNodeRef}
         style={{ paddingLeft: 6 + depth * 12 }}
         className={cn(
           'relative flex items-center gap-0.5 rounded-md pr-1 transition-colors',
-          dragOver
+          isOver
             ? 'bg-info/10 ring-1 ring-inset ring-info/70'
             : isActive
               ? 'bg-indigo-500/10 text-zinc-100'
@@ -1005,6 +1022,7 @@ function FolderNode({
                 key={child.path}
                 node={child}
                 depth={depth + 1}
+                group={group}
                 activePath={activePath}
                 onPick={onPick}
                 onMoveDoc={onMoveDoc}
@@ -1044,18 +1062,9 @@ function DocRow({
   // 0 块 = 正文从未成功索引；字段缺省（详情 / 检索结果）时不给状态，只显示 —
   const indexTone: 'ok' | 'warn' | null = chunkCount === undefined ? null : chunkCount > 0 ? 'ok' : 'warn';
 
-  // 拖拽预览只保留标题胶囊，避免把整行的开关与操作按钮一起拎起
-  const onDragStart = (e: DragEvent<HTMLSpanElement>) => {
-    e.dataTransfer.setData(DOC_DND_MIME, doc.id);
-    e.dataTransfer.effectAllowed = 'move';
-    const ghost = document.createElement('div');
-    ghost.className =
-      'pointer-events-none fixed -left-[9999px] top-0 max-w-[280px] truncate rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-[11.5px] font-medium text-zinc-100 shadow-xl';
-    ghost.textContent = title;
-    document.body.appendChild(ghost);
-    e.dataTransfer.setDragImage(ghost, 12, 12);
-    window.setTimeout(() => ghost.remove(), 0);
-  };
+  // 拖拽把手（@dnd-kit）：拖动预览由页面级 DragOverlay 提供标题胶囊，
+  // 不再手搓幽灵 DOM + setDragImage。仅手动/上传文档可拖（同编辑权限）。
+  const { listeners, setNodeRef } = useDraggable({ id: `doc:${doc.id}`, disabled: !editable });
 
   return (
     <tr className="group">
@@ -1067,8 +1076,8 @@ function DocRow({
         />
         {editable ? (
           <span
-            draggable
-            onDragStart={onDragStart}
+            ref={setNodeRef}
+            {...listeners}
             aria-hidden
             title={tr('拖动到左侧目录移动', 'Drag onto a folder to move')}
             className="inline-flex h-7 w-4 cursor-grab items-center justify-center text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 active:cursor-grabbing"
