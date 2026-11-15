@@ -705,11 +705,14 @@ async def stream_adk_confirmation(
     skills: list[Any] | None = None,
     sub_agents: list[Any] | None = None,
     answer: dict[str, Any] | None = None,
+    trust_session: bool = False,
 ) -> AsyncIterator[SseFrame]:
     """用 ADK FunctionResponse 恢复被确认闸门拦住的回合。
 
     answer 是澄清提问（ask_user）的用户回答，经 ToolConfirmation.payload
     回流给工具本体；普通审批不带 answer。
+    trust_session 是「本次对话后续不再询问」：标志搭 payload 通道进闸门
+    （ToolConfirmation 只接受 confirmed/payload 两个字段），闸门置会话级免审。
     """
 
     if tool_call_id == "":
@@ -746,6 +749,10 @@ async def stream_adk_confirmation(
     response: dict[str, Any] = {"confirmed": confirmed}
     if answer is not None:
         response["payload"] = answer
+    if trust_session and answer is None:
+        # 只在普通审批（无 answer）时携带：ask_user 的答案 schema 会拒绝多余键，
+        # 且提问卡本来就没有「不再询问」选项
+        response["payload"] = {"trust_session": True}
     message = types.Content(
         role="user",
         parts=[

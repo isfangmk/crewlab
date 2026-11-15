@@ -93,13 +93,13 @@ export type UserInputAnswer = {
   text: string;
 };
 
-/** 批准并续跑：SSE 增量，供会话内打字机渲染。answer 仅澄清提问（ask_user）审批携带。 */
+/** 批准并续跑：SSE 增量，供会话内打字机渲染。answer 仅澄清提问（ask_user）携带；
+ * trustSession 是「本次对话后续不再询问」，置会话级免审（不豁免澄清提问）。 */
 export async function streamApproveApproval(
   id: string,
   reason: string,
   cbs: StreamCallbacks,
-  answer?: UserInputAnswer,
-  signal?: AbortSignal,
+  opts?: { answer?: UserInputAnswer; signal?: AbortSignal; trustSession?: boolean },
 ): Promise<Approval | null> {
   const headers: Record<string, string> = {
     Accept: 'text/event-stream',
@@ -112,8 +112,12 @@ export async function streamApproveApproval(
   const res = await fetch(`/api/v1/approvals/${encodeURIComponent(id)}/approve/stream`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(answer ? { reason, answer } : { reason }),
-    signal,
+    body: JSON.stringify({
+      reason,
+      ...(opts?.answer ? { answer: opts.answer } : {}),
+      ...(opts?.trustSession ? { trust_session: true } : {}),
+    }),
+    signal: opts?.signal,
   });
   await consumeSseResponse(res, {
     ...cbs,

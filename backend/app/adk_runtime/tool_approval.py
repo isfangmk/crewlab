@@ -21,6 +21,11 @@ _REJECTED_ERROR = "This tool call is rejected."
 # 助理禁用名单命中：模型看到的是明确拒绝，不会误以为工具不存在
 _DISALLOWED_ERROR = "This tool is disabled for the current assistant."
 
+# 会话级免审状态键（ADK session state，随会话持久化）：
+# 用户在本会话批准时勾过「后续不再询问」即置位，确认名单内工具直接放行。
+# 只作用于审批闸门；ask_user 澄清提问照常询问——提问不是审批。
+SESSION_TRUST_KEY = "skip_tool_approvals"
+
 
 def build_before_tool_callback(
     confirm_tool_names: set[str],
@@ -80,6 +85,11 @@ def build_before_tool_callback(
         if tool_name not in confirm_tool_names:
             return None
 
+        # 会话级免审：本会话批准时勾过「后续不再询问」，名单内工具直接放行
+        if tool_context.state.get(SESSION_TRUST_KEY, False):
+            logger.info("会话级免审放行 tool=%s", tool_name)
+            return None
+
         confirmation = tool_context.tool_confirmation
         if confirmation is None:
             logger.info(
@@ -99,6 +109,11 @@ def build_before_tool_callback(
         if not confirmation.confirmed:
             logger.info("工具调用被拒绝 tool=%s", tool_name)
             return {"error": _REJECTED_ERROR}
+        # 恢复帧带「后续不再询问」时写进会话状态，本会话后续调用免审
+        payload = confirmation.payload
+        if isinstance(payload, dict) and payload.get("trust_session") is True:
+            tool_context.state[SESSION_TRUST_KEY] = True
+            logger.info("会话级免审已开启 session=%s", tool_context.session.id)
         logger.info("工具调用已批准，放行 tool=%s", tool_name)
         return None
 

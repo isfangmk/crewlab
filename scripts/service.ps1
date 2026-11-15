@@ -20,7 +20,12 @@ $Logs = Join-Path $Root "logs"
 New-Item -ItemType Directory -Force -Path $Logs | Out-Null
 
 function Stop-Tree([int]$ProcessId) {
+  # taskkill 对已退出的子进程会写 stderr；ErrorActionPreference=Stop 下会中断脚本，
+  # 这里临时降级为 Continue：杀活进程才是目的，stderr 噪音不阻塞启停流程
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
   & taskkill.exe /PID $ProcessId /T /F 2>$null | Out-Null
+  $ErrorActionPreference = $prev
 }
 
 function Get-PortOwner([int]$Port) {

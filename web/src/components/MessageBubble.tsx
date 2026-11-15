@@ -25,7 +25,7 @@ import { cn } from '@/lib/cn';
 import { isConfigDraftConfirmationMessage } from '@/lib/configDraftConfirmation';
 import { useI18n } from '@/i18n/locale';
 import { useTimeout } from '@/lib/useTimeout';
-import { Button, Chip, ChoiceChip, CodeBlock, Input, Label, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
+import { Button, Checkbox, Chip, ChoiceChip, CodeBlock, Input, Label, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
 import { Modal } from '@/components/Modal';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
@@ -803,6 +803,8 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
   const [approvedToolName, setApprovedToolName] = useState(toolName);
   const [creds, setCreds] = useState<string[]>([]);
   const [rejectOpen, setRejectOpen] = useState(false);
+  // 「本次对话后续不再询问」：批准时随确认帧置会话级免审（不豁免澄清提问）
+  const [trustSession, setTrustSession] = useState(false);
   const isHostBash = approvalKind === 'host_bash';
 
   // 与审批页权威状态对齐：mount 拉一次；idle 时短轮询，跨页批准后能切到已执行。
@@ -913,6 +915,7 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
           onToolEnd: (event) => emitChatLive({ type: 'tool_end', event }),
           onApprovalPending: (event) => emitChatLive({ type: 'approval_pending', event }),
         },
+        { trustSession: trustSession || undefined },
       );
       if (a === null) {
         throw new Error('审批流未返回 approval_done');
@@ -998,21 +1001,38 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
           </div>
         )}
         {state === 'idle' && (
-          <div className="flex gap-2">
-            <Button variant="primary" size="sm"
-              type="button"
-              onClick={() => void approve()}
-            >
-              <Check size={12} />
-              {tr('批准并执行', 'Approve & run')}
-            </Button>
-            <Button variant="dangerGhost" size="sm"
-              type="button"
-              onClick={() => setRejectOpen(true)}
-            >
-              <X size={12} />
-              {tr('拒绝', 'Reject')}
-            </Button>
+          <div className="space-y-2">
+            <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-zinc-400">
+              <Checkbox
+                checked={trustSession}
+                onCheckedChange={(v) => setTrustSession(v === true)}
+                aria-label={tr('本次对话后续不再询问', 'Do not ask again in this conversation')}
+              />
+              <span
+                title={tr(
+                  '勾选后，本会话内所有需确认的工具将直接执行；智能体的澄清提问仍会询问',
+                  'Once checked, all confirmation-gated tools run without asking in this conversation; agent questions are still asked',
+                )}
+              >
+                {tr('本次对话后续不再询问', 'Do not ask again in this conversation')}
+              </span>
+            </label>
+            <div className="flex gap-2">
+              <Button variant="primary" size="sm"
+                type="button"
+                onClick={() => void approve()}
+              >
+                <Check size={12} />
+                {tr('批准并执行', 'Approve & run')}
+              </Button>
+              <Button variant="dangerGhost" size="sm"
+                type="button"
+                onClick={() => setRejectOpen(true)}
+              >
+                <X size={12} />
+                {tr('拒绝', 'Reject')}
+              </Button>
+            </div>
           </div>
         )}
         {state === 'busy' && <div className="flex items-center gap-1.5 text-zinc-400"><Loader2 size={12} className="animate-spin" />{tr('执行中…', 'Running…')}</div>}
@@ -1182,7 +1202,7 @@ function UserInputCard({
           onToolEnd: (event) => emitChatLive({ type: 'tool_end', event }),
           onApprovalPending: (event) => emitChatLive({ type: 'approval_pending', event }),
         },
-        answer,
+        { answer },
       );
       if (a === null) {
         throw new Error('审批流未返回 approval_done');

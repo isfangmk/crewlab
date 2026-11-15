@@ -85,6 +85,58 @@ describe('MessageBubble shared approval card', () => {
     expect(screen.getByText(/"device_id": 1/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: locale === 'zh-CN' ? '批准并执行' : 'Approve & run' })).toBeInTheDocument();
   });
+
+  it('批准时可勾选「本次对话后续不再询问」，随确认帧提交', async () => {
+    setLocale('zh-CN');
+    const approval = {
+      id: 'approval-1',
+      kind: 'agent_tool',
+      title: 'capture_pcap confirmation',
+      summary: 'capture_pcap {"device_id":1,"interface":"eth0"}',
+      payload: JSON.stringify({
+        tool_name: 'capture_pcap',
+        summary: 'capture_pcap {"device_id":1,"interface":"eth0"}',
+        arguments: { device_id: 1, interface: 'eth0' },
+      }),
+      source: 'agent',
+      session_id: 'session-1',
+      status: 'pending',
+      proposed_by: 1,
+      created_at: new Date().toISOString(),
+    } as unknown as Approval;
+    vi.mocked(getApproval).mockResolvedValue(approval);
+    vi.mocked(streamApproveApproval).mockResolvedValue({ ...approval, status: 'executed' });
+
+    render(<MessageBubble message={{
+      id: 'tool-card-approval',
+      role: 'tool',
+      kind: 'tool_card',
+      tool_call: {
+        id: 'call-1',
+        name: 'capture_pcap',
+        status: 'pending',
+        result: {
+          status: 'pending_approval',
+          approval_id: 'approval-1',
+          kind: 'agent_tool',
+          tool_name: 'capture_pcap',
+          command: 'capture_pcap {"device_id":1,"interface":"eth0"}',
+        },
+      },
+    }} />);
+
+    await userEvent.click(await screen.findByRole('checkbox', { name: '本次对话后续不再询问' }));
+    await userEvent.click(screen.getByRole('button', { name: '批准并执行' }));
+
+    await waitFor(() =>
+      expect(streamApproveApproval).toHaveBeenCalledWith(
+        'approval-1',
+        '',
+        expect.any(Object),
+        { trustSession: true },
+      ),
+    );
+  });
 });
 
 const supportedKinds = [
@@ -508,7 +560,7 @@ describe('MessageBubble 用户澄清卡', () => {
       'approval-ask',
       '',
       expect.any(Object),
-      { selected: '周三', values: {}, text: '' },
+      { answer: { selected: '周三', values: {}, text: '' } },
     );
     expect(await screen.findByText('你的回答')).toBeInTheDocument();
     expect(screen.getByText('选择：周三')).toBeInTheDocument();
@@ -574,7 +626,7 @@ describe('MessageBubble 用户澄清卡', () => {
       'approval-ask',
       '',
       expect.any(Object),
-      { selected: null, values: {}, text: '加一份沙拉' },
+      { answer: { selected: null, values: {}, text: '加一份沙拉' } },
     );
   });
 
