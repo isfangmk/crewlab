@@ -185,6 +185,15 @@ async def lifespan(_app: FastAPI):
 
     await start_vault_sync()
 
+    # 预热 litellm：ADK 到首个回合才懒加载它，冷导入约 10 秒会让进程的第一个问题白等；
+    # 挪到无人等待的启动期（价格表已由 LITELLM_LOCAL_MODEL_COST_MAP 强制本地，不拉 GitHub）
+    import asyncio
+    import importlib
+
+    warm_started = asyncio.get_running_loop().time()
+    await asyncio.to_thread(importlib.import_module, "litellm")
+    logger.info("litellm 预热完成 %.1fs", asyncio.get_running_loop().time() - warm_started)
+
     yield
     await stop_vault_sync()
     await stop_scheduler()

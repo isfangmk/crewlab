@@ -2,8 +2,13 @@
 
 from functools import lru_cache
 
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# .env 同时灌进 os.environ：pydantic-settings 只服务自己的字段，
+# LiteLLM 这类直接读环境变量的库（如 LITELLM_LOCAL_MODEL_COST_MAP）也吃同一份配置。
+load_dotenv()
 
 
 class Settings(BaseSettings):
@@ -43,6 +48,12 @@ class Settings(BaseSettings):
     seed_llm_model_prefix: str = Field(alias="SEED_LLM_MODEL_PREFIX", default="")
     # 种子 provider 的厂商专属请求体（JSON 对象文本）
     seed_llm_extra_body_json: str = Field(alias="SEED_LLM_EXTRA_BODY_JSON", default="")
+    # LiteLLM 用本地价格表：置 True 不拉 GitHub（拉取超时会让进程首个回合白等 10+ 秒）。
+    # 字段进 Settings（extra=forbid 要求 .env 的键都有归属）；litellm 本身从
+    # os.environ 读，靠文件头的 load_dotenv 灌入。
+    litellm_local_model_cost_map: bool = Field(
+        alias="LITELLM_LOCAL_MODEL_COST_MAP", default=False
+    )
     embedding_base_url: str = Field(alias="EMBEDDING_BASE_URL")
     embedding_model: str = Field(alias="EMBEDDING_MODEL")
     embedding_dim: int = Field(alias="EMBEDDING_DIM")
