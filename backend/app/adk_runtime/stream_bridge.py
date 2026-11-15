@@ -619,6 +619,8 @@ async def stream_adk_turn(
     model_prefix: str = "",
     provider_extra_body: dict[str, Any] | None = None,
     disallowed_tool_names: set[str] | None = None,
+    # 命中的审批规则动作（wire 名 → action）：闸门据此绕过会话信任
+    rule_actions: dict[str, str] | None = None,
     max_turns: int = 0,
     image_parts: list[tuple[bytes, str]] | None = None,
     knowledge_scope: KnowledgeScope | None = None,
@@ -643,6 +645,7 @@ async def stream_adk_turn(
         model_prefix=model_prefix,
         provider_extra_body=provider_extra_body,
         disallowed_tool_names=disallowed_tool_names,
+        rule_actions=rule_actions,
         max_turns=max_turns,
         knowledge_scope=knowledge_scope,
         skills=skills,
@@ -704,6 +707,8 @@ async def stream_adk_confirmation(
     model_prefix: str = "",
     provider_extra_body: dict[str, Any] | None = None,
     disallowed_tool_names: set[str] | None = None,
+    # 命中的审批规则动作（wire 名 → action）：闸门据此绕过会话信任
+    rule_actions: dict[str, str] | None = None,
     max_turns: int = 0,
     knowledge_scope: KnowledgeScope | None = None,
     skills: list[Any] | None = None,
@@ -736,6 +741,7 @@ async def stream_adk_confirmation(
         model_prefix=model_prefix,
         provider_extra_body=provider_extra_body,
         disallowed_tool_names=disallowed_tool_names,
+        rule_actions=rule_actions,
         max_turns=max_turns,
         knowledge_scope=knowledge_scope,
         skills=skills,

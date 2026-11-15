@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.adk_runtime.stream_bridge import stream_adk_confirmation, stream_adk_turn
 from app.adk_runtime.tool_approval import (
     _PENDING_CONFIRMATION_ERROR,
     _RULE_BLOCKED_ERROR,
@@ -296,3 +297,44 @@ async def test_rule_crud_validation(tmp_path) -> None:
                 await approval_rule_service.delete_rule(db, row.id)
     finally:
         await engine.dispose()
+
+
+class _Stop(Exception):
+    """哨兵：fake build_chat_agent 记录入参后立刻中断生成器。"""
+
+
+@pytest.mark.asyncio
+async def test_stream_entries_forward_rule_actions(monkeypatch) -> None:
+    """对话与审批续跑两个入口都把命中规则动作转发给闸门装配（否则一跑就 TypeError）。"""
+
+    captured: list[dict] = []
+
+    def fake_build_chat_agent(**kwargs):
+        captured.append(kwargs)
+        raise _Stop
+
+    monkeypatch.setattr(
+        "app.adk_runtime.stream_bridge.build_chat_agent", fake_build_chat_agent
+    )
+    rule_actions = {"mcp__obs-tools__query_metric": "require_approval"}
+    common = dict(
+        session_id="s1",
+        user_id="u1",
+        provider_id="deepseek",
+        model="deepseek-flash",
+        base_url="https://api.example.com/v1",
+        api_key="test-key",
+        session_service=SimpleNamespace(),
+        agent_name="demo",
+        agent_description="演示",
+        persona_instruction="",
+        thinking_enabled=False,
+        rule_actions=rule_actions,
+    )
+    with pytest.raises(_Stop):
+        await stream_adk_turn(user_text="hi", **common).__anext__()
+    with pytest.raises(_Stop):
+        await stream_adk_confirmation(
+            confirmation_fc_id="fc-1", tool_call_id="c1", confirmed=True, **common
+        ).__anext__()
+    assert [c["rule_actions"] for c in captured] == [rule_actions, rule_actions]
