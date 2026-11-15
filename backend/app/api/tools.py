@@ -16,9 +16,9 @@ from app.schemas.tools import (
     BuiltinToolRunIn,
     BuiltinToolRunOut,
 )
-from app.services import builtin_tool_service
-from app.services.audit_service import write_audit
-from app.services.auth_service import AuthUser
+from app.services.platform import builtin_tool_service
+from app.services.observability.audit_service import write_audit
+from app.services.platform.auth_service import AuthUser
 
 router = APIRouter(tags=["tools"])
 

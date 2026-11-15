@@ -11,8 +11,10 @@ from sqlalchemy import func, select
 
 from app.db import SessionLocal
 from app.models.artifact import Artifact
-from app.services import artifact_service, chat_service, share_service
-from app.services.chat_service import create_session
+from app.services.chat import artifact_service
+from app.services.chat import chat_service
+from app.services.chat import share_service
+from app.services.chat.chat_service import create_session
 from app.tools.code_interpreter import remember_pending
 from tests.conftest import login_access_token
 

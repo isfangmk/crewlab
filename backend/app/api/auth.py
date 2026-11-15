@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_admin, require_auth
 from app.db import get_db
 from app.models.user import User
-from app.services import auth_service
-from app.services.auth_service import AuthUser
-from app.services.audit_service import write_audit
+from app.services.platform import auth_service
+from app.services.platform.auth_service import AuthUser
+from app.services.observability.audit_service import write_audit
 
 router = APIRouter(tags=["auth"])
 

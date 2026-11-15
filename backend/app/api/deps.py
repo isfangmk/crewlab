@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.request_context import set_user_id
-from app.services.auth_service import AuthUser, resolve_bearer
+from app.services.platform.auth_service import AuthUser, resolve_bearer
 
 
 async def require_auth(

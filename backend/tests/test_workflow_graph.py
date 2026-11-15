@@ -23,7 +23,7 @@ from app.schemas.workflow import (
     graph_warnings,
     unknown_placeholders,
 )
-from app.services import workflow_vars
+from app.services.workflow import workflow_vars
 
 
 def _new_sessionmaker():
@@ -337,7 +337,7 @@ def test_default_type_mismatch_rejected() -> None:
 def test_initial_state_uses_default_for_optional_only() -> None:
     """非必填没传就用默认值；必填没传则报错。"""
 
-    from app.services.workflow_service import initial_state_of
+    from app.services.workflow.workflow_service import initial_state_of
 
     payload = _simple_flow()
     payload["nodes"][0]["variables"] = [
@@ -361,7 +361,7 @@ def test_initial_state_uses_default_for_optional_only() -> None:
 def test_number_default_keeps_integer() -> None:
     """默认 3 不能变成 3.0，否则插值文案会显示成 "3.0"。"""
 
-    from app.services.workflow_service import initial_state_of
+    from app.services.workflow.workflow_service import initial_state_of
 
     payload = _simple_flow()
     payload["nodes"][0]["variables"] = [
@@ -378,7 +378,7 @@ def test_number_default_keeps_integer() -> None:
 def test_boolean_variable_rejects_loose_text() -> None:
     """布尔变量只接受真正的 bool，不做 "1"/"yes" 这类猜测。"""
 
-    from app.services.workflow_service import initial_state_of
+    from app.services.workflow.workflow_service import initial_state_of
 
     payload = _simple_flow()
     payload["nodes"][0]["variables"] = [
@@ -806,7 +806,7 @@ async def test_code_node_reports_reads_through_key_lookups() -> None:
 
 async def _run(definition_payload: dict, values: dict) -> tuple[object, list, object]:
     from app.models.workflow import Workflow as WorkflowRow
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     definition = WorkflowDefinition.model_validate(definition_payload)
     engine, sessionmaker = _new_sessionmaker()
@@ -904,7 +904,7 @@ async def test_stream_events_carry_node_input_and_output() -> None:
     }
 
     from app.models.workflow import Workflow as WorkflowRow
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     definition = WorkflowDefinition.model_validate(payload)
     engine, sessionmaker = _new_sessionmaker()
@@ -1010,7 +1010,7 @@ async def test_waiting_run_emits_pause_event_not_finish() -> None:
     """停在人工节点只发暂停事件：运行还没结束，订阅要继续开着。"""
 
     from app.models.workflow import Workflow as WorkflowRow
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     payload = {
         "nodes": [
@@ -1080,7 +1080,7 @@ async def test_node_event_input_hides_internal_bookkeeping() -> None:
 
 @pytest.mark.asyncio
 async def test_run_waits_at_approval_then_resumes() -> None:
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
     payload = {
         "nodes": [
             _node("start", "start", variables=[{"name": "x", "required": True}]),
@@ -1138,7 +1138,7 @@ async def test_run_waits_at_approval_then_resumes() -> None:
 async def test_resume_in_background_records_approved_gate() -> None:
     """后台续跑：已确认的节点要落进运行输入，否则每次续跑都被同一个门拦下。"""
 
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     payload = {
         "nodes": [
@@ -1194,7 +1194,7 @@ async def test_resume_in_background_records_approved_gate() -> None:
 
 @pytest.mark.asyncio
 async def test_missing_required_variable_fails_before_run() -> None:
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     definition = WorkflowDefinition.model_validate(_simple_flow())
     with pytest.raises(ValueError) as exc:
@@ -1207,7 +1207,7 @@ async def test_missing_required_variable_fails_before_run() -> None:
 
 async def _probe(definition_payload: dict, node_id: str, values: dict) -> dict:
     from app.models.workflow import Workflow as WorkflowRow
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     definition = WorkflowDefinition.model_validate(definition_payload)
     engine, sessionmaker = _new_sessionmaker()
@@ -1437,7 +1437,7 @@ async def test_resume_twice_keeps_earlier_gate_and_input() -> None:
     """连着两次人工恢复：第一次的审批记录与第二次的输入都不能丢。"""
 
     from app.models.workflow import Workflow as WorkflowRow
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     payload = {
         "nodes": [
@@ -1548,7 +1548,7 @@ def _snapshot_row(definition_json: str, published: str) -> object:
 
 
 def test_definition_for_draft_uses_current_canvas() -> None:
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     draft = json.dumps(_simple_flow())
     row = _snapshot_row(draft, "")
@@ -1561,7 +1561,7 @@ def test_definition_for_draft_uses_current_canvas() -> None:
 def test_definition_for_published_uses_snapshot_not_draft() -> None:
     """发布后改了草稿，跑已发布版本必须还是发布那一刻的图。"""
 
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     published = json.dumps(_simple_flow())
     edited = _simple_flow()
@@ -1578,7 +1578,7 @@ def test_definition_for_published_uses_snapshot_not_draft() -> None:
 def test_definition_for_published_without_snapshot_fails() -> None:
     """从未发布过就不该静默跑草稿，否则用户以为在跑正式版本。"""
 
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     row = _snapshot_row(json.dumps(_simple_flow()), "")
     with pytest.raises(ValueError) as exc:
@@ -1587,7 +1587,7 @@ def test_definition_for_published_without_snapshot_fails() -> None:
 
 
 def test_definition_for_rejects_unknown_source() -> None:
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     row = _snapshot_row(json.dumps(_simple_flow()), "")
     with pytest.raises(ValueError) as exc:
@@ -1600,7 +1600,7 @@ async def test_execute_run_records_source_and_snapshot() -> None:
     """运行记录要能看出这次跑的是快照还是草稿，正文也得是选中的那份。"""
 
     from app.models.workflow import Workflow as WorkflowRow
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     name = f"__test_snapshot_{uuid.uuid4().hex[:8]}__"
     engine, sessionmaker = _new_sessionmaker()

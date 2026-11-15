@@ -11,10 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
 from app.schemas.skill import SkillPayloadIn
-from app.services import skill_bundle, skill_groups, skills_service
-from app.services.audit_service import write_audit
-from app.services.auth_service import AuthUser
-from app.services.skill_bundle import RISK_LEVELS, SkillPayload
+from app.services.skills import skill_bundle
+from app.services.skills import skill_groups
+from app.services.skills import skills_service
+from app.services.observability.audit_service import write_audit
+from app.services.platform.auth_service import AuthUser
+from app.services.skills.skill_bundle import RISK_LEVELS, SkillPayload
 
 logger = logging.getLogger(__name__)
 

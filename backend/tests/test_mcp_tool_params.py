@@ -11,7 +11,7 @@ import json
 import pytest
 
 from app.models.mcp import McpServer
-from app.services.mcp_service import (
+from app.services.mcp.mcp_service import (
     coerce_arguments_from_schema,
     skill_params_from_schema,
     tool_input_schema,

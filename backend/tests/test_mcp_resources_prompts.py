@@ -201,7 +201,7 @@ async def test_catalog_toolset_injects_resource_loader() -> None:
     from google.adk.tools.mcp_tool.mcp_session_manager import SseConnectionParams
 
     from app.models.mcp import McpServer
-    from app.services.mcp_catalog_toolset import CachedMcpCatalogToolset
+    from app.services.mcp.mcp_catalog_toolset import CachedMcpCatalogToolset
 
     tools_json = json.dumps(
         [{"name": "echo", "description": "回显", "input_schema": {"type": "object"}}],

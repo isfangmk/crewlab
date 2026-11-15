@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.db import create_db_engine
-from app.services import sandbox_service
+from app.services.sandbox import sandbox_service
 
 
 @pytest.fixture

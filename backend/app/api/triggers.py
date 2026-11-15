@@ -15,8 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_admin, require_auth, require_not_viewer
 from app.db import get_db
 from app.models.trigger import TriggerRule, TriggerRun
-from app.services import trigger_executor, trigger_service
-from app.services.audit_service import write_audit
+from app.services.workflow import trigger_executor
+from app.services.workflow import trigger_service
+from app.services.observability.audit_service import write_audit
 
 router = APIRouter(tags=["triggers"])
 
@@ -84,7 +85,7 @@ async def _validate_target(
     """目标存在性校验：工作流 / 助理必须真实存在，否则 400。"""
 
     from app.models.workflow import Workflow
-    from app.services import agent_service
+    from app.services.agent import agent_service
 
     if target_kind == "workflow":
         if workflow_id is None:

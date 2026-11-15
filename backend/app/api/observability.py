@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth
 from app.db import get_db
-from app.services import observation_service
-from app.services.auth_service import AuthUser
+from app.services.observability import observation_service
+from app.services.platform.auth_service import AuthUser
 
 router = APIRouter(tags=["observability"])
 

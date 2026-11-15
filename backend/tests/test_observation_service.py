@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.services import observation_service
+from app.services.observability import observation_service
 
 
 @pytest.mark.asyncio

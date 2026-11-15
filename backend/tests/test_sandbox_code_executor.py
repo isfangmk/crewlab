@@ -19,7 +19,7 @@ from sqlalchemy.pool import NullPool
 
 from app.db import create_db_engine
 from app.adk_runtime.sandbox_code_executor import SandboxCodeExecutor, _session_id
-from app.services import sandbox_service
+from app.services.sandbox import sandbox_service
 
 
 def _sandbox_available() -> bool:

@@ -21,7 +21,7 @@ from app.db import create_db_engine
 from app.adk_runtime.workflow_node_impl import CodeNode
 from app.adk_runtime.workflow_nodes import RunContext
 from app.schemas.workflow import WorkflowDefinition, WorkflowNode
-from app.services import sandbox_service
+from app.services.sandbox import sandbox_service
 
 
 def _sandbox_available() -> bool:

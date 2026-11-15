@@ -16,9 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
 from app.models.knowledge import KnowledgeDoc
-from app.services import knowledge_source_service, knowledge_sync
-from app.services.audit_service import write_audit
-from app.services.auth_service import AuthUser
+from app.services.knowledge import knowledge_source_service
+from app.services.knowledge import knowledge_sync
+from app.services.observability.audit_service import write_audit
+from app.services.platform.auth_service import AuthUser
 
 router = APIRouter(tags=["knowledge"])
 

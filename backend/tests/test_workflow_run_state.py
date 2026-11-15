@@ -134,7 +134,7 @@ async def test_latest_run_snapshot_404_for_unknown_workflow(
 def test_run_control_stop_signal() -> None:
     """停止标记只对进行中的运行生效，结束/未开始的运行必须回 False。"""
 
-    from app.services import run_control
+    from app.services.workflow import run_control
 
     run_control.begin_run("run_stop_case")
     try:

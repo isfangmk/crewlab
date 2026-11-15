@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth
 from app.db import get_db
 from app.schemas.chat import LLMProviderOut, ModelCatalogOut
-from app.services import llm_config
+from app.services.platform import llm_config
 
 router = APIRouter(tags=["models"])
 

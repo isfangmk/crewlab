@@ -19,9 +19,9 @@ from app.adk_runtime.naming import (
     root_adk_name,
     unique_identifier,
 )
-from app.services.agent_service import compose_persona, get_agent
-from app.services.agent_tool_service import build_agent_tool_bundle
-from app.services.knowledge_scope import KnowledgeScope
+from app.services.agent.agent_service import compose_persona, get_agent
+from app.services.agent.agent_tool_service import build_agent_tool_bundle
+from app.services.knowledge.knowledge_scope import KnowledgeScope
 
 __all__ = [
     "adk_identifier",

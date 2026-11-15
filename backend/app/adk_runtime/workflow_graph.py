@@ -41,7 +41,7 @@ async def _load_tools(db: AsyncSession, definition: WorkflowDefinition) -> dict[
     tools: dict[str, Any] = {}
     kinds = {n.kind for n in definition.nodes}
     if "search" in kinds:
-        from app.services.web_search_service import resolve_deepseek_search_cred
+        from app.services.platform.web_search_service import resolve_deepseek_search_cred
 
         base_url, api_key = await resolve_deepseek_search_cred(db)
         tools["web_search_base_url"] = base_url
@@ -52,7 +52,7 @@ async def _load_tools(db: AsyncSession, definition: WorkflowDefinition) -> dict[
         if n.kind == "mcp" and n.tool_source == "mcp"
     ]
     if mcp_nodes:
-        from app.services import mcp_service
+        from app.services.mcp import mcp_service
 
         servers = await mcp_service.list_enabled_servers(db)
         tools["mcp_servers"] = {server.name: server for server in servers}
@@ -67,7 +67,7 @@ async def _load_tools(db: AsyncSession, definition: WorkflowDefinition) -> dict[
 
 
 async def _default_llm(db: AsyncSession) -> Any:
-    from app.services.llm_config import get_default_selection, list_enabled_providers
+    from app.services.platform.llm_config import get_default_selection, list_enabled_providers
 
     provider_id, model_name = await get_default_selection(db)
     providers = {p.provider_id: p for p in await list_enabled_providers(db)}
@@ -86,7 +86,7 @@ async def _build_agent_node(
     所以这里不挂任何工具。
     """
 
-    from app.services.llm_config import resolve_model
+    from app.services.platform.llm_config import resolve_model
 
     provider = await resolve_model(db, node.provider, node.model)
     logger.info(

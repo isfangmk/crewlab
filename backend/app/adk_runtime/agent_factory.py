@@ -12,9 +12,9 @@ from app.adk_runtime.naming import root_adk_name
 from app.adk_runtime.toolset import build_builtin_tools
 from app.adk_runtime.tool_approval import build_before_tool_callback
 from app.models.llm import LlmProvider
-from app.services.knowledge_scope import KnowledgeScope
-from app.services.llm_config import compose_litellm_model, provider_extra_body
-from app.services.skills_service import build_skill_toolset
+from app.services.knowledge.knowledge_scope import KnowledgeScope
+from app.services.platform.llm_config import compose_litellm_model, provider_extra_body
+from app.services.skills.skills_service import build_skill_toolset
 
 logger = logging.getLogger(__name__)
 

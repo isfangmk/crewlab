@@ -12,7 +12,7 @@ import uuid
 import httpx
 import pytest
 
-from app.services import eval_judge_service
+from app.services.eval import eval_judge_service
 from tests.conftest import login_access_token
 
 

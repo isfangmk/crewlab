@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.db import SessionLocal
-from app.services.memory_service import recall, remember
+from app.services.knowledge.memory_service import recall, remember
 
 
 async def remember_memory(content: str, tool_context: Any = None) -> dict:

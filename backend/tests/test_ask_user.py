@@ -18,7 +18,7 @@ from app.adk_runtime.tool_approval import (
 )
 from app.db import create_db_engine
 from app.models.approval import Approval
-from app.services import approval_service
+from app.services.chat import approval_service
 from app.tools.user_input import (
     ask_user,
     coerce_ask_display,

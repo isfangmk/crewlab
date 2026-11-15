@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from google.adk.tools import FunctionTool
 
-from app.services.web_search_service import deepseek_web_search
+from app.services.platform.web_search_service import deepseek_web_search
 
 
 def build_web_search_tool(*, base_url: str, api_key: str) -> FunctionTool:

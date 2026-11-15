@@ -9,7 +9,7 @@ import pytest
 
 from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.stream_bridge import APP_NAME
-from app.services.chat_service import _replay_adk_events
+from app.services.chat.chat_service import _replay_adk_events
 
 
 async def _load_texts(session_id: str, user_id: str) -> list[tuple[str, str]]:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services import sandbox_service
+from app.services.sandbox import sandbox_service
 
 
 def _ctx() -> sandbox_service.SandboxContext:

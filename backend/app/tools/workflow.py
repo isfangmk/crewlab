@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from app.db import SessionLocal
-from app.services.workflow_queries import latest_runs, workflow_names
+from app.services.workflow.workflow_queries import latest_runs, workflow_names
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +160,7 @@ async def run_workflow(workflow_id: int, values: dict[str, Any] | None = None) -
     """
 
     from app.models.workflow import Workflow as WorkflowRow
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     async with SessionLocal() as db:
         row = await db.get(WorkflowRow, workflow_id)
@@ -206,7 +206,7 @@ async def list_workflow_runs(
         limit: 返回条数上限
     """
 
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     if limit < 1 or limit > 50:
         raise ValueError(f"limit 必须在 1-50 之间: {limit}")
@@ -248,7 +248,7 @@ async def get_workflow_run(run_uid: str, max_chars: int = 2000) -> dict:
         max_chars: 每个节点输入与输出各自的最大字符数
     """
 
-    from app.services import workflow_service
+    from app.services.workflow import workflow_service
 
     if max_chars < 200 or max_chars > 20000:
         raise ValueError(f"max_chars 必须在 200-20000 之间: {max_chars}")

@@ -28,7 +28,7 @@ from app.adk_runtime.workflow_nodes import (
     upstream_outputs,
 )
 from app.schemas.workflow import WorkflowNode  # noqa: F401 — 供 builder 签名使用
-from app.services import workflow_vars
+from app.services.workflow import workflow_vars
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +258,7 @@ class StartNode(CanvasNode):
         return dict(values)
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
-        from app.services.workflow_service import initial_state
+        from app.services.workflow.workflow_service import initial_state
 
         values = self._tools.get("run_values")
         if values is None:
@@ -329,8 +329,8 @@ class KnowledgeNode(CanvasNode):
         return template_input(self.node_def.query, state, "query")
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
-        from app.services.knowledge_service import search_for_agent
-        from app.services.knowledge_scope import KnowledgeScope
+        from app.services.knowledge.knowledge_service import search_for_agent
+        from app.services.knowledge.knowledge_scope import KnowledgeScope
 
         node = self.node_def
         query = workflow_vars.render(node.query, state)
@@ -356,7 +356,7 @@ class SearchNode(CanvasNode):
         return template_input(self.node_def.query, state, "query")
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
-        from app.services.web_search_service import deepseek_web_search
+        from app.services.platform.web_search_service import deepseek_web_search
 
         base_url = self._tools.get("web_search_base_url")
         api_key = self._tools.get("web_search_api_key")
@@ -393,7 +393,7 @@ class ToolNode(CanvasNode):
     async def _run_builtin(self, node: WorkflowNode, args: dict[str, Any]) -> Any:
         """内置工具：直接按名字执行，不经过模型决策。"""
 
-        from app.services.builtin_tool_service import run_builtin_tool
+        from app.services.platform.builtin_tool_service import run_builtin_tool
         from app.tools.catalog import BUILTIN_TOOL_SPECS
 
         spec = next(
@@ -424,7 +424,7 @@ class ToolNode(CanvasNode):
         server = self._tools.get("mcp_servers", {}).get(node.mcp_server)
         if server is None:
             raise LookupError(f"MCP Server 不存在或未启用: {node.mcp_server}")
-        from app.services import mcp_service
+        from app.services.mcp import mcp_service
 
         # 画布参数以文本录入：按探测缓存里的 schema 转成工具需要的类型
         schema = mcp_service.tool_input_schema(server, node.mcp_tool)
@@ -673,7 +673,7 @@ class CodeNode(CanvasNode):
     async def _run_sandbox(self, state: dict[str, Any]) -> Any:
         """沙盒模式：代码在容器里跑，宿主机只拿结果与读过的键。"""
 
-        from app.services import sandbox_service
+        from app.services.sandbox import sandbox_service
 
         script = _build_sandbox_script(
             code=self.node_def.code,

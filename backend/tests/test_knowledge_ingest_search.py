@@ -7,7 +7,7 @@ import uuid
 import httpx
 import pytest
 
-from app.services.knowledge_service import chunk_text, extract_upload_text
+from app.services.knowledge.knowledge_service import chunk_text, extract_upload_text
 from tests.conftest import login_access_token
 
 
@@ -17,8 +17,8 @@ def test_like_wildcards_are_escaped() -> None:
     from sqlalchemy.dialects import postgresql
 
     from app.models.knowledge import KnowledgeChunk
-    from app.services.knowledge_scope import path_condition
-    from app.services.knowledge_service import _escape_like
+    from app.services.knowledge.knowledge_scope import path_condition
+    from app.services.knowledge.knowledge_service import _escape_like
 
     dialect = postgresql.dialect()
     compile_kwargs = {"literal_binds": True}

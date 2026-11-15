@@ -9,7 +9,7 @@ import logging
 
 from google.adk.tools import FunctionTool
 
-from app.services.knowledge_scope import KnowledgeScope
+from app.services.knowledge.knowledge_scope import KnowledgeScope
 from app.tools.catalog import (
     builtin_group_names,
     builtin_tool_registry,

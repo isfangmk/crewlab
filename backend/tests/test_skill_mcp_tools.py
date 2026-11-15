@@ -11,18 +11,18 @@ import json
 from google.adk.skills import Frontmatter, Skill
 
 from app.models.mcp import McpServer
-from app.services.agent_service import (
+from app.services.agent.agent_service import (
     ResolvedAgent,
     effective_allowed_tools,
     filter_mcp_servers_by_tools,
 )
-from app.services.mcp_service import (
+from app.services.mcp.mcp_service import (
     McpToolRef,
     build_searchable_mcp_toolsets,
     mcp_tool_wire_name,
     skill_params_from_schema,
 )
-from app.services.skills_service import SkillEntry, declared_tools_of_skills, skill_to_wire
+from app.services.skills.skills_service import SkillEntry, declared_tools_of_skills, skill_to_wire
 
 _WIRE = mcp_tool_wire_name("ai-engine", "get_host_load")
 
@@ -179,7 +179,7 @@ def _server(
 async def test_mcp_tools_enter_search_index_not_context() -> None:
     """MCP 工具一律不进初始上下文：只暴露 search/load，业务工具留在检索目录里。"""
 
-    from app.services import tool_search_index
+    from app.services.mcp import tool_search_index
 
     server = _server()
     list_hosts = mcp_tool_wire_name("ai-engine", "list_hosts")
@@ -220,7 +220,7 @@ async def test_unmounted_mcp_server_is_not_searchable() -> None:
 async def test_unselected_tool_is_not_searchable() -> None:
     """白名单只勾了部分工具：没勾选的工具不能出现在检索目录里。"""
 
-    from app.services import tool_search_index
+    from app.services.mcp import tool_search_index
 
     server = _server()
     list_hosts = mcp_tool_wire_name("ai-engine", "list_hosts")
@@ -251,7 +251,7 @@ async def test_unselected_tool_is_not_searchable() -> None:
 async def test_single_tool_server_still_keeps_search_entry() -> None:
     """整台 Server 只有一个工具也要保留 search/load，不能再退化成直接装配。"""
 
-    from app.services import tool_search_index
+    from app.services.mcp import tool_search_index
 
     server = _server(tools=["get_host_load"])
     tool_search_index._VECTOR_CACHE[_WIRE] = [0.0, 1.0]  # noqa: SLF001

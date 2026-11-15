@@ -21,7 +21,7 @@ from google.adk.utils._function_call_names import REQUEST_CONFIRMATION_FUNCTION_
 from google.genai import types
 
 from app.adk_runtime.agent_factory import build_chat_agent
-from app.services.knowledge_scope import KnowledgeScope
+from app.services.knowledge.knowledge_scope import KnowledgeScope
 from app.tools.user_input import ASK_USER_TOOL_NAME
 
 logger = logging.getLogger(__name__)

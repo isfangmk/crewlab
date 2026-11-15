@@ -5,8 +5,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.services import mcp_registry_service
-from app.services.mcp_registry_service import registry_entry_to_server_input
+from app.services.mcp import mcp_registry_service
+from app.services.mcp.mcp_registry_service import registry_entry_to_server_input
 from tests.conftest import login_access_token
 
 

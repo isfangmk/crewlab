@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from app.config import get_settings
-from app.services import knowledge_service
+from app.services.knowledge import knowledge_service
 from tests.conftest import login_access_token
 
 

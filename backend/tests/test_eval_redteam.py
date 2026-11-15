@@ -12,7 +12,9 @@ import uuid
 import httpx
 import pytest
 
-from app.services import eval_runner, eval_service, redteam_library
+from app.services.eval import eval_runner
+from app.services.eval import eval_service
+from app.services.eval import redteam_library
 from tests.conftest import login_access_token
 
 

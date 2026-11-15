@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth
 from app.db import get_db
 from app.models.artifact import Artifact
-from app.services import artifact_service, share_service
+from app.services.chat import artifact_service
+from app.services.chat import share_service
 
 router = APIRouter(tags=["artifacts"])
 

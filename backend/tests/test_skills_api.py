@@ -11,7 +11,7 @@ import zipfile
 import httpx
 import pytest
 
-from app.services.mcp_service import mcp_tool_wire_name
+from app.services.mcp.mcp_service import mcp_tool_wire_name
 from tests.conftest import login_access_token
 
 # 1x1 PNG：验证二进制资源走 base64 往返不失真

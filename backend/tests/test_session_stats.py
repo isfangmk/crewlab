@@ -10,7 +10,7 @@ from app.db import create_db_engine
 from app.models.approval import Approval
 from app.models.artifact import Artifact
 from app.models.chat import ChatSession
-from app.services.chat_service import list_session_stats
+from app.services.chat.chat_service import list_session_stats
 
 
 def _new_sessionmaker():

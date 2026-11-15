@@ -16,9 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth
 from app.db import get_db
-from app.services import sandbox_query_service, sandbox_service
-from app.services.audit_service import write_audit
-from app.services.auth_service import AuthUser
+from app.services.sandbox import sandbox_query_service
+from app.services.sandbox import sandbox_service
+from app.services.observability.audit_service import write_audit
+from app.services.platform.auth_service import AuthUser
 
 logger = logging.getLogger(__name__)
 

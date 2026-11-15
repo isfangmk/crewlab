@@ -90,7 +90,8 @@ async def _ensure_headers(server_id: int) -> dict[str, str] | None:
     """直调服务层取 Authorization 头（不连远端）。"""
 
     from app.db import SessionLocal
-    from app.services import mcp_oauth_service, mcp_service
+    from app.services.mcp import mcp_oauth_service
+    from app.services.mcp import mcp_service
 
     async with SessionLocal() as db:
         server = await mcp_service.get_server(db, server_id)
@@ -104,7 +105,7 @@ async def _force_expire_token(server_id: int) -> None:
 
     from app.db import SessionLocal
     from app.models.mcp_oauth import McpOauthToken
-    from app.services.secrets_service import decrypt_json, encrypt_json
+    from app.services.platform.secrets_service import decrypt_json, encrypt_json
 
     async with SessionLocal() as db:
         row = await db.scalar(

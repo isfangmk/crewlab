@@ -173,7 +173,7 @@ async def test_share_report_public_redacted(env: dict[str, str], api_base: str) 
             # 过期 token 显式 404：直接插一条已过期的分享行
             from app.db import SessionLocal
             from app.models.eval_share import EvalShareToken
-            from app.services.auth_service import hash_token
+            from app.services.platform.auth_service import hash_token
 
             expired_raw = f"expired-{uuid.uuid4().hex}"
             async with SessionLocal() as db:

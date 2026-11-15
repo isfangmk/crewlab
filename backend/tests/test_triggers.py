@@ -8,7 +8,7 @@ import httpx
 import pytest
 import uuid
 
-from app.services.trigger_service import (
+from app.services.workflow.trigger_service import (
     TriggerValidationError,
     compute_next_fire,
     validate_rule,
@@ -41,7 +41,7 @@ def test_compute_next_fire_uses_system_timezone() -> None:
 def test_scheduler_uses_service_compute_next_fire_and_exponential_backoff() -> None:
     """调度器必须能解析到 compute_next_fire；重试按指数退避。"""
 
-    from app.services import trigger_scheduler
+    from app.services.workflow import trigger_scheduler
 
     assert trigger_scheduler.compute_next_fire is compute_next_fire
     assert trigger_scheduler._retry_delay_seconds(1) == 60

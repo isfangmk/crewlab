@@ -21,11 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth, require_not_viewer
 from app.db import SessionLocal, get_db
 from app.schemas.knowledge import DocCreateIn, DocEnabledIn, DocMoveIn, DocUpdateIn, ScopePreviewIn
-from app.services import knowledge_service
-from app.services.audit_service import write_audit
-from app.services.auth_service import AuthUser
-from app.services.knowledge_scope import parse_scope, scope_preview
-from app.services.embedding_client import EmbeddingServiceUnavailable
+from app.services.knowledge import knowledge_service
+from app.services.observability.audit_service import write_audit
+from app.services.platform.auth_service import AuthUser
+from app.services.knowledge.knowledge_scope import parse_scope, scope_preview
+from app.services.platform.embedding_client import EmbeddingServiceUnavailable
 from app.vector_store import VectorStoreUnavailable
 
 logger = logging.getLogger(__name__)

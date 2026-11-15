@@ -22,7 +22,7 @@ from pydantic import PrivateAttr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.workflow import WorkflowDefinition, WorkflowNode
-from app.services import workflow_vars
+from app.services.workflow import workflow_vars
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth
 from app.db import get_db
-from app.services.mention_service import search_mentions
+from app.services.chat.mention_service import search_mentions
 
 router = APIRouter(tags=["mentions"])
 

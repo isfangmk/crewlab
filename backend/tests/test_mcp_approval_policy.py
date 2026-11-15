@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.models.mcp import McpServer
-from app.services.mcp_service import (
+from app.services.mcp.mcp_service import (
     confirm_tool_names_for_servers,
     effective_approval_policy,
     mcp_tool_wire_name,

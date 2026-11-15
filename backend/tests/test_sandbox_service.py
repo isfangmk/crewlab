@@ -25,7 +25,8 @@ from app.adk_runtime.workflow_node_impl import (
     _parse_sandbox_reads,
 )
 from app.models.sandbox import SandboxExecution
-from app.services import sandbox_query_service, sandbox_service
+from app.services.sandbox import sandbox_query_service
+from app.services.sandbox import sandbox_service
 
 
 @asynccontextmanager

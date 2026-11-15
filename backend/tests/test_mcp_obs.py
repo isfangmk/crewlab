@@ -47,7 +47,7 @@ class TestToolSurface:
     def test_readonly_heuristic_labels(self):
         """查询工具过只读启发式 → 安全；写工具不过 → 需审批（与后端判定同口径）。"""
 
-        from app.services.mcp_service import _needs_approval
+        from app.services.mcp.mcp_service import _needs_approval
 
         import server as obs_server
 

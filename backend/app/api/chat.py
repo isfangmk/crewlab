@@ -28,9 +28,11 @@ from app.schemas.chat import (
     UpdateSessionModelRequest,
     UpdateSessionTitleRequest,
 )
-from app.services import attachment_service, chat_service, share_service
-from app.services.audit_service import write_audit
-from app.services.auth_service import AuthUser
+from app.services.chat import attachment_service
+from app.services.chat import chat_service
+from app.services.chat import share_service
+from app.services.observability.audit_service import write_audit
+from app.services.platform.auth_service import AuthUser
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])

@@ -12,12 +12,12 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
-from app.services import agent_service
-from app.services import agent_version_service
-from app.services import playground_service
-from app.services.audit_service import write_audit
-from app.services.auth_service import AuthUser
-from app.services.knowledge_scope import KnowledgeScope, parse_scope, validate_scope
+from app.services.agent import agent_service
+from app.services.agent import agent_version_service
+from app.services.agent import playground_service
+from app.services.observability.audit_service import write_audit
+from app.services.platform.auth_service import AuthUser
+from app.services.knowledge.knowledge_scope import KnowledgeScope, parse_scope, validate_scope
 
 router = APIRouter(tags=["agents"])
 

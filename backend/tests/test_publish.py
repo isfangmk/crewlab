@@ -18,7 +18,7 @@ from app.config import get_settings
 from app.db import create_db_engine
 from app.models.channel import PublishedChannel
 from app.models.observation import ObservationTurn
-from app.services import chat_service
+from app.services.chat import chat_service
 from tests.conftest import login_access_token
 
 

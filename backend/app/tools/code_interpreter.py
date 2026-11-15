@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from app.adk_runtime.workflow_node_impl import SANDBOX_RESULT_MARKER
-from app.services import sandbox_service
+from app.services.sandbox import sandbox_service
 
 # 产出物上限：模型生成的代码不可信，base64 文件与图表 JSON 都可能在宿主内存里膨胀
 ARTIFACT_KINDS = ("chart", "table", "file", "text")

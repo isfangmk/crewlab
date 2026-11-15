@@ -14,7 +14,7 @@ import uuid
 
 import pytest
 
-from app.services.workflow_events import WorkflowEventBus
+from app.services.workflow.workflow_events import WorkflowEventBus
 
 
 def test_subscribe_replays_events_already_published() -> None:
@@ -122,7 +122,7 @@ def test_finished_run_closes_subscribers() -> None:
 def test_publish_keeps_bounded_buffer() -> None:
     """长循环不能把内存吃穿：缓冲按上限丢弃最旧事件。"""
 
-    from app.services.workflow_events import _MAX_EVENTS_PER_RUN
+    from app.services.workflow.workflow_events import _MAX_EVENTS_PER_RUN
 
     bus = WorkflowEventBus()
     channel = bus.channel("run_long")

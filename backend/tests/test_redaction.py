@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.redaction import MASK, redact_url, redact_value
+from app.services.observability.redaction import MASK, redact_url, redact_value
 
 
 def test_redacts_secret_keys_recursively() -> None:

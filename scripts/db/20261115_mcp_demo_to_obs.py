@@ -30,7 +30,7 @@ import sqlalchemy as sa
 
 async def main() -> None:
     from app.db import engine, SessionLocal
-    from app.services.tool_search_index import forget_server_vectors
+    from app.services.mcp.tool_search_index import forget_server_vectors
 
     async with engine.begin() as conn:
 

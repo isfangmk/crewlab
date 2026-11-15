@@ -81,7 +81,7 @@ async def _cleanup_sessions(session_ids: list[str]) -> None:
 def test_validate_annotation_fields_rejects_bad_label() -> None:
     """标签只接受 good / needs_work / bad。"""
 
-    from app.services import annotation_service
+    from app.services.eval import annotation_service
 
     with pytest.raises(ValueError):
         annotation_service.validate_annotation_fields(label="great", comment="")

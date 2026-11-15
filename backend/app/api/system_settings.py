@@ -12,10 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin, require_auth
 from app.db import get_db
-from app.services import app_settings_service, llm_admin
-from app.services.audit_service import write_audit
-from app.services.auth_service import AuthUser
-from app.services.redaction import MASK
+from app.services.platform import app_settings_service
+from app.services.platform import llm_admin
+from app.services.observability.audit_service import write_audit
+from app.services.platform.auth_service import AuthUser
+from app.services.observability.redaction import MASK
 
 router = APIRouter(tags=["system-settings"])
 

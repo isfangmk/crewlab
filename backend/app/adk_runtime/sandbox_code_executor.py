@@ -58,7 +58,7 @@ class SandboxCodeExecutor(BaseCodeExecutor):
     ) -> CodeExecutionResult:
         """执行代码并把结果交回 ADK。"""
 
-        from app.services import sandbox_service
+        from app.services.sandbox import sandbox_service
 
         code = code_execution_input.code
         logger.info("技能脚本进入沙盒 chars=%s", len(code))
@@ -109,7 +109,7 @@ def _run_sandbox(code: str, *, timeout: int | None, session_id: str) -> Any:
     所以不能在调用方的循环里复用 asyncio.run 之外的调度方式。
     """
 
-    from app.services import sandbox_service
+    from app.services.sandbox import sandbox_service
 
     async def _main() -> Any:
         return await sandbox_service.run_code(

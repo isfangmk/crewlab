@@ -27,11 +27,13 @@ from app.schemas.workflow import (
     node_kind_title,
     parse_definition,
 )
-from app.services import run_control, workflow_runner, workflow_service
-from app.services.workflow_queries import latest_runs, workflow_names
-from app.services.audit_service import write_audit
-from app.services.auth_service import AuthUser
-from app.services.workflow_events import TERMINAL_EVENTS, workflow_events
+from app.services.workflow import run_control
+from app.services.workflow import workflow_runner
+from app.services.workflow import workflow_service
+from app.services.workflow.workflow_queries import latest_runs, workflow_names
+from app.services.observability.audit_service import write_audit
+from app.services.platform.auth_service import AuthUser
+from app.services.workflow.workflow_events import TERMINAL_EVENTS, workflow_events
 
 logger = logging.getLogger(__name__)
 
@@ -182,8 +184,8 @@ async def workflow_catalog(
 ) -> dict:
     """画布可用的节点类型、分组，以及模型、内置工具与 MCP 工具。"""
 
-    from app.services import mcp_service
-    from app.services.llm_config import list_enabled_providers, split_models
+    from app.services.mcp import mcp_service
+    from app.services.platform.llm_config import list_enabled_providers, split_models
     from app.tools.catalog import workflow_builtin_tools
 
     servers = await mcp_service.list_enabled_servers(db)
@@ -229,8 +231,8 @@ def _server_tools(server: Any) -> list[dict[str, Any]]:
     但 params_known=False，前端退回手动参数表。
     """
 
-    from app.services.mcp_catalog_toolset import parse_cached_tools
-    from app.services.mcp_service import skill_params_from_schema
+    from app.services.mcp.mcp_catalog_toolset import parse_cached_tools
+    from app.services.mcp.mcp_service import skill_params_from_schema
 
     if server.tools_cache_json.strip() == "":
         return []

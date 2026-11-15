@@ -49,9 +49,9 @@ from app.db import SessionLocal, engine
 from app.logging_setup import setup_logging
 from app.middleware_request_id import RequestIdMiddleware
 from app.models import Base
-from app.services.auth_service import ensure_bootstrap_admin
-from app.services.llm_config import ensure_seed_provider
-from app.services.app_settings_service import (
+from app.services.platform.auth_service import ensure_bootstrap_admin
+from app.services.platform.llm_config import ensure_seed_provider
+from app.services.platform.app_settings_service import (
     ensure_agent_runtime,
     ensure_knowledge_settings,
     ensure_system_timezone,
@@ -139,7 +139,7 @@ async def lifespan(_app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
 
     # 上次进程退出时可能留下 syncing 状态；启动后统一标为可重试的失败
-    from app.services.knowledge_source_service import recover_interrupted_syncs
+    from app.services.knowledge.knowledge_source_service import recover_interrupted_syncs
 
     async with SessionLocal() as db:
         await recover_interrupted_syncs(db)
@@ -167,17 +167,17 @@ async def lifespan(_app: FastAPI):
         await ensure_knowledge_settings(db)
         await ensure_system_timezone(db)
         # 向量表 tool_name 必须与 wire 规则一致，否则检索装配会查错名。
-        from app.services.tool_search_index import assert_embedding_names_consistent
+        from app.services.mcp.tool_search_index import assert_embedding_names_consistent
 
         await assert_embedding_names_consistent(db)
 
     # 触发器调度循环随应用启停
-    from app.services.trigger_scheduler import start_scheduler, stop_scheduler
+    from app.services.workflow.trigger_scheduler import start_scheduler, stop_scheduler
 
     await start_scheduler()
 
     # 内置知识库文件同步：启动即导入一轮，之后按间隔轮询语料目录
-    from app.services.knowledge_vault_sync import start_vault_sync, stop_vault_sync
+    from app.services.knowledge.knowledge_vault_sync import start_vault_sync, stop_vault_sync
 
     await start_vault_sync()
 

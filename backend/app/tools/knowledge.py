@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.services.knowledge_scope import KnowledgeScope
-from app.services.knowledge_service import search_for_agent
+from app.services.knowledge.knowledge_scope import KnowledgeScope
+from app.services.knowledge.knowledge_service import search_for_agent
 
 
 async def query_knowledge(query: str, limit: int = 5) -> dict:

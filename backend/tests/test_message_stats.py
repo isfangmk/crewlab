@@ -18,7 +18,7 @@ from app.adk_runtime.stream_bridge import SseFrame
 from app.db import create_db_engine
 from app.models.base import Base
 from app.models.chat import ChatMessage, ChatSession
-from app.services.chat_service import AdkFramePersister, message_to_wire
+from app.services.chat.chat_service import AdkFramePersister, message_to_wire
 
 
 async def _persist_frames(frames: list[SseFrame], db_path) -> list[ChatMessage]:

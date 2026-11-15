@@ -8,14 +8,14 @@ from datetime import datetime
 import httpx
 import pytest
 
-from app.services import app_settings_service
-from app.services.agent_service import (
+from app.services.platform import app_settings_service
+from app.services.agent.agent_service import (
     ResolvedAgent,
     compose_persona,
     parse_examples,
     validate_display_name,
 )
-from app.services.knowledge_scope import KnowledgeScope
+from app.services.knowledge.knowledge_scope import KnowledgeScope
 from tests.conftest import login_access_token
 
 

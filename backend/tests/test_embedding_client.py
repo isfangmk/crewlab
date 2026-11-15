@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.config import get_settings
-from app.services.embedding_client import EmbeddingServiceUnavailable, embed_texts
+from app.services.platform.embedding_client import EmbeddingServiceUnavailable, embed_texts
 
 
 async def test_embed_texts_against_real_service(env: dict[str, str]) -> None:
