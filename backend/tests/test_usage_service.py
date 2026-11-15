@@ -104,6 +104,8 @@ async def test_usage_summary_costs_and_unpriced(tmp_path) -> None:
 
             result = await usage_summary(db)
             stats = result["stats"]
+            # 总计行不带分组键（API 出参 schema 禁止多余字段）
+            assert "key" not in stats
             assert stats["turns"] == 3
             assert stats["prompt_tokens"] == 4_000_000
             assert stats["completion_tokens"] == 2_000_000

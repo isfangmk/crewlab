@@ -12,7 +12,14 @@ export type UsageRow = {
   unpriced_turns: number;
 };
 
-export type UsageStats = UsageRow & {
+export type UsageStats = {
+  turns: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  duration_avg_ms: number | null;
+  cost: number | null;
+  unpriced_turns: number;
   unpriced_tokens: number;
 };
 

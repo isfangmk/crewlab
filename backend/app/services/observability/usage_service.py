@@ -261,6 +261,8 @@ async def usage_summary(
         )
 
     stats = total.row("stats")
+    # 总计行不是分组行：去掉分组键，另补未计价 token 数
+    stats.pop("key", None)
     stats["unpriced_tokens"] = total.unpriced_tokens
 
     # 今日用量与软限额：超限只提醒不拦截（软）。

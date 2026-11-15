@@ -33,7 +33,6 @@ const limitURL = '/api/v1/system-settings/usage/daily_token_soft_limit';
 function makeSummary(overrides: Record<string, unknown> = {}) {
   return {
     stats: {
-      key: 'stats',
       turns: 3,
       prompt_tokens: 4_000_000,
       completion_tokens: 2_000_000,
