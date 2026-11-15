@@ -14,6 +14,7 @@ const ChatThreadPage = lazy(() => import('@/pages/ChatThread'));
 const SkillsPage = lazy(() => import('@/pages/Skills'));
 const ToolsPage = lazy(() => import('@/pages/Tools'));
 const ApprovalsPage = lazy(() => import('@/pages/Approvals'));
+const ApprovalRulesPage = lazy(() => import('@/pages/ApprovalRules'));
 const ApprovalDetailPage = lazy(() => import('@/pages/ApprovalDetail'));
 const AgentsPage = lazy(() => import('@/pages/Agents'));
 const McpPage = lazy(() => import('@/pages/Mcp'));
@@ -106,6 +107,7 @@ export default function App() {
         <Route path="/skills" element={<SkillsPage />} />
         <Route path="/tools" element={<ToolsPage />} />
         <Route path="/approvals" element={<ApprovalsPage />} />
+        <Route path="/approval-rules" element={<ApprovalRulesPage />} />
         <Route path="/approvals/:id" element={<ApprovalDetailPage key={location.pathname} />} />
         <Route path="/observability" element={<ObservabilityPage />} />
         <Route path="/usage" element={<UsagePage />} />

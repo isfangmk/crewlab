@@ -29,7 +29,17 @@ logger = logging.getLogger(__name__)
 
 
 def approval_to_wire(a: Approval, timeout_hours: int) -> dict:
-    """出参；expires_at = created_at + 超时小时数（到点未决即失效，绝不自动批准）。"""
+    """出参；expires_at = created_at + 超时小时数（到点未决即失效，绝不自动批准）。
+
+    escalated：命中 escalate 规则的单据仅 admin 可批（payload 标记，不动表结构）。
+    sla_warning：pending 且已过超时时长的 80% —— 临期提醒，不自动处置。
+    """
+    try:
+        payload_obj = json.loads(a.payload) if a.payload else {}
+    except (TypeError, ValueError):
+        payload_obj = {}
+    escalated = bool(payload_obj.get("escalated")) if isinstance(payload_obj, dict) else False
+    warn_at = a.created_at + timedelta(hours=timeout_hours * 0.8)
     return {
         "id": a.id,
         "kind": a.kind,
@@ -39,6 +49,8 @@ def approval_to_wire(a: Approval, timeout_hours: int) -> dict:
         "source": "chat",
         "session_id": a.session_id,
         "status": a.status,
+        "escalated": escalated,
+        "sla_warning": a.status == "pending" and datetime.now(timezone.utc) > warn_at,
         "proposed_by": a.proposed_by,
         "approved_by": a.approved_by,
         "reason": a.reason,
@@ -63,6 +75,17 @@ async def get_approval_timeout_hours(db: AsyncSession) -> int:
     if hours < 1:
         raise ValueError("approval_timeout_hours 必须 >= 1")
     return hours
+
+
+def require_escalation_permission(payload_json: str | None, *, is_admin: bool) -> None:
+    """escalate 单据仅 admin 可批准/续跑；拒绝不受限（拒绝是安全动作）。"""
+
+    try:
+        payload_obj = json.loads(payload_json) if payload_json else {}
+    except (TypeError, ValueError):
+        payload_obj = {}
+    if isinstance(payload_obj, dict) and payload_obj.get("escalated") and not is_admin:
+        raise PermissionError("升级审批单仅 admin 可批准")
 
 
 async def create_pending_approval(
@@ -102,6 +125,19 @@ async def create_pending_approval(
     # 否则与发起时的行为不一致（会话默认模型可能被单回合覆盖）。
     if turn_context is not None:
         payload["turn_context"] = turn_context
+    # 升级标记：命中 escalate 规则的单据仅 admin 可批（payload 存标，不动表结构）
+    if kind == "tool_confirmation":
+        from app.services.chat.approval_rule_service import resolve_action_for_tool
+
+        agent_id = await db.scalar(
+            select(ChatSession.agent_id).where(ChatSession.id == session_id)
+        )
+        decision = await resolve_action_for_tool(
+            db, agent_id=agent_id, tool_name=tool_name
+        )
+        if decision is not None and decision.action == "escalate":
+            payload["escalated"] = True
+            logger.info("审批单标记升级（仅 admin 可批） tool=%s rule=%s", tool_name, decision.rule_name)
     row = Approval(
         id=confirmation_fc_id,
         session_id=session_id,
@@ -422,6 +458,7 @@ async def stream_decide(
     extra_tools = tool_bundle.extra_tools
     confirm_tool_names = tool_bundle.confirm_tool_names
     disallowed_tool_names = tool_bundle.disallowed_tool_names
+    rule_actions = tool_bundle.rule_actions
 
     # 决策落库走原子认领：两个并发决策都通过检查时，只有第一个改到状态
     if not await _claim_pending_approval(
@@ -485,6 +522,7 @@ async def stream_decide(
             model_prefix=model_prefix,
             provider_extra_body=provider_extra_body,
             disallowed_tool_names=disallowed_tool_names,
+            rule_actions=rule_actions,
             max_turns=resolved_agent.max_turns,
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,

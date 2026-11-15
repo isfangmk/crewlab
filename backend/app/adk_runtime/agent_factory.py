@@ -65,6 +65,8 @@ def build_chat_agent(
     model_prefix: str = "",
     provider_extra_body: dict[str, Any] | None = None,
     disallowed_tool_names: set[str] | None = None,
+    # 命中的审批规则动作（wire 名 → action）：闸门据此绕过会话信任
+    rule_actions: dict[str, str] | None = None,
     max_turns: int = 0,
     knowledge_scope: KnowledgeScope | None = None,
     skills: list[Any] | None = None,
@@ -160,7 +162,7 @@ def build_chat_agent(
         instruction=instruction,
         tools=tools,
         before_tool_callback=build_before_tool_callback(
-            confirm_names, disallowed_tool_names
+            confirm_names, disallowed_tool_names, rule_actions
         ),
         sub_agents=[a for a in (sub_agents or []) if a is not None],
     )

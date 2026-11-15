@@ -411,6 +411,10 @@ export function Sidebar() {
           defaultOpen
           items={[
             { key: 'approvals', to: '/approvals', icon: ShieldCheck, label: tr('审批', 'Approvals') },
+            // 审批规则是 admin 策略配置：入口只给 admin，避免普通用户误点后被 403 兜底
+            ...(isAdmin
+              ? [{ key: 'approval-rules', to: '/approval-rules', icon: ShieldCheck, label: tr('审批规则', 'Approval rules') }]
+              : []),
             { key: 'audit', to: '/audit', icon: ScrollText, label: tr('审计日志', 'Audit logs') },
             { key: 'observability', to: '/observability', icon: Activity, label: tr('可观测', 'Observability') },
             { key: 'usage', to: '/usage', icon: Coins, label: tr('用量与成本', 'Usage & cost') },

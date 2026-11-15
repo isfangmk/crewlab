@@ -3,6 +3,7 @@
 from app.models.agent import UserAgent
 from app.models.agent_version import UserAgentVersion
 from app.models.approval import Approval
+from app.models.approval_rule import ApprovalRule
 from app.models.artifact import Artifact
 from app.models.attachment import ChatAttachment
 from app.models.audit import AuditLog
@@ -43,6 +44,7 @@ __all__ = [
     "ChatMessage",
     "ChatAttachment",
     "Approval",
+    "ApprovalRule",
     "McpServer",
     "McpToolEmbedding",
     "McpOauthToken",

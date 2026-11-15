@@ -808,6 +808,16 @@ function ApprovalRow({
             >
               {isQuestion ? tr('需要输入', 'Needs input') : tr('操作确认', 'Action confirmation')}
             </Chip>
+            {a.escalated && (
+              <Chip dense tone="warning" className="shrink-0" title={tr('命中 escalate 审批规则', 'Matched an escalate rule')}>
+                {tr('升级', 'Escalated')}
+              </Chip>
+            )}
+            {a.sla_warning && (
+              <Chip dense tone="danger" className="shrink-0" title={tr('已过超时时长的 80%，即将失效', 'Past 80% of the approval timeout')}>
+                {tr('即将超时', 'Due soon')}
+              </Chip>
+            )}
           </div>
           {a.summary && a.summary !== a.title && (
             <div className="mt-0.5 line-clamp-1 whitespace-pre-wrap pl-[19px] text-[11px] text-zinc-500" title={a.summary}>

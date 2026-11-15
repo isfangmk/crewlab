@@ -41,6 +41,7 @@ const ROUTE_DEFS: RouteDef[] = [
 
   // 治理：审批闸门与安全；后续可挂评测（不放助理菜单）
   { path: '/approvals', zh: '审批', en: 'Approvals', keywords: ['approvals', 'shenpi', 'confirm'], group: '治理' },
+  { path: '/approval-rules', zh: '审批规则', en: 'Approval rules', keywords: ['rules', 'approval', 'guize', 'shenpi'], group: '治理' },
   { path: '/audit', zh: '审计日志', en: 'Audit logs', keywords: ['audit', 'logs', 'shenji'], group: '治理' },
   { path: '/observability', zh: '可观测', en: 'Observability', keywords: ['observability', 'trace', 'token', 'keguance'], group: '治理' },
   { path: '/usage', zh: '用量与成本', en: 'Usage & cost', keywords: ['usage', 'cost', 'tokens', 'yongliang', 'chengben'], group: '治理' },

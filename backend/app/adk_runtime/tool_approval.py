@@ -20,6 +20,8 @@ _PENDING_CONFIRMATION_ERROR = (
 _REJECTED_ERROR = "This tool call is rejected."
 # 助理禁用名单命中：模型看到的是明确拒绝，不会误以为工具不存在
 _DISALLOWED_ERROR = "This tool is disabled for the current assistant."
+# 审批规则 block 命中：与禁用名单同样直接拒绝，不进审批流程
+_RULE_BLOCKED_ERROR = "This tool is blocked by an approval rule."
 
 # 会话级免审状态键（ADK session state，随会话持久化）：
 # "all" = 本会话所有需确认工具免审；list[str] = 仅名单内工具免审。
@@ -30,11 +32,14 @@ SESSION_TRUST_KEY = "skip_tool_approvals"
 def build_before_tool_callback(
     confirm_tool_names: set[str],
     disallowed_tool_names: set[str] | None = None,
+    rule_actions: dict[str, str] | None = None,
 ) -> Callable[..., Awaitable[dict[str, Any] | None]]:
     """按需确认的工具名集合构造 before_tool_callback。
 
     disallowed_tool_names 是助理级禁用名单：命中的工具直接拒绝执行，
     不进入审批流程（禁用是硬约束，审批是运行时确认）。
+    rule_actions 是命中审批规则的动作（wire 名 → action）：规则优先于
+    会话信任——require_approval/escalate 不被「不再询问」豁免。
     """
 
     for name in confirm_tool_names:
@@ -44,6 +49,7 @@ def build_before_tool_callback(
     for name in blocked:
         if not isinstance(name, str) or name == "":
             raise ValueError("disallowed_tool_names 含无效工具名")
+    actions = dict(rule_actions or {})
 
     async def before_tool_callback(
         tool: BaseTool,
@@ -51,6 +57,10 @@ def build_before_tool_callback(
         tool_context: ToolContext,
     ) -> dict[str, Any] | None:
         tool_name = tool.name
+        action = actions.get(tool_name)
+        if action == "block":
+            logger.info("工具被审批规则拦截 tool=%s", tool_name)
+            return {"error": _RULE_BLOCKED_ERROR}
         if tool_name in blocked:
             logger.info("工具被助理禁用名单拦截 tool=%s", tool_name)
             return {"error": _DISALLOWED_ERROR}
@@ -81,6 +91,29 @@ def build_before_tool_callback(
             if not confirmation.confirmed:
                 logger.info("ask_user 被用户跳过")
                 return {"error": _REJECTED_ERROR}
+            return None
+        # 审批规则动作优先于会话信任：auto_approve 直接放行；
+        # require_approval/escalate 强制确认，「不再询问」不豁免（admin 策略优先）
+        if action == "auto_approve":
+            logger.info("审批规则自动放行 tool=%s", tool_name)
+            return None
+        if action in ("require_approval", "escalate"):
+            confirmation = tool_context.tool_confirmation
+            if confirmation is None:
+                logger.info("审批规则强制进闸 tool=%s action=%s", tool_name, action)
+                tool_context.request_confirmation(
+                    hint=(
+                        f"Please approve or reject the tool call {tool_name}() by"
+                        " responding with a FunctionResponse with an expected"
+                        " ToolConfirmation payload."
+                    ),
+                )
+                tool_context.actions.skip_summarization = True
+                return {"error": _PENDING_CONFIRMATION_ERROR}
+            if not confirmation.confirmed:
+                logger.info("工具调用被拒绝 tool=%s action=%s", tool_name, action)
+                return {"error": _REJECTED_ERROR}
+            logger.info("审批规则工具已批准放行 tool=%s action=%s", tool_name, action)
             return None
         if tool_name not in confirm_tool_names:
             return None

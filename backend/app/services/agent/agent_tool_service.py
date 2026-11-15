@@ -29,6 +29,9 @@ class AgentToolBundle:
     extra_tools: list[Any]
     confirm_tool_names: set[str]
     disallowed_tool_names: set[str]
+    # 命中的审批规则动作（wire 名 → auto_approve/require_approval/block/escalate），
+    # 供闸门绕过会话信任直接按规则判定
+    rule_actions: dict[str, str]
 
 
 async def build_agent_tool_bundle(
@@ -83,9 +86,38 @@ async def build_agent_tool_bundle(
         search_base, search_key = await resolve_deepseek_search_cred(db)
         extra_tools.append(build_web_search_tool(base_url=search_base, api_key=search_key))
         logger.info("已挂载 web_search agent=%s", agent.name)
+    # 内置高危工具默认进闸：risk=approval_required 的工具（如 run_workflow）
+    # 此前只做画布禁入，对话里从不进审批闸门——补上这个缺口
+    from app.tools.catalog import BUILTIN_TOOL_SPECS
+
+    confirm_tool_names = confirm_tool_names | {
+        spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["risk"] == "approval_required"
+    }
+    # 审批规则（工具×助理×风险）：命中规则优先于 server 策略改写名单
+    from app.services.chat.approval_rule_service import apply_rule_actions, resolve_actions
+
+    tools_risk: dict[str, str | None] = {
+        spec["name"]: spec["risk"] for spec in BUILTIN_TOOL_SPECS
+    }
+    for server in mcp_servers:
+        for raw_name, risk in mcp_service.tool_risk_map(server).items():
+            # tool_risk_map 键是原始工具名；闸门与规则匹配用 wire 名
+            tools_risk[mcp_service.mcp_tool_wire_name(server.name, raw_name)] = risk
+    decisions = await resolve_actions(db, agent_id=agent.name, tools=tools_risk)
+    rule_actions = {name: d.action for name, d in decisions.items()}
+    if rule_actions:
+        confirm_tool_names, disallowed_tool_names = apply_rule_actions(
+            confirm_tool_names, disallowed_tool_names, rule_actions
+        )
+        logger.info(
+            "审批规则命中 agent=%s actions=%s",
+            agent.name,
+            {name: action for name, action in rule_actions.items()},
+        )
     return AgentToolBundle(
         runtime_skills=runtime_skills,
         extra_tools=extra_tools,
         confirm_tool_names=confirm_tool_names,
         disallowed_tool_names=disallowed_tool_names,
+        rule_actions=rule_actions,
     )

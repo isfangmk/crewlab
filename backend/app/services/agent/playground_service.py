@@ -105,6 +105,7 @@ async def stream_preview(
         model_prefix=llm.model_prefix,
         provider_extra_body=llm_config.provider_extra_body(llm),
         disallowed_tool_names=tool_bundle.disallowed_tool_names,
+        rule_actions=tool_bundle.rule_actions,
         max_turns=agent.max_turns,
         knowledge_scope=agent.knowledge_scope,
         skills=tool_bundle.runtime_skills,

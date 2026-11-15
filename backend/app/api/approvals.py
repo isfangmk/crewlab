@@ -114,6 +114,13 @@ async def approve(
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     try:
+        row = await approval_service.get_approval(db, approval_id)
+        approval_service.require_escalation_permission(row.payload, is_admin=user.role == "admin")
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    try:
         row = await approval_service.approve(
             db,
             approval_id,
@@ -145,6 +152,18 @@ async def batch_decide(
 ) -> dict:
     if len(body.ids) == 0:
         raise HTTPException(status_code=400, detail="ids 不能为空")
+    if body.confirmed:
+        # 批量批准前逐单校验升级限制：非 admin 不得批 escalate 单，整批拒绝
+        for rid in body.ids:
+            try:
+                row = await approval_service.get_approval(db, rid)
+                approval_service.require_escalation_permission(
+                    row.payload, is_admin=user.role == "admin"
+                )
+            except LookupError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except PermissionError as exc:
+                raise HTTPException(status_code=403, detail=str(exc)) from exc
     try:
         items = await approval_service.batch_decide(
             db, ids=body.ids, confirmed=body.confirmed, reason=body.reason
@@ -176,6 +195,14 @@ async def approve_stream(
     user: AuthUser = Depends(require_not_viewer),
 ):
     """批准并续跑：SSE 推送与聊天流同构的增量帧，前端可打字机渲染。"""
+
+    try:
+        row = await approval_service.get_approval(db, approval_id)
+        approval_service.require_escalation_permission(row.payload, is_admin=user.role == "admin")
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     async def gen():
         try:

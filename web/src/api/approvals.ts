@@ -24,6 +24,10 @@ export interface Approval {
   expires_at?: string | null;
   decided_at?: string;
   executed_at?: string;
+  /** 升级单（命中 escalate 规则）：仅 admin 可批准 */
+  escalated?: boolean;
+  /** 临期提醒：pending 且已过超时时长的 80% */
+  sla_warning?: boolean;
 }
 
 export type ApprovalStatus = Approval['status'];
@@ -131,4 +135,42 @@ export async function streamApproveApproval(
 
 export function rejectApproval(id: string, reason: string) {
   return request<{ ok: boolean }>('POST', `/approvals/${id}/reject`, { reason });
+}
+
+// —— 审批规则（工具×助理×风险 的自动放行/需审批/禁用/升级策略） ——
+
+export type ApprovalRuleAction = 'auto_approve' | 'require_approval' | 'block' | 'escalate';
+
+export interface ApprovalRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  /** 工具名通配（fnmatch）：run_workflow / mcp__obs-tools__* / * */
+  tool_pattern: string;
+  /** 空 = 全部助理（agent name） */
+  agent_id: string | null;
+  /** 空 = 不限风险 */
+  risk: 'safe' | 'approval_required' | null;
+  action: ApprovalRuleAction;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ApprovalRuleInput = Omit<ApprovalRule, 'id' | 'created_at' | 'updated_at'>;
+
+export function listApprovalRules() {
+  return request<{ items: ApprovalRule[]; total: number }>('GET', '/approval-rules');
+}
+
+export function createApprovalRule(input: ApprovalRuleInput) {
+  return request<ApprovalRule>('POST', '/approval-rules', input);
+}
+
+export function updateApprovalRule(id: string, input: ApprovalRuleInput) {
+  return request<ApprovalRule>('PATCH', `/approval-rules/${encodeURIComponent(id)}`, input);
+}
+
+export function deleteApprovalRule(id: string) {
+  return request<{ ok: boolean }>('DELETE', `/approval-rules/${encodeURIComponent(id)}`);
 }

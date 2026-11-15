@@ -19,6 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import (
     agents,
+    approval_rules,
     approvals,
     artifacts,
     audit,
@@ -226,6 +227,7 @@ def create_app() -> FastAPI:
     app.include_router(models.router, prefix="/api/v1")
     app.include_router(chat.router, prefix="/api/v1")
     app.include_router(approvals.router, prefix="/api/v1")
+    app.include_router(approval_rules.router, prefix="/api/v1")
     app.include_router(mcp.router, prefix="/api/v1")
     app.include_router(agents.router, prefix="/api/v1")
     app.include_router(tools.router, prefix="/api/v1")

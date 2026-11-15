@@ -1601,6 +1601,7 @@ async def stream_session_message(
     extra_tools = tool_bundle.extra_tools
     confirm_tool_names = tool_bundle.confirm_tool_names
     disallowed_tool_names = tool_bundle.disallowed_tool_names
+    rule_actions = tool_bundle.rule_actions
 
     # 观测回合必须先建立：persister 要把工具/技能调用挂到该 trace 上
     turn_control.begin_turn(session_id)
@@ -1668,6 +1669,7 @@ async def stream_session_message(
             model_prefix=llm.model_prefix,
             provider_extra_body=llm_config.provider_extra_body(llm),
             disallowed_tool_names=disallowed_tool_names,
+            rule_actions=rule_actions,
             max_turns=resolved_agent.max_turns,
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,
