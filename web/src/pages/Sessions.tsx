@@ -608,8 +608,10 @@ export default function SessionsPage() {
         cell: ({ row }) => {
           const session = row.original;
           const status = session.last_turn_status ? TURN_STATUS[session.last_turn_status] : undefined;
+          // 审批与澄清提问是两种待办，分开呈现，不混用「待审」
           const pending = session.pending_approvals ?? 0;
-          if (status === undefined && pending === 0) {
+          const pendingInputs = session.pending_inputs ?? 0;
+          if (status === undefined && pending === 0 && pendingInputs === 0) {
             return <span className="text-[11px] text-zinc-600">—</span>;
           }
           const pill =
@@ -636,6 +638,9 @@ export default function SessionsPage() {
               )}
               {pending > 0 ? (
                 <StatusPill tone="warn" label={tr(`待审 ${pending}`, `${pending} pending`)} />
+              ) : null}
+              {pendingInputs > 0 ? (
+                <StatusPill tone="info" label={tr(`待输入 ${pendingInputs}`, `${pendingInputs} to answer`)} />
               ) : null}
             </div>
           );

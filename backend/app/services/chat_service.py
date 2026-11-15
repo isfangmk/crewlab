@@ -361,6 +361,7 @@ class SessionStats:
     total_tokens: int | None
     last_turn_status: str | None
     pending_approvals: int
+    pending_inputs: int
     attachment_count: int
     artifact_count: int
     shared: bool
@@ -481,17 +482,32 @@ async def list_session_stats(
         for sid, status, total_tokens, tool_call_count, skill_call_count in observation_rows
     }
 
+    # 审批与「需要输入」是两种交互，分开计数：待审只算操作确认，待输入只算澄清提问
     approval_rows = (
         await db.execute(
             select(Approval.session_id, func.count())
             .where(
                 Approval.session_id.in_(session_ids),
                 Approval.status == "pending",
+                Approval.kind == "tool_confirmation",
             )
             .group_by(Approval.session_id)
         )
     ).all()
     pending = {sid: int(n) for sid, n in approval_rows}
+
+    input_rows = (
+        await db.execute(
+            select(Approval.session_id, func.count())
+            .where(
+                Approval.session_id.in_(session_ids),
+                Approval.status == "pending",
+                Approval.kind == "user_input",
+            )
+            .group_by(Approval.session_id)
+        )
+    ).all()
+    pending_inputs = {sid: int(n) for sid, n in input_rows}
 
     attachment_rows = (
         await db.execute(
@@ -542,6 +558,7 @@ async def list_session_stats(
             total_tokens=total_tokens,
             last_turn_status=last_turn_status,
             pending_approvals=pending.get(sid, 0),
+            pending_inputs=pending_inputs.get(sid, 0),
             attachment_count=attachments.get(sid, 0),
             artifact_count=artifacts.get(sid, 0),
             shared=sid in shared,

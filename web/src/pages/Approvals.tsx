@@ -31,13 +31,14 @@ import { APPROVAL_STATUSES, APPROVAL_STATUS_META, approvalStatusLabel } from '@/
 import { useRequestSeq } from '@/lib/requestSeq';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Copy,
+  MessageSquare,
   RefreshCw,
   ShieldCheck,
   X,
@@ -193,8 +194,9 @@ export default function ApprovalsPage() {
     setPage(0);
   };
 
+  // 批量只覆盖操作确认（审批）；「需要输入」是澄清提问，不是审批，不进批量批准/拒绝
   const pendingIds = useMemo(
-    () => items.filter((a) => a.status === 'pending').map((a) => a.id),
+    () => items.filter((a) => a.status === 'pending' && a.kind !== 'user_input').map((a) => a.id),
     [items],
   );
   const allPendingSelected = pendingIds.length > 0 && pendingIds.every((id) => selected.has(id));
@@ -204,6 +206,19 @@ export default function ApprovalsPage() {
     setBusy(a.id);
     try {
       await approveApproval(a.id);
+      await load();
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  // 「需要输入」的跳过与对话内提问卡同口径：一键跳过、固定原因，不走审批弹窗
+  const onSkipInput = async (a: Approval) => {
+    setBusy(a.id);
+    try {
+      await rejectApproval(a.id, tr('用户跳过该问题', 'User skipped the question'));
       await load();
     } catch (e) {
       setErr(errorText(e));
@@ -423,8 +438,8 @@ export default function ApprovalsPage() {
         <PageHeader
           title={tr('待确认', 'Approvals')}
           subtitle={tr(
-            'Agent、工作流和 MCP 提交的危险操作，需人工批准后才执行',
-            'Dangerous actions from agents, workflows and MCP need approval before execution',
+            '操作确认需人工批准后才执行；智能体的澄清提问需要你补充信息',
+            'Operations need approval before execution; agent questions need your answer',
           )}
           leading={
             selectedId ? (
@@ -663,6 +678,7 @@ export default function ApprovalsPage() {
                       onToggleChecked={() => toggleSelected(a.id)}
                       onApprove={() => void onApprove(a)}
                       onReject={() => setRejectTarget(a)}
+                      onSkip={() => void onSkipInput(a)}
                     />
                   ))}
                 </tbody>
@@ -690,6 +706,7 @@ function ApprovalRow({
   onToggleChecked,
   onApprove,
   onReject,
+  onSkip,
 }: {
   approval: Approval;
   expanded: boolean;
@@ -699,11 +716,15 @@ function ApprovalRow({
   onToggleChecked(): void;
   onApprove(): void;
   onReject(): void;
+  onSkip(): void;
 }) {
   const { tr } = useI18n();
+  const navigate = useNavigate();
   const meta = APPROVAL_STATUS_META[a.status];
   const Icon = meta.icon;
   const pending = a.status === 'pending';
+  // 澄清提问（需要输入）与操作确认（审批）是两种交互：动作与批量范围都不混用
+  const isQuestion = a.kind === 'user_input';
 
   return (
     <>
@@ -713,7 +734,7 @@ function ApprovalRow({
       >
         <td className="px-2 py-2">
           <div className="flex items-center gap-1">
-            {pending ? (
+            {pending && !isQuestion ? (
               <Checkbox
                 checked={checked}
                 onCheckedChange={onToggleChecked}
@@ -746,8 +767,13 @@ function ApprovalRow({
             >
               {a.title}
             </button>
-            <Chip dense className="shrink-0 font-sans">
-              {a.kind}
+            <Chip
+              dense
+              tone={isQuestion ? 'info' : 'default'}
+              className="shrink-0 font-sans"
+              title={a.kind}
+            >
+              {isQuestion ? tr('需要输入', 'Needs input') : tr('操作确认', 'Action confirmation')}
             </Chip>
           </div>
           {a.summary && a.summary !== a.title && (
@@ -783,12 +809,33 @@ function ApprovalRow({
         <td className="whitespace-nowrap px-3 py-2 text-right">
           {pending ? (
             <div className="flex items-center justify-end gap-1.5">
-              <RowAction icon={Check} tone="positive" onClick={onApprove} disabled={busy}>
-                {tr('批准', 'Approve')}
-              </RowAction>
-              <RowAction icon={X} tone="danger" onClick={onReject} disabled={busy}>
-                {tr('拒绝', 'Reject')}
-              </RowAction>
+              {isQuestion ? (
+                <>
+                  {/* 提问的表单在会话内的提问卡上，这里只负责带过去 */}
+                  <RowAction
+                    icon={MessageSquare}
+                    tone="positive"
+                    disabled={busy || !a.session_id}
+                    onClick={() => {
+                      if (a.session_id) navigate(`/chat/${a.session_id}`);
+                    }}
+                  >
+                    {tr('去回答', 'Answer')}
+                  </RowAction>
+                  <RowAction icon={X} tone="danger" onClick={onSkip} disabled={busy}>
+                    {tr('跳过', 'Skip')}
+                  </RowAction>
+                </>
+              ) : (
+                <>
+                  <RowAction icon={Check} tone="positive" onClick={onApprove} disabled={busy}>
+                    {tr('批准', 'Approve')}
+                  </RowAction>
+                  <RowAction icon={X} tone="danger" onClick={onReject} disabled={busy}>
+                    {tr('拒绝', 'Reject')}
+                  </RowAction>
+                </>
+              )}
             </div>
           ) : (
             <span className="text-[11px] text-zinc-600">—</span>

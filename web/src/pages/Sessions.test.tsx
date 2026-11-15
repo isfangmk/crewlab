@@ -233,6 +233,7 @@ describe('SessionsPage', () => {
               total_tokens: 1234,
               last_turn_status: 'error',
               pending_approvals: 2,
+              pending_inputs: 1,
               attachment_count: 2,
               artifact_count: 5,
               shared: true,
@@ -262,7 +263,9 @@ describe('SessionsPage', () => {
     expect(screen.getByRole('button', { name: '复制会话 ID 20' })).toHaveTextContent('20');
     expect(titleCell).not.toHaveTextContent('20');
     expect(screen.getByText('1.2k tokens')).toBeInTheDocument();
+    // 审批与澄清提问分开计数，不混用「待审」
     expect(screen.getByText('待审 2')).toBeInTheDocument();
+    expect(screen.getByText('待输入 1')).toBeInTheDocument();
     // 已分享 + 附件数/产出物数徽标挂在标题行
     expect(screen.getByLabelText('已分享')).toBeInTheDocument();
     expect(screen.getByTitle('2 个附件')).toBeInTheDocument();

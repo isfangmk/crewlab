@@ -66,10 +66,11 @@ export type ChatSession = {
   // 最后一条消息时间：发消息不会 touch 会话行，和 updated_at 不是一回事
   last_message_at?: string | null;
   last_message_preview?: string | null;
-  // 运行信号：累计 tokens / 最近一回合状态（running/ok/error/stopped）/ 待审批数
+  // 运行信号：累计 tokens / 最近一回合状态（running/ok/error/stopped）/ 待审批数 / 待回答提问数
   total_tokens?: number | null;
   last_turn_status?: string | null;
   pending_approvals?: number;
+  pending_inputs?: number;
   // 图片附件数、产出物个数与「存在未过期的只读分享」
   attachment_count?: number;
   artifact_count?: number;

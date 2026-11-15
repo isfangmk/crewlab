@@ -56,8 +56,10 @@ class ChatSessionOut(BaseModel):
     # 运行信号：累计 tokens 与最近一回合状态（running/ok/error/stopped）；无观测时为 None
     total_tokens: int | None = None
     last_turn_status: str | None = None
-    # 该会话当前待人工确认的工具调用数
+    # 该会话当前待人工确认的工具调用数（操作确认，不含澄清提问）
     pending_approvals: int = 0
+    # 该会话当前待回答的澄清提问数（ask_user），与审批分开计数
+    pending_inputs: int = 0
     # 会话里的图片附件数
     attachment_count: int = 0
     # 会话产出物个数：run_python 产出的图表/表格/文件

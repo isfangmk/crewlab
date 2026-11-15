@@ -1,4 +1,4 @@
-"""会话列表统计：产出物个数按 session_id 聚合。"""
+"""会话列表统计：产出物个数按 session_id 聚合；待审/待输入分开计数。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import uuid
 import pytest
 
 from app.db import create_db_engine
+from app.models_orm.approval import Approval
 from app.models_orm.artifact import Artifact
 from app.models_orm.chat import ChatSession
 from app.services.chat_service import list_session_stats
@@ -99,6 +100,54 @@ async def test_list_session_stats_artifacts_are_per_session() -> None:
                 await db.delete(row)
             await db.delete(await db.get(ChatSession, sid_a))
             await db.delete(await db.get(ChatSession, sid_b))
+            await db.commit()
+    finally:
+        await engine.dispose()
+
+
+def _approval_row(session_id: str, kind: str) -> "Approval":
+    suffix = uuid.uuid4().hex[:12]
+    return Approval(
+        id=f"ap_{suffix}",
+        session_id=session_id,
+        confirmation_fc_id=f"fc_{suffix}",
+        tool_call_id=f"call_{suffix}",
+        tool_name="demo",
+        kind=kind,
+        title=f"待办 {kind}",
+        summary="",
+        payload="{}",
+        hint="",
+        status="pending",
+    )
+
+
+@pytest.mark.asyncio
+async def test_pending_approvals_and_inputs_count_separately() -> None:
+    """审批与澄清提问是两种待办：待审只算操作确认，待输入只算 user_input。"""
+
+    engine, sessionmaker = _new_sessionmaker()
+    sid = f"s_{uuid.uuid4().hex[:8]}"
+    try:
+        async with sessionmaker() as db:
+            db.add(_session_row(sid))
+            await db.commit()
+            rows = [
+                _approval_row(sid, "tool_confirmation"),
+                _approval_row(sid, "tool_confirmation"),
+                _approval_row(sid, "user_input"),
+            ]
+            for row in rows:
+                db.add(row)
+            await db.commit()
+
+            stats = await list_session_stats(db, [sid])
+            assert stats[sid].pending_approvals == 2
+            assert stats[sid].pending_inputs == 1
+
+            for row in rows:
+                await db.delete(row)
+            await db.delete(await db.get(ChatSession, sid))
             await db.commit()
     finally:
         await engine.dispose()
