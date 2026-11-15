@@ -25,8 +25,9 @@ def test_build_chat_script_contains_code_and_marker() -> None:
     script = _build_chat_script("print('hi')")
     assert "print('hi')" in script
     assert SANDBOX_RESULT_MARKER in script
-    # emit 助手在脚本命名空间里预置
+    # emit 助手与图表结构构建器在脚本里预置
     assert "emit_chart" in script and "emit_file" in script
+    assert "build_chart_option" in script and "def chart(" in script
 
 
 def test_parse_chat_payload_takes_last_envelope() -> None:
@@ -56,6 +57,25 @@ async def test_run_python_executes_and_collects_chart() -> None:
     assert result["artifacts"][0]["kind"] == "chart"
     assert result["artifacts"][0]["payload"]["series"][0]["data"] == [1, 2]
     assert result["artifacts"][1]["kind"] == "table"
+
+
+async def test_run_python_chart_helper_builds_structure() -> None:
+    """chart() 助手在沙盒里产出图表产出物：结构映射真实跑通，不进输出 token。"""
+
+    code = (
+        "option = chart({'x': ['一', '二'], 'series': [{'name': '销量', 'data': [3, 5]}]},"
+        " 'line', '月度销量')\n"
+        "print(option['series'][0]['type'])\n"
+    )
+    result = await run_python(code, purpose="chart 助手验证", tool_context=None)
+    assert result["status"] == "succeeded", result["error"]
+    artifact = result["artifacts"][0]
+    assert artifact["kind"] == "chart"
+    assert artifact["title"] == "月度销量"
+    assert artifact["payload"]["series"][0]["type"] == "line"
+    assert artifact["payload"]["series"][0]["data"] == [3, 5]
+    # 结构零配色：颜色由前端主题注入
+    assert '"color"' not in json.dumps(artifact["payload"], ensure_ascii=False)
 
 
 async def test_run_python_file_artifact_bytes_roundtrip() -> None:

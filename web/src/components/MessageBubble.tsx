@@ -30,8 +30,8 @@ import { Modal } from '@/components/Modal';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { SearchResults, collectToolSources, extractSources } from '@/components/SourcesBlock';
-import { ChartMarkdown } from '@/components/ChartMarkdown';
-import { InterpreterArtifacts, type InterpreterArtifact } from '@/components/InterpreterArtifacts';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';import { InterpreterArtifacts, type InterpreterArtifact } from '@/components/InterpreterArtifacts';
 
 export type ConfigDraftResult = {
   kind: 'config_draft';
@@ -336,8 +336,8 @@ function AssistantBubble({ message, onConfirmConfigDraft }: Props) {
     <div className="flex flex-col items-stretch gap-2">
       {body !== '' && (
         <div className="md-body text-zinc-100">
-          {/* 流式中渐进渲染图表（半截 JSON 修好就画），不再等整段输出完 */}
-          <ChartMarkdown content={body} streaming={message.pending === true} />
+          {/* 图表由 run_python 的 chart() 产出物渲染，正文只承载文字 */}
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
         </div>
       )}
       {message.tool_calls?.map((tc, i) => (

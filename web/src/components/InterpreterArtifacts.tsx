@@ -3,7 +3,7 @@
 // 落库后的完整载荷（历史回放 / tool_card 更新）——payload 缺失时降级为摘要胶囊。
 import { createContext, useContext, useState } from 'react';
 import { Download } from 'lucide-react';
-import { ChartCanvas } from './ChartCard';
+import { ChartCanvas } from './ChartCanvas';
 import { downloadArtifact } from '@/api/artifacts';
 import { errorText } from '@/lib/errors';
 import { useI18n } from '@/i18n/locale';

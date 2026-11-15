@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import threading
+from pathlib import Path
 from typing import Any
 
 from app.adk_runtime.workflow_node_impl import SANDBOX_RESULT_MARKER
@@ -20,14 +21,26 @@ MAX_ARTIFACTS = 20
 MAX_ARTIFACT_BYTES = 5 * 1024 * 1024
 MAX_ARTIFACT_TOTAL_BYTES = 10 * 1024 * 1024
 
+# chart_spec.py 源码内嵌进沙盒脚本：沙盒只跑单文件，
+# 图表数据→结构的转换逻辑与后端单测同源（后端直接 import，沙盒侧文本内嵌）。
+# 源码含模块 docstring 与 from __future__，必须拼在脚本最前面才合法。
+_CHART_SPEC_SOURCE = (Path(__file__).with_name("chart_spec.py")).read_text(encoding="utf-8")
+
 # 模型可见的工具描述写在 docstring；这里只放脚本模板。
 # 占位符用 __CODE__/__MARKER__ 替换而不是 str.format：
 # 模板里的 dict 字面量含大括号，format 转义极易写错。
-CHAT_INTERPRETER_TEMPLATE = '''
+CHAT_INTERPRETER_TEMPLATE = _CHART_SPEC_SOURCE + '''
 import json as _json
 import traceback as _traceback
 
 _ARTIFACTS = []
+
+
+def chart(data, chart_type="line", title="图表"):
+    """收集一个图表产出物：data 传数据契约 dict，返回生成的 ECharts option。"""
+    option = build_chart_option(data, chart_type)
+    emit_chart(option, title)
+    return option
 
 
 def emit_chart(option, title="图表"):
@@ -48,8 +61,8 @@ def emit_file(name, content_b64, mime="application/octet-stream"):
 
 _ERROR = ""
 try:
-    _namespace = {"__name__": "__main__", "emit_chart": emit_chart, "emit_table": emit_table,
-                  "emit_file": emit_file}
+    _namespace = {"__name__": "__main__", "chart": chart, "emit_chart": emit_chart,
+                  "emit_table": emit_table, "emit_file": emit_file}
     exec(compile(__CODE__, "<chat-interpreter>", "exec"), _namespace, _namespace)
 except BaseException as _exc:  # noqa: BLE001 — 用户代码任意异常都要带回宿主机
     _ERROR = _traceback.format_exc()
@@ -154,9 +167,18 @@ async def run_python(
 ) -> dict:
     """在沙盒中执行一段 Python 代码，返回 stdout 摘要与结构化产出物。
 
-    代码里可用 emit_chart(option, title)、emit_table(rows, title)、
-    emit_file(name, content_b64, mime) 三个助手收集图表/表格/文件产出物，
-    它们会保存到会话的 Artifacts 并在消息卡中渲染。
+    画图用 chart(data, chart_type="line", title="图表") 助手，不要手写 ECharts 配置：
+    data 按图型给 dict——折线/面积 {"x": [...], "series": [{"name", "data": [...]}]}；
+    柱/条/堆叠/分组/漏斗/箱线/瀑布 {"categories" 或 "x": [...], "series": [...]}（瀑布首项为起点、其后为增量）；
+    饼/环形 {"categories": [...], "series": [{"name", "data": [...]}]}；
+    散点 {"points": [{"x", "y"}]}；雷达 {"indicators": [{"name", "max"}], "series": [...]}；
+    仪表盘 {"value": 0-100, "name"?}；热力图 {"x", "y", "values": 二维数组}；
+    矩形树图 {"data": [{"name", "value", "children"?}]}。
+    chart_type 支持 line/area/bar/hbar/stacked_bar/grouped_bar/pie/donut/scatter/
+    radar/gauge/funnel/heatmap/treemap/boxplot/waterfall。
+    emit_table(rows, title)、emit_file(name, content_b64, mime) 收集表格与文件；
+    emit_chart(option, title) 可直接提交现成 ECharts option（高级用法）。
+    产出物会保存到会话的 Artifacts 并在消息卡中渲染。
     code 是普通 Python 顶层代码（不需要定义 run 函数），print 输出会回传。
     purpose: 这段代码要做什么的一句话说明（会记录在执行与产出物元数据里）。
     """

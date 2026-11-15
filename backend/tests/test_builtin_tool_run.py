@@ -33,7 +33,7 @@ async def test_run_query_knowledge(env: dict[str, str], api_base: str) -> None:
         }
         assert groups["workflow"]["title"] == "工作流"
         assert all(
-            i["group"] in ("code", "knowledge", "search", "workflow", "memory")
+            i["group"] in ("code", "knowledge", "search", "workflow", "memory", "interaction")
             for i in body["items"]
         )
 

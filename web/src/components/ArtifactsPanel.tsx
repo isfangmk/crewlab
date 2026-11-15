@@ -12,7 +12,7 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react';
-import { ChartCanvas } from './ChartCard';
+import { ChartCanvas } from './ChartCanvas';
 import {
   downloadArtifact,
   listSessionArtifacts,

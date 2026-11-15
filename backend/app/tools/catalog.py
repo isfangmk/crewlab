@@ -27,7 +27,7 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
     {
         "name": "run_python",
         "group": "code",
-        "description": "在沙盒中执行 Python 代码；用 emit_chart/emit_table/emit_file 产出图表、表格与文件",
+        "description": "在沙盒中执行 Python 代码；画图用 chart(data, 图型, 标题) 产出图表，emit_table/emit_file 产出表格与文件",
         "risk": "safe",
         "mount": "always",
     },

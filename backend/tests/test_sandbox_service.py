@@ -279,7 +279,7 @@ async def test_record_is_written_with_source_context() -> None:
                 execution_id="exec-write-1",
                 ctx=sandbox_service.SandboxContext(
                     source=sandbox_service.SOURCE_SKILL,
-                    source_ref="chart-builder",
+                    source_ref="sample-skill",
                     session_id="sess-9",
                 ),
                 image="python:3.12-slim",
@@ -297,7 +297,7 @@ async def test_record_is_written_with_source_context() -> None:
                 row = await db.get(SandboxExecution, "exec-write-1")
                 assert row is not None
                 assert row.source == "skill"
-                assert row.source_ref == "chart-builder"
+                assert row.source_ref == "sample-skill"
                 assert row.session_id == "sess-9"
                 assert row.stdout == "hi\n"
                 assert row.exit_code == 0

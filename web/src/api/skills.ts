@@ -195,8 +195,8 @@ export async function exportSkillZip(key: string): Promise<string> {
 
 // BUILTIN_SKILL_I18N: per-skill overrides for the skills shipped with
 // ongrid. `name` is single-string and intentionally always English —
-// skill keys are technical identifiers (chart_builder / knowledge_search
-// etc.) and Chinese localisations of the name field made the table
+// skill keys are technical identifiers (knowledge_search etc.) and
+// Chinese localisations of the name field made the table
 // inconsistent (some rows in zh, some in en) and the LLM tool routing
 // schema is English-keyed anyway. `description` still follows the user's
 // locale so the human-readable explanation flips.
@@ -207,13 +207,6 @@ const BUILTIN_SKILL_I18N: Record<string, { name: string; desc: { zh: string; en:
     desc: {
       zh: '检索组织知识库。用户问手册、故障排查、内部约定或已上传文档内容时使用 query_knowledge。',
       en: 'Search the organizational knowledge base. Use query_knowledge when the user asks about runbooks, troubleshooting steps, internal conventions, or uploaded documents.',
-    },
-  },
-  'chart-builder': {
-    name: 'chart-builder',
-    desc: {
-      zh: '把查询到的指标 / 统计结果画成图表。用户问趋势、对比、占比、分布类问题并已拿到数据时使用。',
-      en: 'Turn fetched metrics / statistics into charts. Use when the user asks about trends, comparisons, ratios or distributions and the data is already available.',
     },
   },
 };
