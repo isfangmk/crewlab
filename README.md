@@ -27,10 +27,10 @@ cd backend
 uv sync
 copy .env.example .env   # 填入真实密钥
 cd ..
-.\scripts\backend-start.ps1
-.\scripts\backend-restart.ps1   # 改代码后用这个
-.\scripts\backend-stop.ps1
-.\scripts\backend-typecheck.ps1   # basedpyright
+.\scripts\service.ps1 start             # 起前后端（可加 backend / frontend 只起一个）
+.\scripts\service.ps1 restart backend   # 后端改代码后用这个
+.\scripts\service.ps1 stop              # 停前后端
+.\scripts\backend-typecheck.ps1         # basedpyright
 ```
 
 健康检查：`http://127.0.0.1:18080/healthz`
