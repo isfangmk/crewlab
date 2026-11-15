@@ -10,29 +10,7 @@ import {
   TestTube2,
   Trash2,
 } from 'lucide-react';
-import {
-  Button,
-  Chip,
-  EmptyStateCard,
-  ErrorBanner,
-  FilterBar,
-  Input,
-  Label,
-  PageHeader,
-  RowAction,
-  RowActionIcon,
-  SearchInput,
-  SortableHead,
-  StatusPill,
-  TableCard,
-  TableHead,
-  TablePager,
-  Textarea,
-  Toast,
-  type ToastTone,
-  COL,
-  tableLayout,
-} from '@/components/ui';
+import { flash, Button, Chip, EmptyStateCard, ErrorBanner, FilterBar, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, SortableHead, StatusPill, TableCard, TableHead, TablePager, Textarea, COL, tableLayout } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
@@ -40,7 +18,6 @@ import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
 import { RUN_STATUS_META } from '@/lib/evalStatus';
 import { compareNullableTime } from '@/lib/sort';
-import { useTimeout } from '@/lib/useTimeout';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
 import {
@@ -69,16 +46,7 @@ export default function EvalsPage() {
     null,
   );
   const [deleting, setDeleting] = useState<EvalDatasetSummary | null>(null);
-  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
 
-  const flashTimer = useTimeout();
-  const flash = useCallback(
-    (tone: ToastTone, text: string) => {
-      setToast({ tone, text });
-      flashTimer(() => setToast(null), 4000);
-    },
-    [flashTimer],
-  );
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -386,7 +354,6 @@ export default function EvalsPage() {
         />
       )}
 
-      {toast && <Toast tone={toast.tone} text={toast.text} />}
     </main>
   );
 }

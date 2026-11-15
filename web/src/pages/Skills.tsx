@@ -1,10 +1,8 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { usePermissions } from '@/store/me';
-import { COL, EmptyStateCard,
-  ErrorBanner, TableHead, tableLayout } from '@/components/ui';
+import { flash, COL, EmptyStateCard, ErrorBanner, TableHead, tableLayout } from '@/components/ui';
 import { Button } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
-import { useTimeout } from '@/lib/useTimeout';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChevronDown,
@@ -35,7 +33,7 @@ import { mcpToolDisplayName } from '@/lib/mcpWire';
 import { Modal } from '@/components/Modal';
 import { useI18n } from '@/i18n/locale';
 import { orderedGroupKeys } from '@/lib/toolSkill';
-import { ChoiceChip, Chip, CodeBlock, DetailSection, FilterBar, FilterChip, PageHeader, RowAction, SearchInput, StatusPill, TableCard, Toast, type ToastTone } from '@/components/ui';
+import { ChoiceChip, Chip, CodeBlock, DetailSection, FilterBar, FilterChip, PageHeader, RowAction, SearchInput, StatusPill, TableCard } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import type { StatusTone } from '@/components/ui/StatusPill';
 import { SkillEditor, SkillImportDialog } from '@/components/SkillEditor';
@@ -74,7 +72,6 @@ function CatalogTab() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
   const [query, setQuery] = useState('');
   // 分组筛选：空值表示全部
   const [group, setGroup] = useState<SkillGroup | ''>('');
@@ -108,11 +105,6 @@ function CatalogTab() {
   }, [fetchSkills]);
 
   // flash 用自动清理的定时器：卸载后不再对已卸载组件 setState
-  const flashTimer = useTimeout();
-  const flash = useCallback((tone: ToastTone, message: string) => {
-    setToast({ tone, text: message });
-    flashTimer(() => setToast(null), 4000);
-  }, [flashTimer]);
 
   // 重载：让后端重新扫描本地 SKILL.md，成功后再刷新表格。
   const reloadCatalog = useCallback(async () => {
@@ -138,7 +130,7 @@ function CatalogTab() {
         flash('err', errorText(e));
       }
     },
-    [flash, tr],
+    [tr],
   );
 
   const runDelete = useCallback(async () => {
@@ -146,7 +138,7 @@ function CatalogTab() {
     await deleteSkill(deleting.key);
     flash('ok', tr(`已删除技能 ${deleting.key}`, `Deleted skill ${deleting.key}`));
     await fetchSkills(true);
-  }, [deleting, fetchSkills, flash, tr]);
+  }, [deleting, fetchSkills, tr]);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleGroup = (k: string) =>
@@ -449,7 +441,6 @@ function CatalogTab() {
           />
         )}
       </div>
-      {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
     </main>
   );
 }

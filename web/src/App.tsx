@@ -4,6 +4,7 @@ import { Suspense, lazy, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { safeLoginReturn } from '@/lib/loginReturn';
 import { Layout } from '@/components/Layout';
+import { AppToaster } from '@/components/ui/Toast';
 import { ChatLayout } from '@/components/ChatLayout';
 import { useAuth } from '@/store/auth';
 
@@ -65,9 +66,12 @@ function PublicOnly({ children }: { children: ReactNode }) {
 export default function App() {
   const location = useLocation();
   return (
-    // 公开路由（登录/分享页）在 Layout 之外，lazy 分块必须有 Suspense 兜底，
-    // 否则首次加载分块挂起时整页白屏
-    <Suspense
+    <>
+      {/* 轻提示全局挂载一次（sonner） */}
+      <AppToaster />
+      {/* 公开路由（登录/分享页）在 Layout 之外，lazy 分块必须有 Suspense 兜底，
+      否则首次加载分块挂起时整页白屏 */}
+      <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center text-[11px] text-zinc-500">
           加载中…
@@ -128,7 +132,8 @@ export default function App() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
-    </Routes>
-    </Suspense>
+      </Routes>
+      </Suspense>
+    </>
   );
 }

@@ -55,7 +55,7 @@ import {
   TableCard,
   TableHead,
   TablePager,
-  Toast,
+  flash,
   tableLayout,
 } from '@/components/ui';
 import type { StatusTone } from '@/components/ui/StatusPill';
@@ -232,22 +232,15 @@ export default function SessionsPage() {
   // 删除确认走统一弹窗：单条删除与批量删除共用，不再弹原生 confirm
   const [deleteTarget, setDeleteTarget] = useState<ChatSession | null>(null);
   const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
-  const [copyToast, setCopyToast] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
-
-  useEffect(() => {
-    if (!copyToast) return;
-    const timer = window.setTimeout(() => setCopyToast(null), 5000);
-    return () => window.clearTimeout(timer);
-  }, [copyToast]);
 
   const handleCopyResult = useCallback(
     (ok: boolean) => {
-      setCopyToast({
-        tone: ok ? 'ok' : 'err',
-        text: ok
+      flash(
+        ok ? 'ok' : 'err',
+        ok
           ? tr('会话 ID 已复制', 'Session ID copied')
           : tr('复制失败，请检查浏览器剪贴板权限', 'Copy failed. Check clipboard permission.'),
-      });
+      );
     },
     [tr],
   );
@@ -1216,8 +1209,6 @@ export default function SessionsPage() {
         }}
         onClose={() => setBatchConfirmOpen(false)}
       />
-
-      {copyToast ? <Toast tone={copyToast.tone} text={copyToast.text} /> : null}
     </main>
   );
 }

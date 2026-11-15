@@ -47,22 +47,10 @@ import { RunNodeDetail } from '@/components/workflow/RunNodeDetail';
 import { buildRailItems, RunNodeRail, type RailItem } from '@/components/workflow/RunNodeRail';
 import { RunOverviewCards } from '@/components/workflow/RunOverviewCards';
 import { DraftTag } from '@/components/workflow/RunStatusPill';
-import {
-  Button,
-  EmptyStateCard,
-  ErrorBanner,
-  PageHeader,
-  RowAction,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  Toast,
-  type ToastTone,
-} from '@/components/ui';
+import { flash, Button, EmptyStateCard, ErrorBanner, PageHeader, RowAction, Tabs, TabsList, TabsTrigger } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
 import { errorText } from '@/lib/errors';
 
-const TOAST_DURATION_MS = 4000;
 
 /** 页级视图：执行明细 / 画布。 */
 type RunView = 'nodes' | 'canvas';
@@ -158,7 +146,6 @@ export default function WorkflowRunPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
   const [runOpen, setRunOpen] = useState(false);
   const [gateInput, setGateInput] = useState('');
   // 正在跑的节点：明细里只存终态，运行中要单独记一份用于显示
@@ -170,18 +157,6 @@ export default function WorkflowRunPage() {
 
   const uid = runUid ?? '';
   // toast 定时器要在组件卸载时清掉，否则会对已卸载的组件 setState
-  const toastTimer = useRef<number | null>(null);
-  const flash = useCallback((tone: ToastTone, text: string) => {
-    setToast({ tone, text });
-    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), TOAST_DURATION_MS);
-  }, []);
-  useEffect(
-    () => () => {
-      if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
-    },
-    [],
-  );
 
   const load = useCallback(
     async (silent = false) => {
@@ -347,7 +322,7 @@ export default function WorkflowRunPage() {
         setBusy(false);
       }
     },
-    [flash, gate, gateInput, gateNode, run, tr],
+    [gate, gateInput, gateNode, run, tr],
   );
 
   const stop = useCallback(async () => {
@@ -367,7 +342,7 @@ export default function WorkflowRunPage() {
     } finally {
       setBusy(false);
     }
-  }, [flash, load, run, tr]);
+  }, [load, run, tr]);
 
   const copyId = useCallback(async () => {
     if (run === null) return;
@@ -377,7 +352,7 @@ export default function WorkflowRunPage() {
     } catch {
       flash('err', tr('剪贴板不可用', 'Clipboard unavailable'));
     }
-  }, [flash, run, tr]);
+  }, [run, tr]);
 
   const selectNode = useCallback((nodeId: string) => {
     setPickedId(nodeId);
@@ -588,7 +563,6 @@ export default function WorkflowRunPage() {
         />
       )}
 
-      {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
     </main>
   );
 }

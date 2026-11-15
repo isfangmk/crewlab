@@ -1,38 +1,13 @@
 // 自动化触发器：Cron / Webhook 驱动工作流或助理会话。
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarClock, Check, Copy, Loader2, Plus, Power, RefreshCw, Trash2 } from 'lucide-react';
-import {
-  Button,
-  Chip,
-  CodeBlock,
-  EmptyStateCard,
-  ErrorBanner,
-  FilterBar,
-  Input,
-  Label,
-  PageHeader,
-  RowAction,
-  RowActionIcon,
-  SearchInput,
-  Select,
-  SortableHead,
-  StatusPill,
-  TableCard,
-  TableHead,
-  TablePager,
-  Textarea,
-  Toast,
-  type ToastTone,
-  tableLayout,
-  COL,
-} from '@/components/ui';
+import { flash, Button, Chip, CodeBlock, EmptyStateCard, ErrorBanner, FilterBar, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Select, SortableHead, StatusPill, TableCard, TableHead, TablePager, Textarea, tableLayout, COL } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
 import { compareNullableTime } from '@/lib/sort';
-import { useTimeout } from '@/lib/useTimeout';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
 import { getWorkflow, listWorkflows, type WorkflowVariable } from '@/api/workflows';
@@ -78,16 +53,7 @@ export default function TriggersPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [workflowNames, setWorkflowNames] = useState<Record<number, string>>({});
   const [revealedWebhook, setRevealedWebhook] = useState<{ name: string; url: string } | null>(null);
-  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
 
-  const flashTimer = useTimeout();
-  const flash = useCallback(
-    (tone: ToastTone, text: string) => {
-      setToast({ tone, text });
-      flashTimer(() => setToast(null), 4000);
-    },
-    [flashTimer],
-  );
 
   const load = useCallback(
     async (silent = false) => {
@@ -494,7 +460,6 @@ export default function TriggersPage() {
           }}
         />
       )}
-      {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
     </main>
   );
 }

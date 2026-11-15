@@ -1,7 +1,16 @@
 import '@testing-library/jest-dom';
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll } from 'vitest';
 import { server } from './msw-server';
 import { DEFAULT_SYSTEM_TIMEZONE, useSystemTimezone } from '@/store/systemTimezone';
+import { AppToaster } from '@/components/ui/Toast';
+
+// sonner 轻提示容器全局挂载（与 App 根一致）：RTL 自动清理只回收 render() 的树，
+// 这棵用 createRoot 自管、跨用例存活，页面测试里的 flash() 才能出提示。
+const toasterHost = document.createElement('div');
+document.body.appendChild(toasterHost);
+createRoot(toasterHost).render(createElement(AppToaster));
 
 // 组件渲染时间戳时需要系统时区已加载（store 未加载会显式抛错）。
 // 测试环境用固定时区直接置位，避免每个用例都去拉 observability.timezone。

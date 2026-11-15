@@ -162,8 +162,8 @@ describe('SkillsPage', () => {
     renderPage();
     await userEvent.click((await screen.findAllByRole('button', { name: '导出' }))[0]);
 
-    // 全局 Toast：role=status，成功文案带导出的文件名
-    expect(await screen.findByRole('status')).toHaveTextContent('database-health.zip');
+    // 全局 Toast（sonner）：按文案断言，成功文案带导出的文件名
+    expect(await screen.findByText(/database-health\.zip/)).toBeInTheDocument();
   });
 
   it('来源列区分内置 / 新建 / ZIP 导入，来源筛选可过滤', async () => {

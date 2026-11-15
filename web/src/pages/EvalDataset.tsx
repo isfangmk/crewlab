@@ -19,31 +19,7 @@ import {
   Swords,
   Trash2,
 } from 'lucide-react';
-import {
-  Button,
-  Chip,
-  EmptyStateCard,
-  ErrorBanner,
-  Input,
-  Label,
-  PageHeader,
-  RowAction,
-  RowActionIcon,
-  Select,
-  StatusPill,
-  Switch,
-  TableCard,
-  TableHead,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-  Textarea,
-  Toast,
-  type ToastTone,
-  COL,
-  tableLayout,
-} from '@/components/ui';
+import { flash, Button, Chip, EmptyStateCard, ErrorBanner, Input, Label, PageHeader, RowAction, RowActionIcon, Select, StatusPill, Switch, TableCard, TableHead, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, COL, tableLayout, type ToastTone } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ShareEvalRunDialog } from '@/components/ShareEvalRunDialog';
 import { Modal } from '@/components/Modal';
@@ -52,7 +28,6 @@ import { errorText } from '@/lib/errors';
 import { saveBlob } from '@/lib/download';
 import { fullDateTime } from '@/lib/format';
 import { CASE_STATUS_META, RUN_STATUS_META, caseStatusMeta } from '@/lib/evalStatus';
-import { useTimeout } from '@/lib/useTimeout';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
 import { listAgents, type AgentSummary } from '@/api/agents';
@@ -108,18 +83,9 @@ export default function EvalDatasetPage() {
   const [activeRun, setActiveRun] = useState<EvalRunDetail | null>(null);
   const [runErr, setRunErr] = useState<string | null>(null);
   const [compareFor, setCompareFor] = useState<EvalRun | null>(null);
-  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
   const [tab, setTab] = useState<'cases' | 'runs' | 'annotations' | 'gate'>('cases');
   const [seeding, setSeeding] = useState(false);
 
-  const flashTimer = useTimeout();
-  const flash = useCallback(
-    (tone: ToastTone, text: string) => {
-      setToast({ tone, text });
-      flashTimer(() => setToast(null), 4000);
-    },
-    [flashTimer],
-  );
 
   // 导出走文件流接口，拿到 blob 后触发浏览器下载
   const exportRun = useCallback(
@@ -132,7 +98,7 @@ export default function EvalDatasetPage() {
         flash('err', errorText(e));
       }
     },
-    [flash, tr],
+    [tr],
   );
 
   const load = useCallback(async (silent = false) => {
@@ -170,7 +136,7 @@ export default function EvalDatasetPage() {
     } finally {
       setSeeding(false);
     }
-  }, [id, load, flash, tr]);
+  }, [id, load, tr]);
 
   useEffect(() => {
     void load();
@@ -674,7 +640,6 @@ export default function EvalDatasetPage() {
         />
       )}
 
-      {toast && <Toast tone={toast.tone} text={toast.text} />}
     </main>
   );
 }

@@ -33,40 +33,13 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { DraftTag, RunStatusPill, formatDuration } from '@/components/workflow/RunStatusPill';
 import { RunWorkflowDialog } from '@/components/workflow/RunWorkflowDialog';
-import {
-  Button,
-  Chip,
-  ChoiceChip,
-  COL,
-  EmptyStateCard,
-  ErrorBanner,
-  FilterBar,
-  FilterChip,
-  FilterPill,
-  Input,
-  Label,
-  PageHeader,
-  RowAction,
-  RowActionIcon,
-  SearchInput,
-  Select,
-  SortableHead,
-  StatusPill,
-  TableCard,
-  TableHead,
-  TablePager,
-  Textarea,
-  Toast,
-  tableLayout,
-  type ToastTone,
-} from '@/components/ui';
+import { flash, Button, Chip, ChoiceChip, COL, EmptyStateCard, ErrorBanner, FilterBar, FilterChip, FilterPill, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Select, SortableHead, StatusPill, TableCard, TableHead, TablePager, Textarea, tableLayout } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { fullDateTime } from '@/lib/format';
 import { usePermissions } from '@/store/me';
 import { useI18n } from '@/i18n/locale';
 import { emptyNode, layeredLayout } from '@/lib/workflowMeta';
 import { errorText } from '@/lib/errors';
-import { useTimeout } from '@/lib/useTimeout';
 
 type Tab = 'canvas' | 'runs';
 type TemplateKey = 'blank' | 'knowledge' | 'approval';
@@ -99,7 +72,6 @@ export default function WorkflowsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
 
   const [query, setQuery] = useState('');
   // 输入即请求会把每敲一个字都变成一次查询：300ms 停手后再查。
@@ -114,11 +86,6 @@ export default function WorkflowsPage() {
   const [running, setRunning] = useState<{ id: number; name: string; definition: WorkflowDefinition } | null>(null);
   const [loadingRunFor, setLoadingRunFor] = useState<number | null>(null);
 
-  const flashTimer = useTimeout();
-  const flash = useCallback((tone: ToastTone, text: string) => {
-    setToast({ tone, text });
-    flashTimer(() => setToast(null), 4000);
-  }, [flashTimer]);
 
   const fetchWorkflows = useCallback(
     async (silent = false) => {
@@ -178,7 +145,7 @@ export default function WorkflowsPage() {
         setLoadingRunFor(null);
       }
     },
-    [flash],
+    [],
   );
 
   return (
@@ -518,7 +485,6 @@ export default function WorkflowsPage() {
         }}
       />
 
-      {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
     </main>
   );
 }

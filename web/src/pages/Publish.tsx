@@ -11,36 +11,13 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react';
-import {
-  Button,
-  CodeBlock,
-  EmptyStateCard,
-  ErrorBanner,
-  FilterBar,
-  Input,
-  Label,
-  PageHeader,
-  RowAction,
-  RowActionIcon,
-  SearchInput,
-  Select,
-  SortableHead,
-  StatusPill,
-  TableCard,
-  TableHead,
-  TablePager,
-  Toast,
-  type ToastTone,
-  COL,
-  tableLayout,
-} from '@/components/ui';
+import { flash, Button, CodeBlock, EmptyStateCard, ErrorBanner, FilterBar, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Select, SortableHead, StatusPill, TableCard, TableHead, TablePager, COL, tableLayout } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
 import { compareNullableTime } from '@/lib/sort';
-import { useTimeout } from '@/lib/useTimeout';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
 import { listAgents, type AgentSummary } from '@/api/agents';
@@ -80,16 +57,7 @@ export default function PublishPage() {
   const [rotating, setRotating] = useState<PublishedChannel | null>(null);
   const [deleting, setDeleting] = useState<PublishedChannel | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
 
-  const flashTimer = useTimeout();
-  const flash = useCallback(
-    (tone: ToastTone, text: string) => {
-      setToast({ tone, text });
-      flashTimer(() => setToast(null), 4000);
-    },
-    [flashTimer],
-  );
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -411,7 +379,6 @@ export default function PublishPage() {
           onClose={() => setRevealed(null)}
         />
       )}
-      {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
 
       {rotating && (
         <ConfirmDialog

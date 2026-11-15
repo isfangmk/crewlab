@@ -2,33 +2,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Brain, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import {
-  Button,
-  EmptyStateCard,
-  ErrorBanner,
-  FilterBar,
-  Label,
-  PageHeader,
-  RowAction,
-  RowActionIcon,
-  SearchInput,
-  Select,
-  SortableHead,
-  Switch,
-  TableCard,
-  TableHead,
-  TablePager,
-  Textarea,
-  Toast,
-  type ToastTone,
-  tableLayout,
-  COL,
-} from '@/components/ui';
+import { flash, Button, EmptyStateCard, ErrorBanner, FilterBar, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Select, SortableHead, Switch, TableCard, TableHead, TablePager, Textarea, tableLayout, COL } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
-import { useTimeout } from '@/lib/useTimeout';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
 import { request } from '@/api/client';
@@ -91,16 +69,7 @@ export default function MemoryPage() {
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<MemoryItem | null>(null);
-  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
 
-  const flashTimer = useTimeout();
-  const flash = useCallback(
-    (tone: ToastTone, text: string) => {
-      setToast({ tone, text });
-      flashTimer(() => setToast(null), 4000);
-    },
-    [flashTimer],
-  );
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -457,7 +426,6 @@ export default function MemoryPage() {
           </div>
         </Modal>
       )}
-      {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
       {deleting && (
         <ConfirmDialog
           open

@@ -13,32 +13,7 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react';
-import {
-  Button,
-  Chip,
-  COL,
-  EmptyStateCard,
-  ErrorBanner,
-  FilterBar,
-  FilterChip,
-  FilterPill,
-  Input,
-  Label,
-  PageHeader,
-  RowAction,
-  RowActionIcon,
-  SearchInput,
-  Select,
-  SortableHead,
-  StatusPill,
-  TableCard,
-  TableHead,
-  TablePager,
-  Toast,
-  type StatusTone,
-  type ToastTone,
-  tableLayout,
-} from '@/components/ui';
+import { flash, Button, Chip, COL, EmptyStateCard, ErrorBanner, FilterBar, FilterChip, FilterPill, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Select, SortableHead, StatusPill, TableCard, TableHead, TablePager, type StatusTone, tableLayout, type ToastTone } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { errorText } from '@/lib/errors';
@@ -46,7 +21,6 @@ import { fullDateTime } from '@/lib/format';
 import { compareNullableTime } from '@/lib/sort';
 import { useI18n } from '@/i18n/locale';
 import { usePermissions } from '@/store/me';
-import { useTimeout } from '@/lib/useTimeout';
 import { listDocs, localizedDocTitle, localizedPath, type KnowledgeDoc } from '@/api/knowledge';
 import {
   createKnowledgeSource,
@@ -92,18 +66,9 @@ export default function KnowledgeSourcesPage() {
   const [editor, setEditor] = useState<{ source: KnowledgeSource | null } | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeSource | null>(null);
   const [docsOf, setDocsOf] = useState<KnowledgeSource | null>(null);
-  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
   // 正在触发同步的来源：请求返回前禁用按钮，避免连点重复派发
   const [syncingId, setSyncingId] = useState<string | null>(null);
 
-  const flashTimer = useTimeout();
-  const flash = useCallback(
-    (tone: ToastTone, text: string) => {
-      setToast({ tone, text });
-      flashTimer(() => setToast(null), 4000);
-    },
-    [flashTimer],
-  );
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -166,7 +131,7 @@ export default function KnowledgeSourcesPage() {
         setSyncingId(null);
       }
     },
-    [flash, tr],
+    [tr],
   );
 
   return (
@@ -517,7 +482,6 @@ export default function KnowledgeSourcesPage() {
         />
       )}
 
-      {toast && <Toast tone={toast.tone} text={toast.text} />}
     </main>
   );
 }

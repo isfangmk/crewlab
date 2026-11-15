@@ -46,33 +46,7 @@ import { splitFrontmatter } from '@/lib/frontmatter';
 import type { IconType } from '@/lib/icon';
 import { Modal } from '@/components/Modal';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import {
-  Button,
-  Chip,
-  COL,
-  EmptyStateCard,
-  ErrorBanner,
-  FilterBar,
-  FilterChip,
-  FilterPill,
-  Input,
-  PageHeader,
-  RowAction,
-  RowActionIcon,
-  SearchInput,
-  Select,
-  SortableHead,
-  StatusPill,
-  TableCard,
-  TableHead,
-  TablePager,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  Textarea,
-  Toast,
-  tableLayout,
-} from '@/components/ui';
+import { flash, Button, Chip, COL, EmptyStateCard, ErrorBanner, FilterBar, FilterChip, FilterPill, Input, PageHeader, RowAction, RowActionIcon, SearchInput, Select, SortableHead, StatusPill, TableCard, TableHead, TablePager, Tabs, TabsList, TabsTrigger, Textarea, tableLayout } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { formatBytes, fullDateTime } from '@/lib/format';
 import {
@@ -225,7 +199,6 @@ export default function KnowledgePage() {
   // 打开的文档弹窗：'create' 新建；其余为某篇文档，mode 决定是查看还是编辑。
   const [docModal, setDocModal] = useState<{ doc: KnowledgeDoc | 'create'; mode: 'create' | 'edit' | 'view' } | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDoc | null>(null);
-  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   // 文档标题筛选（服务端 q 过滤）
   const [titleQuery, setTitleQuery] = useState('');
   // 语义检索是独立功能，不是筛选条件：单独的输入框 + 触发按钮
@@ -313,12 +286,7 @@ export default function KnowledgePage() {
     void fetchTrees();
   }, [fetchTrees]);
 
-  // 轻提示 5 秒自动消失，与 MCP / 技能页同一节奏
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), 5000);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
+
 
   const treeFrom = useCallback((rows: PathRow[]): TreeNode => {
     return buildTree(rows);
@@ -349,7 +317,7 @@ export default function KnowledgePage() {
         // 新文档按更新时间排在首页：停在后面的分页会看不到刚上传的内容
         setPage(0);
         await Promise.all([fetchList(true), fetchTrees()]);
-        setToast({ kind: 'ok', text: tr(`已上传 ${files.length} 个文件`, `Uploaded ${files.length} file(s)`) });
+        flash('ok', tr(`已上传 ${files.length} 个文件`, `Uploaded ${files.length} file(s)`));
       } catch (e) {
         setErr(errorText(e));
       } finally {
@@ -371,9 +339,9 @@ export default function KnowledgePage() {
         anchor.download = filename || doc.source_filename || 'download';
         anchor.click();
         URL.revokeObjectURL(url);
-        setToast({ kind: 'ok', text: tr(`已开始下载 ${filename}`, `Downloading ${filename}`) });
+        flash('ok', tr(`已开始下载 ${filename}`, `Downloading ${filename}`));
       } catch (e) {
-        setToast({ kind: 'err', text: tr(`下载失败：${errorText(e)}`, `Download failed: ${errorText(e)}`) });
+        flash('err', tr(`下载失败：${errorText(e)}`, `Download failed: ${errorText(e)}`));
       }
     },
     [tr],
@@ -401,10 +369,7 @@ export default function KnowledgePage() {
         // PATCH 返回的是 wire 文档（不含列表统计）：合并而不是整体覆盖，
         // 否则启停一次就会把分块数、正文大小与索引状态抹成「—」
         setItems((prev) => prev.map((d) => (d.id === saved.id ? { ...d, ...saved } : d)));
-        setToast({
-          kind: 'ok',
-          text: enabled ? tr('已启用，重新参与检索', 'Enabled for retrieval') : tr('已停用，不再参与检索', 'Excluded from retrieval'),
-        });
+        flash('ok', enabled ? tr('已启用，重新参与检索', 'Enabled for retrieval') : tr('已停用，不再参与检索', 'Excluded from retrieval'));
       } catch (e) {
         setErr(errorText(e));
       }
@@ -830,20 +795,19 @@ export default function KnowledgePage() {
           onConfirm={async () => {
             try {
               await deleteDoc(deleting.id);
-              setToast({ kind: 'ok', text: tr('文档已删除', 'Document deleted') });
+              flash('ok', tr('文档已删除', 'Document deleted'));
               setDeleting(null);
               await Promise.all([fetchList(true), fetchTrees()]);
             } catch (e) {
               // 保持对话框打开，并把失败原因显式反馈，而不是让异常静默冒泡
               setErr(errorText(e));
-              setToast({ kind: 'err', text: errorText(e) });
+              flash('err', errorText(e));
             }
           }}
           onClose={() => setDeleting(null)}
         />
       )}
 
-      {toast && <Toast tone={toast.kind} text={toast.text} />}
     </main>
   );
 }

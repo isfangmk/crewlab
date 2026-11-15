@@ -208,7 +208,8 @@ describe('SessionsPage', () => {
     );
     fireEvent.click(await screen.findByRole('button', { name: '复制会话 ID 1' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('1'));
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('已复制'));
+    // 轻提示（sonner）无固定 role，按文案断言
+    expect(await screen.findByText('会话 ID 已复制')).toBeInTheDocument();
   });
 
   it('展示运行信号：轮数、工具/技能调用、tokens、待审批与分享/附件/产出物', async () => {

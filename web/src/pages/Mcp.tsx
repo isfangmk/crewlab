@@ -1,5 +1,5 @@
 import { useAssistantPage } from '@/lib/assistantPage';
-import { FilterBar, Label, Input, SearchInput, TableHead, Textarea } from '@/components/ui';
+import { flash, FilterBar, Label, Input, SearchInput, TableHead, Textarea } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { useTimeout } from '@/lib/useTimeout';
 import { useRequestSeq } from '@/lib/requestSeq';
@@ -60,7 +60,7 @@ import {
 import { listSecrets, type SecretView } from '@/api/secrets';
 import { Modal } from '@/components/Modal';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { Button, Card, Chip, CodeBlock, DetailSection, EmptyStateCard, ErrorBanner, PageHeader, RowAction, RowActionIcon, Toast } from '@/components/ui';
+import { Button, Card, Chip, CodeBlock, DetailSection, EmptyStateCard, ErrorBanner, PageHeader, RowAction, RowActionIcon } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
 import { errorText } from '@/lib/errors';
@@ -101,7 +101,6 @@ export default function McpPage() {
     if (!q) return true;
     return s.name.toLowerCase().includes(q) || s.endpoint.toLowerCase().includes(q);
   });
-  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   // editor modal: null = closed; { id: null } = create; { id } = edit
   const [editing, setEditing] = useState<{ id: number | null; input: McpServerInput } | null>(null);
@@ -133,11 +132,7 @@ export default function McpPage() {
     void refresh();
   }, [refresh]);
 
-  useEffect(() => {
-    if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 5000);
-    return () => window.clearTimeout(t);
-  }, [toast]);
+
 
   const errMsg = (e: unknown) => (errorText(e));
 
@@ -147,25 +142,22 @@ export default function McpPage() {
     if (!input.name.trim() || !input.endpoint.trim()) return;
     // wire 形如 mcp__{name}__{tool}，名称含 __ 会破坏分段解析
     if (input.name.includes('__')) {
-      setToast({
-        kind: 'err',
-        text: tr("MCP Server 名称不能包含 '__'", "MCP server name cannot contain '__'"),
-      });
+      flash('err', tr("MCP Server 名称不能包含 '__'", "MCP server name cannot contain '__'"));
       return;
     }
     setSaving(true);
     try {
       if (editing.id == null) {
         await createMcpServer(input);
-        setToast({ kind: 'ok', text: tr(`已创建 ${input.name}`, `Created ${input.name}`) });
+        flash('ok', tr(`已创建 ${input.name}`, `Created ${input.name}`));
       } else {
         await updateMcpServer(editing.id, input);
-        setToast({ kind: 'ok', text: tr(`已保存 ${input.name}`, `Saved ${input.name}`) });
+        flash('ok', tr(`已保存 ${input.name}`, `Saved ${input.name}`));
       }
       setEditing(null);
       await refresh();
     } catch (e) {
-      setToast({ kind: 'err', text: errMsg(e) });
+      flash('err', errMsg(e));
     } finally {
       setSaving(false);
     }
@@ -175,7 +167,7 @@ export default function McpPage() {
     async (s: McpServer) => {
       // 失败向上抛给 ConfirmDialog 行内展示，避免弹窗关闭后只剩一条 Toast
       await deleteMcpServer(s.id);
-      setToast({ kind: 'ok', text: tr(`已删除 ${s.name}`, `Deleted ${s.name}`) });
+      flash('ok', tr(`已删除 ${s.name}`, `Deleted ${s.name}`));
       await refresh();
     },
     [refresh, tr],
@@ -187,16 +179,13 @@ export default function McpPage() {
       try {
         const tools = await testMcpServer(s.id);
         setTestState((cur) => ({ ...cur, [s.id]: { loading: false, tools } }));
-        setToast({
-          kind: 'ok',
-          text: tr(`${s.name}：拉到 ${tools.length} 个工具`, `${s.name}: fetched ${tools.length} tool(s)`),
-        });
+        flash('ok', tr(`${s.name}：拉到 ${tools.length} 个工具`, `${s.name}: fetched ${tools.length} tool(s)`));
         // status / tools_cache_json 已在服务端更新，重新拉取。
         await refresh();
       } catch (e) {
         const msg = errMsg(e);
         setTestState((cur) => ({ ...cur, [s.id]: { loading: false, error: msg } }));
-        setToast({ kind: 'err', text: tr(`${s.name} 连接失败：${msg}`, `${s.name} connection failed: ${msg}`) });
+        flash('err', tr(`${s.name} 连接失败：${msg}`, `${s.name} connection failed: ${msg}`));
       }
     },
     [refresh, tr],
@@ -343,7 +332,6 @@ export default function McpPage() {
         onClose={() => setConfirmDelete(null)}
       />
 
-      {toast && <Toast tone={toast.kind} text={toast.text} />}
       </div>
     </main>
   );

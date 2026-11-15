@@ -69,9 +69,7 @@ import {
   type NodeExecutionStatus,
 } from '@/components/workflow/WorkflowCanvas';
 import { WorkflowPalette } from '@/components/workflow/WorkflowPalette';
-import {
-  EmptyStateCard,
-  ErrorBanner, Button, PageHeader, RowAction, StatusPill, Toast, type ToastTone } from '@/components/ui';
+import { flash, EmptyStateCard, ErrorBanner, Button, PageHeader, RowAction, StatusPill } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/i18n/locale';
@@ -88,7 +86,6 @@ import {
 } from '@/lib/workflowMeta';
 import { AlertTriangle, ArrowLeft, Check, Clock, LayoutTemplate, Minus, Pencil, Play, Plus, Redo2, RefreshCw, Rocket, Save, ShieldCheck, Square, Trash2, Undo2, X } from 'lucide-react';
 import { errorText } from '@/lib/errors';
-import { useTimeout } from '@/lib/useTimeout';
 
 const KIND_MIME = 'application/x-workflow-kind';
 // 自动存草稿的静默间隔：停手 2 秒就落盘，边填表单边丢改动的概率很低。
@@ -169,7 +166,6 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
   const [panel, setPanel] = useState<'node' | 'workflow' | null>(null);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [checking, setChecking] = useState(false);
-  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
   const [runOpen, setRunOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // 单节点试跑：待填输入的节点 id、正在跑的节点 id、最近一次试跑结果。
@@ -319,11 +315,6 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
     setGateBannerOpen(true);
   }, []);
 
-  const flashTimer = useTimeout();
-  const flash = useCallback((tone: ToastTone, text: string) => {
-    setToast({ tone, text });
-    flashTimer(() => setToast(null), 4000);
-  }, [flashTimer]);
 
   // ---- 加载 ---------------------------------------------------------------
   const load = useCallback(async () => {
@@ -418,7 +409,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
         setSaving(false);
       }
     },
-    [definition, flash, meta.description, meta.name, tr, workflowId],
+    [definition, meta.description, meta.name, tr, workflowId],
   );
 
   // 自动存草稿：停手 2 秒落一次盘。节点没填全时先不存，后端必填校验会直接 400。
@@ -465,7 +456,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
     } finally {
       setPublishing(false);
     }
-  }, [dirty, flash, issueCount, meta.name, save, tr, workflowId]);
+  }, [dirty, issueCount, meta.name, save, tr, workflowId]);
 
   // ---- 定义更新 -----------------------------------------------------------
   const patchNode = useCallback((nodeId: string, patch: Partial<WorkflowNode>) => {
@@ -503,7 +494,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
     setPanel('node');
     setPanelTab('settings');
     setProbeNodeId(nodeId);
-  }, [definition.nodes, dirty, flash, save, startNode, tr]);
+  }, [definition.nodes, dirty, save, startNode, tr]);
 
   const addNode = useCallback(
     (kind: NodeKind, position?: { x: number; y: number }) => {
@@ -523,7 +514,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       setSelectedId(id);
       setPanel('node');
     },
-    [commitDefinition, definition.nodes, flash, screenToFlowPosition, startNode, tr],
+    [commitDefinition, definition.nodes, screenToFlowPosition, startNode, tr],
   );
 
   /** 复制节点：同类型、同配置，坐标错开一点，不带连线。 */
@@ -547,7 +538,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       setSelectedId(id);
       setPanel('node');
     },
-    [commitDefinition, definition.nodes, flash, tr],
+    [commitDefinition, definition.nodes, tr],
   );
 
   const removeNode = useCallback((nodeId: string) => {
@@ -718,7 +709,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       const id = `e_${source}_${target}_${route === '' ? 'any' : route}_${Math.random().toString(36).slice(2, 6)}`;
       commitDefinition((current) => ({ ...current, edges: [...current.edges, { id, source, target, route }] }));
     },
-    [commitDefinition, definition.edges, definition.nodes, flash, tr],
+    [commitDefinition, definition.edges, definition.nodes, tr],
   );
 
   // 适应画布：不走 useReactFlow().fitView()。
@@ -763,7 +754,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
     } finally {
       setChecking(false);
     }
-  }, [definition, flash]);
+  }, [definition]);
 
   const openRun = useCallback(async () => {
     if (dirty) {
@@ -879,16 +870,16 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
               gateKind: event.gate_kind,
             });
             if (event.status === 'failed') {
-              setToast({ tone: 'err', text: tr(`运行失败：${event.error}`, `Run failed: ${event.error}`) });
+              flash('err', tr(`运行失败：${event.error}`, `Run failed: ${event.error}`));
             } else if (event.status === 'succeeded') {
-              setToast({ tone: 'ok', text: tr('运行完成', 'Run finished') });
+              flash('ok', tr('运行完成', 'Run finished'));
             } else if (event.status === 'stopped') {
-              setToast({ tone: 'err', text: tr('运行已停止', 'Run stopped') });
+              flash('err', tr('运行已停止', 'Run stopped'));
             }
             break;
           case 'run_failed':
             setRunningRunUid(null);
-            setToast({ tone: 'err', text: event.error });
+            flash('err', event.error);
             break;
         }
       };
@@ -902,10 +893,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
       } catch (error) {
         if (controller.signal.aborted) return;
         setRunningRunUid(null);
-        setToast({
-          tone: 'err',
-          text: errorText(error),
-        });
+        flash('err', errorText(error));
       } finally {
         if (runAbortRef.current === controller) runAbortRef.current = null;
       }
@@ -945,7 +933,7 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
     } finally {
       setStopping(false);
     }
-  }, [flash, runningRunUid, tr]);
+  }, [runningRunUid, tr]);
 
   const onStarted = useCallback(
     async (values: Record<string, unknown>) => {
@@ -1330,7 +1318,6 @@ function EditorScreen({ workflowId }: { workflowId: number }) {
         }}
       />
 
-      {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
     </main>
   );
 }

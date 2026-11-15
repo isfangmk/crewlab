@@ -12,36 +12,7 @@ import {
 } from '@/api/sandbox';
 import { ApiError } from '@/api/client';
 import { Modal } from '@/components/Modal';
-import {
-  Button,
-  Chip,
-  CodeBlock,
-  COL,
-  DetailSection,
-  DetailStat,
-  DetailStatGrid,
-  EmptyStateCard,
-  ErrorBanner,
-  FilterBar,
-  FilterChip,
-  FilterPill,
-  Input,
-  Label,
-  MetricCard,
-  PageHeader,
-  RowAction,
-  SearchInput,
-  Select,
-  SortableHead,
-  StatusPill,
-  TableCard,
-  TableHead,
-  TablePager,
-  Textarea,
-  Toast,
-  tableLayout,
-  type ToastTone,
-} from '@/components/ui';
+import { flash, Button, Chip, CodeBlock, COL, DetailSection, DetailStat, DetailStatGrid, EmptyStateCard, ErrorBanner, FilterBar, FilterChip, FilterPill, Input, Label, MetricCard, PageHeader, RowAction, SearchInput, Select, SortableHead, StatusPill, TableCard, TableHead, TablePager, Textarea, tableLayout } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
 import { useAssistantPage } from '@/lib/assistantPage';
 import { cn } from '@/lib/cn';
@@ -100,7 +71,6 @@ export default function SandboxPage() {
   }>({ by: 'started_at', order: 'desc' });
   const [viewing, setViewing] = useState<SandboxExecution | null>(null);
   const [runOpen, setRunOpen] = useState(false);
-  const [toast, setToast] = useState<{ tone: ToastTone; text: string } | null>(null);
   const seq = useRequestSeq();
 
   useAssistantPage('沙箱', 'Sandbox', {
@@ -109,10 +79,6 @@ export default function SandboxPage() {
     关键字: query,
   });
 
-  const flash = useCallback((tone: ToastTone, text: string) => {
-    setToast({ tone, text });
-    window.setTimeout(() => setToast(null), 4000);
-  }, []);
 
   const load = useCallback(
     async (silent = false) => {
@@ -515,7 +481,6 @@ export default function SandboxPage() {
         />
       )}
 
-      {toast !== null && <Toast tone={toast.tone} text={toast.text} />}
     </main>
   );
 }
