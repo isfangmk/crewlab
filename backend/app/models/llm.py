@@ -33,6 +33,9 @@ class LlmProvider(Base):
     extra_body_json: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # 跳过 TLS 证书校验（自签证书场景）：要真正作用到探测与运行的 HTTP 客户端。
     tls_insecure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 手动单价表（JSON 文本）：{"<模型名>": {"input_per_1m": 3.5, "output_per_1m": 7.0}}，
+    # 每百万 token 单价。用量看板只认这里的手动价；NULL/缺模型 = 未计价，不造假 0。
+    model_prices_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         AwareDateTime(), server_default=func.now(), nullable=False
     )

@@ -31,6 +31,7 @@ const KnowledgePlaygroundPage = lazy(() => import('@/pages/KnowledgePlayground')
 const KnowledgeSourcesPage = lazy(() => import('@/pages/KnowledgeSources'));
 const SessionsPage = lazy(() => import('@/pages/Sessions'));
 const ObservabilityPage = lazy(() => import('@/pages/Observability'));
+const UsagePage = lazy(() => import('@/pages/Usage'));
 const AuditPage = lazy(() => import('@/pages/Audit'));
 const UsersPage = lazy(() => import('@/pages/Users'));
 const ShareViewPage = lazy(() => import('@/pages/ShareView'));
@@ -107,6 +108,7 @@ export default function App() {
         <Route path="/approvals" element={<ApprovalsPage />} />
         <Route path="/approvals/:id" element={<ApprovalDetailPage key={location.pathname} />} />
         <Route path="/observability" element={<ObservabilityPage />} />
+        <Route path="/usage" element={<UsagePage />} />
         <Route path="/sandbox" element={<SandboxPage />} />
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/users" element={<UsersPage />} />

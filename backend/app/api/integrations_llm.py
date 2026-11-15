@@ -34,6 +34,9 @@ class LLMConfigIn(BaseModel):
     model_prefix: str = ""
     # 厂商专属请求体（JSON 对象文本），如 DeepSeek 的 {"thinking":{"type":"enabled"}}
     extra_body_json: str = ""
+    # 手动单价表（JSON 对象文本）：{"<模型名>": {"input_per_1m": x, "output_per_1m": y}}，
+    # 每百万 token 单价；用量看板只认它，空 = 未定价
+    model_prices_json: str = ""
 
 
 @router.post("/integrations/llm/test")
@@ -86,6 +89,7 @@ async def validate_and_save(
             tls_insecure=body.tls_insecure,
             model_prefix=body.model_prefix,
             extra_body_json=body.extra_body_json,
+            model_prices_json=body.model_prices_json,
         )
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

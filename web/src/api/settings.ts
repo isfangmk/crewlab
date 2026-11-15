@@ -64,6 +64,9 @@ export type LLMConfigurationProbeInput = {
   model_prefix?: string;
   // 厂商专属请求体（JSON 对象文本）
   extra_body_json?: string;
+  // 手动单价表（JSON 对象文本）：{"<模型名>": {"input_per_1m": x, "output_per_1m": y}}，
+  // 每百万 token 单价；用量看板只认它，空 = 未定价
+  model_prices_json?: string;
 };
 
 export type LLMConfigurationProbeResult = {

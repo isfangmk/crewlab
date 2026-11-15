@@ -21,7 +21,7 @@ from app.services.observability.redaction import MASK
 router = APIRouter(tags=["system-settings"])
 
 # 快照包含这些分类；llm 走 llm_admin 的展平视图。
-_SNAPSHOT_CATEGORIES = ("agent", "observability", "knowledge")
+_SNAPSHOT_CATEGORIES = ("agent", "observability", "knowledge", "usage")
 
 
 class SettingPutIn(BaseModel):
@@ -44,7 +44,7 @@ async def list_settings(
     if category == "llm":
         items = await llm_admin.list_llm_settings(db)
         return {"items": items, "total": len(items)}
-    if category in {"agent", "observability", "knowledge"}:
+    if category in {"agent", "observability", "knowledge", "usage"}:
         try:
             items = await app_settings_service.list_category(db, category)
         except ValueError as exc:

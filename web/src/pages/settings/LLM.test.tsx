@@ -336,3 +336,53 @@ describe('SettingsLLM configuration probe', () => {
     expect(controls.getByRole('button', { name: '保存' })).toBeEnabled();
   });
 });
+
+describe('SettingsLLM manual model prices', () => {
+  it('sends per-model prices as model_prices_json on save', async () => {
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      http.get('/api/v1/system-settings', () => HttpResponse.json({ items: baseRows(), total: 4 })),
+      http.get('/api/v1/system-settings/llm/openai_api_key/reveal', () => HttpResponse.json({ value: 'secret-key' })),
+      http.post('/api/v1/integrations/llm/validate-and-save', async ({ request }) => {
+        body = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ valid: true, code: 'ok', provider: 'openai', model: 'gpt-test', latency_ms: 1, saved: true, disabled: false });
+      }),
+    );
+
+    await renderPage();
+    const { controls } = await openAIControls();
+    const user = userEvent.setup();
+
+    await user.type(controls.getByRole('spinbutton', { name: '输入单价 gpt-test' }), '3.5');
+    await user.type(controls.getByRole('spinbutton', { name: '输出单价 gpt-test' }), '7');
+    expect(controls.getByRole('button', { name: '保存' })).toBeEnabled();
+    await user.click(controls.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(JSON.parse(body!.model_prices_json as string)).toEqual({
+      'gpt-test': { input_per_1m: 3.5, output_per_1m: 7 },
+    });
+  });
+
+  it('rejects negative prices with an explicit error instead of saving', async () => {
+    let saves = 0;
+    server.use(
+      http.get('/api/v1/system-settings', () => HttpResponse.json({ items: baseRows(), total: 4 })),
+      http.get('/api/v1/system-settings/llm/openai_api_key/reveal', () => HttpResponse.json({ value: 'secret-key' })),
+      http.post('/api/v1/integrations/llm/validate-and-save', () => {
+        saves += 1;
+        return HttpResponse.json({});
+      }),
+    );
+
+    await renderPage();
+    const { controls } = await openAIControls();
+    const user = userEvent.setup();
+
+    await user.type(controls.getByRole('spinbutton', { name: '输入单价 gpt-test' }), '-1');
+    await user.click(controls.getByRole('button', { name: '保存' }));
+
+    expect(await screen.findByText(/单价必须是 >= 0 的数字/)).toBeInTheDocument();
+    expect(saves).toBe(0);
+  });
+});

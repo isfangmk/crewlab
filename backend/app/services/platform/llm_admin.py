@@ -27,6 +27,7 @@ def _provider_keys(provider_id: str) -> dict[str, str]:
         "default_model": f"{provider_id}_default_model",
         "model_prefix": f"{provider_id}_model_prefix",
         "extra_body_json": f"{provider_id}_extra_body_json",
+        "model_prices": f"{provider_id}_model_prices",
     }
 
 
@@ -91,6 +92,14 @@ async def list_llm_settings(db: AsyncSession) -> list[dict]:
                     "category": "llm",
                     "key": keys["extra_body_json"],
                     "value": p.extra_body_json,
+                    "sensitive": False,
+                    "updated_at": now,
+                },
+                # 手动单价表（用量看板计成本用）；空 = 该 provider 未定价
+                {
+                    "category": "llm",
+                    "key": keys["model_prices"],
+                    "value": p.model_prices_json or "",
                     "sensitive": False,
                     "updated_at": now,
                 },
@@ -234,6 +243,25 @@ async def fetch_remote_models(
     return names
 
 
+def _normalize_model_prices(raw: str, models: list[str]) -> str | None:
+    """校验并归一化手动单价表；价目条目必须都在 models 里，空表归一为 None。"""
+
+    # 懒导入：单价解析被用量看板共用，避免平台层与可观测层的顶层互引
+    from app.services.observability.usage_service import parse_model_prices
+
+    prices = parse_model_prices(raw)
+    unknown = [m for m in prices if m not in models]
+    if unknown:
+        raise ValueError(
+            "model_prices_json 存在不在 models 里的模型: " + ", ".join(sorted(unknown))
+        )
+    kept = {
+        m: {"input_per_1m": price[0], "output_per_1m": price[1]}
+        for m, price in prices.items()
+    }
+    return json.dumps(kept, ensure_ascii=False) if kept else None
+
+
 async def validate_and_save(
     db: AsyncSession,
     *,
@@ -245,6 +273,7 @@ async def validate_and_save(
     tls_insecure: bool = False,
     model_prefix: str = "",
     extra_body_json: str = "",
+    model_prices_json: str = "",
 ) -> dict:
     """空 api_key = 禁用该 provider；非空则探测通过后写入。"""
 
@@ -300,6 +329,11 @@ async def validate_and_save(
         raise ValueError("default_model 不能为空")
     if default_model not in models:
         raise ValueError("default_model 必须在 models 中")
+    normalized_prices = (
+        _normalize_model_prices(model_prices_json, models)
+        if model_prices_json.strip() != ""
+        else None
+    )
 
     probe = await probe_configuration(
         provider=provider,
@@ -325,6 +359,7 @@ async def validate_and_save(
             model_prefix=model_prefix,
             extra_body_json=extra_body_json,
             tls_insecure=tls_insecure,
+            model_prices_json=normalized_prices,
         )
         db.add(row)
     else:
@@ -337,6 +372,7 @@ async def validate_and_save(
         row.model_prefix = model_prefix
         row.extra_body_json = extra_body_json
         row.tls_insecure = tls_insecure
+        row.model_prices_json = normalized_prices
 
     setting = await db.get(AppSetting, "default_provider")
     if setting is None:

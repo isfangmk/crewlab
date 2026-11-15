@@ -60,6 +60,7 @@ describe('Sidebar workbench nav', () => {
     );
     expect(screen.getByRole('link', { name: '审计日志' })).toHaveAttribute('href', '/audit');
     expect(screen.getByRole('link', { name: '可观测' })).toHaveAttribute('href', '/observability');
+    expect(screen.getByRole('link', { name: '用量与成本' })).toHaveAttribute('href', '/usage');
     expect(screen.getByRole('link', { name: '评测' })).toHaveAttribute('href', '/evals');
     expect(screen.getByRole('link', { name: '用户与权限' })).toHaveAttribute('href', '/users');
     expect(screen.queryByRole('link', { name: '定时触发' })).not.toBeInTheDocument();

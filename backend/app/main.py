@@ -41,6 +41,7 @@ from app.api import (
     system_settings,
     tools,
     triggers,
+    usage,
     version,
     workflows,
 )
@@ -236,6 +237,7 @@ def create_app() -> FastAPI:
     app.include_router(system_settings.router, prefix="/api/v1")
     app.include_router(integrations_llm.router, prefix="/api/v1")
     app.include_router(observability.router, prefix="/api/v1")
+    app.include_router(usage.router, prefix="/api/v1")
     app.include_router(evals.router, prefix="/api/v1")
     app.include_router(sandbox.router, prefix="/api/v1")
     app.include_router(audit.router, prefix="/api/v1")

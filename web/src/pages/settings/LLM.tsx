@@ -31,6 +31,8 @@ type LLMProviderForm = {
   model_prefix: string;
   // 厂商专属请求体（JSON 对象文本），如 DeepSeek 的 {"thinking":{"type":"enabled"}}
   extra_body_json: string;
+  // 手动单价（每 1M token）：模型名 → 两侧输入串；空串 = 该侧未定价
+  model_prices: Record<string, { input: string; output: string }>;
 };
 
 type LLMProviderMeta = {
@@ -211,6 +213,11 @@ function extraBodyKey(providerId: string): string {
   return `${providerId}_extra_body_json`;
 }
 
+// 手动单价表展平键：用量看板计成本只认这份价格
+function modelPricesKey(providerId: string): string {
+  return `${providerId}_model_prices`;
+}
+
 // Locale-aware provider order. Operators reading the page in zh-CN see
 // the China-based providers at the top because
 // they're the ones a local deployment most likely has API keys for and
@@ -244,6 +251,7 @@ const emptyLLMForm: LLMProviderForm = {
   default_model: '',
   model_prefix: '',
   extra_body_json: '',
+  model_prices: {},
 };
 
 export default function SettingsLLM() {
@@ -370,6 +378,21 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
         if (it.key === meta.keyDefaultModel) next.default_model = it.value ?? '';
         if (it.key === modelPrefixKey(meta.id)) next.model_prefix = it.value ?? '';
         if (it.key === extraBodyKey(meta.id)) next.extra_body_json = it.value ?? '';
+        if (it.key === modelPricesKey(meta.id) && it.value) {
+          try {
+            const parsed = JSON.parse(it.value) as Record<string, { input_per_1m?: number; output_per_1m?: number }>;
+            if (parsed && typeof parsed === 'object') {
+              for (const [m, entry] of Object.entries(parsed)) {
+                next.model_prices[m] = {
+                  input: entry?.input_per_1m != null ? String(entry.input_per_1m) : '',
+                  output: entry?.output_per_1m != null ? String(entry.output_per_1m) : '',
+                };
+              }
+            }
+          } catch {
+            /* keep {} */
+          }
+        }
         if (it.key === meta.keyModels && it.value) {
           try {
             const parsed = JSON.parse(it.value);
@@ -414,6 +437,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
     draft.default_model !== server.default_model ||
     draft.model_prefix !== server.model_prefix ||
     draft.extra_body_json !== server.extra_body_json ||
+    JSON.stringify(draft.model_prices) !== JSON.stringify(server.model_prices) ||
     JSON.stringify(draft.models) !== JSON.stringify(server.models);
 
   const update = <K extends keyof LLMProviderForm>(k: K, v: LLMProviderForm[K]) => {
@@ -451,7 +475,9 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
       const next = cur.models.filter((x) => x !== m);
       let defM = cur.default_model;
       if (defM === m) defM = next[0] ?? '';
-      return { ...cur, models: next, default_model: defM };
+      // 被移除模型的单价同步清掉，避免留下孤儿价目
+      const { [m]: _dropped, ...prices } = cur.model_prices;
+      return { ...cur, models: next, default_model: defM, model_prices: prices };
     });
   };
 
@@ -550,8 +576,38 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
     }
   };
 
+  // 手动单价 → 保存载荷：两侧都空的条目不发；非法数字显式报错，不静默丢
+  const buildPricesJson = (form: LLMProviderForm): string => {
+    const out: Record<string, { input_per_1m?: number; output_per_1m?: number }> = {};
+    for (const [m, p] of Object.entries(form.model_prices)) {
+      const entry: { input_per_1m?: number; output_per_1m?: number } = {};
+      const sides = [
+        ['input_per_1m', p.input],
+        ['output_per_1m', p.output],
+      ] as const;
+      for (const [side, raw] of sides) {
+        const t = raw.trim();
+        if (t === '') continue;
+        const n = Number(t);
+        if (!Number.isFinite(n) || n < 0) {
+          throw new Error(tr(`模型 ${m} 的单价必须是 >= 0 的数字`, `Price for ${m} must be a number >= 0`));
+        }
+        entry[side] = n;
+      }
+      if (entry.input_per_1m !== undefined || entry.output_per_1m !== undefined) out[m] = entry;
+    }
+    return Object.keys(out).length > 0 ? JSON.stringify(out) : '';
+  };
+
   const submit = async () => {
-    const snapshot: LLMProviderForm = { ...draft, models: [...draft.models] };
+    const snapshot: LLMProviderForm = { ...draft, models: [...draft.models], model_prices: { ...draft.model_prices } };
+    let pricesJson: string;
+    try {
+      pricesJson = buildPricesJson(snapshot);
+    } catch (e) {
+      setErr(errorText(e));
+      return;
+    }
     const signature = signatureFor(snapshot);
     const requestVersion = probeVersion.current + 1;
     probeVersion.current = requestVersion;
@@ -568,6 +624,7 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
         models: snapshot.models,
         model_prefix: snapshot.model_prefix.trim(),
         extra_body_json: snapshot.extra_body_json.trim(),
+        model_prices_json: pricesJson,
         ...(meta.custom ? { tls_insecure: snapshot.tls_insecure } : {}),
       });
       if (probeVersion.current !== requestVersion) return;
@@ -720,6 +777,9 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
             }
           >
             {modelFetchMessage && <p role="status" className="mb-2 text-[11px] text-zinc-400">{modelFetchMessage}</p>}
+            <p className="mb-2 text-[11px] text-zinc-500">
+              {tr('单价可选（每 1M token）：填了才计入「用量与成本」的估算成本；留空显示「未计价」。', 'Optional prices (per 1M tokens): filled models are counted in Usage & cost; empty shows as unpriced.')}
+            </p>
             {draft.models.length === 0 ? (
               <p className="rounded-lg border border-dashed border-zinc-800/60 bg-zinc-950/60 px-3 py-2 text-[11px] text-zinc-600">
                 {tr(`还没添加模型 — 在下面输入框里加一个，例 ${meta.modelPlaceholder}`, `No models yet — add one in the input below, e.g. ${meta.modelPlaceholder}`)}
@@ -740,6 +800,39 @@ function LLMProviderCard({ meta, initialSettings }: { meta: LLMProviderMeta; ini
                         </Chip>
                       )}
                       <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                        {/* 手动单价（每 1M token）：只填要计价的侧；留空 = 未定价不进成本 */}
+                        <Input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={draft.model_prices[m]?.input ?? ''}
+                          onChange={(e) =>
+                            update('model_prices', {
+                              ...draft.model_prices,
+                              [m]: { input: e.target.value, output: draft.model_prices[m]?.output ?? '' },
+                            })
+                          }
+                          placeholder={tr('输入价', 'in/1M')}
+                          aria-label={tr(`输入单价 ${m}`, `Input price ${m}`)}
+                          title={tr('输入 token 单价（每 1M）', 'Input token price per 1M')}
+                          className="h-7 w-[5.5rem] px-1.5 text-[11px]"
+                        />
+                        <Input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={draft.model_prices[m]?.output ?? ''}
+                          onChange={(e) =>
+                            update('model_prices', {
+                              ...draft.model_prices,
+                              [m]: { input: draft.model_prices[m]?.input ?? '', output: e.target.value },
+                            })
+                          }
+                          placeholder={tr('输出价', 'out/1M')}
+                          aria-label={tr(`输出单价 ${m}`, `Output price ${m}`)}
+                          title={tr('输出 token 单价（每 1M）', 'Output token price per 1M')}
+                          className="h-7 w-[5.5rem] px-1.5 text-[11px]"
+                        />
                         {!isDefault && (
                           <RowAction
                             icon={Check}

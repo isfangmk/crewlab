@@ -37,7 +37,9 @@ _OBSERVABILITY_KEYS = frozenset({"timezone"})
 _KNOWLEDGE_KEYS = frozenset(
     {"chunk_size", "chunk_overlap", "approval_timeout_hours", "rrf_min_score"}
 )
-_SUPPORTED_CATEGORIES = frozenset({"agent", "observability", "knowledge"})
+# 用量软限额：空值/缺键 = 不限；只提醒不拦截
+_USAGE_KEYS = frozenset({"daily_token_soft_limit"})
+_SUPPORTED_CATEGORIES = frozenset({"agent", "observability", "knowledge", "usage"})
 
 
 def _setting_pk(category: str, key: str) -> str:
@@ -228,6 +230,15 @@ async def put_setting(
                 raise ValueError("chunk_overlap 必须 >= 0")
             if key == "approval_timeout_hours" and number < 1:
                 raise ValueError("approval_timeout_hours 必须 >= 1")
+    elif category == "usage":
+        if key not in _USAGE_KEYS:
+            raise ValueError(f"不支持的 usage key: {key}")
+        if key == "daily_token_soft_limit":
+            # 空值 = 不限；非空必须是正整数（每天 token 软限额，超限只提醒）
+            if value != "":
+                limit = int(value)
+                if limit < 1:
+                    raise ValueError("daily_token_soft_limit 必须 >= 1（空值 = 不限）")
 
     pk = _setting_pk(category, key)
     row = await db.get(AppSetting, pk)
