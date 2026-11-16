@@ -116,13 +116,24 @@ _task: asyncio.Task | None = None
 
 
 async def _loop(root: Path) -> None:
+    # 首轮即启动同步：首轮固定记日志，之后只在内容有变化时记
+    first_round = True
     while True:
         try:
             from app.db import SessionLocal
 
             async with SessionLocal() as db:
                 stats = await sync_vault_once(db, root)
-            if stats["created"] or stats["updated"] or stats["deleted"]:
+            if first_round:
+                logger.info(
+                    "内置知识库启动同步 dir=%s created=%s updated=%s deleted=%s unchanged=%s",
+                    root,
+                    stats["created"],
+                    stats["updated"],
+                    stats["deleted"],
+                    stats["unchanged"],
+                )
+            elif stats["created"] or stats["updated"] or stats["deleted"]:
                 logger.info(
                     "内置知识库同步 created=%s updated=%s deleted=%s unchanged=%s",
                     stats["created"],
@@ -134,27 +145,16 @@ async def _loop(root: Path) -> None:
             raise
         except Exception:  # noqa: BLE001 — 同步失败不拖垮进程，下一轮重试
             logger.exception("内置知识库同步失败，下一轮重试")
+        first_round = False
         await asyncio.sleep(SYNC_INTERVAL_SECONDS)
 
 
 async def start_vault_sync() -> None:
-    """启动时先同步一轮，再起后台循环；语料目录不存在则创建。"""
+    """起后台同步循环（首轮随任务跑，不阻塞启动）；语料目录不存在则创建。"""
 
     global _task
     root = Path(get_settings().knowledge_vault_dir)
     root.mkdir(parents=True, exist_ok=True)
-    from app.db import SessionLocal
-
-    async with SessionLocal() as db:
-        stats = await sync_vault_once(db, root)
-    logger.info(
-        "内置知识库启动同步 dir=%s created=%s updated=%s deleted=%s unchanged=%s",
-        root,
-        stats["created"],
-        stats["updated"],
-        stats["deleted"],
-        stats["unchanged"],
-    )
     _task = asyncio.create_task(_loop(root))
 
 
