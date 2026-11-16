@@ -185,6 +185,11 @@ async def lifespan(_app: FastAPI):
 
     await start_vault_sync()
 
+    # MCP Server 探活：周期性轻量健康检查，状态三字段实时维护
+    from app.services.mcp.mcp_health import start_mcp_health, stop_mcp_health
+
+    await start_mcp_health()
+
     # 预热 litellm：ADK 到首个回合才懒加载它，冷导入约 10 秒会让进程的第一个问题白等；
     # 放后台任务预热——应用立即就绪，用户发首条消息前通常已完成（价格表已由
     # LITELLM_LOCAL_MODEL_COST_MAP 强制本地，不拉 GitHub）
@@ -205,6 +210,7 @@ async def lifespan(_app: FastAPI):
         await warm_task
     except asyncio.CancelledError:
         pass
+    await stop_mcp_health()
     await stop_vault_sync()
     await stop_scheduler()
     await engine.dispose()

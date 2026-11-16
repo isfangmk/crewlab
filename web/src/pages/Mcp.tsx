@@ -63,6 +63,7 @@ import { Modal } from '@/components/Modal';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Button, Card, Chip, CodeBlock, DetailSection, EmptyStateCard, ErrorBanner, PageHeader, RowAction, RowActionIcon } from '@/components/ui';
 import { cn } from '@/lib/cn';
+import { fullDateTime } from '@/lib/format';
 import { useI18n } from '@/i18n/locale';
 import { errorText } from '@/lib/errors';
 
@@ -454,6 +455,14 @@ function ServerRow({
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span className="min-w-0 truncate text-[13px] font-semibold leading-5 text-zinc-100">{server.name}</span>
               <StatusChip status={server.status} />
+              {server.last_probed_at && (
+                <span className="text-[10px] text-zinc-500">
+                  {tr(
+                    `最近探测 ${fullDateTime(server.last_probed_at)}`,
+                    `probed ${fullDateTime(server.last_probed_at)}`,
+                  )}
+                </span>
+              )}
               {freePass && (
                 <Chip dense tone="warning">
                   <ShieldCheck size={10} />

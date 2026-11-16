@@ -942,6 +942,34 @@ async def _open_mcp_session(db: AsyncSession, server: McpServer):
     return manager, session
 
 
+async def probe_server_health(db: AsyncSession, server: McpServer) -> bool:
+    """轻量探活：initialize 握手 + ping，只更新 status / last_error / last_probed_at。
+
+    与 test_server 分工：探活不刷工具缓存、不探测附加能力、不动嵌入同步。
+    """
+
+    import asyncio
+    from datetime import datetime, timezone
+
+    ok = False
+    manager = None
+    try:
+        manager, session = await asyncio.wait_for(_open_mcp_session(db, server), timeout=10)
+        await asyncio.wait_for(session.send_ping(), timeout=10)
+        ok = True
+        server.status = "ok"
+        server.last_error = ""
+    except Exception as exc:  # noqa: BLE001 — 探活失败只记状态，不向调用方抛
+        server.status = "error"
+        server.last_error = f"{type(exc).__name__}: {exc}"
+    finally:
+        if manager is not None:
+            await manager.close()
+    server.last_probed_at = datetime.now(timezone.utc)
+    await db.commit()
+    return ok
+
+
 async def test_server(db: AsyncSession, server_id: int) -> list[dict]:
     from datetime import datetime, timezone
 
