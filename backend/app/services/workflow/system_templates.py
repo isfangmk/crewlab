@@ -18,11 +18,13 @@ from app.schemas.workflow import (
 )
 
 
-def _task_node(node_id: str, spec: dict[str, Any], output_key: str) -> WorkflowNode:
+def _task_node(node_id: str, spec: dict[str, Any], output_key: str, *, x: float, y: float) -> WorkflowNode:
     return WorkflowNode(
         id=node_id,
         kind="task",
         label=str(spec.get("name") or node_id),
+        x=x,
+        y=y,
         output_key=output_key,
         task=TaskSpec(
             target=str(spec.get("target") or ""),
@@ -37,21 +39,34 @@ def investigation_definition(workers: list[dict[str, Any]]) -> WorkflowDefinitio
 
     join 等全部路终态才放行——「等待完成」由图结构保证；收口后的汇总结论
     由排查聚合在终态时写回对话流。总问题经运行输入（payload）进状态。
+    坐标按扇出布局摆放（分支纵向展开），运行详情的画布能直接读出图形状。
     """
 
-    task_nodes = [_task_node(f"worker_{i}", spec, f"worker_{i}_result") for i, spec in enumerate(workers, start=1)]
+    # 分支纵向居中展开：N 路 → y = ±80·…，主线 y=0
+    task_nodes = [
+        _task_node(
+            f"worker_{i}",
+            spec,
+            f"worker_{i}_result",
+            x=300,
+            y=(i - 1) * 160 - (len(workers) - 1) * 80,
+        )
+        for i, spec in enumerate(workers, start=1)
+    ]
     nodes: list[WorkflowNode] = [
         WorkflowNode(
             id="start",
             kind="start",
             label="排查问题",
+            x=40,
+            y=0,
             variables=[
                 WorkflowVariable(name="question", type="string", description="要排查的总问题")
             ],
         ),
         *task_nodes,
-        WorkflowNode(id="join", kind="join", label="等全部收口"),
-        WorkflowNode(id="end", kind="end", label="收口"),
+        WorkflowNode(id="join", kind="join", label="等全部收口", x=580, y=0),
+        WorkflowNode(id="end", kind="end", label="收口", x=780, y=0),
     ]
     edges: list[WorkflowEdge] = []
     for i in range(1, len(task_nodes) + 1):
@@ -68,18 +83,23 @@ def plan_definition(steps: list[dict[str, Any]]) -> WorkflowDefinition:
     按剩余 pending 步骤生成新的一段。
     """
 
-    task_nodes = [_task_node(f"step_{i}", spec, f"step_{i}_result") for i, spec in enumerate(steps, start=1)]
+    task_nodes = [
+        _task_node(f"step_{i}", spec, f"step_{i}_result", x=240 + (i - 1) * 220, y=0)
+        for i, spec in enumerate(steps, start=1)
+    ]
     nodes: list[WorkflowNode] = [
         WorkflowNode(
             id="start",
             kind="start",
             label="计划执行",
+            x=40,
+            y=0,
             variables=[
                 WorkflowVariable(name="plan_uid", type="string", description="计划标识")
             ],
         ),
         *task_nodes,
-        WorkflowNode(id="end", kind="end", label="段收口"),
+        WorkflowNode(id="end", kind="end", label="段收口", x=240 + len(steps) * 220, y=0),
     ]
     edges: list[WorkflowEdge] = []
     chain = ["start", *[f"step_{i}" for i in range(1, len(task_nodes) + 1)], "end"]
