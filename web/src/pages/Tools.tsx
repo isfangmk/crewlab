@@ -239,8 +239,8 @@ export default function ToolsPage() {
           </div>
         </FilterBar>
 
-        {/* 概览：危险度分布一屏可见（风险是定级，是否要审批由审批规则决定） */}
-        <div className="mx-6 mt-3 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3">
+        {/* 概览：危险度分布一屏可见（风险是定级，是否要审批由审批规则决定）；四卡一行 */}
+        <div className="mx-6 mt-3 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4">
           <MetricCard
             icon={Wrench}
             label={tr('工具总数', 'Tools')}
