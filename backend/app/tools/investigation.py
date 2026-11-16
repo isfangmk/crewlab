@@ -19,9 +19,9 @@ async def dispatch_investigation(
     question: str,
     workers_json: str,
     soft_deadline_seconds: int = 60,
-    max_steps_per_worker: int = 8,
-    timeout_seconds_per_worker: int = 120,
-    token_budget_per_worker: int = 30000,
+    max_steps_per_worker: int = 12,
+    timeout_seconds_per_worker: int = 300,
+    token_budget_per_worker: int = 60000,
     tool_context: Any = None,
 ) -> dict:
     """把一个多线索问题派给 N 路只读子代理并行排查，返回带证据的结构化发现。
@@ -31,7 +31,7 @@ async def dispatch_investigation(
     soft_deadline_seconds: 软截止秒数；到期先返回初步结果，未完的路后台继续跑。
     max_steps_per_worker: 每路最大模型调用次数（步数预算）。
     timeout_seconds_per_worker: 每路墙钟超时秒数。
-    token_budget_per_worker: 每路 token 软限，超限中止该路（默认 30000：多工具集下每轮调用约 4-5k）。
+    token_budget_per_worker: 每路 token 软限，超限中止该路（默认 60000：多工具集下每轮调用约 4-5k，调研类长排查常超 3 万）。
 
     汇总结论时请在正文用 [n] 标记引用 findings 里的发现编号 n（如 [1]），用户可点角标定位证据。
     """

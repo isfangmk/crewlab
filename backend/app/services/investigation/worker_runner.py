@@ -62,14 +62,14 @@ _FINDINGS_FENCE_RE = re.compile(r"```findings\s*\n(.*?)```", re.DOTALL)
 
 @dataclass(frozen=True)
 class WorkerBudget:
-    """单路 worker 的三重预算。"""
+    """单路 worker 的三重预算（缺省与 dispatch_investigation 工具默认一致）。"""
 
     # RunConfig.max_llm_calls；0 表示不限步
-    max_steps: int = 8
+    max_steps: int = 12
     # 墙钟秒数，由 run_worker 自行 wait_for 包线
-    timeout_seconds: int = 120
+    timeout_seconds: int = 300
     # token 软限：累计 usage 超限即中止该路；0 表示不限
-    token_budget: int = 8000
+    token_budget: int = 60000
 
 
 @dataclass
