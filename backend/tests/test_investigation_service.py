@@ -20,11 +20,10 @@ from app.db import create_db_engine
 from app.models.chat import ChatSession
 from app.models.investigation import InvestigationDispatch, InvestigationWorkerRun
 from app.services.investigation import dispatch_service
+from app.adk_runtime.headless import WorkerBudget, parse_findings
 from app.services.investigation.worker_runner import (
-    WorkerBudget,
     WorkerResult,
     build_worker_tool_gate,
-    parse_findings,
 )
 
 
@@ -160,18 +159,6 @@ def test_dispatch_budget_defaults() -> None:
     assert params["timeout_seconds_per_worker"].default == 300
     assert params["token_budget_per_worker"].default == 60000
     assert WorkerBudget() == WorkerBudget(max_steps=12, timeout_seconds=300, token_budget=60000)
-
-
-@pytest.mark.asyncio
-async def test_worker_web_search_requires_session_toggle() -> None:
-    """联网搜索只在对话开启 web_search 时挂载；未开启直接 None。"""
-
-    from app.db import SessionLocal
-    from app.services.investigation.dispatch_service import _worker_web_search_tool
-
-    session = ChatSession(id=f"websearch-{uuid.uuid4().hex[:8]}", title="t", web_search_enabled=False)
-    async with SessionLocal() as db:
-        assert await _worker_web_search_tool(db, session) is None
 
 
 @pytest.mark.asyncio

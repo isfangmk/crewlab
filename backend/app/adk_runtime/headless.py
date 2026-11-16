@@ -1,0 +1,301 @@
+"""无人值守回合执行引擎：InMemoryRunner headless 范式 + 三重预算 + 结构化输出。
+
+排查 worker 与计划步骤共用这一个执行循环：预算三重（步数/墙钟/token 软限），
+超时/超限/停止/异常全部转成结构化结果，绝不让异常打断整个回合。
+工具异常已在 agent 装配层兜底成错误结果（on_tool_error_callback），
+模型可自行修正重试；引擎只兜底回合级故障。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+import time
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable
+
+from google.adk.agents import LlmAgent
+from google.adk.agents.run_config import RunConfig
+from google.adk.runners import InMemoryRunner
+from google.genai import types
+
+logger = logging.getLogger(__name__)
+
+# findings 输出协议：回合回答末尾的围栏 JSON
+_FINDINGS_FENCE_RE = re.compile(r"```findings\s*\n(.*?)```", re.DOTALL)
+
+
+@dataclass(frozen=True)
+class WorkerBudget:
+    """单个无人值守回合的三重预算（缺省与派发工具默认一致）。"""
+
+    # RunConfig.max_llm_calls；0 表示不限步
+    max_steps: int = 12
+    # 墙钟秒数，超时中止该回合；0 表示不限
+    timeout_seconds: int = 300
+    # token 软限：累计 usage 超限即中止；0 表示不限
+    token_budget: int = 60000
+
+
+@dataclass
+class HeadlessResult:
+    """一个无人值守回合的执行结果。"""
+
+    # succeeded | failed | stopped
+    status: str
+    conclusion: str = ""
+    findings: list[dict[str, Any]] = field(default_factory=list)
+    error: str = ""
+    # 有值才写键，缺键不造假 0
+    usage: dict[str, int] = field(default_factory=dict)
+    duration_ms: int = 0
+    log_text: str = ""
+
+
+class BudgetExceeded(Exception):
+    """token 软限超限：内部信号，转成 failed 结果。"""
+
+
+def parse_findings(text: str, call_ids: set[str]) -> tuple[str, list[dict[str, Any]]]:
+    """解析回答末尾的 findings 围栏；解析失败兜底为纯文本结论。
+
+    证据 call_id 必须在实收集合内，编造的证据直接丢弃。
+    """
+
+    matches = _FINDINGS_FENCE_RE.findall(text)
+    raw = matches[-1].strip() if matches else ""
+    if raw:
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            data = None
+        if isinstance(data, dict):
+            conclusion = str(data.get("conclusion") or "").strip()
+            findings: list[dict[str, Any]] = []
+            for item in data.get("findings") or []:
+                if not isinstance(item, dict):
+                    continue
+                title = str(item.get("title") or "").strip()
+                detail = str(item.get("detail") or "").strip()
+                if title == "" and detail == "":
+                    continue
+                evidence: list[dict[str, str]] = []
+                for ev in item.get("evidence") or []:
+                    if not isinstance(ev, dict):
+                        continue
+                    cid = str(ev.get("call_id") or "").strip()
+                    if cid not in call_ids:
+                        continue
+                    evidence.append(
+                        {
+                            "call_id": cid,
+                            "tool": str(ev.get("tool") or "").strip(),
+                            "excerpt": str(ev.get("excerpt") or "").strip(),
+                        }
+                    )
+                findings.append({"title": title, "detail": detail, "evidence": evidence})
+            return conclusion or text.strip(), findings
+    return text.strip(), []
+
+
+def _usage_from_event(event: Any) -> tuple[int | None, int | None, int | None] | None:
+    """读本事件 usage；无有效 token 字段则返回 None（禁止假 0）。"""
+
+    meta = getattr(event, "usage_metadata", None)
+    if meta is None:
+        return None
+    prompt = getattr(meta, "prompt_token_count", None)
+    completion = getattr(meta, "candidates_token_count", None)
+    total = getattr(meta, "total_token_count", None)
+    if not isinstance(prompt, int) and not isinstance(completion, int) and not isinstance(total, int):
+        return None
+    return (
+        prompt if isinstance(prompt, int) else None,
+        completion if isinstance(completion, int) else None,
+        total if isinstance(total, int) else None,
+    )
+
+
+async def run_headless_turn(
+    *,
+    agent: LlmAgent,
+    app_name: str,
+    prompt: str,
+    budget: WorkerBudget,
+    log: Callable[..., Awaitable[None]],
+    stop_check: Callable[[], bool],
+    opening: str,
+    closing: str,
+) -> HeadlessResult:
+    """跑完一个无人值守回合；超时/超限/停止/异常都转成结构化结果。
+
+    log 按 (line, tool=...) 调用；opening/closing 是首尾日志行，
+    由调用方按各自语义给出（如「开始排查：… / 排查完成」）。
+    """
+
+    started = time.monotonic()
+    log_lines: list[str] = []
+    # 失败中断时也要报已耗用量：回合内实时同步进来，_finish 失败路径原样带回
+    usage_partial: dict[str, int] = {}
+
+    async def _log(line: str, tool: str = "") -> None:
+        log_lines.append(line)
+        await log(line, tool=tool)
+
+    def _finish(status: str, *, conclusion: str = "", findings: list[dict[str, Any]] | None = None,
+                error: str = "", usage: dict[str, int] | None = None) -> HeadlessResult:
+        return HeadlessResult(
+            status=status,
+            conclusion=conclusion,
+            findings=findings or [],
+            error=error,
+            usage=usage or {},
+            duration_ms=int((time.monotonic() - started) * 1000),
+            log_text="\n".join(log_lines),
+        )
+
+    await _log(opening)
+
+    runner = InMemoryRunner(agent=agent, app_name=app_name)
+    try:
+        try:
+            result = await asyncio.wait_for(
+                _run_turn(
+                    runner=runner,
+                    prompt=prompt,
+                    budget=budget,
+                    log=_log,
+                    stop_check=stop_check,
+                    usage_partial=usage_partial,
+                ),
+                timeout=budget.timeout_seconds if budget.timeout_seconds > 0 else None,
+            )
+        except asyncio.TimeoutError:
+            await _log(f"超时中止（{budget.timeout_seconds}s）")
+            return _finish(
+                "failed",
+                error=f"执行超时（{budget.timeout_seconds}s）",
+                usage=dict(usage_partial),
+            )
+        except BudgetExceeded as exc:
+            await _log(str(exc))
+            return _finish("failed", error=str(exc), usage=dict(usage_partial))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 单回合失败不拖垮外层编排
+            logger.exception("无人值守回合执行异常 app=%s", app_name)
+            await _log(f"执行异常：{exc}")
+            return _finish("failed", error=str(exc), usage=dict(usage_partial))
+
+        if result["stopped"]:
+            await _log("收到停止信号，中止执行")
+            return _finish(
+                "stopped",
+                conclusion=result["conclusion"],
+                findings=result["findings"],
+                usage=result["usage"],
+            )
+        await _log(closing)
+        return _finish(
+            "succeeded",
+            conclusion=result["conclusion"],
+            findings=result["findings"],
+            usage=result["usage"],
+        )
+    finally:
+        # Runner.close() 是唯一关闭 MCP toolset 的路径，必须无条件执行
+        try:
+            await runner.close()
+        except Exception:  # noqa: BLE001
+            logger.warning("runner.close() 失败 app=%s", app_name)
+
+
+async def _run_turn(
+    *,
+    runner: InMemoryRunner,
+    prompt: str,
+    budget: WorkerBudget,
+    # log 按 (line, tool=...) 调用；可选关键字参数无法用普通 Callable 精确表达
+    log: Callable[..., Awaitable[None]],
+    stop_check: Callable[[], bool],
+    usage_partial: dict[str, int],
+) -> dict[str, Any]:
+    """headless 跑一个回合，收集文本 / call_id / usage。
+
+    usage_partial 实时同步已耗用量：回合中途失败（超限/超时）时，
+    调用方仍能报出已消耗的 tokens。
+    """
+
+    session = await runner.session_service.create_session(
+        app_name=runner.app_name, user_id=runner.app_name
+    )
+    run_config = RunConfig()
+    if budget.max_steps > 0:
+        run_config.max_llm_calls = budget.max_steps
+
+    answer_parts: list[str] = []
+    call_ids: set[str] = set()
+    usage_prompt: int | None = None
+    usage_completion: int | None = None
+    usage_total: int | None = None
+    stopped = False
+
+    async for event in runner.run_async(
+        user_id=runner.app_name,
+        session_id=session.id,
+        new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
+        run_config=run_config,
+    ):
+        if stop_check():
+            stopped = True
+            break
+        piece = _usage_from_event(event)
+        if piece is not None:
+            prompt_n, completion_n, total_n = piece
+            if prompt_n is not None:
+                usage_prompt = (usage_prompt or 0) + prompt_n
+            if completion_n is not None:
+                usage_completion = (usage_completion or 0) + completion_n
+            if total_n is not None:
+                usage_total = (usage_total or 0) + total_n
+            # 先同步用量再看预算：超限中断也要留下已消耗的部分
+            if usage_prompt is not None:
+                usage_partial["prompt_tokens"] = usage_prompt
+            if usage_completion is not None:
+                usage_partial["completion_tokens"] = usage_completion
+            if usage_total is not None:
+                usage_partial["total_tokens"] = usage_total
+            # token 软限：累计消耗超预算即中止该回合
+            if budget.token_budget > 0 and (usage_total or 0) > budget.token_budget:
+                raise BudgetExceeded(f"预算超限：已用 {usage_total} tokens（上限 {budget.token_budget}）")
+        content = getattr(event, "content", None)
+        if content is None or getattr(content, "parts", None) is None:
+            continue
+        for part in content.parts:
+            fc = getattr(part, "function_call", None)
+            if fc is not None:
+                cid = getattr(fc, "id", "") or ""
+                fname = getattr(fc, "name", "") or ""
+                if isinstance(cid, str) and cid != "":
+                    call_ids.add(cid)
+                await log(f"调用工具 {fname}", tool=fname)
+                continue
+            fr = getattr(part, "function_response", None)
+            if fr is not None:
+                fname = getattr(fr, "name", "") or ""
+                await log(f"工具返回 {fname}", tool=fname)
+                continue
+            if part.text:
+                answer_parts.append(part.text)
+
+    answer = "".join(answer_parts)
+    conclusion, findings = parse_findings(answer, call_ids)
+    return {
+        "stopped": stopped,
+        "conclusion": conclusion,
+        "findings": findings,
+        "usage": dict(usage_partial),
+        "call_ids": call_ids,
+    }

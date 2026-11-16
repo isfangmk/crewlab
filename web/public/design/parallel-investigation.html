@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>并行子代理排查 · 交互方案</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ——— 设计 token：对齐 ZCode app v4 实色体系 ———
+         sidebar/panel/card 三级灰面 + 半透明气泡 + 品牌蓝只做状态 */
+      :root {
+        --font: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+        --radius-xl: 12px;
+        --radius-lg: 10px;
+        --radius-md: 8px;
+        --radius-sm: 6px;
+        --side-w: 224px;
+        --invest-w: 356px;
+      }
+
+      :root[data-theme="dark"] {
+        --bg: #161616;
+        --panel: #202020;
+        --card: #2b2b2b;
+        --surface: rgba(255, 255, 255, 0.05);
+        --bubble: rgba(255, 255, 255, 0.08);
+        --hover: rgba(255, 255, 255, 0.1);
+        --border: rgba(255, 255, 255, 0.1);
+        --border-soft: rgba(255, 255, 255, 0.06);
+        --text: #e5e5e5;
+        --text-soft: #cfcfcf;
+        --muted: rgba(229, 229, 229, 0.58);
+        --faint: rgba(229, 229, 229, 0.38);
+        --accent: #3b8ff0;
+        --accent-soft: rgba(59, 143, 240, 0.14);
+        --accent-line: rgba(59, 143, 240, 0.32);
+        --ok: #46bf72;
+        --ok-soft: rgba(70, 191, 114, 0.13);
+        --warn: #ff8a30;
+        --warn-soft: rgba(255, 138, 48, 0.13);
+        --danger: #ea4045;
+        --danger-soft: rgba(234, 64, 69, 0.12);
+        --info: #54b9a6;
+        --shadow: 0 24px 70px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+      }
+
+      :root[data-theme="light"] {
+        --bg: #f8f8f8;
+        --panel: #ffffff;
+        --card: #ffffff;
+        --surface: rgba(13, 13, 13, 0.03);
+        --bubble: rgba(13, 13, 13, 0.05);
+        --hover: rgba(13, 13, 13, 0.05);
+        --border: rgba(13, 13, 13, 0.1);
+        --border-soft: rgba(13, 13, 13, 0.06);
+        --text: #171717;
+        --text-soft: #3f3f46;
+        --muted: rgba(23, 23, 23, 0.6);
+        --faint: rgba(23, 23, 23, 0.42);
+        --accent: #2f76ee;
+        --accent-soft: rgba(47, 118, 238, 0.09);
+        --accent-line: rgba(47, 118, 238, 0.26);
+        --ok: #1e8a3e;
+        --ok-soft: rgba(30, 138, 62, 0.1);
+        --warn: #e07b00;
+        --warn-soft: rgba(224, 123, 0, 0.1);
+        --danger: #d9363b;
+        --danger-soft: rgba(217, 54, 59, 0.09);
+        --info: #2e9c8c;
+        --shadow: 0 22px 60px rgba(23, 23, 23, 0.12), 0 2px 8px rgba(23, 23, 23, 0.05);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: var(--font);
+        background: var(--bg);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+      button { font-family: inherit; cursor: pointer; }
+      [hidden] { display: none !important; }
+
+      /* ——— 预览栏 ——— */
+      .preview-bar {
+        position: sticky; top: 0; z-index: 30;
+        display: flex; align-items: center; gap: 14px;
+        padding: 10px 22px;
+        border-bottom: 1px solid var(--border-soft);
+        background: var(--bg);
+      }
+      .preview-bar h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+      .preview-bar .tag {
+        font-size: 10.5px; color: var(--muted);
+        border: 1px solid var(--border-soft); border-radius: 999px; padding: 2.5px 9px;
+        background: var(--surface);
+      }
+      .preview-bar .spacer { flex: 1; }
+      .theme-toggle {
+        display: inline-flex; align-items: center; gap: 6px;
+        height: 28px; padding: 0 11px; border-radius: var(--radius-md);
+        border: 1px solid var(--border-soft); background: var(--surface); color: var(--muted);
+        font-size: 11px;
+      }
+      .theme-toggle:hover { background: var(--hover); }
+
+      /* ——— 应用壳（假窗） ——— */
+      .shell-wrap { padding: 26px 22px 8px; }
+      .shell {
+        display: grid;
+        grid-template-columns: var(--side-w) minmax(0, 1fr) var(--invest-w);
+        height: 742px;
+        overflow: hidden;
+        border: 1px solid var(--border-soft);
+        border-radius: 16px;
+        background: var(--bg);
+        box-shadow: var(--shadow);
+      }
+
+      /* ——— 左：应用侧栏（ZCode sidebar：与主区同底，只靠描边分隔） ——— */
+      .app-side {
+        border-right: 1px solid var(--border-soft);
+        background: var(--bg);
+        padding: 14px 10px;
+        display: flex; flex-direction: column; gap: 2px;
+      }
+      .brand {
+        display: flex; align-items: center; gap: 9px;
+        padding: 6px 10px 14px;
+        font-size: 13px; font-weight: 600; letter-spacing: -0.01em;
+      }
+      .brand .logo {
+        width: 22px; height: 22px; border-radius: 7px;
+        background: var(--accent);
+      }
+      .nav-group { margin-top: 12px; }
+      .nav-label {
+        font-size: 10px; color: var(--faint); letter-spacing: 0.04em;
+        padding: 0 10px 5px;
+      }
+      .nav-item {
+        display: flex; align-items: center; gap: 9px;
+        height: 30px; padding: 0 10px; border-radius: var(--radius-md);
+        font-size: 12px; color: var(--muted);
+      }
+      .nav-item .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--border); }
+      .nav-item.active {
+        color: var(--text); background: var(--hover);
+      }
+      .nav-item.active .dot { background: var(--accent); }
+      .nav-item:hover:not(.active) { background: var(--surface); color: var(--text-soft); }
+      .nav-badge {
+        margin-left: auto; font-size: 9.5px; color: var(--muted);
+        background: var(--surface); border-radius: 999px; padding: 1.5px 7px;
+      }
+
+      /* ——— 中：对话区（ZCode 会话列：居中、用户气泡 squircle） ——— */
+      .chat {
+        display: flex; flex-direction: column; min-width: 0;
+        background: var(--bg);
+      }
+      .chat-head {
+        display: flex; align-items: center; gap: 10px;
+        padding: 13px 20px; border-bottom: 1px solid var(--border-soft);
+      }
+      .chat-head .title { font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em; }
+      .chat-head .sub { font-size: 10.5px; color: var(--faint); margin-top: 2px; }
+      .chat-head .actions { margin-left: auto; display: flex; gap: 6px; }
+      .mini-btn {
+        height: 27px; padding: 0 11px; border-radius: var(--radius-md); font-size: 11px;
+        color: var(--muted); border: 1px solid var(--border-soft); background: transparent;
+      }
+      .mini-btn:hover { background: var(--hover); color: var(--text-soft); }
+
+      .chat-scroll { flex: 1; overflow: auto; padding: 22px 22px 8px; }
+      .chat-col { max-width: 720px; margin: 0 auto; }
+      .msg { display: flex; margin-bottom: 18px; }
+      .msg.user { justify-content: flex-end; }
+      /* ZCode 用户气泡：半透明灰 squircle，右上角收小（tail） */
+      .bubble-user {
+        max-width: 76%; padding: 10px 15px;
+        border-radius: 20px; border-top-right-radius: 10px;
+        background: var(--bubble);
+        font-size: 13px; line-height: 1.7; color: var(--text);
+      }
+      .assistant-col { min-width: 0; display: flex; flex-direction: column; gap: 11px; }
+      .assistant-text { font-size: 13px; line-height: 1.8; color: var(--text-soft); }
+      .assistant-text .cite {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 15px; height: 15px; padding: 0 3px; margin: 0 1px;
+        border-radius: 5px; font-size: 9px; font-weight: 600; vertical-align: 2px;
+        color: var(--accent); background: var(--accent-soft);
+      }
+
+      /* 派发块（工具卡形态，对齐 ZCode 对话内工具卡） */
+      .dispatch {
+        border: 1px solid var(--border-soft); border-radius: var(--radius-xl);
+        background: var(--card); overflow: hidden;
+      }
+      .dispatch-head {
+        display: flex; align-items: center; gap: 9px;
+        padding: 9px 12px; user-select: none; cursor: pointer;
+      }
+      .dispatch-head:hover { background: var(--surface); }
+      .dispatch-head .chev {
+        color: var(--faint); font-size: 9px; transition: transform 0.18s;
+        width: 16px; text-align: center; flex: none;
+      }
+      .dispatch.open .chev { transform: rotate(90deg); }
+      .tool-tile {
+        width: 26px; height: 26px; border-radius: var(--radius-md); flex: none;
+        display: grid; place-items: center;
+        background: var(--surface); border: 1px solid var(--border-soft);
+        color: var(--muted);
+      }
+      .tool-tile svg { width: 13px; height: 13px; }
+      .dispatch-title { font-size: 12px; font-weight: 600; color: var(--text-soft); }
+      .dispatch-meta {
+        margin-left: auto; display: flex; align-items: center; gap: 7px;
+        font-size: 10px; color: var(--faint); font-variant-numeric: tabular-nums;
+      }
+      .dispatch-body {
+        border-top: 1px solid var(--border-soft);
+        background: var(--bg);
+        display: none;
+        padding: 5px 6px 7px;
+      }
+      .dispatch.open .dispatch-body { display: block; }
+
+      /* worker 摘要行（ZCode 运行侧栏行布局） */
+      .mini-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 6px 8px; border-radius: var(--radius-md); font-size: 11px;
+      }
+      .mini-row:hover { background: var(--surface); }
+      .mini-row .name { width: 54px; color: var(--text-soft); font-weight: 500; flex: none; }
+      .mini-row .result {
+        flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        color: var(--muted);
+      }
+      .mini-row .dur { color: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; flex: none; }
+      .mini-row.failed .result { color: var(--danger); }
+
+      .suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
+      .sug {
+        padding: 6px 11px; border-radius: var(--radius-lg); font-size: 11.5px;
+        color: var(--text-soft); border: 1px solid var(--border-soft); background: var(--surface);
+      }
+      .sug:hover { background: var(--hover); }
+
+      .chat-input {
+        margin: 8px auto 16px; padding: 11px 13px;
+        max-width: 720px;
+        border: 1px solid var(--border); border-radius: 16px;
+        background: var(--card);
+        display: flex; align-items: center; gap: 10px;
+      }
+      .chat-input .ph { flex: 1; font-size: 12px; color: var(--faint); }
+      .send {
+        width: 28px; height: 28px; border-radius: 999px; border: 0;
+        background: var(--accent); color: #fff; font-size: 11px;
+      }
+
+      /* ——— 右：排查侧栏（ZCode side pane：#202020 抬起面板） ——— */
+      .invest {
+        border-left: 1px solid var(--border-soft);
+        background: var(--panel);
+        display: flex; flex-direction: column; min-width: 0;
+      }
+      .invest-head {
+        padding: 13px 15px 11px; border-bottom: 1px solid var(--border-soft);
+      }
+      .invest-kicker {
+        display: flex; align-items: center; gap: 7px;
+        font-size: 10px; color: var(--accent); letter-spacing: 0.04em;
+      }
+      .invest-kicker .live {
+        width: 6px; height: 6px; border-radius: 999px; background: var(--accent);
+        animation: breathe 1.6s ease-in-out infinite;
+      }
+      .invest-title {
+        margin: 7px 0 2px; font-size: 13px; font-weight: 600; letter-spacing: -0.01em;
+        line-height: 1.5;
+      }
+      .invest-sub { font-size: 10px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+      .invest-stats {
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+        padding: 10px 15px 4px;
+      }
+      .stat {
+        border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+        background: var(--surface); padding: 7px 9px;
+      }
+      .stat .k { font-size: 9.5px; color: var(--faint); }
+      .stat .v { margin-top: 2px; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+      .stat .v small { font-size: 9.5px; color: var(--faint); font-weight: 500; margin-left: 2px; }
+
+      .budget { padding: 8px 15px 11px; border-bottom: 1px solid var(--border-soft); }
+      .budget .row {
+        display: flex; justify-content: space-between;
+        font-size: 9.5px; color: var(--faint); margin-bottom: 5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .bar { height: 4px; border-radius: 999px; background: var(--surface); overflow: hidden; }
+      .bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+
+      .workers { flex: 1; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+
+      /* worker 卡（ZCode 卡片：#2b2b2b + 1px 描边 + 12px 圆角） */
+      .worker {
+        border: 1px solid var(--border-soft); border-radius: var(--radius-xl);
+        background: var(--card); overflow: hidden;
+      }
+      .worker.running { border-color: var(--accent-line); }
+      .worker.failed { border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+
+      .worker-head {
+        display: flex; align-items: center; gap: 9px;
+        padding: 9px 11px; cursor: pointer; user-select: none;
+      }
+      .worker-head:hover { background: var(--surface); }
+      .w-tile {
+        width: 28px; height: 28px; border-radius: var(--radius-md); flex: none;
+        display: grid; place-items: center;
+        background: var(--surface); border: 1px solid var(--border-soft);
+        color: var(--muted);
+      }
+      .w-tile svg { width: 14px; height: 14px; }
+      .worker.running .w-tile { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+      .worker.done .w-tile { color: var(--ok); }
+      .worker.failed .w-tile { color: var(--danger); }
+      .w-id { flex: 1; min-width: 0; }
+      .w-name { font-size: 12px; font-weight: 600; letter-spacing: -0.005em; }
+      .w-role {
+        font-size: 9.5px; color: var(--faint); margin-top: 1.5px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .w-state { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; }
+
+      .pill {
+        display: inline-flex; align-items: center; gap: 5px;
+        height: 18px; padding: 0 8px; border-radius: 999px;
+        font-size: 9.5px; font-weight: 550;
+        background: var(--surface); color: var(--muted);
+      }
+      .pill .d { width: 5px; height: 5px; border-radius: 999px; }
+      .pill.ok { color: var(--ok); background: var(--ok-soft); }
+      .pill.ok .d { background: var(--ok); }
+      .pill.run { color: var(--accent); background: var(--accent-soft); }
+      .pill.run .d { background: var(--accent); animation: breathe 1.2s ease-in-out infinite; }
+      .pill.err { color: var(--danger); background: var(--danger-soft); }
+      .pill.err .d { background: var(--danger); }
+      .pill.queue .d { background: var(--faint); }
+      .w-time { font-size: 9.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+      .worker-body {
+        border-top: 1px solid var(--border-soft);
+        padding: 9px 11px 10px; display: none;
+        flex-direction: column; gap: 7px;
+      }
+      .worker.open .worker-body { display: flex; }
+      .finding {
+        display: flex; gap: 7px; font-size: 10.5px; line-height: 1.6; color: var(--muted);
+      }
+      .finding .idx {
+        flex: none; width: 15px; height: 15px; margin-top: 1px; border-radius: 5px;
+        display: grid; place-items: center; font-size: 8.5px; font-weight: 600;
+        color: var(--accent); background: var(--accent-soft);
+      }
+      .finding b { color: var(--text-soft); font-weight: 600; }
+      .w-concl {
+        border: 1px solid var(--border-soft); border-radius: var(--radius-md);
+        background: var(--surface); padding: 7px 9px;
+        font-size: 10.5px; line-height: 1.65; color: var(--text-soft);
+      }
+
+      .log { display: flex; flex-direction: column; gap: 4px; }
+      .log-line {
+        display: flex; gap: 7px; align-items: baseline;
+        font-size: 10px; color: var(--muted); line-height: 1.55;
+      }
+      .log-line .t { flex: none; color: var(--faint); font-variant-numeric: tabular-nums; }
+      .log-line .st { flex: none; width: 10px; color: var(--faint); }
+      .log-line.active { color: var(--text-soft); }
+      .log-line.active .st { color: var(--accent); }
+      .log-line.fresh { animation: slide-in 0.5s ease both; }
+      .log-line .tool {
+        padding: 0 5px; border-radius: 5px; font-size: 9px;
+        color: var(--info); background: color-mix(in srgb, var(--info) 11%, transparent);
+      }
+
+      .err-box {
+        display: flex; gap: 7px; align-items: flex-start;
+        border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+        background: var(--danger-soft);
+        border-radius: var(--radius-md); padding: 7px 9px;
+        font-size: 10px; line-height: 1.6; color: var(--danger);
+      }
+      .w-actions { display: flex; gap: 6px; }
+      .w-btn {
+        height: 24px; padding: 0 9px; border-radius: var(--radius-md); font-size: 10px;
+        color: var(--text-soft); border: 1px solid var(--border-soft); background: transparent;
+      }
+      .w-btn:hover { background: var(--hover); }
+      .w-btn.ghost-danger { color: var(--danger); background: transparent; }
+      .w-btn.primary {
+        color: #fff; border-color: transparent; background: var(--accent);
+      }
+
+      .invest-foot {
+        border-top: 1px solid var(--border-soft);
+        padding: 10px 13px; display: flex; gap: 7px;
+        background: var(--panel);
+      }
+      .invest-foot .grow { flex: 1; height: 28px; border-radius: var(--radius-md); border: 0; font-size: 11px; font-weight: 550; }
+      .foot-primary { color: #fff; background: var(--accent); }
+      .foot-ghost { color: var(--muted); background: transparent; border: 1px solid var(--border-soft); }
+
+      /* ——— 方案要点 ——— */
+      .notes {
+        max-width: 1180px; margin: 6px auto 40px; padding: 0 22px;
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+      }
+      .note {
+        border: 1px solid var(--border-soft); border-radius: var(--radius-xl);
+        background: var(--panel); padding: 16px 17px;
+      }
+      .note h3 {
+        margin: 0 0 9px; font-size: 12px; font-weight: 600; letter-spacing: -0.005em;
+        display: flex; align-items: center; gap: 7px;
+      }
+      .note h3 .n {
+        width: 18px; height: 18px; border-radius: 6px; display: grid; place-items: center;
+        font-size: 9.5px; color: var(--accent); background: var(--accent-soft);
+      }
+      .note ul { margin: 0; padding-left: 16px; }
+      .note li {
+        font-size: 11px; line-height: 1.85; color: var(--muted);
+      }
+      .note li b { color: var(--text-soft); font-weight: 600; }
+
+      /* ——— 动效 ——— */
+      @keyframes breathe {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.45; transform: scale(0.82); }
+      }
+      @keyframes slide-in {
+        from { opacity: 0; transform: translateY(5px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * { animation: none !important; transition: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 预览栏 -->
+    <div class="preview-bar" data-zcode-design="preview-bar">
+      <h1>并行子代理排查 · 交互方案</h1>
+      <span class="tag">对齐 ZCode app 界面风格</span>
+      <span class="tag">右栏 = 排查工作台</span>
+      <span class="tag">主对话只出一个折叠块</span>
+      <div class="spacer"></div>
+      <button class="theme-toggle" id="themeToggle" type="button">◐ 切换主题</button>
+    </div>
+
+    <!-- 图标定义（lucide 风格线性图标） -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path>
+        </symbol>
+        <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3v18h18"></path><path d="M7 15l4-6 4 3 5-8"></path>
+        </symbol>
+        <symbol id="i-scroll" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 3h11a2 2 0 0 1 2 2v14a2 2 0 0 0 2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2z"></path><path d="M8 8h8M8 12h8M8 16h5"></path>
+        </symbol>
+        <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line>
+        </symbol>
+        <symbol id="i-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 7v5l3 2"></path>
+        </symbol>
+      </defs>
+    </svg>
+
+    <!-- 应用壳 -->
+    <div class="shell-wrap">
+      <div class="shell" data-zcode-design="app-shell">
+        <!-- 左：应用侧栏 -->
+        <aside class="app-side" data-zcode-design="app-sidebar">
+          <div class="brand"><div class="logo"></div>Ongrid</div>
+          <div class="nav-group">
+            <div class="nav-label">对话</div>
+            <div class="nav-item active"><span class="dot"></span>会话<span class="nav-badge">排查中</span></div>
+            <div class="nav-item"><span class="dot"></span>导出与分享</div>
+          </div>
+          <div class="nav-group">
+            <div class="nav-label">助理 · 能力</div>
+            <div class="nav-item"><span class="dot"></span>助理</div>
+            <div class="nav-item"><span class="dot"></span>工具</div>
+            <div class="nav-item"><span class="dot"></span>技能</div>
+            <div class="nav-item"><span class="dot"></span>MCP</div>
+          </div>
+          <div class="nav-group">
+            <div class="nav-label">知识库</div>
+            <div class="nav-item"><span class="dot"></span>知识库</div>
+            <div class="nav-item"><span class="dot"></span>检索试跑</div>
+          </div>
+          <div class="nav-group">
+            <div class="nav-label">治理</div>
+            <div class="nav-item"><span class="dot"></span>审批</div>
+            <div class="nav-item"><span class="dot"></span>可观测</div>
+            <div class="nav-item"><span class="dot"></span>用量与成本</div>
+          </div>
+        </aside>
+
+        <!-- 中：对话区 -->
+        <section class="chat" data-zcode-design="chat-area">
+          <div class="chat-head">
+            <div>
+              <div class="title">过去 24 小时告警异常排查</div>
+              <div class="sub">默认助理 · deepseek-flash · 运行中</div>
+            </div>
+            <div class="actions">
+              <button class="mini-btn" type="button">导出</button>
+              <button class="mini-btn" type="button">产出物</button>
+              <button class="mini-btn" type="button">分享</button>
+            </div>
+          </div>
+
+          <div class="chat-scroll">
+            <div class="chat-col">
+              <!-- 用户消息 -->
+              <div class="msg user">
+                <div class="bubble-user">过去 24 小时这批告警怎么回事？指标、日志、变更帮我并行查一下。</div>
+              </div>
+
+              <!-- 助理：派发块 + 汇总回答 -->
+              <div class="msg">
+                <div class="assistant-col">
+                  <!-- 并行排查派发块：主对话唯一入口，折叠收纳过程 -->
+                  <div class="dispatch open" id="dispatch" data-zcode-design="dispatch-block">
+                    <div class="dispatch-head" onclick="document.getElementById('dispatch').classList.toggle('open')">
+                      <span class="chev">▶</span>
+                      <span class="tool-tile"><svg><use href="#i-branch"></use></svg></span>
+                      <span class="dispatch-title">并行排查 · 4 路</span>
+                      <span class="pill run"><span class="d"></span>进行中</span>
+                      <div class="dispatch-meta">
+                        <span>2 完成</span><span>·</span><span>1 运行中</span><span>·</span><span>1 失败</span><span>·</span><span>9.6k / 30k tokens</span>
+                      </div>
+                    </div>
+                    <div class="dispatch-body">
+                      <div class="mini-row">
+                        <span class="pill ok"><span class="d"></span>完成</span>
+                        <span class="name">指标员</span>
+                        <span class="result">10:53–10:56 集中爆发，Redis 内存持续爬升</span>
+                        <span class="dur">8.2s</span>
+                      </div>
+                      <div class="mini-row">
+                        <span class="pill ok"><span class="d"></span>完成</span>
+                        <span class="name">日志员</span>
+                        <span class="result">payment-svc 5xx 峰值与 v3.2.1 发布窗口重合</span>
+                        <span class="dur">11.4s</span>
+                      </div>
+                      <div class="mini-row">
+                        <span class="pill run"><span class="d"></span>运行中</span>
+                        <span class="name">变更员</span>
+                        <span class="result">正在比对发布记录与告警时间窗…</span>
+                        <span class="dur">42s</span>
+                      </div>
+                      <div class="mini-row failed">
+                        <span class="pill err"><span class="d"></span>失败</span>
+                        <span class="name">历史员</span>
+                        <span class="result">连接观测存储超时（30s）——可重试</span>
+                        <span class="dur">30.0s</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 汇总回答（带 worker 发现的引用角标） -->
+                  <div class="assistant-text">
+                    先说结论：这波告警的源头是 <b>payment-svc v3.2.1 发布</b>（10:47 发布、10:53 起量），级联出订单超时与订单库压力，回滚后 11:06 起恢复<span class="cite">2</span>。
+                    Redis 内存与交换机 CRC 是两条独立的慢性问题，与本次级联无关<span class="cite">1</span>，但都在持续恶化、且仍未认领。
+                    变更员还在核对发布清单的灰度记录，历史处置记录这路查询超时了，可以重试后再补一轮归因。
+                  </div>
+
+                  <!-- 建议问题 -->
+                  <div class="suggestions">
+                    <button class="sug" type="button">重试历史员，查同类告警的处置记录</button>
+                    <button class="sug" type="button">按时间轴梳理 v3.2.1 的级联链路</button>
+                    <button class="sug" type="button">给两条 firing 告警起草处置单</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="chat-input">
+            <div class="ph">继续问，或让某个 worker 深挖某条线索…</div>
+            <button class="send" type="button">➤</button>
+          </div>
+        </section>
+
+        <!-- 右：排查侧栏 -->
+        <aside class="invest" data-zcode-design="investigation-panel">
+          <div class="invest-head">
+            <div class="invest-kicker"><span class="live"></span>INVESTIGATION #12 · 进行中</div>
+            <div class="invest-title">近 24 小时告警异常 · 四路并行归因</div>
+            <div class="invest-sub">12:40:18 开始 · 已跑 01:34 · 由「告警排查」子代理树执行</div>
+          </div>
+
+          <div class="invest-stats">
+            <div class="stat"><div class="k">完成</div><div class="v">2<small>/ 4 路</small></div></div>
+            <div class="stat"><div class="k">发现</div><div class="v">7<small>条</small></div></div>
+            <div class="stat"><div class="k">工具调用</div><div class="v">14<small>次</small></div></div>
+          </div>
+
+          <div class="budget">
+            <div class="row"><span>预算用量</span><span>9.6k / 30k tokens · 每路 ≤ 8k</span></div>
+            <div class="bar"><i style="width: 32%"></i></div>
+          </div>
+
+          <div class="workers">
+            <!-- 完成：指标员 -->
+            <div class="worker done open" data-zcode-design="worker-card">
+              <div class="worker-head" onclick="this.parentElement.classList.toggle('open')">
+                <div class="w-tile"><svg><use href="#i-chart"></use></svg></div>
+                <div class="w-id">
+                  <div class="w-name">指标员</div>
+                  <div class="w-role">关联指标趋势与异常窗口</div>
+                </div>
+                <div class="w-state">
+                  <span class="pill ok"><span class="d"></span>完成</span>
+                  <span class="w-time">8.2s · 2.1k tok</span>
+                </div>
+              </div>
+              <div class="worker-body">
+                <div class="w-concl">10:53–10:56 四条告警集中爆发；Redis 内存 7 小时爬升至 85.1% 未回落，CRC 速率仍在加快。</div>
+                <div class="finding"><span class="idx">1</span><span><b>RedisMemoryHigh</b>：内存 78% → 85.1%，无回落拐点</span></div>
+                <div class="finding"><span class="idx">2</span><span><b>PaymentErrorRateHigh</b>：5xx 12.4% 峰值，回滚后 3 分钟收敛</span></div>
+                <div class="finding"><span class="idx">3</span><span><b>SwitchPortCRCErrors</b>：速率 12/min → 21/min，单调上升</span></div>
+              </div>
+            </div>
+
+            <!-- 完成：日志员 -->
+            <div class="worker done" data-zcode-design="worker-card">
+              <div class="worker-head" onclick="this.parentElement.classList.toggle('open')">
+                <div class="w-tile"><svg><use href="#i-scroll"></use></svg></div>
+                <div class="w-id">
+                  <div class="w-name">日志员</div>
+                  <div class="w-role">错误日志与关键调用链</div>
+                </div>
+                <div class="w-state">
+                  <span class="pill ok"><span class="d"></span>完成</span>
+                  <span class="w-time">11.4s · 3.0k tok</span>
+                </div>
+              </div>
+              <div class="worker-body">
+                <div class="w-concl">payment-svc 5xx 从 10:52 起量，错误栈集中在支付网关超时；与 v3.2.1 发布窗口（10:47）重合。</div>
+                <div class="finding"><span class="idx">4</span><span>10:52–11:05 <b>payment-svc</b> 上游网关超时 612 条</span></div>
+                <div class="finding"><span class="idx">5</span><span>order-svc 慢请求 P99 2.9s，同窗口放大</span></div>
+              </div>
+            </div>
+
+            <!-- 运行中：变更员 -->
+            <div class="worker running open" data-zcode-design="worker-card">
+              <div class="worker-head" onclick="this.parentElement.classList.toggle('open')">
+                <div class="w-tile"><svg><use href="#i-sliders"></use></svg></div>
+                <div class="w-id">
+                  <div class="w-name">变更员</div>
+                  <div class="w-role">发布/配置变更与告警对齐</div>
+                </div>
+                <div class="w-state">
+                  <span class="pill run"><span class="d"></span>运行中</span>
+                  <span class="w-time">42s · 3.4k tok</span>
+                </div>
+              </div>
+              <div class="worker-body">
+                <div class="log">
+                  <div class="log-line"><span class="t">12:40:20</span><span class="st">✓</span><span>拉取近 24h 发布记录</span><span class="tool">list_changes</span></div>
+                  <div class="log-line"><span class="t">12:40:29</span><span class="st">✓</span><span>锁定 v3.2.1（10:47，payment-svc）</span></div>
+                  <div class="log-line"><span class="t">12:40:36</span><span class="st">✓</span><span>比对告警时间窗，重合度 4/4</span></div>
+                  <div class="log-line active fresh"><span class="t">12:41:00</span><span class="st">●</span><span>正在核对灰度与回滚记录…</span><span class="tool">get_change</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 失败：历史员 -->
+            <div class="worker failed open" data-zcode-design="worker-card">
+              <div class="worker-head" onclick="this.parentElement.classList.toggle('open')">
+                <div class="w-tile"><svg><use href="#i-history"></use></svg></div>
+                <div class="w-id">
+                  <div class="w-name">历史员</div>
+                  <div class="w-role">同类告警的过往处置记录</div>
+                </div>
+                <div class="w-state">
+                  <span class="pill err"><span class="d"></span>失败</span>
+                  <span class="w-time">30.0s · 1.1k tok</span>
+                </div>
+              </div>
+              <div class="worker-body">
+                <div class="err-box">
+                  <span>⚠</span>
+                  <span>连接观测存储超时（30s）：historical_search 未返回。<br />原始错误：connect timeout · worker 预算已扣 1.1k tokens</span>
+                </div>
+                <div class="w-actions">
+                  <button class="w-btn primary" type="button">重试此路</button>
+                  <button class="w-btn ghost-danger" type="button">查看原始错误</button>
+                  <button class="w-btn" type="button">跳过</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="invest-foot">
+            <button class="grow foot-ghost" type="button">全部停止</button>
+            <button class="grow foot-primary" type="button">汇总结论回对话</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <!-- 方案要点 -->
+    <div class="notes" data-zcode-design="design-notes">
+      <div class="note">
+        <h3><span class="n">1</span>交互：侧栏是工作台，对话只留结论</h3>
+        <ul>
+          <li><b>右栏常驻排查工作台</b>：worker 状态/日志/发现/预算都在侧栏，主对话不刷过程行</li>
+          <li>主对话只出<b>一个折叠块</b>「并行排查 · N 路」，摘要带计数与失败数，可展开看每路一句话结论</li>
+          <li>运行中的路默认展开、活动行逐条渐入；失败的路露出错误预览 + 重试/跳过</li>
+          <li>汇总回答带 <b>[1] [2]</b> 引用角标，点开即定位到侧栏对应发现（证据可溯）</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3><span class="n">2</span>安全与预算：worker 全部只读</h3>
+        <ul>
+          <li>worker 默认<b>只读工具</b>，禁写操作与审批放行；危险动作只能出现在主代理层</li>
+          <li>每路独立预算（token/时长/步数）+ 全局上限，超时即失败可重试，预算用量实时可见</li>
+          <li>发现必须带证据（工具调用 id / 原始字段引用），支持后续数字交叉校验</li>
+          <li>worker 结论只回结构化 findings，不回原始数据，省 token 也防上下文串扰</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3><span class="n">3</span>技术口径：保持 ADK，不自研编排</h3>
+        <ul>
+          <li>主代理持 <b>dispatch_investigation</b> 工具：内部并行起子代理实例（复用现有子助理装配）</li>
+          <li>已知排查套路走工作流 DAG 更省；开放式问题才自由扇出，两者可互相调用</li>
+          <li>数据面：一次排查 = 一张 dispatch 记录 + N 条 worker 运行行，挂观测 trace，复用现有可观测链路</li>
+          <li>对话时间线（C5 回退项）日后若重启，可挂在这套 worker 数据上做可选侧栏视图</li>
+        </ul>
+      </div>
+    </div>
+
+    <script>
+      // 主题切换（dark / light 双主题预览）
+      document.getElementById('themeToggle').addEventListener('click', () => {
+        const el = document.documentElement;
+        el.dataset.theme = el.dataset.theme === 'dark' ? 'light' : 'dark';
+      });
+
+      // 运行中活动行每隔几秒追加一条（模拟 worker 实时输出）
+      const logLines = [
+        { t: '12:41:08', text: '灰度记录：10:51 全量，未按 10% 灰度', tool: '' },
+        { t: '12:41:15', text: '回滚记录：11:03 执行、11:06 生效', tool: 'list_changes' },
+        { t: '12:41:22', text: '收尾：准备产出变更结论', tool: '' },
+      ];
+      const logEl = document.querySelector('.worker.running .log');
+      let li = 0;
+      setInterval(() => {
+        if (li >= logLines.length) return;
+        const cur = logEl.querySelector('.log-line.active');
+        if (cur) {
+          cur.classList.remove('active', 'fresh');
+          cur.querySelector('.st').textContent = '✓';
+        }
+        const item = logLines[li++];
+        const div = document.createElement('div');
+        div.className = 'log-line active fresh';
+        div.innerHTML = `<span class="t">${item.t}</span><span class="st">●</span><span>${item.text}</span>${item.tool ? `<span class="tool">${item.tool}</span>` : ''}`;
+        logEl.appendChild(div);
+      }, 2600);
+    </script>
+  </body>
+</html>

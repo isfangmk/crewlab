@@ -69,3 +69,21 @@ async def test_web_search_long_query_reports_actionable_error() -> None:
     assert "200" in message
     assert "128" in message
     assert "重试" in message
+
+
+@pytest.mark.asyncio
+async def test_session_web_search_requires_toggle() -> None:
+    """联网搜索只在对话开启 web_search 时挂载；未开启直接 None。"""
+
+    import uuid as _uuid
+
+    from app.db import SessionLocal
+    from app.models.chat import ChatSession
+
+    from app.adk_runtime.web_search_tool import build_session_web_search_tool
+
+    session = ChatSession(
+        id=f"websearch-{_uuid.uuid4().hex[:8]}", title="t", web_search_enabled=False
+    )
+    async with SessionLocal() as db:
+        assert await build_session_web_search_tool(db, session) is None

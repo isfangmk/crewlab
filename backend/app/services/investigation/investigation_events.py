@@ -36,10 +36,12 @@ TERMINAL_EVENTS = ("dispatch_finished",)
 
 
 class _RunChannel:
-    """一次排查的事件缓冲与订阅者。"""
+    """一次排查/计划执行的事件缓冲与订阅者。"""
 
-    def __init__(self, dispatch_uid: str) -> None:
+    def __init__(self, dispatch_uid: str, terminal_events: tuple[str, ...]) -> None:
         self.dispatch_uid = dispatch_uid
+        # 收尾事件集合按运行类型注入（排查 dispatch_finished / 计划 plan_finished）
+        self.terminal_events = terminal_events
         self.events: deque[dict[str, Any]] = deque(maxlen=_MAX_EVENTS_PER_RUN)
         self.subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
         self.finished_at: float | None = None
@@ -68,7 +70,7 @@ class _RunChannel:
                     logger.debug(
                         "事件订阅队列已满，丢弃一条 dispatch_uid=%s", self.dispatch_uid
                     )
-        if event.get("event") in TERMINAL_EVENTS:
+        if event.get("event") in self.terminal_events:
             # 终态事件已经推给订阅方，随后才发收尾信号：
             # 收尾信号排在事件之后，订阅方读到的顺序才是「先事件、后断开」。
             self.finished_at = self.last_active_at
@@ -91,17 +93,36 @@ class InvestigationEventBus:
     def __init__(self) -> None:
         self._channels: dict[str, _RunChannel] = {}
 
-    def channel(self, dispatch_uid: str) -> _RunChannel:
+    def channel(
+        self, dispatch_uid: str, terminal_events: tuple[str, ...] | None = None
+    ) -> _RunChannel:
         channel = self._channels.get(dispatch_uid)
         if channel is None:
-            channel = _RunChannel(dispatch_uid)
+            channel = _RunChannel(
+                dispatch_uid, terminal_events or TERMINAL_EVENTS
+            )
             self._channels[dispatch_uid] = channel
+        elif terminal_events is not None:
+            # 先订阅后发布的场景：发布方注入的收尾事件集合为准
+            channel.terminal_events = terminal_events
         return channel
 
-    def open(self, dispatch_uid: str) -> Callable[[dict[str, Any]], Awaitable[None]]:
-        """为一次排查返回事件发布函数，交给 worker 运行器与编排器。"""
+    def open(
+        self,
+        dispatch_uid: str,
+        *,
+        terminal_events: tuple[str, ...] | None = None,
+    ) -> Callable[[dict[str, Any]], Awaitable[None]]:
+        """为一次运行返回事件发布函数，交给执行器与编排器。
 
-        channel = self.channel(dispatch_uid)
+        terminal_events 注入该类运行的收尾事件名（缺省排查口径）。
+        """
+
+        channel = self.channel(dispatch_uid, terminal_events)
+        if channel.finished:
+            # 同一 uid 重开运行（重试/跳过后恢复执行）：复位生命周期但保留缓冲，
+            # 否则新订阅方会被 is_finished 立即判终态、收不到续跑事件
+            channel.finished_at = None
 
         async def publish(event: dict[str, Any]) -> None:
             channel.publish(event)

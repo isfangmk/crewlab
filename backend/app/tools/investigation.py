@@ -37,8 +37,8 @@ async def dispatch_investigation(
     """
 
     # 服务层在函数内导入：目录注册链（catalog → 本模块）不能反向引到 worker 装配
+    from app.adk_runtime.headless import WorkerBudget
     from app.services.investigation import dispatch_service
-    from app.services.investigation.worker_runner import WorkerBudget
 
     session = getattr(tool_context, "session", None) if tool_context is not None else None
     session_id = getattr(session, "id", "") or ""

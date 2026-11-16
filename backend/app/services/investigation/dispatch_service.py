@@ -19,14 +19,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.adk_runtime.headless import WorkerBudget
+from app.adk_runtime.web_search_tool import build_session_web_search_tool
 from app.db import SessionLocal
 from app.models.chat import ChatSession
 from app.models.investigation import InvestigationDispatch, InvestigationWorkerRun
 from app.services.investigation.investigation_events import investigation_events
 from app.services.investigation.worker_runner import (
-    WorkerBudget,
     WorkerResult,
     build_worker_agent,
     run_worker,
@@ -335,22 +335,6 @@ async def _worker_task(
         logger.exception("worker 结果落库失败 worker_uid=%s", worker_uid)
 
 
-async def _worker_web_search_tool(db: AsyncSession, session: ChatSession):
-    """联网搜索工具：只在对话开启 web_search 且凭证可用时返回，否则 None。"""
-
-    from app.adk_runtime.web_search_tool import build_web_search_tool
-    from app.services.platform.web_search_service import resolve_deepseek_search_cred
-
-    if not session.web_search_enabled:
-        return None
-    try:
-        base_url, api_key = await resolve_deepseek_search_cred(db)
-        return build_web_search_tool(base_url=base_url, api_key=api_key)
-    except Exception:  # noqa: BLE001 — 凭证不可用不阻断派发，worker 退回内网取证
-        logger.exception("worker 联网搜索凭证不可用，跳过挂载")
-        return None
-
-
 async def _assemble_worker(
     *, session_id: str, spec: dict[str, str], budget: WorkerBudget
 ):
@@ -382,7 +366,7 @@ async def _assemble_worker(
         )
         # 联网搜索只在对话开启 web_search 且凭证可用时挂载给 worker
         extra_tools = list(bundle.extra_tools)
-        web_tool = await _worker_web_search_tool(db, session)
+        web_tool = await build_session_web_search_tool(db, session)
         if web_tool is not None:
             extra_tools.append(web_tool)
         return build_worker_agent(
