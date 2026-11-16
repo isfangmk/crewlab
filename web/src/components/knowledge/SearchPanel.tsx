@@ -65,9 +65,7 @@ export function SemanticSearchPanel({
   hits,
   scopeLabel,
   onOpenHit,
-  noHitsHint,
   searching,
-  extraControls,
   footer,
 }: {
   query: string;
@@ -78,13 +76,9 @@ export function SemanticSearchPanel({
   hits: SearchHit[];
   scopeLabel: string;
   onOpenHit(hit: SearchHit): void;
-  // 无命中提示可按调用方语境覆盖（如直接提示调 RRF 阈值）
-  noHitsHint?: string;
   // 请求在途：计数区显示检索中，空态不误报「没有命中」
   searching?: boolean;
-  // 检索主行的追加控件（如试调开关），渲染在计数之前
-  extraControls?: ReactNode;
-  // 筛选卡第二行（如试调参数胶囊行）
+  // 筛选卡第二行（试调参数胶囊行）
   footer?: ReactNode;
 }) {
   const { tr } = useI18n();
@@ -112,7 +106,6 @@ export function SemanticSearchPanel({
           <Search size={13} />
           {tr('检索', 'Search')}
         </Button>
-        {extraControls}
         <span className="ml-auto shrink-0 pr-1 text-[11px] tabular-nums text-zinc-500">
           {searching === true
             ? tr('检索中…', 'Searching…')
@@ -141,13 +134,10 @@ export function SemanticSearchPanel({
         <EmptyStateCard
           icon={SearchX}
           title={tr(`没有命中「${searchedQuery}」的切块`, `No chunks matched "${searchedQuery}"`)}
-          hint={
-            noHitsHint ??
-            tr(
-              '换个更具体的说法，或在「设置 → 知识库」里调低最低 RRF 分。',
-              'Try a more specific phrase, or lower the minimum RRF score in Settings → Knowledge.',
-            )
-          }
+          hint={tr(
+            '换个更具体的说法，或调低「RRF 阈值」再试。',
+            'Try a more specific phrase, or lower the RRF threshold.',
+          )}
           action={
             <Button variant="outline" size="sm" onClick={onReset}>
               {tr('重新检索', 'Search again')}

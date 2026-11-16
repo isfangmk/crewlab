@@ -451,7 +451,6 @@ describe('KnowledgePage', () => {
   it('试调旋钮：RRF 阈值 / 范围模式 / 返回条数透传进检索请求', async () => {
     let searchURLSeen = '';
     server.use(
-      http.get('/api/v1/agents', () => HttpResponse.json({ items: [], total: 0 })),
       http.get(searchURL, ({ request }) => {
         searchURLSeen = request.url;
         return HttpResponse.json({ items: [], total: 0 });
@@ -460,7 +459,6 @@ describe('KnowledgePage', () => {
 
     render(<KnowledgePage />);
     await openSearchView();
-    await userEvent.click(screen.getByRole('button', { name: '试调' }));
 
     await userEvent.click(screen.getByRole('combobox', { name: '返回条数' }));
     await userEvent.click(await screen.findByRole('option', { name: '20' }));
@@ -502,7 +500,6 @@ describe('KnowledgePage', () => {
 
     render(<KnowledgePage />);
     await openSearchView();
-    await userEvent.click(screen.getByRole('button', { name: '试调' }));
     await userEvent.click(await screen.findByRole('combobox', { name: '范围模式' }));
     await userEvent.click(await screen.findByRole('option', { name: '按助理范围' }));
     await userEvent.click(await screen.findByRole('combobox', { name: '助理' }));
@@ -520,7 +517,6 @@ describe('KnowledgePage', () => {
   it('阈值非法显式报错，不发检索请求', async () => {
     let searchCalls = 0;
     server.use(
-      http.get('/api/v1/agents', () => HttpResponse.json({ items: [], total: 0 })),
       http.get(searchURL, () => {
         searchCalls += 1;
         return HttpResponse.json({ items: [], total: 0 });
@@ -529,7 +525,6 @@ describe('KnowledgePage', () => {
 
     render(<KnowledgePage />);
     await openSearchView();
-    await userEvent.click(screen.getByRole('button', { name: '试调' }));
     await userEvent.type(screen.getByRole('spinbutton', { name: 'RRF 阈值覆盖' }), '-1');
     await userEvent.type(screen.getByPlaceholderText(/语义检索：组织知识库/), '巡检{Enter}');
 

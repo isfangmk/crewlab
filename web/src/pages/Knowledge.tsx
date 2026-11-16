@@ -57,7 +57,7 @@ import { splitFrontmatter } from '@/lib/frontmatter';
 import type { IconType } from '@/lib/icon';
 import { Modal } from '@/components/Modal';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { flash, Button, ChoiceChip, Chip, COL, EmptyStateCard, ErrorBanner, FilterBar, FilterChip, FilterPill, Input, PageHeader, RowAction, RowActionIcon, SearchInput, Select, SortableHead, StatusPill, TableCard, TableHead, TablePager, Tabs, TabsList, TabsTrigger, Textarea, tableLayout } from '@/components/ui';
+import { flash, Button, Chip, COL, EmptyStateCard, ErrorBanner, FilterBar, FilterChip, FilterPill, Input, PageHeader, RowAction, RowActionIcon, SearchInput, Select, SortableHead, StatusPill, TableCard, TableHead, TablePager, Tabs, TabsList, TabsTrigger, Textarea, tableLayout } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { LocateBanner, SemanticSearchPanel } from '@/components/knowledge/SearchPanel';
 import { formatBytes, fullDateTime } from '@/lib/format';
@@ -243,8 +243,7 @@ export default function KnowledgePage() {
   const [searchedQuery, setSearchedQuery] = useState<string | null>(null);
   // 打开文档时定位到的命中块；关闭编辑器即清空
   const [locate, setLocate] = useState<{ chunkIndex: number; excerpt: string } | null>(null);
-  // 试调旋钮（默认折叠）：返回条数 / RRF 阈值覆盖（空串 = 全局阈值）/ 范围模式
-  const [tuningOpen, setTuningOpen] = useState(false);
+  // 试调条件行：返回条数 / RRF 阈值覆盖（空串 = 全局阈值）/ 范围模式
   const [limit, setLimit] = useState(10);
   const [minScoreText, setMinScoreText] = useState('');
   const [scopeMode, setScopeMode] = useState<ScopeMode>('dir');
@@ -324,10 +323,10 @@ export default function KnowledgePage() {
     void fetchTrees();
   }, [fetchTrees]);
 
-  // 助理下拉数据：按需拉取（展开试调时才请求），按助理范围检索取的是它真实的 knowledge_scope
+  // 助理下拉数据：切到「按助理范围」才拉取，检索取的是它真实的 knowledge_scope
   const [agentsLoaded, setAgentsLoaded] = useState(false);
   useEffect(() => {
-    if (!tuningOpen || agentsLoaded) return;
+    if (scopeMode !== 'agent' || agentsLoaded) return;
     let cancelled = false;
     void listAgents()
       .then((res) => {
@@ -342,7 +341,7 @@ export default function KnowledgePage() {
     return () => {
       cancelled = true;
     };
-  }, [tuningOpen, agentsLoaded]);
+  }, [scopeMode, agentsLoaded]);
 
 
 
@@ -638,100 +637,90 @@ export default function KnowledgePage() {
             hits={hits}
             scopeLabel={searchScopeLabel}
             searching={searching}
-            extraControls={
-              // 试调参数默认折叠：日常检索只看检索框，需要调口径时再展开
-              <ChoiceChip
-                active={tuningOpen}
-                label={tr('试调', 'Tuning')}
-                onClick={() => setTuningOpen((open) => !open)}
-              />
-            }
             footer={
-              tuningOpen ? (
-                <>
-                  <FilterPill
-                    label={tr('返回条数', 'Limit')}
-                    active={limit !== 10}
-                    onClear={() => setLimit(10)}
-                    width="w-[8rem]"
-                  >
-                    <Select
-                      aria-label={tr('返回条数', 'Limit')}
-                      value={String(limit)}
-                      onValueChange={(v) => setLimit(Number(v))}
-                      options={[
-                        { value: '5', label: '5' },
-                        { value: '10', label: '10' },
-                        { value: '20', label: '20' },
-                      ]}
-                      variant="ghost"
-                      className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
-                    />
-                  </FilterPill>
-                  <FilterPill
-                    label={tr('RRF 阈值', 'RRF min')}
-                    active={minScoreText.trim() !== ''}
-                    onClear={() => setMinScoreText('')}
-                    width="w-[7.5rem]"
-                  >
-                    <Input
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={minScoreText}
-                      onChange={(e) => setMinScoreText(e.target.value)}
-                      placeholder={tr('全局', 'global')}
-                      aria-label={tr('RRF 阈值覆盖', 'RRF threshold override')}
-                      className="h-7 w-full min-w-0 border-0 bg-transparent px-0 text-[12px]"
-                    />
-                  </FilterPill>
-                  <FilterPill
-                    label={tr('范围', 'Scope')}
-                    active={scopeMode !== 'dir'}
-                    onClear={() => {
-                      setScopeMode('dir');
+              <>
+                <FilterPill
+                  label={tr('返回条数', 'Limit')}
+                  active={limit !== 10}
+                  onClear={() => setLimit(10)}
+                  width="w-[8rem]"
+                >
+                  <Select
+                    aria-label={tr('返回条数', 'Limit')}
+                    value={String(limit)}
+                    onValueChange={(v) => setLimit(Number(v))}
+                    options={[
+                      { value: '5', label: '5' },
+                      { value: '10', label: '10' },
+                      { value: '20', label: '20' },
+                    ]}
+                    variant="ghost"
+                    className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+                  />
+                </FilterPill>
+                <FilterPill
+                  label={tr('RRF 阈值', 'RRF min')}
+                  active={minScoreText.trim() !== ''}
+                  onClear={() => setMinScoreText('')}
+                  width="w-[7.5rem]"
+                >
+                  <Input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={minScoreText}
+                    onChange={(e) => setMinScoreText(e.target.value)}
+                    placeholder={tr('全局', 'global')}
+                    aria-label={tr('RRF 阈值覆盖', 'RRF threshold override')}
+                    className="h-7 w-full min-w-0 border-0 bg-transparent px-0 text-[12px]"
+                  />
+                </FilterPill>
+                <FilterPill
+                  label={tr('范围', 'Scope')}
+                  active={scopeMode !== 'dir'}
+                  onClear={() => {
+                    setScopeMode('dir');
+                    setAgentName('');
+                  }}
+                  width="w-[9.5rem]"
+                >
+                  <Select
+                    aria-label={tr('范围模式', 'Scope mode')}
+                    value={scopeMode}
+                    onValueChange={(v) => {
+                      setScopeMode(v as ScopeMode);
                       setAgentName('');
                     }}
-                    width="w-[9.5rem]"
+                    options={[
+                      { value: 'dir', label: tr('当前目录', 'Current folder') },
+                      { value: 'all', label: tr('全库', 'Entire base') },
+                      { value: 'agent', label: tr('按助理范围', 'By assistant') },
+                    ]}
+                    variant="ghost"
+                    className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+                  />
+                </FilterPill>
+                {scopeMode === 'agent' && (
+                  <FilterPill
+                    label={tr('助理', 'Assistant')}
+                    active={agentName !== ''}
+                    onClear={() => setAgentName('')}
+                    width="w-[11rem]"
                   >
                     <Select
-                      aria-label={tr('范围模式', 'Scope mode')}
-                      value={scopeMode}
-                      onValueChange={(v) => {
-                        setScopeMode(v as ScopeMode);
-                        setAgentName('');
-                      }}
+                      aria-label={tr('助理', 'Assistant')}
+                      value={agentName}
+                      onValueChange={setAgentName}
                       options={[
-                        { value: 'dir', label: tr('当前目录', 'Current folder') },
-                        { value: 'all', label: tr('全库', 'Entire base') },
-                        { value: 'agent', label: tr('按助理范围', 'By assistant') },
+                        { value: '', label: tr('选择助理…', 'Pick an assistant…') },
+                        ...agents.map((a) => ({ value: a.name, label: `${a.display_name}（${a.name}）` })),
                       ]}
                       variant="ghost"
                       className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
                     />
                   </FilterPill>
-                  {scopeMode === 'agent' && (
-                    <FilterPill
-                      label={tr('助理', 'Assistant')}
-                      active={agentName !== ''}
-                      onClear={() => setAgentName('')}
-                      width="w-[11rem]"
-                    >
-                      <Select
-                        aria-label={tr('助理', 'Assistant')}
-                        value={agentName}
-                        onValueChange={setAgentName}
-                        options={[
-                          { value: '', label: tr('选择助理…', 'Pick an assistant…') },
-                          ...agents.map((a) => ({ value: a.name, label: `${a.display_name}（${a.name}）` })),
-                        ]}
-                        variant="ghost"
-                        className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
-                      />
-                    </FilterPill>
-                  )}
-                </>
-              ) : null
+                )}
+              </>
             }
             onOpenHit={(hit) => {
               setLocate({ chunkIndex: hit.chunk_index, excerpt: hit.excerpt });
