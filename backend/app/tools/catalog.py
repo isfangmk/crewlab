@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from app.tools.code_interpreter import run_python
+from app.tools.investigation import dispatch_investigation, get_investigation
 from app.tools.knowledge import query_knowledge
 from app.tools.memory import recall_memory, remember_memory
 from app.tools.user_input import ASK_USER_TOOL_NAME, ask_user
@@ -103,6 +104,20 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
         "risk": "safe",
         "mount": "always",
     },
+    {
+        "name": "dispatch_investigation",
+        "group": "investigation",
+        "description": "把多线索问题派给 N 路只读子代理并行排查，返回带证据的结构化发现；软截止先出初步汇总，未完的路后台继续",
+        "risk": "safe",
+        "mount": "always",
+    },
+    {
+        "name": "get_investigation",
+        "group": "investigation",
+        "description": "按排查标识取并行排查的最新快照：各路状态、发现与预算",
+        "risk": "safe",
+        "mount": "always",
+    },
 ]
 
 
@@ -129,6 +144,8 @@ _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
     "run_workflow": run_workflow,
     "list_workflow_runs": list_workflow_runs,
     "get_workflow_run": get_workflow_run,
+    "dispatch_investigation": dispatch_investigation,
+    "get_investigation": get_investigation,
 }
 
 

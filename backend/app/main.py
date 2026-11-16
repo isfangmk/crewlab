@@ -28,6 +28,7 @@ from app.api import (
     evals,
     health,
     integrations_llm,
+    investigations,
     knowledge,
     knowledge_sources,
     mcp,
@@ -238,6 +239,7 @@ def create_app() -> FastAPI:
     app.include_router(mentions.router, prefix="/api/v1")
     app.include_router(secrets.router, prefix="/api/v1")
     app.include_router(shares.router, prefix="/api/v1")
+    app.include_router(investigations.router, prefix="/api/v1")
     app.include_router(system_settings.router, prefix="/api/v1")
     app.include_router(integrations_llm.router, prefix="/api/v1")
     app.include_router(observability.router, prefix="/api/v1")

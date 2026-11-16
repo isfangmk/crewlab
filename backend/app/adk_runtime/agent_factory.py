@@ -75,6 +75,8 @@ def build_chat_agent(
     include_builtin_tools: bool = True,
     include_ask_user: bool = True,
     include_followups: bool = True,
+    # 自定义工具闸门（如 worker 只读拦截）；缺省走审批闸门
+    before_tool_callback: Any = None,
 ) -> LlmAgent:
     """按配置-模型与助理人设装配 LlmAgent；extra_tools 挂 MCP SearchableToolset 等。
 
@@ -161,8 +163,12 @@ def build_chat_agent(
         description=agent_description if agent_description != "" else "AI 工作台对话智能体",
         instruction=instruction,
         tools=tools,
-        before_tool_callback=build_before_tool_callback(
-            confirm_names, disallowed_tool_names, rule_actions
+        before_tool_callback=(
+            before_tool_callback
+            if before_tool_callback is not None
+            else build_before_tool_callback(
+                confirm_names, disallowed_tool_names, rule_actions
+            )
         ),
         sub_agents=[a for a in (sub_agents or []) if a is not None],
     )

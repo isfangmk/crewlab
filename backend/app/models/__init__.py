@@ -20,6 +20,7 @@ from app.models.eval import (
     EvalRun,
 )
 from app.models.eval_share import EvalShareToken
+from app.models.investigation import InvestigationDispatch, InvestigationWorkerRun
 from app.models.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.models.knowledge_source import KnowledgeSource
 from app.models.llm import AppSetting, LlmProvider
@@ -68,6 +69,8 @@ __all__ = [
     "EvalJudgeScore",
     "EvalAnnotation",
     "EvalShareToken",
+    "InvestigationDispatch",
+    "InvestigationWorkerRun",
     "ObservationTurn",
     "ObservationToolCall",
     "SandboxExecution",
