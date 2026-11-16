@@ -215,3 +215,38 @@ async def test_memory_api_filters_and_toggle(env: dict[str, str], api_base: str)
             assert patch.json()["source_session_id"] is None
     finally:
         await _cleanup(seeded)
+
+
+async def test_memory_hint_injects_enabled_scoped_items(monkeypatch, tmp_path) -> None:
+    """人设记忆段：启用 +（全局 ∪ 本助理）按最近取；禁用与纯他助理不进。"""
+
+    monkeypatch.setenv("KNOWLEDGE_UPLOAD_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    created: list[str] = []
+    try:
+        async with SessionLocal() as db:
+            mine = await memory_service.remember(
+                db, content="用户的 Gitee 账号是 demo-user。", agent_id="default"
+            )
+            created.append(mine.id)
+            glob = await memory_service.remember(
+                db, content="全局偏好：回答用简体中文。"
+            )
+            created.append(glob.id)
+            disabled = await memory_service.remember(
+                db, content="已停用的旧记忆。", agent_id="default"
+            )
+            created.append(disabled.id)
+            await memory_service.set_enabled(db, disabled.id, False)
+
+            hint_default = await memory_service.compose_memory_hint(db, agent_id="default")
+            assert "demo-user" in hint_default
+            assert "简体中文" in hint_default
+            assert "已停用" not in hint_default
+
+            # 无助理语境只带全局记忆
+            hint_global = await memory_service.compose_memory_hint(db, agent_id=None)
+            assert "简体中文" in hint_global
+            assert "demo-user" not in hint_global
+    finally:
+        await _cleanup(created)

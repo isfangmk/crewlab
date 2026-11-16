@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 # 回忆时单次召回的条数上限
 RECALL_LIMIT = 5
+# 自动注入人设的记忆条数上限：按最近保存取，避免上下文膨胀
+MEMORY_HINT_LIMIT = 20
 # 单条记忆内容长度上限
 MEMORY_CONTENT_LIMIT = 2000
 # 管理列表单页上限；记录会持续增长，不能一次拉全表
@@ -98,6 +100,37 @@ async def remember(
         "已保存记忆 id=%s agent=%s len=%s", item.id, scope, len(item.content)
     )
     return item
+
+
+async def compose_memory_hint(
+    db: AsyncSession,
+    *,
+    agent_id: str | None,
+    limit: int = MEMORY_HINT_LIMIT,
+) -> str:
+    """把「本助理记忆 ∪ 全局记忆」的启用条目拼成注入人设的段落（无记忆返回空串）。
+
+    长期记忆自动进上下文，不依赖模型自觉调 recall_memory——弱模型忘了调工具时，
+    身份/账号类事实也必须在场（工时填报缺账号就是这么丢的）。
+    """
+
+    scope = _normalize_scope(agent_id)
+    condition = (
+        MemoryItem.scope_agent_id.is_(None)
+        if scope is None
+        else or_(MemoryItem.scope_agent_id.is_(None), MemoryItem.scope_agent_id == scope)
+    )
+    rows = await db.scalars(
+        select(MemoryItem)
+        .where(MemoryItem.enabled.is_(True), condition)
+        .order_by(MemoryItem.created_at.desc())
+        .limit(limit)
+    )
+    items = rows.all()
+    if not items:
+        return ""
+    lines = "\n".join(f"- {it.content}" for it in items)
+    return "长期记忆（跨会话事实与偏好，回答时自然运用，不要向用户逐条复述）：\n" + lines
 
 
 async def recall(

@@ -29,6 +29,7 @@ from app.schemas.chat import PageContextIn
 from app.services.agent import agent_service
 from app.services.agent.agent_tool_service import build_agent_tool_bundle
 from app.services.chat import approval_service, artifact_service, turn_control
+from app.services.knowledge import memory_service
 from app.services.observability import observation_service
 from app.services.platform import app_settings_service, llm_config
 from app.services.platform.llm_config import resolve_model
@@ -1674,6 +1675,12 @@ async def stream_session_message(
             + format_page_context_hint(page_context)
         )
         persona = page_hint if persona == "" else f"{persona}\n\n{page_hint}"
+    # 长期记忆注入人设：跨会话事实/偏好自动进上下文，不依赖模型自觉调 recall_memory
+    memory_hint = await memory_service.compose_memory_hint(
+        db, agent_id=session.agent_id or None
+    )
+    if memory_hint != "":
+        persona = memory_hint if persona == "" else f"{persona}\n\n{memory_hint}"
 
     # 助理能力装配：技能、MCP 白名单、禁用名单、只读审批与联网搜索。
     # 子助理与审批续跑复用同一套口径。
