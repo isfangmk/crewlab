@@ -27,11 +27,10 @@ from app.schemas.chat import (
     UpdateSessionAgentRequest,
     UpdateSessionFlagsRequest,
     UpdateSessionModelRequest,
+    UpdateSessionPrefsRequest,
     UpdateSessionTitleRequest,
 )
-from app.services.chat import attachment_service
-from app.services.chat import chat_service
-from app.services.chat import share_service
+from app.services.chat import attachment_service, chat_service, share_service
 from app.services.observability.audit_service import write_audit
 from app.services.platform.auth_service import AuthUser
 
@@ -53,6 +52,8 @@ def _session_out(s, stats: chat_service.SessionStats | None = None) -> ChatSessi
         page_context=chat_service.session_page_context(s),
         pinned=bool(s.pinned),
         archived=bool(s.archived),
+        thinking_enabled=bool(s.thinking_enabled),
+        web_search_enabled=bool(s.web_search_enabled),
         message_count=0 if stats is None else stats.message_count,
         turn_count=0 if stats is None else stats.turn_count,
         tool_call_count=0 if stats is None else stats.tool_call_count,
@@ -176,6 +177,8 @@ async def create_session(
             page_context=(
                 body.page_context.model_dump() if body.page_context is not None else None
             ),
+            thinking_enabled=body.thinking_enabled,
+            web_search_enabled=body.web_search_enabled,
         )
     except LookupError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -233,6 +236,39 @@ async def patch_session_flags(
         resource_type="chat_session",
         resource_id=session_id,
         detail={"pinned": body.pinned, "archived": body.archived},
+    )
+    return _session_out(session)
+
+
+@router.patch("/chat/sessions/{session_id}/prefs", response_model=ChatSessionOut)
+async def patch_session_prefs(
+    session_id: str,
+    body: UpdateSessionPrefsRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> ChatSessionOut:
+    """「思考 / 联网搜索」开关写回会话数据，换页面打开即同步。"""
+
+    try:
+        session = await chat_service.update_session_prefs(
+            db,
+            session_id,
+            thinking_enabled=body.thinking_enabled,
+            web_search_enabled=body.web_search_enabled,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await write_audit(
+        actor_user_id=user.id,
+        action="session.update",
+        resource_type="chat_session",
+        resource_id=session_id,
+        detail={
+            "thinking_enabled": body.thinking_enabled,
+            "web_search_enabled": body.web_search_enabled,
+        },
     )
     return _session_out(session)
 

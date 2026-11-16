@@ -29,6 +29,9 @@ class CreateSessionRequest(BaseModel):
     agent_id: str = Field(min_length=1)
     # 全局助理引用的当前页快照；落库后会话才能复现这次引用
     page_context: PageContextIn | None = None
+    # 「思考 / 联网搜索」开关初值（首页开关随建会话落库）
+    thinking_enabled: bool = False
+    web_search_enabled: bool = False
 
 
 class ChatSessionOut(BaseModel):
@@ -43,6 +46,9 @@ class ChatSessionOut(BaseModel):
     page_context: PageContextIn | None = None
     pinned: bool = False
     archived: bool = False
+    # 「思考 / 联网搜索」开关（随会话持久化，换页面打开即同步）
+    thinking_enabled: bool = False
+    web_search_enabled: bool = False
     # 列表摘要：正文消息数（仅 user/assistant，不含工具卡）与最近一条正文（已截断）
     message_count: int = 0
     # 对话轮数：用户提问次数（一问一答算一轮）
@@ -73,6 +79,15 @@ class UpdateSessionFlagsRequest(BaseModel):
 
     pinned: bool | None = None
     archived: bool | None = None
+
+
+class UpdateSessionPrefsRequest(BaseModel):
+    """「思考 / 联网搜索」开关：至少提供一个。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    thinking_enabled: bool | None = None
+    web_search_enabled: bool | None = None
 
 
 class BatchDeleteSessionsRequest(BaseModel):

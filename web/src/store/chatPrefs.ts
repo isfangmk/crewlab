@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-/** 对话输入区开关偏好（思考 / 联网），跨首页与会话页保持。 */
+/** 首页输入区开关默认值（思考 / 联网），随建会话写入会话数据；
+ *  会话内的开关以会话数据为准（换页面打开即同步），不再共用这份默认值。 */
 type ChatPrefsState = {
   thinkingEnabled: boolean;
   webSearchEnabled: boolean;

@@ -883,6 +883,12 @@ export default function HomePage() {
 
         model: selectedModel.model,
 
+        // 开关初值随建会话落库（每个会话各自记住）
+
+        thinkingEnabled,
+
+        webSearchEnabled,
+
 
 
       });

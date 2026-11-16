@@ -23,6 +23,9 @@ class ChatSession(Base):
     # 全局助理引用的页面快照（JSON）；没有引用时为 NULL
     page_context_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     adk_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # 「思考 / 联网搜索」开关随会话持久化（每个会话各自记住），换页面打开即同步
+    thinking_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    web_search_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     owner_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)

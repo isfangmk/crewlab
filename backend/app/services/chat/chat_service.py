@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.adk_runtime.naming import root_adk_name
 from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.stream_bridge import APP_NAME, SseFrame, stream_adk_turn
+from app.adk_runtime.sub_agents import build_sub_agents_for_agent
 from app.models.approval import Approval
 from app.models.artifact import Artifact
 from app.models.attachment import ChatAttachment
@@ -26,15 +27,11 @@ from app.models.observation import ObservationTurn
 from app.models.share import ShareToken
 from app.schemas.chat import PageContextIn
 from app.services.agent import agent_service
-from app.services.chat import approval_service
-from app.services.platform import app_settings_service
-from app.services.chat import artifact_service
-from app.services.platform import llm_config
-from app.services.observability import observation_service
 from app.services.agent.agent_tool_service import build_agent_tool_bundle
+from app.services.chat import approval_service, artifact_service, turn_control
+from app.services.observability import observation_service
+from app.services.platform import app_settings_service, llm_config
 from app.services.platform.llm_config import resolve_model
-from app.services.chat import turn_control
-from app.adk_runtime.sub_agents import build_sub_agents_for_agent
 from app.tools.user_input import coerce_ask_display
 
 logger = logging.getLogger(__name__)
@@ -285,6 +282,8 @@ async def create_session(
     user_id: str,
     owner_user_id: int | None = None,
     page_context: dict | None = None,
+    thinking_enabled: bool = False,
+    web_search_enabled: bool = False,
 ) -> ChatSession:
     await resolve_model(db, provider, model)
     await agent_service.get_agent(db, agent_id)
@@ -297,6 +296,8 @@ async def create_session(
         adk_user_id=user_id,
         owner_user_id=owner_user_id,
         page_context_json=_serialize_page_context(page_context),
+        thinking_enabled=thinking_enabled,
+        web_search_enabled=web_search_enabled,
     )
     db.add(session)
     await db.commit()
@@ -703,6 +704,31 @@ async def update_session_flags(
     return session
 
 
+async def update_session_prefs(
+    db: AsyncSession,
+    session_id: str,
+    *,
+    thinking_enabled: bool | None = None,
+    web_search_enabled: bool | None = None,
+) -> ChatSession:
+    if thinking_enabled is None and web_search_enabled is None:
+        raise ValueError("thinking_enabled 与 web_search_enabled 至少提供一个")
+    session = await get_session(db, session_id)
+    if thinking_enabled is not None:
+        session.thinking_enabled = thinking_enabled
+    if web_search_enabled is not None:
+        session.web_search_enabled = web_search_enabled
+    await db.commit()
+    await db.refresh(session)
+    logger.info(
+        "更新会话开关 session_id=%s thinking_enabled=%s web_search_enabled=%s",
+        session_id,
+        session.thinking_enabled,
+        session.web_search_enabled,
+    )
+    return session
+
+
 async def fork_session(
     db: AsyncSession,
     session_id: str,
@@ -739,6 +765,9 @@ async def fork_session(
         user_id=adk_user_id,
         owner_user_id=owner_user_id,
         page_context=None if pc is None else pc.model_dump(),
+        # fork 沿用源会话的「思考 / 联网搜索」开关
+        thinking_enabled=src.thinking_enabled,
+        web_search_enabled=src.web_search_enabled,
     )
     # 附件按会话归属：复制前缀消息时必须把附件行一并复制到新会话，
     # 否则新会话的消息会引用旧会话的附件而被拒绝渲染。

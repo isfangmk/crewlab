@@ -48,6 +48,8 @@ import {
 
   updateSessionModel,
 
+  updateSessionPrefs,
+
   getSession,
 
   updateSessionAgent,
@@ -82,8 +84,6 @@ import { ApiError } from '@/api/client';
 import { invalidateChatSessions } from '@/store/chatSessions';
 
 import { useModelSelection } from '@/store/modelSelection';
-
-import { useChatPrefs } from '@/store/chatPrefs';
 
 import { usePermissions } from '@/store/me';
 
@@ -311,21 +311,136 @@ export default function ChatThreadPage() {
 
   // is zero-key zero-quota inside our compose stack — no cost to expose.
 
-  const webSearchEnabled = useChatPrefs((s) => s.webSearchEnabled);
+  // 开关随会话持久化（每个会话各自记住）：数据源是会话行，切换写穿 PATCH，
+  // 会话数据刷新时回灌，换页面 / 跨标签页打开即同步。
 
-  const setWebSearchEnabled = useChatPrefs((s) => s.setWebSearchEnabled);
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
 
-  const thinkingEnabled = useChatPrefs((s) => s.thinkingEnabled);
-
-  const setThinkingEnabled = useChatPrefs((s) => s.setThinkingEnabled);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 
   const thinkingEnabledRef = useRef(thinkingEnabled);
 
   const webSearchEnabledRef = useRef(webSearchEnabled);
 
+  // 最近一次本地切换时间；早于它的数据回包视为过期，不回灌
+
+  const prefsToggledAtRef = useRef(0);
+
+  // 开关写回在途：回灌跳过，避免旧值冲掉刚切的开关
+
+  const prefsPatchInFlightRef = useRef(false);
+
   useEffect(() => { thinkingEnabledRef.current = thinkingEnabled; }, [thinkingEnabled]);
 
   useEffect(() => { webSearchEnabledRef.current = webSearchEnabled; }, [webSearchEnabled]);
+
+  // 会话数据 → 本地开关回灌；startedAt 早于最近一次本地切换时丢弃
+
+  const applySessionPrefs = useCallback(
+
+    (p: { thinking_enabled?: boolean; web_search_enabled?: boolean }, startedAt: number) => {
+
+      if (startedAt < prefsToggledAtRef.current || prefsPatchInFlightRef.current) return;
+
+      if (typeof p.thinking_enabled === 'boolean') {
+
+        setThinkingEnabled(p.thinking_enabled);
+
+        thinkingEnabledRef.current = p.thinking_enabled;
+
+      }
+
+      if (typeof p.web_search_enabled === 'boolean') {
+
+        setWebSearchEnabled(p.web_search_enabled);
+
+        webSearchEnabledRef.current = p.web_search_enabled;
+
+      }
+
+    },
+
+    [],
+
+  );
+
+  // 切换开关：本地即时生效 + 写穿会话数据；失败回滚并提示
+
+  const handleThinkingToggle = useCallback(
+
+    (next: boolean) => {
+
+      const prev = thinkingEnabledRef.current;
+
+      setThinkingEnabled(next);
+
+      thinkingEnabledRef.current = next;
+
+      prefsToggledAtRef.current = Date.now();
+
+      prefsPatchInFlightRef.current = true;
+
+      updateSessionPrefs(sessionId, { thinkingEnabled: next })
+
+        .catch(() => {
+
+          setThinkingEnabled(prev);
+
+          thinkingEnabledRef.current = prev;
+
+          setError(tr('思考开关保存失败', 'Failed to save thinking toggle'));
+
+        })
+
+        .finally(() => {
+
+          prefsPatchInFlightRef.current = false;
+
+        });
+
+    },
+
+    [sessionId, tr],
+
+  );
+
+  const handleWebSearchToggle = useCallback(
+
+    (next: boolean) => {
+
+      const prev = webSearchEnabledRef.current;
+
+      setWebSearchEnabled(next);
+
+      webSearchEnabledRef.current = next;
+
+      prefsToggledAtRef.current = Date.now();
+
+      prefsPatchInFlightRef.current = true;
+
+      updateSessionPrefs(sessionId, { webSearchEnabled: next })
+
+        .catch(() => {
+
+          setWebSearchEnabled(prev);
+
+          webSearchEnabledRef.current = prev;
+
+          setError(tr('联网搜索开关保存失败', 'Failed to save web-search toggle'));
+
+        })
+
+        .finally(() => {
+
+          prefsPatchInFlightRef.current = false;
+
+        });
+
+    },
+
+    [sessionId, tr],
+
+  );
 
   const [agents, setAgents] = useState<AgentSummary[]>([]);
 
@@ -396,9 +511,13 @@ export default function ChatThreadPage() {
       return;
     }
     let cancelled = false;
+    const prefsRequestedAt = Date.now();
     void getSession(sessionId)
       .then((session) => {
-        if (!cancelled) setSessionMeta(session);
+        if (!cancelled) {
+          setSessionMeta(session);
+          applySessionPrefs(session, prefsRequestedAt);
+        }
       })
       .catch((e: Error) => {
         if (!cancelled) {
@@ -753,6 +872,26 @@ export default function ChatThreadPage() {
 
     window.addEventListener('ongrid:chat-refetch', onChatRefetch);
 
+    // 切回本标签立即拉齐（含开关 prefs）：tick 的可见性门会跳过后台标签，
+    // 开关同步按「切到/打开该页面即同步」的语义在这里做，后台不空转请求。
+    const onVisible = () => {
+
+      if (cancelled || document.visibilityState !== 'visible') return;
+
+      refetch(false);
+
+      const prefsRequestedAt = Date.now();
+
+      void getSession(sessionId)
+
+        .then((session) => applySessionPrefs(session, prefsRequestedAt))
+
+        .catch(() => {});
+
+    };
+
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
 
       cancelled = true;
@@ -762,6 +901,8 @@ export default function ChatThreadPage() {
       window.clearInterval(intervalID);
 
       window.removeEventListener('ongrid:chat-refetch', onChatRefetch);
+
+      document.removeEventListener('visibilitychange', onVisible);
 
     };
 
@@ -2225,11 +2366,11 @@ export default function ChatThreadPage() {
 
               webSearchEnabled={webSearchEnabled}
 
-              onWebSearchToggle={setWebSearchEnabled}
+              onWebSearchToggle={handleWebSearchToggle}
 
               thinkingEnabled={thinkingEnabled}
 
-              onThinkingToggle={setThinkingEnabled}
+              onThinkingToggle={handleThinkingToggle}
 
               agents={agents}
 

@@ -66,6 +66,9 @@ export type ChatSession = {
   updated_at?: string;
   pinned?: boolean;
   archived?: boolean;
+  // 「思考 / 联网搜索」开关（随会话持久化，换页面打开即同步）
+  thinking_enabled?: boolean;
+  web_search_enabled?: boolean;
   // 列表摘要：正文消息数（仅 user/assistant，不含工具卡）与最近一条正文（后端已截断）
   message_count?: number;
   // 对话轮数：用户提问次数（一问一答算一轮）
@@ -198,6 +201,21 @@ export function updateSessionFlags(
   );
 }
 
+// 「思考 / 联网搜索」开关写回会话数据（每个会话各自记住）
+export function updateSessionPrefs(
+  sessionId: string,
+  prefs: { thinkingEnabled?: boolean; webSearchEnabled?: boolean },
+) {
+  const body: { thinking_enabled?: boolean; web_search_enabled?: boolean } = {};
+  if (typeof prefs.thinkingEnabled === 'boolean') body.thinking_enabled = prefs.thinkingEnabled;
+  if (typeof prefs.webSearchEnabled === 'boolean') body.web_search_enabled = prefs.webSearchEnabled;
+  return request<ChatSession>(
+    'PATCH',
+    `/chat/sessions/${encodeURIComponent(sessionId)}/prefs`,
+    body,
+  );
+}
+
 export function forkSession(sessionId: string, upToMessageId: string) {
   return request<ChatSession>(
     'POST',
@@ -240,6 +258,9 @@ export function createSession(input: {
   agent_id: string;
   provider: string;
   model: string;
+  // 「思考 / 联网搜索」开关初值（首页开关随建会话落库）
+  thinkingEnabled?: boolean;
+  webSearchEnabled?: boolean;
 }) {
   if (!input.provider || !input.model) {
     throw new Error('创建会话必须指定 provider 与 model');
@@ -255,11 +276,15 @@ export function createSession(input: {
     provider: string;
     model: string;
     page_context?: AssistantPage;
+    thinking_enabled: boolean;
+    web_search_enabled: boolean;
   } = {
     title: input.title,
     agent_id: input.agent_id,
     provider: input.provider,
     model: input.model,
+    thinking_enabled: input.thinkingEnabled ?? false,
+    web_search_enabled: input.webSearchEnabled ?? false,
   };
   if (input.page_context) body.page_context = input.page_context;
   return request<ChatSession>('POST', '/chat/sessions', body);
