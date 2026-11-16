@@ -86,8 +86,8 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
         "name": "run_workflow",
         "group": "workflow",
         "description": "按 ID 运行工作流，返回运行流水号与状态",
-        # 会真实执行整张画布（调模型、查知识库、发请求），按需确认执行
-        "risk": "approval_required",
+        # 会真实执行整张画布（调模型、查知识库、发请求），定级为高风险
+        "risk": "dangerous",
         "mount": "always",
     },
     {

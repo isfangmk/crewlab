@@ -1,6 +1,6 @@
 import { useAssistantPage } from '@/lib/assistantPage';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Copy, Hammer, Loader2, Play, RefreshCw, ShieldAlert, ShieldCheck, Wrench } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Hammer, Loader2, Play, RefreshCw, ShieldAlert, ShieldCheck, ShieldX, Wrench } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { useRequestSeq } from '@/lib/requestSeq';
 import { cn } from '@/lib/cn';
@@ -38,7 +38,14 @@ import {
 import { useI18n } from '@/i18n/locale';
 import { errorText } from '@/lib/errors';
 
-type RiskFilter = '' | 'safe' | 'approval_required';
+type RiskFilter = '' | 'safe' | 'mutating' | 'dangerous';
+
+// 三级危险度的中文含义（与 RiskBadge / 技能页同一口径）
+const RISK_LABELS: Record<Exclude<RiskFilter, ''>, { zh: string; en: string }> = {
+  safe: { zh: '安全', en: 'Safe' },
+  mutating: { zh: '变更', en: 'Mutating' },
+  dangerous: { zh: '危险', en: 'Dangerous' },
+};
 
 /** 内置 Tool 目录页：版式对齐技能目录（筛选条 + 分组表 + 详情 / 运行弹窗）。 */
 export default function ToolsPage() {
@@ -104,13 +111,15 @@ export default function ToolsPage() {
 
   const counts = useMemo(() => {
     let safe = 0;
-    let approval = 0;
+    let mutating = 0;
+    let dangerous = 0;
     for (const t of items) {
       if (t.risk === 'safe') safe += 1;
-      else if (t.risk === 'approval_required') approval += 1;
+      else if (t.risk === 'mutating') mutating += 1;
+      else if (t.risk === 'dangerous') dangerous += 1;
       else throw new Error(`未知 Tool risk: ${t.risk}`);
     }
-    return { safe, approval, total: items.length };
+    return { safe, mutating, dangerous, total: items.length };
   }, [items]);
 
   const filtered = useMemo(() => {
@@ -171,9 +180,9 @@ export default function ToolsPage() {
               <>
                 <FilterChip
                   label={
-                    risk === 'safe'
-                      ? tr('风险：安全', 'Risk: Safe')
-                      : tr('风险：需审批', 'Risk: Approval required')
+                    risk === ''
+                      ? ''
+                      : tr(`风险：${RISK_LABELS[risk].zh}`, `Risk: ${RISK_LABELS[risk].en}`)
                   }
                   onClear={() => setRisk('')}
                 />
@@ -212,10 +221,16 @@ export default function ToolsPage() {
             onClick={() => setRisk('safe')}
           />
           <ChoiceChip
-            active={risk === 'approval_required'}
-            label={tr('需审批', 'Approval')}
-            count={counts.approval}
-            onClick={() => setRisk('approval_required')}
+            active={risk === 'mutating'}
+            label={tr('变更', 'Mutating')}
+            count={counts.mutating}
+            onClick={() => setRisk('mutating')}
+          />
+          <ChoiceChip
+            active={risk === 'dangerous'}
+            label={tr('危险', 'Dangerous')}
+            count={counts.dangerous}
+            onClick={() => setRisk('dangerous')}
           />
           <div className="ml-auto flex items-center gap-2">
             <span className="text-[11px] tabular-nums text-zinc-500">
@@ -224,7 +239,7 @@ export default function ToolsPage() {
           </div>
         </FilterBar>
 
-        {/* 概览：把「多少工具需要审批」变成一屏可见，而不是靠筛选项去数 */}
+        {/* 概览：危险度分布一屏可见（风险是定级，是否要审批由审批规则决定） */}
         <div className="mx-6 mt-3 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3">
           <MetricCard
             icon={Wrench}
@@ -239,23 +254,27 @@ export default function ToolsPage() {
             tone="ok"
             label={tr('安全', 'Safe')}
             value={String(counts.safe)}
-            hint={tr('无需审批，直接执行', 'Run without approval')}
+            hint={tr('只读无副作用', 'Read-only, no side effects')}
             active={risk === 'safe'}
             onClick={() => setRisk('safe')}
           />
           <MetricCard
             icon={ShieldAlert}
-            tone={counts.approval > 0 ? 'warn' : 'default'}
-            label={tr('需审批', 'Needs approval')}
-            value={String(counts.approval)}
-            hint={
-              counts.total === 0
-                ? undefined
-                : tr(`占比 ${Math.round((counts.approval / counts.total) * 100)}%`, `${Math.round((counts.approval / counts.total) * 100)}% of tools`)
-            }
-            bar={counts.total === 0 ? undefined : (counts.approval / counts.total) * 100}
-            active={risk === 'approval_required'}
-            onClick={() => setRisk('approval_required')}
+            tone={counts.mutating > 0 ? 'warn' : 'default'}
+            label={tr('变更', 'Mutating')}
+            value={String(counts.mutating)}
+            hint={tr('会改变状态（写 / 重启）', 'Changes state (write / restart)')}
+            active={risk === 'mutating'}
+            onClick={() => setRisk('mutating')}
+          />
+          <MetricCard
+            icon={ShieldX}
+            tone={counts.dangerous > 0 ? 'danger' : 'default'}
+            label={tr('危险', 'Dangerous')}
+            value={String(counts.dangerous)}
+            hint={tr('高风险破坏性操作', 'High-risk destructive operations')}
+            active={risk === 'dangerous'}
+            onClick={() => setRisk('dangerous')}
           />
         </div>
 

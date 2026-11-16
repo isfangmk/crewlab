@@ -192,7 +192,7 @@ describe('AgentsPage', () => {
           credential: '',
           header_template_json: '{}',
           approval_policy: 'always',
-          tool_risks: { get_service_health: 'approval_required' },
+          tool_risks: { get_service_health: 'mutating' },
           enabled: true,
           status: 'ok',
           last_error: '',
@@ -483,7 +483,7 @@ describe('AgentsPage', () => {
         HttpResponse.json({
           items: [
             { name: 'query_promql', description: 'Query Prometheus', risk: 'safe', mount: 'always' },
-            { name: 'query_incidents', description: 'List incidents', risk: 'approval_required', mount: 'always' },
+            { name: 'query_incidents', description: 'List incidents', risk: 'mutating', mount: 'always' },
           ],
           total: 2,
         }),
@@ -507,7 +507,7 @@ describe('AgentsPage', () => {
             credential: '',
             header_template_json: '{}',
             approval_policy: 'always',
-            tool_risks: { get_service_health: 'approval_required' },
+            tool_risks: { get_service_health: 'mutating' },
             enabled: true,
             status: 'ok',
             last_error: '',
@@ -551,8 +551,8 @@ describe('AgentsPage', () => {
     expect(
       within(dialog).getByText('mcp__demo-operations__get_service_health'),
     ).toBeInTheDocument();
-    // MCP 工具行按 tool_risks 渲染「需审批」
-    expect(within(dialog).getByText('需审批')).toBeInTheDocument();
+    // MCP 工具行按 tool_risks 渲染「变更」
+    expect(within(dialog).getByText('变更')).toBeInTheDocument();
   });
 
   it('详情弹窗展示知识范围与输出格式', async () => {

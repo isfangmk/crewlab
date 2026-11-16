@@ -402,10 +402,10 @@ class ToolNode(CanvasNode):
         )
         if spec is None:
             raise LookupError(f"内置工具不存在: {node.tool_name}")
-        # 画布节点无人值守执行，没有审批入口：需要人工确认的工具不能在这里跑
-        if spec["risk"] == "approval_required":
+        # 画布节点无人值守执行，没有审批入口：只跑无副作用（safe）的工具
+        if spec["risk"] != "safe":
             raise PermissionError(
-                f"内置工具需要人工确认，不能在画布节点中直接执行: {node.tool_name}"
+                f"内置工具非 safe 风险，不能在画布节点中直接执行: {node.tool_name}"
             )
         logger.info(
             "内置工具节点调用 node=%s tool=%s args=%s",

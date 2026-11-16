@@ -16,11 +16,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.approval_rule import ApprovalRule
+from app.services.skills.skill_bundle import RISK_LEVELS
 
 logger = logging.getLogger(__name__)
 
 RULE_ACTIONS = ("auto_approve", "require_approval", "block", "escalate")
-RULE_RISKS = ("safe", "approval_required")
+# 风险过滤值域 = 三级危险度（与技能/工具共用一套词汇）
+RULE_RISKS = RISK_LEVELS
 
 _MIN_TS = datetime.min.replace(tzinfo=timezone.utc)
 

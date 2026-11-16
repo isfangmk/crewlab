@@ -33,9 +33,9 @@ import { mcpToolDisplayName } from '@/lib/mcpWire';
 import { Modal } from '@/components/Modal';
 import { useI18n } from '@/i18n/locale';
 import { orderedGroupKeys } from '@/lib/toolSkill';
-import { ChoiceChip, Chip, CodeBlock, DetailSection, FilterBar, FilterChip, PageHeader, RowAction, SearchInput, StatusPill, TableCard } from '@/components/ui';
+import { ChoiceChip, Chip, CodeBlock, DetailSection, FilterBar, FilterChip, PageHeader, RowAction, SearchInput, TableCard } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import type { StatusTone } from '@/components/ui/StatusPill';
+import { RiskBadge } from '@/components/RiskBadge';
 import { SkillEditor, SkillImportDialog } from '@/components/SkillEditor';
 import { errorText } from '@/lib/errors';
 
@@ -483,7 +483,7 @@ function SkillRow({
         </div></Hint>
       </td>
       <td className="whitespace-nowrap px-3 py-2">
-        <ClassBadge value={skill.class} />
+        <RiskBadge value={skill.class} />
       </td>
       <td className="whitespace-nowrap px-3 py-2">
         <OriginBadge value={skillOrigin(skill)} />
@@ -526,18 +526,6 @@ function SkillRow({
       </td>
     </tr>
   );
-}
-
-export function ClassBadge({ value }: { value: SkillClass }) {
-  const { tr } = useI18n();
-  // safe = 只读无副作用；mutating = 改变状态（写/重启）；dangerous = 高风险破坏性操作。
-  const tones: Record<SkillClass, { tone: StatusTone; zh: string; en: string }> = {
-    safe: { tone: 'ok', zh: '安全', en: 'safe' },
-    mutating: { tone: 'warn', zh: '变更', en: 'mutating' },
-    dangerous: { tone: 'danger', zh: '危险', en: 'dangerous' },
-  };
-  const meta = tones[value];
-  return <StatusPill tone={meta.tone} label={tr(meta.zh, meta.en)} />;
 }
 
 /** 来源胶囊：内置 / 新建 / ZIP 导入。来源是分类信息，用 Chip 而不是状态胶囊。 */
@@ -594,7 +582,7 @@ function SkillDetailModal({
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          <ClassBadge value={skill.class} />
+          <RiskBadge value={skill.class} />
           <OriginBadge value={origin} />
           {skill.group && <Chip>{skill.group}</Chip>}
           {skill.inject_state && <Chip tone="accent">adk_inject_state</Chip>}

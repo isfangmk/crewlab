@@ -29,7 +29,7 @@ class ApprovalRuleIn(BaseModel):
     tool_pattern: str = Field(min_length=1, max_length=256)
     # 空 = 全部助理（agent name）
     agent_id: str | None = None
-    risk: Literal["safe", "approval_required"] | None = None
+    risk: Literal["safe", "mutating", "dangerous"] | None = None
     action: Literal["auto_approve", "require_approval", "block", "escalate"]
     priority: int = 0
     enabled: bool = True

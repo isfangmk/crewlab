@@ -62,6 +62,13 @@ const emptyDraft: DraftForm = {
   enabled: true,
 };
 
+// 三级危险度的中文含义（与 RiskBadge 同一口径）
+const RISK_TEXT: Record<string, { zh: string; en: string }> = {
+  safe: { zh: '安全', en: 'Safe' },
+  mutating: { zh: '变更', en: 'Mutating' },
+  dangerous: { zh: '危险', en: 'Dangerous' },
+};
+
 function actionChip(action: ApprovalRuleAction, tr: (zh: string, en: string) => string) {
   const map: Record<ApprovalRuleAction, { label: string; tone: 'success' | 'info' | 'danger' | 'warning' }> = {
     auto_approve: { label: tr('自动放行', 'Auto approve'), tone: 'success' },
@@ -139,7 +146,7 @@ export default function ApprovalRulesPage() {
         name: draft.name.trim(),
         tool_pattern: draft.tool_pattern.trim(),
         agent_id: draft.agent_id === '' ? null : draft.agent_id,
-        risk: draft.risk === '' ? null : (draft.risk as 'safe' | 'approval_required'),
+        risk: draft.risk === '' ? null : (draft.risk as 'safe' | 'mutating' | 'dangerous'),
         action: draft.action,
         priority,
         enabled: draft.enabled,
@@ -240,7 +247,7 @@ export default function ApprovalRulesPage() {
                       {rule.agent_id ?? tr('全部', 'All')}
                     </td>
                     <td className="px-3 py-2 text-[11px] text-zinc-400">
-                      {rule.risk ?? tr('不限', 'Any')}
+                      {rule.risk ? tr(RISK_TEXT[rule.risk].zh, RISK_TEXT[rule.risk].en) : tr('不限', 'Any')}
                     </td>
                     <td className="px-3 py-2">{actionChip(rule.action, tr)}</td>
                     <td className="px-3 py-2 text-right text-[11.5px] tabular-nums text-zinc-400">{rule.priority}</td>
@@ -325,8 +332,9 @@ export default function ApprovalRulesPage() {
                   onValueChange={(v) => setDraft({ ...draft, risk: v })}
                   options={[
                     { value: '', label: tr('不限', 'Any') },
-                    { value: 'safe', label: 'safe' },
-                    { value: 'approval_required', label: 'approval_required' },
+                    { value: 'safe', label: tr('安全', 'Safe') },
+                    { value: 'mutating', label: tr('变更', 'Mutating') },
+                    { value: 'dangerous', label: tr('危险', 'Dangerous') },
                   ]}
                 />
               </div>

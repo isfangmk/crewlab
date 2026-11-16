@@ -1,7 +1,7 @@
 import { request } from './client';
 
-/** 工具风险标签：安全 / 需审批。内置与 MCP 工具共用同一词汇。 */
-export type ToolRisk = 'safe' | 'approval_required';
+/** 工具风险标签：三级危险度（safe / mutating / dangerous），内置与 MCP 工具共用同一词汇。 */
+export type ToolRisk = 'safe' | 'mutating' | 'dangerous';
 
 export type BuiltinToolParam = {
   name: string;

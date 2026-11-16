@@ -23,7 +23,7 @@ class ApprovalRule(Base):
     tool_pattern: Mapped[str] = mapped_column(String(256), nullable=False)
     # 空 = 全部助理；非空 = 仅该助理（agent name）
     agent_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    # 空 = 不限风险；safe | approval_required
+    # 空 = 不限风险；safe | mutating | dangerous（三级危险度）
     risk: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # auto_approve 免审直跑 | require_approval 强制进闸 | block 禁用 | escalate 进闸且仅 admin 可批
     action: Mapped[str] = mapped_column(String(32), nullable=False)

@@ -173,7 +173,7 @@ async def test_server(
     # risk 只做展示，现算注入；不写 tools_cache_json（缓存保持纯工具描述）
     row = await mcp_service.get_server(db, server_id)
     risks = mcp_service.tool_risk_map(row)
-    tools = [{**t, "risk": risks.get(t["name"], "approval_required")} for t in tools]
+    tools = [{**t, "risk": risks.get(t["name"], "mutating")} for t in tools]
     await write_audit(
         actor_user_id=user.id,
         action="mcp.server_test",

@@ -118,13 +118,13 @@ def test_workflow_tools_cover_listing_detail_running_and_results() -> None:
     ]
 
 
-def test_only_run_workflow_requires_approval() -> None:
-    """只有会真实执行画布的工具需要审批，其余是只读查询。"""
+def test_only_run_workflow_is_dangerous() -> None:
+    """只有会真实执行画布的工具定级为危险，其余是只读查询。"""
 
     risky = [spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["risk"] != "safe"]
     assert risky == ["run_workflow"]
     spec = next(s for s in BUILTIN_TOOL_SPECS if s["name"] == "run_workflow")
-    assert spec["risk"] == "approval_required"
+    assert spec["risk"] == "dangerous"
 
 
 # ---------------- 参数导出 ----------------

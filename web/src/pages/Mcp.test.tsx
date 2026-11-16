@@ -24,7 +24,7 @@ const mcpServer = {
   credential: '',
   header_template_json: '{}',
   approval_policy: 'non_readonly',
-  tool_risks: { query_metric: 'safe', list_alerts: 'safe', acknowledge_alert: 'approval_required' },
+  tool_risks: { query_metric: 'safe', list_alerts: 'safe', acknowledge_alert: 'mutating' },
   enabled: true,
   status: 'ok',
   last_error: '',
@@ -103,9 +103,9 @@ describe('MCP 服务卡片', () => {
     renderPage();
     await userEvent.click(await screen.findByRole('button', { name: /obs-tools/ }));
     await screen.findByText('工具清单');
-    // non_readonly 策略：查询工具「安全」，写工具 acknowledge_alert「需审批」
+    // 只读启发式定级：查询工具「安全」，写工具 acknowledge_alert「变更」
     expect(screen.getAllByText('安全').length).toBe(2);
-    expect(screen.getAllByText('需审批').length).toBe(1);
+    expect(screen.getAllByText('变更').length).toBe(1);
   });
 
   it('摘要行显示资源与提示词计数', async () => {

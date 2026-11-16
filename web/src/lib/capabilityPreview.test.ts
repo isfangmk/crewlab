@@ -34,13 +34,13 @@ function catalog(): CapabilityCatalog {
         name: 'never-probed',
         enabled: true,
         status: 'error',
-        tools: [{ wire: 'mcp__never-probed__ping', description: 'ping', risk: 'approval_required' }],
+        tools: [{ wire: 'mcp__never-probed__ping', description: 'ping', risk: 'mutating' }],
       },
       {
         name: 'disabled-one',
         enabled: false,
         status: 'ok',
-        tools: [{ wire: 'mcp__disabled-one__run', description: 'run', risk: 'approval_required' }],
+        tools: [{ wire: 'mcp__disabled-one__run', description: 'run', risk: 'mutating' }],
       },
     ],
   };

@@ -64,11 +64,11 @@ def test_workflow_builtin_tools_only_exposes_necessary_tools() -> None:
 
 
 def test_workflow_tool_allowlist_is_safe() -> None:
-    """白名单里的名字必须存在，且不能是需要人工审批的工具。"""
+    """白名单里的名字必须存在，且都是 safe——画布无人值守只跑无副作用工具。"""
 
     risks = {spec["name"]: spec["risk"] for spec in BUILTIN_TOOL_SPECS}
     assert WORKFLOW_NODE_TOOL_NAMES <= set(risks)
-    assert all(risks[name] != "approval_required" for name in WORKFLOW_NODE_TOOL_NAMES)
+    assert all(risks[name] == "safe" for name in WORKFLOW_NODE_TOOL_NAMES)
 
 
 def test_coerce_tool_params_converts_text() -> None:

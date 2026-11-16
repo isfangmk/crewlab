@@ -86,12 +86,12 @@ async def build_agent_tool_bundle(
         search_base, search_key = await resolve_deepseek_search_cred(db)
         extra_tools.append(build_web_search_tool(base_url=search_base, api_key=search_key))
         logger.info("已挂载 web_search agent=%s", agent.name)
-    # 内置高危工具默认进闸：risk=approval_required 的工具（如 run_workflow）
-    # 此前只做画布禁入，对话里从不进审批闸门——补上这个缺口
+    # 内置高危工具默认进闸：risk=dangerous 的工具（如 run_workflow）默认要人工确认；
+    # 审批规则 auto_approve 可以免审——风险定级与是否审批是两根轴
     from app.tools.catalog import BUILTIN_TOOL_SPECS
 
     confirm_tool_names = confirm_tool_names | {
-        spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["risk"] == "approval_required"
+        spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["risk"] == "dangerous"
     }
     # 审批规则（工具×助理×风险）：命中规则优先于 server 策略改写名单
     from app.services.chat.approval_rule_service import apply_rule_actions, resolve_actions

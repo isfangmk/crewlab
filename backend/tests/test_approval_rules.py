@@ -80,14 +80,14 @@ def test_pick_rule_precedence() -> None:
     d = pick_rule(rules, tool_name="run_python", agent_id=None, risk="safe")
     assert d is not None and d.rule_name == "catch-all"
     # 助理专属压过全局（同为无通配）
-    d = pick_rule(rules, tool_name="run_workflow", agent_id="ops", risk="approval_required")
+    d = pick_rule(rules, tool_name="run_workflow", agent_id="ops", risk="dangerous")
     assert d is not None and d.rule_name == "agent-block"
-    d = pick_rule(rules, tool_name="run_workflow", agent_id="other", risk="approval_required")
+    d = pick_rule(rules, tool_name="run_workflow", agent_id="other", risk="dangerous")
     assert d is not None and d.rule_name == "global-block"
 
-    # 风险过滤：risk=approval_required 的规则不命中 safe 工具
+    # 风险过滤：risk=dangerous 的规则不命中 safe 工具
     d = pick_rule(
-        [_rule("tool-x", "escalate", risk="approval_required")],
+        [_rule("tool-x", "escalate", risk="dangerous")],
         tool_name="tool-x",
         agent_id=None,
         risk="safe",
@@ -122,6 +122,8 @@ def test_apply_rule_actions_rewrites_names() -> None:
 
 def test_validate_rule_fields() -> None:
     validate_rule_fields(name="n", tool_pattern="t", risk=None, action="block")
+    validate_rule_fields(name="n", tool_pattern="t", risk="mutating", action="block")
+    validate_rule_fields(name="n", tool_pattern="t", risk="dangerous", action="block")
     with pytest.raises(ValueError):
         validate_rule_fields(name=" ", tool_pattern="t", risk=None, action="block")
     with pytest.raises(ValueError):

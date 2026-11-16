@@ -12,7 +12,7 @@ export interface McpServer {
   credential: string;
   header_template_json: string;
   approval_policy: McpApprovalPolicy;
-  /** 每个缓存工具的风险标签：工具名 → safe | approval_required（后端按审批策略现算） */
+  /** 每个缓存工具的风险标签：工具名 → safe | mutating（后端按只读启发式现算，与审批策略无关） */
   tool_risks: Record<string, ToolRisk>;
   enabled: boolean;
   status: string;
@@ -100,8 +100,8 @@ export function parseToolsCache(raw: string, toolRisks: Record<string, ToolRisk>
       name: row.name,
       description: row.description,
       input_schema: row.input_schema as McpJsonSchema,
-      // 查不到按需审批兜底（fail-closed），宁可多弹不漏弹
-      risk: toolRisks[row.name] ?? 'approval_required',
+      // 未知工具按非只读兜底（定级保守）；是否要审批由审批策略另一根轴决定
+      risk: toolRisks[row.name] ?? 'mutating',
     };
   });
 }

@@ -149,8 +149,8 @@ export interface ApprovalRule {
   tool_pattern: string;
   /** 空 = 全部助理（agent name） */
   agent_id: string | null;
-  /** 空 = 不限风险 */
-  risk: 'safe' | 'approval_required' | null;
+  /** 空 = 不限风险；三级危险度过滤 */
+  risk: 'safe' | 'mutating' | 'dangerous' | null;
   action: ApprovalRuleAction;
   priority: number;
   created_at: string;

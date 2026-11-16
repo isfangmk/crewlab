@@ -67,18 +67,16 @@ def test_non_readonly_skips_list_prefix() -> None:
     assert any(n.endswith("__delete_item") for n in names)
 
 
-def test_tool_risk_map_never_and_always() -> None:
+def test_tool_risk_map_ignores_policy() -> None:
+    """风险定级只看只读启发式，与审批策略（另一根轴）无关。"""
+
     tools = [
         {"name": "list_items", "description": "list all"},
         {"name": "delete_item", "description": "delete"},
     ]
-    never = _server(name="svc", policy="never", tools=tools)
-    always = _server(name="svc2", policy="always", tools=tools)
-    assert tool_risk_map(never) == {"list_items": "safe", "delete_item": "safe"}
-    assert tool_risk_map(always) == {
-        "list_items": "approval_required",
-        "delete_item": "approval_required",
-    }
+    expected = {"list_items": "safe", "delete_item": "mutating"}
+    for policy in ("never", "non_readonly", "always"):
+        assert tool_risk_map(_server(name=f"svc-{policy}", policy=policy, tools=tools)) == expected
 
 
 def test_tool_risk_map_non_readonly_mixed() -> None:
@@ -87,20 +85,22 @@ def test_tool_risk_map_non_readonly_mixed() -> None:
         {"name": "delete_item", "description": "delete"},
     ]
     s = _server(name="svc", policy="non_readonly", tools=tools)
-    assert tool_risk_map(s) == {"list_items": "safe", "delete_item": "approval_required"}
+    assert tool_risk_map(s) == {"list_items": "safe", "delete_item": "mutating"}
 
 
-def test_tool_risk_map_matches_confirm_gate() -> None:
-    """展示口径与闸门口径同源：approval_required ⟺ 工具在确认名单。"""
+def test_risk_and_confirm_gate_are_independent_axes() -> None:
+    """风险标签按只读启发式、确认名单按审批策略：两轴独立，不互相绑定。"""
 
     tools = [
         {"name": "list_items", "description": "list all"},
         {"name": "delete_item", "description": "delete"},
     ]
-    for policy in ("always", "non_readonly", "never"):
-        s = _server(name=f"svc-{policy}", policy=policy, tools=tools)
-        risks = tool_risk_map(s)
-        names = confirm_tool_names_for_servers([s])
-        for tool in tools:
-            wire = mcp_tool_wire_name(s.name, tool["name"])
-            assert (risks[tool["name"]] == "approval_required") == (wire in names)
+    never = _server(name="svc-never", policy="never", tools=tools)
+    always = _server(name="svc-always", policy="always", tools=tools)
+    # 同一工具的风险标签不随审批策略变化
+    assert tool_risk_map(never) == tool_risk_map(always)
+    # 确认名单只随审批策略变化：never 全放行、always 全进闸
+    assert confirm_tool_names_for_servers([never]) == set()
+    assert confirm_tool_names_for_servers([always]) == {
+        mcp_tool_wire_name(always.name, tool["name"]) for tool in tools
+    }

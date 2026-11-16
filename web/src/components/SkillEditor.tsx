@@ -62,6 +62,13 @@ type ToolOption = {
   available: boolean;
 };
 
+// 风险等级的中文含义（与 RiskBadge 同一口径）
+const RISK_LABELS: Record<SkillClass, { zh: string; en: string }> = {
+  safe: { zh: '安全', en: 'Safe' },
+  mutating: { zh: '变更', en: 'Mutating' },
+  dangerous: { zh: '危险', en: 'Dangerous' },
+};
+
 const RESOURCE_SECTIONS: {
   kind: ResourceKind;
   title: { zh: string; en: string };
@@ -389,7 +396,7 @@ export function SkillEditor({
                 >
                   {SKILL_CLASSES.map((item) => (
                     <option key={item} value={item}>
-                      {item}
+                      {tr(RISK_LABELS[item].zh, RISK_LABELS[item].en)}
                     </option>
                   ))}
                 </Select>
@@ -750,7 +757,7 @@ export function SkillImportDialog({ onClose, onImported }: { onClose(): void; on
                 >
                   {SKILL_CLASSES.map((item) => (
                     <option key={item} value={item}>
-                      {item}
+                      {tr(RISK_LABELS[item].zh, RISK_LABELS[item].en)}
                     </option>
                   ))}
                 </Select>
