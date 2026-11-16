@@ -28,6 +28,7 @@ from app.models.mcp import McpServer, McpToolEmbedding
 from app.models.mcp_oauth import McpOauthState, McpOauthToken
 from app.models.memory import MemoryItem
 from app.models.observation import ObservationToolCall, ObservationTurn
+from app.models.plan import PlanExecution, PlanStep
 from app.models.sandbox import SandboxExecution
 from app.models.secret import SecretCredential
 from app.models.share import ShareToken
@@ -73,6 +74,8 @@ __all__ = [
     "InvestigationWorkerRun",
     "ObservationTurn",
     "ObservationToolCall",
+    "PlanExecution",
+    "PlanStep",
     "SandboxExecution",
     "TriggerRule",
     "MemoryItem",

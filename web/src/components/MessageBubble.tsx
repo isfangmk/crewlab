@@ -33,6 +33,8 @@ import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { DispatchBlock } from '@/components/investigation/DispatchBlock';
 import type { LocateTarget } from '@/components/investigation/InvestigationWorkbench';
+import { PlanBlock } from '@/components/plan/PlanBlock';
+import type { PlanLocateTarget } from '@/components/plan/PlanWorkbench';
 import { SearchResults, collectToolSources, extractSources } from '@/components/SourcesBlock';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';import { InterpreterArtifacts, type InterpreterArtifact } from '@/components/InterpreterArtifacts';
@@ -72,6 +74,8 @@ type Props = {
   onUseSuggestion?(text: string): void;
   /** 引用角标/排查块定位：跳右栏工作台的发现或 worker */
   onLocate?(target: LocateTarget): void;
+  /** 计划卡定位：跳右栏执行进度的步骤 */
+  onLocatePlan?(target: PlanLocateTarget): void;
   /** 会话内排查发现的最大编号：>0 时正文 [n] 渲染为引用角标 */
   findingCount?: number;
 };
@@ -87,6 +91,7 @@ export function MessageBubble({
   followupsActive,
   onUseSuggestion,
   onLocate,
+  onLocatePlan,
   findingCount,
 }: Props) {
   if ((message.kind === 'tool_card' || message.role === 'tool') && message.tool_call) {
@@ -96,10 +101,11 @@ export function MessageBubble({
         pending={message.pending}
         onConfirmConfigDraft={onConfirmConfigDraft}
         onLocate={onLocate}
+        onLocatePlan={onLocatePlan}
       />
     );
   }
-  if (message.role === 'tool') return <ToolBubble message={message} onConfirmConfigDraft={onConfirmConfigDraft} onLocate={onLocate} />;
+  if (message.role === 'tool') return <ToolBubble message={message} onConfirmConfigDraft={onConfirmConfigDraft} onLocate={onLocate} onLocatePlan={onLocatePlan} />;
   if (message.role === 'user') {
     return (
       <UserBubble
@@ -132,6 +138,7 @@ export function MessageBubble({
       followupsActive={followupsActive}
       onUseSuggestion={onUseSuggestion}
       onLocate={onLocate}
+      onLocatePlan={onLocatePlan}
       findingCount={findingCount}
     />
   );
@@ -383,7 +390,7 @@ function compactUserContent(
   return tr('确认创建这条告警规则', 'Confirm creating this alert rule');
 }
 
-function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUseSuggestion, onLocate, findingCount = 0 }: Props) {
+function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUseSuggestion, onLocate, onLocatePlan, findingCount = 0 }: Props) {
   // Codex-style: no rounded card around assistant prose. Render markdown
   // flush against the column so headings/lists/code blocks read like a
   // document. Tool calls (when attached) appear as their own rows inside
@@ -444,6 +451,8 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
           call={tc}
           showSearchResults={false}
           onConfirmConfigDraft={onConfirmConfigDraft}
+          onLocate={onLocate}
+          onLocatePlan={onLocatePlan}
         />
       ))}
       {sources.length > 0 && <SearchResults sources={sources} />}
@@ -521,7 +530,7 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
   );
 }
 
-function ToolBubble({ message, onConfirmConfigDraft, onLocate }: Props) {
+function ToolBubble({ message, onConfirmConfigDraft, onLocate, onLocatePlan }: Props) {
   // History-reload path: the message persisted by the agent loop only
   // carries the tool name + JSON result string. We don't have args for
   // these (would need to join chat_tool_calls); show what we have.
@@ -534,6 +543,7 @@ function ToolBubble({ message, onConfirmConfigDraft, onLocate }: Props) {
     <ToolCallBlock
       onConfirmConfigDraft={onConfirmConfigDraft}
       onLocate={onLocate}
+      onLocatePlan={onLocatePlan}
       pending={message.pending}
       call={{
         name: message.tool_name ?? 'tool',
@@ -566,6 +576,7 @@ function ToolCallBlock({
   showSearchResults = true,
   pending,
   onLocate,
+  onLocatePlan,
 }: {
   call: {
     name: string;
@@ -582,10 +593,15 @@ function ToolCallBlock({
   /** 回合未收口：排查折叠块只展示进行态 */
   pending?: boolean;
   onLocate?: (target: LocateTarget) => void;
+  onLocatePlan?: (target: PlanLocateTarget) => void;
 }) {
   // 并行排查工具卡走专属折叠块（计数 + 每路结论 + 跳右栏）
   if (call.name === 'dispatch_investigation') {
     return <DispatchBlock call={call} pending={pending} onLocate={onLocate} />;
+  }
+  // 规划执行工具卡走专属折叠块（步骤清单 + 待确认可调可执行）
+  if (call.name === 'create_plan') {
+    return <PlanBlock call={call} pending={pending} onLocatePlan={onLocatePlan} />;
   }
   const artifacts = interpreterArtifactsOf(call);
   const searchResults = showSearchResults ? extractSources(call.name, call.result) : [];

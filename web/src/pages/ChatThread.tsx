@@ -22,8 +22,9 @@ import {
 import { AgentBadge } from '@/components/AgentBadge';
 import { ArtifactsPanel } from '@/components/ArtifactsPanel';
 import { InvestigationWorkbench, type LocateTarget } from '@/components/investigation/InvestigationWorkbench';
+import { PlanWorkbench, type PlanLocateTarget } from '@/components/plan/PlanWorkbench';
 
-import { Download, PanelRight, Radar, Share2 } from 'lucide-react';
+import { Download, ListChecks, PanelRight, Radar, Share2 } from 'lucide-react';
 
 import {
   ErrorBanner, PageHeader, RowAction } from '@/components/ui';
@@ -184,6 +185,16 @@ export default function ChatThreadPage() {
   const locateInWorkbench = (target: LocateTarget) => {
     setShowWorkbench(true);
     setWorkbenchLocate({ ...target, seq: Date.now() });
+  };
+
+  // 计划工作台侧栏：开关 + 定位请求（计划卡跳转，seq 变化触发滚动）
+  const [showPlanWorkbench, setShowPlanWorkbench] = useState(false);
+  const [planLocate, setPlanLocate] = useState<(PlanLocateTarget & { seq: number }) | null>(null);
+
+  // 计划卡 → 右栏执行进度定位
+  const locateInPlanWorkbench = (target: PlanLocateTarget) => {
+    setShowPlanWorkbench(true);
+    setPlanLocate({ ...target, seq: Date.now() });
   };
 
   // 会话内排查发现的最大编号：汇总正文的 [n] 引用角标按它渲染（工具卡是独立消息，取全局）
@@ -993,8 +1004,9 @@ export default function ChatThreadPage() {
       }
       if (detail.type === 'tool_start') {
         const t = detail.event;
-        // 并行排查派发：自动展开右栏工作台看 worker 实时进度
+        // 并行排查/规划执行派发：自动展开右栏看实时进度
         if (t.name === 'dispatch_investigation') setShowWorkbench(true);
+        if (t.name === 'create_plan') setShowPlanWorkbench(true);
         const card: ChatMessage = {
           id: `tool-card-${t.tool_call_id}`,
           role: 'tool',
@@ -1441,8 +1453,9 @@ export default function ChatThreadPage() {
 
             if (activeSessionRef.current !== turnSessionID) return;
 
-            // 并行排查派发：自动展开右栏工作台看 worker 实时进度
+            // 并行排查/规划执行派发：自动展开右栏看实时进度
             if (t.name === 'dispatch_investigation') setShowWorkbench(true);
+            if (t.name === 'create_plan') setShowPlanWorkbench(true);
 
             const card: ChatMessage = {
 
@@ -2183,6 +2196,20 @@ export default function ChatThreadPage() {
 
                 <RowAction
 
+                  icon={ListChecks}
+
+                  onClick={() => setShowPlanWorkbench((v) => !v)}
+
+                  aria-pressed={showPlanWorkbench}
+
+                >
+
+                  {tr('执行进度', 'Plan progress')}
+
+                </RowAction>
+
+                <RowAction
+
                   icon={Share2}
 
                   onClick={() => setShareOpen(true)}
@@ -2260,6 +2287,8 @@ export default function ChatThreadPage() {
                   onUseSuggestion={isViewer ? undefined : useSuggestion}
 
                   onLocate={isViewer ? undefined : locateInWorkbench}
+
+                  onLocatePlan={isViewer ? undefined : locateInPlanWorkbench}
 
                   findingCount={investigationFindingN}
 
@@ -2392,6 +2421,15 @@ export default function ChatThreadPage() {
           locate={workbenchLocate}
           onRequestSummary={isViewer ? undefined : (text) => { void send(text, [], {}); }}
           onClose={() => setShowWorkbench(false)}
+        />
+      )}
+
+      {showPlanWorkbench && sessionId && (
+        <PlanWorkbench
+          sessionId={sessionId}
+          locate={planLocate}
+          onRequestSummary={isViewer ? undefined : (text) => { void send(text, [], {}); }}
+          onClose={() => setShowPlanWorkbench(false)}
         />
       )}
 

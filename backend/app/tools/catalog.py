@@ -14,6 +14,7 @@ from app.tools.code_interpreter import run_python
 from app.tools.investigation import dispatch_investigation, get_investigation
 from app.tools.knowledge import query_knowledge
 from app.tools.memory import recall_memory, remember_memory
+from app.tools.plan import create_plan, get_plan, update_plan_steps
 from app.tools.user_input import ASK_USER_TOOL_NAME, ask_user
 from app.tools.workflow import (
     get_workflow,
@@ -118,6 +119,27 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
         "risk": "safe",
         "mount": "always",
     },
+    {
+        "name": "create_plan",
+        "group": "planning",
+        "description": "多步骤任务先拆成可编辑的执行计划，用户确认后逐步执行；每步结论回写计划",
+        "risk": "safe",
+        "mount": "always",
+    },
+    {
+        "name": "get_plan",
+        "group": "planning",
+        "description": "按计划标识取执行进度快照：步骤状态、结论与用量",
+        "risk": "safe",
+        "mount": "always",
+    },
+    {
+        "name": "update_plan_steps",
+        "group": "planning",
+        "description": "按用户意见调整计划步骤（排序/增删/改文案）；仅待确认状态可改",
+        "risk": "safe",
+        "mount": "always",
+    },
 ]
 
 
@@ -146,6 +168,9 @@ _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
     "get_workflow_run": get_workflow_run,
     "dispatch_investigation": dispatch_investigation,
     "get_investigation": get_investigation,
+    "create_plan": create_plan,
+    "get_plan": get_plan,
+    "update_plan_steps": update_plan_steps,
 }
 
 
@@ -230,6 +255,7 @@ BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
     "workflow": {"title": "工作流", "title_en": "Workflow"},
     "interaction": {"title": "澄清交互", "title_en": "User input"},
     "investigation": {"title": "并行排查", "title_en": "Investigation"},
+    "planning": {"title": "规划执行", "title_en": "Planning"},
 }
 
 

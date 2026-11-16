@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>规划执行模式 · 交互方案</title>
+    <style>
+      /* ——— 设计 token：对齐 ZCode app v4 实色体系 ———
+         sidebar/panel/card 三级灰面 + 半透明气泡 + 品牌蓝只做状态 */
+      :root {
+        --font: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+        --radius-xl: 12px;
+        --radius-lg: 10px;
+        --radius-md: 8px;
+        --radius-sm: 6px;
+        --side-w: 224px;
+        --exec-w: 356px;
+      }
+
+      :root[data-theme="dark"] {
+        --bg: #161616;
+        --panel: #202020;
+        --card: #2b2b2b;
+        --surface: rgba(255, 255, 255, 0.05);
+        --bubble: rgba(255, 255, 255, 0.08);
+        --hover: rgba(255, 255, 255, 0.1);
+        --border: rgba(255, 255, 255, 0.1);
+        --border-soft: rgba(255, 255, 255, 0.06);
+        --text: #e5e5e5;
+        --text-soft: #cfcfcf;
+        --muted: rgba(229, 229, 229, 0.58);
+        --faint: rgba(229, 229, 229, 0.38);
+        --accent: #3b8ff0;
+        --accent-soft: rgba(59, 143, 240, 0.14);
+        --accent-line: rgba(59, 143, 240, 0.32);
+        --ok: #46bf72;
+        --ok-soft: rgba(70, 191, 114, 0.13);
+        --warn: #ff8a30;
+        --warn-soft: rgba(255, 138, 48, 0.13);
+        --danger: #ea4045;
+        --danger-soft: rgba(234, 64, 69, 0.12);
+        --info: #54b9a6;
+        --shadow: 0 24px 70px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+      }
+
+      :root[data-theme="light"] {
+        --bg: #f8f8f8;
+        --panel: #ffffff;
+        --card: #ffffff;
+        --surface: rgba(13, 13, 13, 0.03);
+        --bubble: rgba(13, 13, 13, 0.05);
+        --hover: rgba(13, 13, 13, 0.05);
+        --border: rgba(13, 13, 13, 0.1);
+        --border-soft: rgba(13, 13, 13, 0.06);
+        --text: #171717;
+        --text-soft: #3f3f46;
+        --muted: rgba(23, 23, 23, 0.6);
+        --faint: rgba(23, 23, 23, 0.42);
+        --accent: #2f76ee;
+        --accent-soft: rgba(47, 118, 238, 0.09);
+        --accent-line: rgba(47, 118, 238, 0.26);
+        --ok: #1e8a3e;
+        --ok-soft: rgba(30, 138, 62, 0.1);
+        --warn: #e07b00;
+        --warn-soft: rgba(224, 123, 0, 0.1);
+        --danger: #d9363b;
+        --danger-soft: rgba(217, 54, 59, 0.09);
+        --info: #2e9c8c;
+        --shadow: 0 22px 60px rgba(23, 23, 23, 0.12), 0 2px 8px rgba(23, 23, 23, 0.05);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: var(--font);
+        background: var(--bg);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+      button { font-family: inherit; cursor: pointer; }
+      [hidden] { display: none !important; }
+
+      /* ——— 预览栏 ——— */
+      .preview-bar {
+        position: sticky; top: 0; z-index: 30;
+        display: flex; align-items: center; gap: 14px;
+        padding: 10px 22px;
+        border-bottom: 1px solid var(--border-soft);
+        background: var(--bg);
+      }
+      .preview-bar h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+      .preview-bar .tag {
+        font-size: 10.5px; color: var(--muted);
+        border: 1px solid var(--border-soft); border-radius: 999px; padding: 2.5px 9px;
+        background: var(--surface);
+      }
+      .preview-bar .spacer { flex: 1; }
+      .theme-toggle {
+        display: inline-flex; align-items: center; gap: 6px;
+        height: 28px; padding: 0 11px; border-radius: var(--radius-md);
+        border: 1px solid var(--border-soft); background: var(--surface); color: var(--muted);
+        font-size: 11px;
+      }
+      .theme-toggle:hover { background: var(--hover); }
+
+      /* ——— 应用壳（假窗） ——— */
+      .shell-wrap { padding: 26px 22px 8px; }
+      .shell {
+        display: grid;
+        grid-template-columns: var(--side-w) minmax(0, 1fr) var(--exec-w);
+        height: 742px;
+        overflow: hidden;
+        border: 1px solid var(--border-soft);
+        border-radius: 16px;
+        background: var(--bg);
+        box-shadow: var(--shadow);
+      }
+
+      /* ——— 左：应用侧栏 ——— */
+      .app-side {
+        border-right: 1px solid var(--border-soft);
+        background: var(--bg);
+        padding: 14px 10px;
+        display: flex; flex-direction: column; gap: 2px;
+      }
+      .brand {
+        display: flex; align-items: center; gap: 9px;
+        padding: 6px 10px 14px;
+        font-size: 13px; font-weight: 600; letter-spacing: -0.01em;
+      }
+      .brand .logo { width: 22px; height: 22px; border-radius: 7px; background: var(--accent); }
+      .nav-group { margin-top: 12px; }
+      .nav-label { font-size: 10px; color: var(--faint); letter-spacing: 0.04em; padding: 0 10px 5px; }
+      .nav-item {
+        display: flex; align-items: center; gap: 9px;
+        height: 30px; padding: 0 10px; border-radius: var(--radius-md);
+        font-size: 12px; color: var(--muted);
+      }
+      .nav-item .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--border); }
+      .nav-item.active { color: var(--text); background: var(--hover); }
+      .nav-item.active .dot { background: var(--accent); }
+      .nav-item:hover:not(.active) { background: var(--surface); color: var(--text-soft); }
+
+      /* ——— 中：对话区 ——— */
+      .chat { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+      .chat-head {
+        display: flex; align-items: center; gap: 10px;
+        padding: 13px 20px; border-bottom: 1px solid var(--border-soft);
+      }
+      .chat-head .title { font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em; }
+      .chat-head .sub { font-size: 10.5px; color: var(--faint); margin-top: 2px; }
+      .chat-head .actions { margin-left: auto; display: flex; gap: 6px; }
+      .mini-btn {
+        height: 27px; padding: 0 11px; border-radius: var(--radius-md); font-size: 11px;
+        color: var(--muted); border: 1px solid var(--border-soft); background: transparent;
+      }
+      .mini-btn:hover { background: var(--hover); color: var(--text-soft); }
+      .mini-btn.active { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+
+      .chat-scroll { flex: 1; overflow: auto; padding: 22px 22px 8px; }
+      .chat-col { max-width: 720px; margin: 0 auto; }
+      .msg { display: flex; margin-bottom: 18px; }
+      .msg.user { justify-content: flex-end; }
+      .bubble-user {
+        max-width: 76%; padding: 10px 15px;
+        border-radius: 20px; border-top-right-radius: 10px;
+        background: var(--bubble);
+        font-size: 13px; line-height: 1.7; color: var(--text);
+      }
+      .assistant-col { min-width: 0; display: flex; flex-direction: column; gap: 11px; }
+      .assistant-text { font-size: 13px; line-height: 1.8; color: var(--text-soft); }
+
+      /* ——— 计划卡（对话内，工具卡形态） ——— */
+      .plan {
+        border: 1px solid var(--border-soft); border-radius: var(--radius-xl);
+        background: var(--card); overflow: hidden;
+      }
+      .plan-head {
+        display: flex; align-items: center; gap: 9px;
+        padding: 10px 13px;
+      }
+      .tool-tile {
+        width: 26px; height: 26px; border-radius: var(--radius-md); flex: none;
+        display: grid; place-items: center;
+        background: var(--surface); border: 1px solid var(--border-soft);
+        color: var(--muted);
+      }
+      .tool-tile svg { width: 13px; height: 13px; }
+      .plan-title { font-size: 12px; font-weight: 600; color: var(--text-soft); }
+      .plan-meta {
+        margin-left: auto; display: flex; align-items: center; gap: 7px;
+        font-size: 10px; color: var(--faint); font-variant-numeric: tabular-nums;
+      }
+      .plan-body { border-top: 1px solid var(--border-soft); padding: 7px 8px 9px; display: flex; flex-direction: column; gap: 4px; }
+
+      /* 计划步骤行 */
+      .p-step {
+        display: flex; align-items: center; gap: 9px;
+        padding: 7px 9px; border-radius: var(--radius-md);
+      }
+      .p-step:hover { background: var(--surface); }
+      .p-no {
+        flex: none; width: 18px; height: 18px; border-radius: 6px;
+        display: grid; place-items: center;
+        font-size: 9.5px; font-weight: 600;
+        color: var(--muted); background: var(--surface); border: 1px solid var(--border-soft);
+      }
+      .p-main { flex: 1; min-width: 0; }
+      .p-name { font-size: 11.5px; font-weight: 550; color: var(--text-soft); letter-spacing: -0.005em; }
+      .p-desc { font-size: 9.5px; color: var(--faint); margin-top: 1.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .p-tools { display: flex; gap: 4px; flex: none; }
+      .tool-chip {
+        padding: 1.5px 7px; border-radius: 5px; font-size: 9px;
+        color: var(--info); background: color-mix(in srgb, var(--info) 11%, transparent);
+      }
+      .tool-chip.q { color: var(--accent); background: var(--accent-soft); }
+      .p-est { flex: none; font-size: 9.5px; color: var(--faint); font-variant-numeric: tabular-nums; width: 34px; text-align: right; }
+
+      .plan-foot {
+        border-top: 1px solid var(--border-soft);
+        padding: 9px 13px 11px;
+        display: flex; align-items: center; gap: 7px;
+      }
+      .plan-hint { font-size: 9.5px; color: var(--faint); }
+      .plan-foot .spacer { flex: 1; }
+      .btn {
+        height: 28px; padding: 0 13px; border-radius: var(--radius-md);
+        font-size: 11px; font-weight: 550; border: 1px solid var(--border-soft);
+        background: transparent; color: var(--text-soft);
+      }
+      .btn:hover { background: var(--hover); }
+      .btn.primary { color: #fff; background: var(--accent); border-color: transparent; }
+      .btn.primary:hover { filter: brightness(1.08); }
+
+      /* 步骤执行回写行（对话流里的步骤结果摘要） */
+      .step-done {
+        display: flex; align-items: center; gap: 8px;
+        padding: 7px 11px; border-radius: var(--radius-lg);
+        border: 1px solid var(--border-soft); background: var(--surface);
+        font-size: 11px; color: var(--muted);
+      }
+      .step-done .tick {
+        flex: none; width: 16px; height: 16px; border-radius: 999px;
+        display: grid; place-items: center; font-size: 9px; font-weight: 700;
+        color: var(--ok); background: var(--ok-soft);
+      }
+      .step-done b { color: var(--text-soft); font-weight: 600; }
+      .step-done .dur { margin-left: auto; font-size: 9.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+      .suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
+      .sug {
+        padding: 6px 11px; border-radius: var(--radius-lg); font-size: 11.5px;
+        color: var(--text-soft); border: 1px solid var(--border-soft); background: var(--surface);
+      }
+      .sug:hover { background: var(--hover); }
+
+      .chat-input {
+        margin: 8px auto 16px; padding: 11px 13px;
+        max-width: 720px;
+        border: 1px solid var(--border); border-radius: 16px;
+        background: var(--card);
+        display: flex; align-items: center; gap: 10px;
+      }
+      .chat-input .ph { flex: 1; font-size: 12px; color: var(--faint); }
+      .send { width: 28px; height: 28px; border-radius: 999px; border: 0; background: var(--accent); color: #fff; font-size: 11px; }
+
+      /* ——— 右：执行进度侧栏 ——— */
+      .exec {
+        border-left: 1px solid var(--border-soft);
+        background: var(--panel);
+        display: flex; flex-direction: column; min-width: 0;
+      }
+      .exec-head { padding: 13px 15px 11px; border-bottom: 1px solid var(--border-soft); }
+      .exec-kicker {
+        display: flex; align-items: center; gap: 7px;
+        font-size: 10px; color: var(--accent); letter-spacing: 0.04em;
+      }
+      .exec-kicker .live {
+        width: 6px; height: 6px; border-radius: 999px; background: var(--accent);
+        animation: breathe 1.6s ease-in-out infinite;
+      }
+      .exec-title {
+        margin: 7px 0 2px; font-size: 13px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.5;
+      }
+      .exec-sub { font-size: 10px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+      .exec-stats {
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+        padding: 10px 15px 4px;
+      }
+      .stat {
+        border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+        background: var(--surface); padding: 7px 9px;
+      }
+      .stat .k { font-size: 9.5px; color: var(--faint); }
+      .stat .v {
+        margin-top: 2px; font-size: 14px; font-weight: 600;
+        font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+      }
+      .stat .v small { font-size: 9.5px; color: var(--faint); font-weight: 500; margin-left: 2px; }
+
+      .progress-wrap { padding: 8px 15px 11px; border-bottom: 1px solid var(--border-soft); }
+      .progress-wrap .row {
+        display: flex; justify-content: space-between;
+        font-size: 9.5px; color: var(--faint); margin-bottom: 5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .bar { height: 4px; border-radius: 999px; background: var(--surface); overflow: hidden; }
+      .bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+
+      /* 步骤时间线 */
+      .timeline { flex: 1; overflow: auto; padding: 10px 15px 8px; position: relative; }
+      .tl-item { position: relative; padding: 0 0 4px 26px; }
+      .tl-item::before {
+        content: ""; position: absolute; left: 8px; top: 22px; bottom: -4px;
+        width: 1.5px; background: var(--border-soft);
+      }
+      .tl-item:last-child::before { display: none; }
+      .tl-dot {
+        position: absolute; left: 0; top: 2px;
+        width: 17px; height: 17px; border-radius: 999px;
+        display: grid; place-items: center;
+        font-size: 9px; font-weight: 700;
+        border: 1.5px solid var(--border); color: var(--faint); background: var(--panel);
+      }
+      .tl-item.done .tl-dot { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: var(--ok-soft); }
+      .tl-item.running .tl-dot { color: #fff; border-color: transparent; background: var(--accent); animation: breathe 1.4s ease-in-out infinite; }
+      .tl-item.failed .tl-dot { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: var(--danger-soft); }
+      .tl-item.wait .tl-dot { color: var(--faint); background: var(--panel); }
+
+      .tl-card {
+        border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+        background: var(--card); padding: 8px 10px; margin-bottom: 7px;
+      }
+      .tl-item.running .tl-card { border-color: var(--accent-line); background: color-mix(in srgb, var(--accent) 5%, var(--card)); }
+      .tl-item.failed .tl-card { border-color: color-mix(in srgb, var(--danger) 28%, transparent); }
+      .tl-item.wait .tl-card { opacity: 0.62; }
+      .tl-row1 { display: flex; align-items: center; gap: 7px; }
+      .tl-name { font-size: 11.5px; font-weight: 600; color: var(--text-soft); letter-spacing: -0.005em; }
+      .tl-item.wait .tl-name { color: var(--muted); font-weight: 500; }
+      .tl-time {
+        margin-left: auto; font-size: 9.5px; color: var(--faint);
+        font-variant-numeric: tabular-nums; flex: none;
+      }
+      .tl-now {
+        font-size: 9.5px; color: var(--accent); display: flex; align-items: center; gap: 4px; margin-top: 5px;
+      }
+      .tl-now .spin {
+        width: 9px; height: 9px; border-radius: 999px; flex: none;
+        border: 1.5px solid var(--accent-soft); border-top-color: var(--accent);
+        animation: spin 0.9s linear infinite;
+      }
+      .tl-sum { font-size: 10px; color: var(--muted); line-height: 1.6; margin-top: 5px; }
+      .tl-actions { display: flex; gap: 6px; margin-top: 7px; }
+      .w-btn {
+        height: 24px; padding: 0 9px; border-radius: var(--radius-md); font-size: 10px;
+        color: var(--text-soft); border: 1px solid var(--border-soft); background: transparent;
+      }
+      .w-btn:hover { background: var(--hover); }
+      .w-btn.primary { color: #fff; border-color: transparent; background: var(--accent); }
+      .w-btn.ghost-danger { color: var(--danger); }
+      .err-box {
+        display: flex; gap: 7px; align-items: flex-start;
+        border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+        background: var(--danger-soft); border-radius: var(--radius-md);
+        padding: 7px 9px; margin-top: 6px;
+        font-size: 10px; line-height: 1.6; color: var(--danger);
+      }
+
+      .exec-foot {
+        border-top: 1px solid var(--border-soft);
+        padding: 10px 13px; display: flex; gap: 7px;
+        background: var(--panel);
+      }
+      .exec-foot .grow {
+        flex: 1; height: 28px; border-radius: var(--radius-md); border: 0;
+        font-size: 11px; font-weight: 550;
+      }
+      .foot-primary { color: #fff; background: var(--accent); }
+      .foot-ghost { color: var(--muted); background: transparent; border: 1px solid var(--border-soft); }
+
+      /* ——— 分镜特写 ——— */
+      .frames {
+        max-width: 1180px; margin: 22px auto 8px; padding: 0 22px;
+        display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+      }
+      .frame {
+        border: 1px solid var(--border-soft); border-radius: 16px;
+        background: var(--panel); overflow: hidden;
+      }
+      .frame-head {
+        display: flex; align-items: center; gap: 8px;
+        padding: 11px 15px; border-bottom: 1px solid var(--border-soft);
+        font-size: 11.5px; font-weight: 600;
+      }
+      .frame-head .n {
+        width: 18px; height: 18px; border-radius: 6px; display: grid; place-items: center;
+        font-size: 9.5px; color: var(--accent); background: var(--accent-soft);
+      }
+      .frame-head .tag {
+        margin-left: auto; font-size: 9.5px; font-weight: 500; color: var(--faint);
+        border: 1px solid var(--border-soft); border-radius: 999px; padding: 2px 8px;
+      }
+      .frame-body { padding: 14px 15px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+      /* 拖拽排序微交互 */
+      .p-step.drag {
+        border: 1px dashed var(--accent-line); background: var(--accent-soft);
+      }
+      .drag-h {
+        width: 14px; flex: none; display: flex; flex-direction: column; gap: 2.5px; opacity: 0.55;
+      }
+      .drag-h i { display: block; height: 1.5px; border-radius: 2px; background: var(--muted); }
+
+      .frame-note {
+        display: flex; gap: 7px; align-items: flex-start;
+        font-size: 10.5px; line-height: 1.75; color: var(--muted);
+      }
+      .frame-note .b {
+        flex: none; width: 4px; height: 4px; border-radius: 999px;
+        margin-top: 7px; background: var(--accent);
+      }
+      .frame-note b { color: var(--text-soft); font-weight: 600; }
+
+      /* ——— 方案要点 ——— */
+      .notes {
+        max-width: 1180px; margin: 16px auto 40px; padding: 0 22px;
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+      }
+      .note {
+        border: 1px solid var(--border-soft); border-radius: var(--radius-xl);
+        background: var(--panel); padding: 16px 17px;
+      }
+      .note h3 {
+        margin: 0 0 9px; font-size: 12px; font-weight: 600; letter-spacing: -0.005em;
+        display: flex; align-items: center; gap: 7px;
+      }
+      .note h3 .n {
+        width: 18px; height: 18px; border-radius: 6px; display: grid; place-items: center;
+        font-size: 9.5px; color: var(--accent); background: var(--accent-soft);
+      }
+      .note ul { margin: 0; padding-left: 16px; }
+      .note li { font-size: 11px; line-height: 1.85; color: var(--muted); }
+      .note li b { color: var(--text-soft); font-weight: 600; }
+
+      /* ——— 动效 ——— */
+      @keyframes breathe {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.45; transform: scale(0.82); }
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        * { animation: none !important; transition: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 预览栏 -->
+    <div class="preview-bar" data-zcode-design="preview-bar">
+      <h1>规划执行模式 · 交互方案</h1>
+      <span class="tag">对齐 ZCode app 界面风格</span>
+      <span class="tag">右栏 = 执行进度</span>
+      <span class="tag">先计划 → 批准 → 逐步执行</span>
+      <div class="spacer"></div>
+      <button class="theme-toggle" id="themeToggle" type="button">◐ 切换主题</button>
+    </div>
+
+    <!-- 图标定义 -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </symbol>
+        <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+        </symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline>
+        </symbol>
+      </defs>
+    </svg>
+
+    <!-- 应用壳 -->
+    <div class="shell-wrap">
+      <div class="shell">
+        <!-- 左：应用侧栏 -->
+        <nav class="app-side">
+          <div class="brand"><div class="logo"></div>Ongrid</div>
+          <div class="nav-group">
+            <div class="nav-label">工作</div>
+            <div class="nav-item active"><div class="dot"></div>对话</div>
+            <div class="nav-item"><div class="dot"></div>会话</div>
+            <div class="nav-item"><div class="dot"></div>助理</div>
+          </div>
+          <div class="nav-group">
+            <div class="nav-label">能力</div>
+            <div class="nav-item"><div class="dot"></div>工具</div>
+            <div class="nav-item"><div class="dot"></div>技能</div>
+            <div class="nav-item"><div class="dot"></div>MCP</div>
+          </div>
+          <div class="nav-group">
+            <div class="nav-label">编排</div>
+            <div class="nav-item"><div class="dot"></div>工作流</div>
+            <div class="nav-item"><div class="dot"></div>知识库</div>
+          </div>
+        </nav>
+
+        <!-- 中：对话区 -->
+        <section class="chat">
+          <div class="chat-head">
+            <div>
+              <div class="title">客户数据平台选型与落地评估</div>
+              <div class="sub">#a3f2e8c1 · 默认助理</div>
+            </div>
+            <div class="actions">
+              <button class="mini-btn active" type="button">执行进度</button>
+              <button class="mini-btn" type="button">导出</button>
+            </div>
+          </div>
+
+          <div class="chat-scroll">
+            <div class="chat-col">
+              <!-- 用户消息 -->
+              <div class="msg user">
+                <div class="bubble-user">
+                  我们要选型一个客户数据平台（CDP），帮我系统调研一下：主流产品对比、与现有数据栈的集成成本、合规风险、给出推荐和落地步骤。
+                </div>
+              </div>
+
+              <!-- 助理：产出计划 -->
+              <div class="msg">
+                <div class="assistant-col">
+                  <div class="assistant-text">
+                    这个任务涉及调研、分析和产出，我先拆成执行计划给你确认——确认后逐步执行，每步完成都会在这里回写结果，右侧可以看实时进度。
+                  </div>
+
+                  <!-- 计划卡 -->
+                  <div class="plan">
+                    <div class="plan-head">
+                      <div class="tool-tile"><svg><use href="#i-list"></use></svg></div>
+                      <div class="plan-title">执行计划</div>
+                      <div class="plan-meta">
+                        <span>5 步 · 预计 6-9 分钟</span>
+                        <span class="pill run"><i class="d"></i>待确认</span>
+                      </div>
+                    </div>
+                    <div class="plan-body">
+                      <div class="p-step">
+                        <div class="p-no">1</div>
+                        <div class="p-main">
+                          <div class="p-name">调研主流 CDP 产品与市场格局</div>
+                          <div class="p-desc">Segment / mParticle / Treasure Data / 国内方案的功能边界、定价与生态</div>
+                        </div>
+                        <div class="p-tools"><span class="tool-chip q">web_search</span><span class="tool-chip">query_knowledge</span></div>
+                        <div class="p-est">~2m</div>
+                      </div>
+                      <div class="p-step">
+                        <div class="p-no">2</div>
+                        <div class="p-main">
+                          <div class="p-name">评估与现有数据栈的集成成本</div>
+                          <div class="p-desc">对照内部数据架构文档，盘点接入点、改造量与迁移路径</div>
+                        </div>
+                        <div class="p-tools"><span class="tool-chip">query_knowledge</span></div>
+                        <div class="p-est">~1m</div>
+                      </div>
+                      <div class="p-step">
+                        <div class="p-no">3</div>
+                        <div class="p-main">
+                          <div class="p-name">合规与数据安全风险审查</div>
+                          <div class="p-desc">个信法 / GDPR 约束下的数据出境、留存与授权链路</div>
+                        </div>
+                        <div class="p-tools"><span class="tool-chip q">web_search</span></div>
+                        <div class="p-est">~1m</div>
+                      </div>
+                      <div class="p-step">
+                        <div class="p-no">4</div>
+                        <div class="p-main">
+                          <div class="p-name">汇总对比矩阵与推荐结论</div>
+                          <div class="p-desc">加权评分：功能 / 集成 / 成本 / 合规，给出首选与备选</div>
+                        </div>
+                        <div class="p-tools"><span class="tool-chip">run_python</span></div>
+                        <div class="p-est">~1m</div>
+                      </div>
+                      <div class="p-step">
+                        <div class="p-no">5</div>
+                        <div class="p-main">
+                          <div class="p-name">产出落地步骤与里程碑</div>
+                          <div class="p-desc">POC 范围、试点团队、30/60/90 天计划与风险预案</div>
+                        </div>
+                        <div class="p-tools"><span class="tool-chip">run_python</span></div>
+                        <div class="p-est">~2m</div>
+                      </div>
+                    </div>
+                    <div class="plan-foot">
+                      <span class="plan-hint">确认后按步骤执行；可在右栏暂停、单步重试或调整顺序</span>
+                      <div class="spacer"></div>
+                      <button class="btn" type="button">调整计划</button>
+                      <button class="btn primary" type="button">开始执行</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 助理：执行中回写 -->
+              <div class="msg">
+                <div class="assistant-col">
+                  <div class="assistant-text">计划已开始执行，完成的步骤会在这里留下结果摘要：</div>
+                  <div class="step-done">
+                    <div class="tick"><svg width="9" height="9"><use href="#i-check"></use></svg></div>
+                    <b>步骤 1 · 主流 CDP 产品调研</b>
+                    <span>7 款产品格局已梳理，Segment / mParticle 领先，国内 2 款进入候选</span>
+                    <div class="dur">1m52s</div>
+                  </div>
+                  <div class="step-done">
+                    <div class="tick"><svg width="9" height="9"><use href="#i-check"></use></svg></div>
+                    <b>步骤 2 · 集成成本评估</b>
+                    <span>识别 4 个接入点，预估改造 12 人日，数据仓库直连方案成本最低</span>
+                    <div class="dur">58s</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="chat-input">
+            <div class="ph">继续聊…  Shift+Enter 换行</div>
+            <button class="send" type="button">➤</button>
+          </div>
+        </section>
+
+        <!-- 右：执行进度侧栏 -->
+        <aside class="exec">
+          <div class="exec-head">
+            <div class="exec-kicker"><div class="live"></div>执行进度 · 进行中</div>
+            <div class="exec-title">客户数据平台选型与落地评估</div>
+            <div class="exec-sub">开始于 14:32:06 · 已运行 3m24s</div>
+          </div>
+
+          <div class="exec-stats">
+            <div class="stat"><div class="k">步骤</div><div class="v">2<small>/5 完成</small></div></div>
+            <div class="stat"><div class="k">工具调用</div><div class="v">11</div></div>
+            <div class="stat"><div class="k">用量</div><div class="v">38.2<small>k tok</small></div></div>
+          </div>
+
+          <div class="progress-wrap">
+            <div class="row"><span>总进度</span><span>40%</span></div>
+            <div class="bar"><i style="width: 40%"></i></div>
+          </div>
+
+          <!-- 步骤时间线 -->
+          <div class="timeline">
+            <div class="tl-item done">
+              <div class="tl-dot"><svg width="9" height="9"><use href="#i-check"></use></svg></div>
+              <div class="tl-card">
+                <div class="tl-row1">
+                  <div class="tl-name">1 · 主流 CDP 产品调研</div>
+                  <div class="tl-time">1m52s</div>
+                </div>
+                <div class="tl-sum">7 款产品格局已梳理，2 款进入候选；web_search ×5、query_knowledge ×2</div>
+              </div>
+            </div>
+
+            <div class="tl-item done">
+              <div class="tl-dot"><svg width="9" height="9"><use href="#i-check"></use></svg></div>
+              <div class="tl-card">
+                <div class="tl-row1">
+                  <div class="tl-name">2 · 集成成本评估</div>
+                  <div class="tl-time">58s</div>
+                </div>
+                <div class="tl-sum">识别 4 个接入点，预估改造 12 人日；query_knowledge ×3</div>
+              </div>
+            </div>
+
+            <div class="tl-item running">
+              <div class="tl-dot"><svg width="9" height="9"><use href="#i-clock"></use></svg></div>
+              <div class="tl-card">
+                <div class="tl-row1">
+                  <div class="tl-name">3 · 合规与数据安全风险审查</div>
+                  <div class="tl-time">34s</div>
+                </div>
+                <div class="tl-now"><div class="spin"></div>正在调用 web_search · 数据出境合规要求 2026</div>
+              </div>
+            </div>
+
+            <div class="tl-item wait">
+              <div class="tl-dot">4</div>
+              <div class="tl-card">
+                <div class="tl-row1">
+                  <div class="tl-name">4 · 汇总对比矩阵与推荐</div>
+                  <div class="tl-time">排队中</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tl-item wait">
+              <div class="tl-dot">5</div>
+              <div class="tl-card">
+                <div class="tl-row1">
+                  <div class="tl-name">5 · 落地步骤与里程碑</div>
+                  <div class="tl-time">排队中</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="exec-foot">
+            <button class="grow foot-ghost" type="button">暂停</button>
+            <button class="grow foot-primary" type="button">查看当前步骤详情</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <!-- 分镜特写 -->
+    <div class="frames">
+      <!-- 特写 1：调整计划（拖拽排序 + 增删步骤） -->
+      <div class="frame">
+        <div class="frame-head">
+          <div class="n">A</div>计划确认阶段 · 调整计划
+          <div class="tag">拖拽排序 / 增删步骤</div>
+        </div>
+        <div class="frame-body">
+          <div class="plan">
+            <div class="plan-body">
+              <div class="p-step">
+                <div class="drag-h"><i></i><i></i><i></i></div>
+                <div class="p-no">2</div>
+                <div class="p-main">
+                  <div class="p-name">评估与现有数据栈的集成成本</div>
+                  <div class="p-desc">对照内部数据架构文档，盘点接入点与改造量</div>
+                </div>
+                <div class="p-tools"><span class="tool-chip">query_knowledge</span></div>
+              </div>
+              <div class="p-step drag">
+                <div class="drag-h"><i></i><i></i><i></i></div>
+                <div class="p-no">3</div>
+                <div class="p-main">
+                  <div class="p-name">合规与数据安全风险审查</div>
+                  <div class="p-desc">拖到第 2 步之前：先排合规红线再谈集成</div>
+                </div>
+                <div class="p-tools"><span class="tool-chip q">web_search</span></div>
+              </div>
+            </div>
+            <div class="plan-foot">
+              <span class="plan-hint">按住拖拽手柄排序 · 每步末尾可删除 · 底部「+ 添加步骤」</span>
+              <div class="spacer"></div>
+              <button class="btn" type="button">+ 添加步骤</button>
+              <button class="btn primary" type="button">保存并执行</button>
+            </div>
+          </div>
+          <div class="frame-note"><div class="b"></div><div><b>生成的计划默认可编辑</b>：步骤名可点开改文案、工具 chip 可换、删除后剩余步骤自动重新编号；改完「保存并执行」进入执行态。</div></div>
+        </div>
+      </div>
+
+      <!-- 特写 2：步骤失败与恢复 -->
+      <div class="frame">
+        <div class="frame-head">
+          <div class="n">B</div>执行阶段 · 步骤失败与恢复
+          <div class="tag">失败不阻塞后续</div>
+        </div>
+        <div class="frame-body">
+          <div class="tl-item failed" style="padding-left: 26px">
+            <div class="tl-dot"><svg width="9" height="9"><use href="#i-x"></use></svg></div>
+            <div class="tl-card">
+              <div class="tl-row1">
+                <div class="tl-name">3 · 合规与数据安全风险审查</div>
+                <div class="tl-time">12s</div>
+              </div>
+              <div class="err-box">
+                <svg width="12" height="12" style="flex: none; margin-top: 1px"><use href="#i-x"></use></svg>
+                <div>web_search 调用失败：数据出境合规要求 2026（网络超时）。已保留此前 2 次调用的中间结果。</div>
+              </div>
+              <div class="tl-actions">
+                <button class="w-btn primary" type="button">重试此步</button>
+                <button class="w-btn" type="button">跳过并继续</button>
+                <button class="w-btn ghost-danger" type="button">从这里停止</button>
+              </div>
+            </div>
+          </div>
+          <div class="tl-item done" style="padding-left: 26px">
+            <div class="tl-dot"><svg width="9" height="9"><use href="#i-check"></use></svg></div>
+            <div class="tl-card">
+              <div class="tl-row1">
+                <div class="tl-name">4 · 汇总对比矩阵与推荐</div>
+                <div class="tl-time">已顺延</div>
+              </div>
+              <div class="tl-sum">依赖步骤 3 的结论；选择「跳过并继续」后将以「合规项待人工补充」占位执行</div>
+            </div>
+          </div>
+          <div class="frame-note"><div class="b"></div><div><b>失败只影响本步</b>：中间结果保留（重试不重跑已成功的调用）；后续步骤标注依赖关系，跳过时以占位结论继续，最后汇总时提示缺口。</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案要点 -->
+    <div class="notes">
+      <div class="note">
+        <h3><div class="n">1</div>两段式：先计划后执行</h3>
+        <ul>
+          <li>复杂任务默认先进<b>计划态</b>：产出可编辑的步骤卡（名称/描述/工具/预估），用户确认后才执行。</li>
+          <li>简单问答不进计划态，直接回答——只有多步任务才触发。</li>
+          <li>计划卡与工具卡同形态，保持对话流视觉一致。</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3><div class="n">2</div>右栏 = 执行进度时间线</h3>
+        <ul>
+          <li>垂直时间线一眼看清<b>走到哪一步</b>：完成（绿）/ 执行中（蓝，带当前动作）/ 排队（灰）/ 失败（红）。</li>
+          <li>执行中步骤实时展示「正在调用 xx 工具」，日志细节展开可见。</li>
+          <li>顶部总进度 + 步骤计数 + 用量，底部暂停/停止全局操作。</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3><div class="n">3</div>步骤级可控可恢复</h3>
+        <ul>
+          <li>每步完成后在对话流<b>回写结果摘要</b>，最终产出引用各步结论。</li>
+          <li>失败不阻塞：保留中间结果，支持<b>重试此步</b>（增量续跑）或<b>跳过并继续</b>（占位标注缺口）。</li>
+          <li>执行前可拖拽调序、增删步骤；执行中可暂停后继续。</li>
+        </ul>
+      </div>
+    </div>
+
+    <script>
+      document.getElementById("themeToggle").addEventListener("click", function () {
+        const root = document.documentElement;
+        root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+      });
+    </script>
+  </body>
+</html>

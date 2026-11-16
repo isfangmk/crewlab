@@ -47,21 +47,30 @@ def build_knowledge_tools(scope: KnowledgeScope | None = None) -> list[FunctionT
 
 
 def build_builtin_tools(*, include_ask_user: bool = True) -> list[FunctionTool]:
-    """始终装配的内置工具组：代码解释器、记忆、工作流、并行排查与澄清交互。
+    """始终装配的内置工具组：代码解释器、记忆、工作流、并行排查、规划执行与澄清交互。
 
     ADK 的 SkillToolset.additional_tools 只有在技能声明后才注入；这些能力
     不依赖外部凭证且对话随时可用，所以直接作为 Agent 工具挂载。
     include_ask_user=False 用于子 Agent：被委派的子任务无人值守，
     澄清提问只能出现在与用户直接对话的根 Agent 上；
-    并行排查派发同理——worker 无人值守，不能再往下派 worker。
+    并行排查派发与计划创建同理——worker/步骤无人值守，不能往下再派。
     """
 
-    names = builtin_group_names("workflow", "code", "memory", "interaction", "investigation")
+    names = builtin_group_names(
+        "workflow", "code", "memory", "interaction", "investigation", "planning"
+    )
     if not include_ask_user:
         names = [
             name
             for name in names
             if name != ASK_USER_TOOL_NAME
-            and name not in ("dispatch_investigation", "get_investigation")
+            and name
+            not in (
+                "dispatch_investigation",
+                "get_investigation",
+                "create_plan",
+                "get_plan",
+                "update_plan_steps",
+            )
         ]
     return [FunctionTool(tool_impl(name)) for name in names]
