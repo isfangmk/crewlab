@@ -47,7 +47,9 @@ async def deepseek_web_search(
     if not isinstance(query, str) or query == "":
         raise ValueError("query 不能为空")
     if len(query) > 128:
-        raise ValueError("query 最长 128 字符")
+        raise ValueError(
+            f"query 超长（{len(query)} 字符），最长 128 字符；请用简短关键词重试"
+        )
     if count < 1 or count > 50:
         raise ValueError("count 范围是 1..50")
     if api_key == "":

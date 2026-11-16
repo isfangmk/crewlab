@@ -7,6 +7,8 @@ from typing import Any
 
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
+from google.adk.tools.base_tool import BaseTool
+from google.adk.tools.tool_context import ToolContext
 
 from app.adk_runtime.naming import root_adk_name
 from app.adk_runtime.tool_approval import build_before_tool_callback
@@ -20,6 +22,30 @@ logger = logging.getLogger(__name__)
 
 # 工作流节点单步耗时上限：节点本身也有 timeout_seconds，这里给模型一个兜底值。
 WORKFLOW_LLM_TIMEOUT_SECONDS = 180
+
+
+async def tool_error_as_result(
+    tool: BaseTool,
+    args: dict[str, Any],  # pyright: ignore[reportUnusedParameter] — ADK 契约参数
+    tool_context: ToolContext,  # pyright: ignore[reportUnusedParameter] — ADK 契约参数
+    error: Exception,
+) -> dict[str, Any]:
+    """工具异常转错误结果：带原因回给模型、可重试，不打断本轮执行。
+
+    ADK 只对 MCP 工具内置了异常兜底；其余工具抛错会一路冒泡终止整个
+    agent 回合（对话轮次 / worker 一路）。这里在装配入口统一兜底，
+    覆盖所有对话、子代理与排查 worker。
+    """
+
+    name = getattr(tool, "name", "") or "工具"
+    reason = str(error) or type(error).__name__
+    logger.warning("工具执行失败 name=%s err=%s", name, error)
+    return {
+        "error": (
+            f"工具 {name} 执行失败：{reason}。"
+            "请按报错原因修正参数后重试，或改用其他线索继续。"
+        )
+    }
 
 CHAT_AGENT_INSTRUCTION = (
     "你是 AI 工作台助手。"
@@ -186,6 +212,7 @@ def build_chat_agent(
                 confirm_names, disallowed_tool_names, rule_actions
             )
         ),
+        on_tool_error_callback=tool_error_as_result,
         sub_agents=[a for a in (sub_agents or []) if a is not None],
     )
 

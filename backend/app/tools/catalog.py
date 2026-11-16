@@ -56,7 +56,7 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
     {
         "name": "web_search",
         "group": "search",
-        "description": "DeepSeek 官方网页搜索（对话开启联网时可用）",
+        "description": "DeepSeek 官方网页搜索（对话开启联网时可用）；query 最长 128 字符",
         "risk": "safe",
         "mount": "per_turn",
     },
