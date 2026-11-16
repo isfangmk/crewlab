@@ -7,7 +7,11 @@ import uuid
 import httpx
 import pytest
 
-from app.services.knowledge.knowledge_service import chunk_text, extract_upload_text
+from app.services.knowledge.knowledge_service import (
+    _VECTOR_MIN_SIMILARITY,
+    chunk_text,
+    extract_upload_text,
+)
 from tests.conftest import login_access_token
 
 
@@ -228,6 +232,42 @@ async def test_search_min_score_override(env: dict[str, str], api_base: str) -> 
             assert bad.status_code == 422, bad.text
         finally:
             await client.put(setting_url, headers=headers, json={"value": "0"})
+            await client.delete(f"/api/v1/knowledge/docs/{doc['id']}", headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_vector_noise_below_floor_excluded(env: dict[str, str], api_base: str) -> None:
+    """向量相似度低于下限的命中是噪声：无关查询不凑结果，真命中不受影响。"""
+
+    async with httpx.AsyncClient(base_url=api_base, timeout=120.0) as client:
+        if (await client.get("/healthz")).status_code != 200:
+            pytest.skip("后端未就绪")
+        token = await login_access_token(client, env)
+        headers = {"Authorization": f"Bearer {token}"}
+        marker = f"噪声下限{uuid.uuid4().hex[:8]}"
+        doc = await _upload_doc(client, headers, marker, f"短文档：{marker}")
+
+        async def hit_items(q: str) -> list[dict]:
+            res = await client.get(
+                "/api/v1/knowledge/search",
+                headers=headers,
+                params={"q": q, "limit": 10},
+            )
+            assert res.status_code == 200, res.text
+            return res.json()["items"]
+
+        try:
+            unrelated = await hit_items("股票分红除权日怎么计算")
+            assert all(i["doc"]["id"] != doc["id"] for i in unrelated)
+            # 语义命中的相似度必须过下限；关键词命中（vector_score 为 null）除外
+            assert all(
+                i["vector_score"] is None or i["vector_score"] >= _VECTOR_MIN_SIMILARITY
+                for i in unrelated
+            )
+
+            matched = await hit_items(marker)
+            assert any(i["doc"]["id"] == doc["id"] for i in matched)
+        finally:
             await client.delete(f"/api/v1/knowledge/docs/{doc['id']}", headers=headers)
 
 

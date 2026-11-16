@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CHUNK_SIZE = 800
 _DEFAULT_CHUNK_OVERLAP = 100
 _RRF_K = 60
+# 向量相似度下限：低于此值是噪声而非语义命中，直接丢弃——
+# RRF 只按排名计分，管不住无命中时的噪声凑数（本嵌入模型噪声 ≤0.47、真命中 ≥0.59）
+_VECTOR_MIN_SIMILARITY = 0.5
 
 # 由外部源同步维护的文档：内容随同步刷新，不开放站内编辑/移动
 EXTERNAL_SOURCE_TYPES = frozenset({"repo", "url", "git"})
@@ -787,6 +790,7 @@ async def search_docs(
     """混合检索：向量余弦 + 关键词 ILIKE，RRF 融合后聚合到文档。
 
     向量通道：先在向量存储里取 top-pool 的 (ref_id, similarity)，
+    低于 _VECTOR_MIN_SIMILARITY 的相似度视为噪声丢弃（无关查询应返回空），
     再回业务库 join 出切块与文档并做启停/目录/范围过滤——
     过滤发生在向量截断之后，极端情况下向量通道命中数可能少于 pool。
     """
@@ -828,6 +832,8 @@ async def search_docs(
             chunk.id: (chunk, doc) for chunk, doc in (await db.execute(vec_stmt)).all()
         }
         for ref_id, similarity in vec_hits:
+            if similarity < _VECTOR_MIN_SIMILARITY:
+                continue
             row = row_map.get(int(ref_id))
             if row is not None:
                 vec_rows.append((row[0], row[1], similarity))
