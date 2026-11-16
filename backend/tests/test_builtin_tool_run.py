@@ -32,10 +32,8 @@ async def test_run_query_knowledge(env: dict[str, str], api_base: str) -> None:
             "title_en": "Knowledge",
         }
         assert groups["workflow"]["title"] == "工作流"
-        assert all(
-            i["group"] in ("code", "knowledge", "search", "workflow", "memory", "interaction")
-            for i in body["items"]
-        )
+        # 每项的分组必须在已登记分组里；不再维护易过期的分组名单快照
+        assert all(i["group"] in groups for i in body["items"])
 
         run = await client.post(
             "/api/v1/tools/builtin/query_knowledge/run",

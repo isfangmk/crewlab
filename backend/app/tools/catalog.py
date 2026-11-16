@@ -229,6 +229,7 @@ BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
     "memory": {"title": "记忆", "title_en": "Memory"},
     "workflow": {"title": "工作流", "title_en": "Workflow"},
     "interaction": {"title": "澄清交互", "title_en": "User input"},
+    "investigation": {"title": "并行排查", "title_en": "Investigation"},
 }
 
 

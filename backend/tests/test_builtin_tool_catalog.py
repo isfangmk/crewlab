@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.services.platform.builtin_tool_service import list_builtin_tool_groups
 from app.tools.catalog import (
     BUILTIN_TOOL_SPECS,
     WORKFLOW_NODE_TOOL_NAMES,
@@ -15,6 +16,16 @@ from app.tools.catalog import (
     coerce_tool_params,
     workflow_builtin_tools,
 )
+
+
+def test_every_tool_group_has_title() -> None:
+    """每个工具分组必须登记标题：缺标题会让 /tools/builtin 目录接口直接 500。"""
+
+    groups = list_builtin_tool_groups()
+    assert [g["key"] for g in groups] == list(
+        dict.fromkeys(spec["group"] for spec in BUILTIN_TOOL_SPECS)
+    )
+    assert all(g["title"] != "" and g["title_en"] != "" for g in groups)
 
 
 def test_workflow_builtin_tools_exposes_params() -> None:
