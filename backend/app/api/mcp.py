@@ -12,9 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
-from app.services.mcp import mcp_oauth_service
-from app.services.mcp import mcp_registry_service
-from app.services.mcp import mcp_service
+from app.services.mcp import mcp_oauth_service, mcp_registry_service, mcp_service
 from app.services.observability.audit_service import write_audit
 from app.services.platform.auth_service import AuthUser
 

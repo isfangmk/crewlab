@@ -15,9 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_admin, require_auth, require_not_viewer
 from app.db import get_db
 from app.models.trigger import TriggerRule, TriggerRun
-from app.services.workflow import trigger_executor
-from app.services.workflow import trigger_service
 from app.services.observability.audit_service import write_audit
+from app.services.workflow import trigger_executor, trigger_service
 
 router = APIRouter(tags=["triggers"])
 

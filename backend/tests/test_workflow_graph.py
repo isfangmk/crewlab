@@ -15,8 +15,8 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from app.db import create_db_engine
 from app.adk_runtime.workflow_graph import validate
+from app.db import create_db_engine
 from app.schemas.workflow import (
     WorkflowDefinition,
     WorkflowVariable,
@@ -29,7 +29,7 @@ from app.services.workflow import workflow_vars
 def _new_sessionmaker():
     """每个用例独立建 engine：模块级 engine 会跨事件循环复用连接而报错。"""
 
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app.config import get_settings
 

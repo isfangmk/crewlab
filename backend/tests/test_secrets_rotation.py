@@ -13,7 +13,6 @@ import pytest
 from sqlalchemy import select
 
 from app.db import create_db_engine
-
 from tests.conftest import login_access_token
 
 
@@ -208,7 +207,7 @@ async def test_settings_snapshot_masks_secrets(env: dict[str, str], api_base: st
 async def test_audit_export_redacts_stored_detail(env: dict[str, str], api_base: str) -> None:
     """审计里即便存进了带凭据的 URL，导出也必须遮蔽（历史脏数据兜底）。"""
 
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app.config import get_settings
     from app.models.audit import AuditLog

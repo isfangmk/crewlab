@@ -81,7 +81,6 @@ async def test_update_role_reset_password_and_delete_user(
         headers = {"Authorization": f"Bearer {token}"}
         me = await client.get("/api/v1/me", headers=headers)
         assert me.status_code == 200, me.text
-        admin_id = me.json()["id"]
 
         email = f"member_{uuid.uuid4().hex[:8]}@local"
         created = await client.post(

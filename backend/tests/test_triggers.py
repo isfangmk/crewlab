@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 import httpx
 import pytest
-import uuid
 
 from app.services.workflow.trigger_service import (
     TriggerValidationError,

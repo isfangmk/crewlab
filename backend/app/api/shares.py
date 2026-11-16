@@ -167,7 +167,8 @@ async def revoke_share(
     if user.role != "admin" and row.created_by != user.id:
         raise HTTPException(status_code=403, detail="仅创建者或管理员可撤销")
 
-    target_id = row.session_id if kind == "session" else row.run_uid
+    # 两种分享行字段不同：按行类型取各自的资源 id
+    target_id = row.session_id if isinstance(row, ShareToken) else row.run_uid
     await db.delete(row)
     await db.commit()
     await write_audit(

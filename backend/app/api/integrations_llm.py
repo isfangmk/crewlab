@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
 from app.db import get_db
-from app.services.platform import llm_admin
 from app.services.observability.audit_service import write_audit
+from app.services.platform import llm_admin
 from app.services.platform.auth_service import AuthUser
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class LLMConfigIn(BaseModel):
 @router.post("/integrations/llm/test")
 async def test_llm(
     body: LLMConfigIn,
-    db: AsyncSession = Depends(get_db),
+    _db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
     try:

@@ -21,8 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_admin
 from app.db import get_db
 from app.models.channel import PublishedChannel
-from app.services.chat import chat_service
-from app.services.chat import publish_service
+from app.services.chat import chat_service, publish_service
 from app.services.observability.audit_service import write_audit
 from app.services.platform.auth_service import AuthUser
 

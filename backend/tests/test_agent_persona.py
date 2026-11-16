@@ -8,7 +8,6 @@ from datetime import datetime
 import httpx
 import pytest
 
-from app.services.platform import app_settings_service
 from app.services.agent.agent_service import (
     ResolvedAgent,
     compose_persona,
@@ -16,6 +15,7 @@ from app.services.agent.agent_service import (
     validate_display_name,
 )
 from app.services.knowledge.knowledge_scope import KnowledgeScope
+from app.services.platform import app_settings_service
 from tests.conftest import login_access_token
 
 
@@ -40,7 +40,7 @@ def _agent(**overrides: object) -> ResolvedAgent:
 def _new_sessionmaker():
     """每个用例独立建 engine：模块级 engine 会跨事件循环复用连接而报错。"""
 
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app.config import get_settings
     from app.db import create_db_engine

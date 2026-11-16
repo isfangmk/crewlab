@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,10 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth
 from app.db import get_db
-from app.services.sandbox import sandbox_query_service
-from app.services.sandbox import sandbox_service
 from app.services.observability.audit_service import write_audit
 from app.services.platform.auth_service import AuthUser
+from app.services.sandbox import sandbox_query_service, sandbox_service
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +148,7 @@ async def sandbox_summary(
 @router.post("/sandbox/run", response_model=SandboxRunOut)
 async def run_sandbox_code(
     payload: SandboxRunInput,
-    db: AsyncSession = Depends(get_db),
+    _db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> SandboxRunOut:
     """手动跑一段代码：用于验证沙盒环境是否正常。"""

@@ -17,7 +17,6 @@ from sse_starlette.sse import EventSourceResponse
 from app.api.deps import require_auth
 from app.db import get_db
 from app.models.workflow import Workflow as WorkflowRow
-from app.models.workflow import WorkflowRun as WorkflowRunRow
 from app.schemas.workflow import (
     NODE_GROUPS,
     NODE_KINDS,
@@ -27,13 +26,11 @@ from app.schemas.workflow import (
     node_kind_title,
     parse_definition,
 )
-from app.services.workflow import run_control
-from app.services.workflow import workflow_runner
-from app.services.workflow import workflow_service
-from app.services.workflow.workflow_queries import latest_runs, workflow_names
 from app.services.observability.audit_service import write_audit
 from app.services.platform.auth_service import AuthUser
+from app.services.workflow import run_control, workflow_runner, workflow_service
 from app.services.workflow.workflow_events import TERMINAL_EVENTS, workflow_events
+from app.services.workflow.workflow_queries import latest_runs, workflow_names
 
 logger = logging.getLogger(__name__)
 
@@ -357,7 +354,7 @@ async def validate_workflow(body: WorkflowDefinitionInput) -> dict:
 
     try:
         validate(body.definition)
-    except Exception as exc:  # ADK 抛 GraphValidationError 等，统一转成可读错误
+    except Exception as exc:  # noqa: BLE001 — ADK 抛 GraphValidationError 等，统一转成可读错误
         logger.info("工作流校验不通过: %s", exc)
         return {"ok": False, "error": str(exc), "warnings": graph_warnings(body.definition)}
     return {"ok": True, "error": "", "warnings": graph_warnings(body.definition)}

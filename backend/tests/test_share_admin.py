@@ -12,7 +12,8 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
@@ -173,35 +174,35 @@ async def test_share_list_filters_visibility_and_revoke(env: dict[str, str], api
             finally:
                 await engine.dispose()
 
-            # admin 全见 5 条；分页 total 不随当页条数变化
-            resp = await client.get("/api/v1/shares", headers=admin_headers)
+            # 计数按本轮 tag 收口：库里可能有历史冒烟留下的真实分享行，不能全库数数
+            resp = await client.get(f"/api/v1/shares?q={tag}", headers=admin_headers)
             assert resp.status_code == 200, resp.text
             body = resp.json()
             assert body["total"] == 5
             assert len(body["items"]) == 5
-            page = await client.get("/api/v1/shares?limit=2&offset=0", headers=admin_headers)
+            page = await client.get(f"/api/v1/shares?q={tag}&limit=2&offset=0", headers=admin_headers)
             assert page.json()["total"] == 5
             assert len(page.json()["items"]) == 2
             assert all("creator" in item and "expired" in item for item in body["items"])
 
             # dev 只见自己创建的 3 条；viewer 一条没有（非 admin 排除空创建人行）
-            dev_view = (await client.get("/api/v1/shares", headers=dev_headers)).json()
+            dev_view = (await client.get(f"/api/v1/shares?q={tag}", headers=dev_headers)).json()
             assert dev_view["total"] == 3
             assert all(item["created_by"] == dev_id for item in dev_view["items"])
-            viewer_view = (await client.get("/api/v1/shares", headers=viewer_headers)).json()
+            viewer_view = (await client.get(f"/api/v1/shares?q={tag}", headers=viewer_headers)).json()
             assert viewer_view["total"] == 0
 
             # kind / 状态 / 标题筛选
-            only_eval = (await client.get("/api/v1/shares?kind=eval", headers=admin_headers)).json()
+            only_eval = (await client.get(f"/api/v1/shares?q={tag}&kind=eval", headers=admin_headers)).json()
             assert only_eval["total"] == 2
             assert all(item["kind"] == "eval" for item in only_eval["items"])
-            only_active = (await client.get("/api/v1/shares?status=active", headers=admin_headers)).json()
+            only_active = (await client.get(f"/api/v1/shares?q={tag}&status=active", headers=admin_headers)).json()
             assert only_active["total"] == 4
-            only_expired = (await client.get("/api/v1/shares?status=expired", headers=admin_headers)).json()
+            only_expired = (await client.get(f"/api/v1/shares?q={tag}&status=expired", headers=admin_headers)).json()
             assert only_expired["total"] == 1
             assert only_expired["items"][0]["expired"] is True
             by_title = (
-                await client.get("/api/v1/shares?q=one", headers=admin_headers)
+                await client.get(f"/api/v1/shares?q={tag}-one", headers=admin_headers)
             ).json()
             assert by_title["total"] == 2
             assert all("one" in item["title"] for item in by_title["items"])
@@ -233,7 +234,7 @@ async def test_share_list_filters_visibility_and_revoke(env: dict[str, str], api
                 f"/api/v1/shares/session/{share_id}", headers=viewer_headers
             )
             assert forbidden.status_code == 403
-            other = await client.get("/api/v1/shares?q=two", headers=admin_headers)
+            other = await client.get(f"/api/v1/shares?q={tag}-two", headers=admin_headers)
             other_id = next(i["id"] for i in other.json()["items"] if i["kind"] == "session")
             denied = await client.delete(f"/api/v1/shares/session/{other_id}", headers=dev_headers)
             assert denied.status_code == 403
@@ -244,13 +245,13 @@ async def test_share_list_filters_visibility_and_revoke(env: dict[str, str], api
             assert (await client.get(f"/api/v1/chat/shares/{raw_token}")).status_code == 404
 
             # 评测分享撤销（admin 对空创建人历史行可撤）
-            eval_rows = (await client.get("/api/v1/shares?kind=eval", headers=admin_headers)).json()
+            eval_rows = (await client.get(f"/api/v1/shares?q={tag}&kind=eval", headers=admin_headers)).json()
             null_row = next(i for i in eval_rows["items"] if i["created_by"] is None)
             admin_revoke = await client.delete(
                 f"/api/v1/shares/eval/{null_row['id']}", headers=admin_headers
             )
             assert admin_revoke.status_code == 200
-            bad_kind = await client.delete(f"/api/v1/shares/bogus/1", headers=admin_headers)
+            bad_kind = await client.delete("/api/v1/shares/bogus/1", headers=admin_headers)
             assert bad_kind.status_code == 400
         finally:
             await _cleanup(list(session_ids), dataset_ids, run_uids, user_ids)

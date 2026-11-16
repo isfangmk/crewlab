@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_admin, require_auth
 from app.db import get_db
 from app.models.user import User
+from app.services.observability.audit_service import write_audit
 from app.services.platform import auth_service
 from app.services.platform.auth_service import AuthUser
-from app.services.observability.audit_service import write_audit
 
 router = APIRouter(tags=["auth"])
 
@@ -26,7 +26,7 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     access_token: str
-    token_type: str = "bearer"
+    token_type: str = "bearer"  # noqa: S105 — OAuth 响应字段名，不是密钥
     role: str
     email: str
 

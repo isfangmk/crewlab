@@ -99,7 +99,8 @@ def build_worker_tool_gate(
 
     denied = set(disallowed_tool_names or ())
 
-    async def before_tool_callback(tool: Any, args: Any, tool_context: Any) -> dict[str, Any] | None:
+    # args / tool_context 是 ADK before_tool_callback 契约参数（SDK 调用），实现侧不需要
+    async def before_tool_callback(tool: Any, args: Any, tool_context: Any) -> dict[str, Any] | None:  # pyright: ignore[reportUnusedParameter]
         name = getattr(tool, "name", "") or ""
         if name in denied or _WORKER_WRITE_NAME_RE.search(name):
             logger.info("worker 只读闸门拒绝工具 name=%s", name)
@@ -118,7 +119,6 @@ def build_worker_agent(
     name: str,
     target: str,
     instruction: str,
-    question: str,
     extra_tools: list[Any] | None = None,
     skills: list[Any] | None = None,
     knowledge_scope: KnowledgeScope | None = None,
@@ -290,9 +290,6 @@ async def run_worker(
                     runner=runner,
                     prompt=prompt,
                     budget=budget,
-                    publish=publish,
-                    dispatch_uid=dispatch_uid,
-                    worker_uid=worker_uid,
                     log=_log,
                     stop_check=stop_check,
                 ),
@@ -339,10 +336,8 @@ async def _execute(
     runner: InMemoryRunner,
     prompt: str,
     budget: WorkerBudget,
-    publish: Callable[[dict[str, Any]], Awaitable[None]],
-    dispatch_uid: str,
-    worker_uid: str,
-    log: Callable[[str, str], Awaitable[None]],
+    # log 按 (line, tool=...) 调用；可选关键字参数无法用普通 Callable 精确表达
+    log: Callable[..., Awaitable[None]],
     stop_check: Callable[[], bool],
 ) -> dict[str, Any]:
     """headless 跑一个 worker 回合，收集文本 / call_id / usage。"""

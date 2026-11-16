@@ -195,7 +195,7 @@ def test_tool_confirmation_wire_accepts_payload() -> None:
 
 
 def _new_sessionmaker():
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app.config import get_settings
 

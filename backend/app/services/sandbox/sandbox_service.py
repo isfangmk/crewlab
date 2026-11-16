@@ -91,8 +91,8 @@ OUTPUT_FILE_STDOUT = ".stdout"
 OUTPUT_FILE_STDERR = ".stderr"
 OUTPUT_FILE_EXIT = ".exit"
 
-# 容器内的工作目录：代码文件与输出文件都放这里。
-CONTAINER_WORKDIR = "/tmp"
+# 容器内的工作目录：代码文件与输出文件都放这里（容器内路径，非宿主机临时文件）。
+CONTAINER_WORKDIR = "/tmp"  # noqa: S108 — 容器内路径，不落宿主机
 
 # 容器内的硬限制：内存、进程数。防止代码把宿主机拖垮。
 MEMORY_LIMIT = "512m"
@@ -429,7 +429,7 @@ def _execute_locally(*, code: str, timeout: int) -> tuple[str, str, int | None]:
         path = Path(tmp) / "main.py"
         path.write_text(code, encoding="utf-8")
         try:
-            proc = subprocess.run(
+            proc = subprocess.run(  # noqa: S603 — 受信固定命令行：解释器 + 固定参数 + 自建临时文件
                 # -I：隔离模式，忽略 PYTHONPATH 等环境注入；
                 # -X utf8：Windows 上强制 UTF-8，避免中文输出按本地代码页解码报错。
                 [sys.executable, "-I", "-X", "utf8", str(path)],

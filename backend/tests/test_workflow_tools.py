@@ -35,7 +35,7 @@ async def _db_sessions() -> AsyncGenerator[object, None]:
     直接用它会在下一次用例里报 Event loop is closed。
     """
 
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app.config import get_settings
 
@@ -101,7 +101,8 @@ def test_groups_use_subject_keys_not_catch_all() -> None:
 
     groups = {spec["group"] for spec in BUILTIN_TOOL_SPECS}
     assert "builtin" not in groups
-    assert groups == {"code", "knowledge", "search", "workflow", "memory"}
+    # 新增能力组必须在此登记：key 要是具体能力域，不能是「内置」这类同义反复
+    assert groups == {"code", "knowledge", "search", "workflow", "memory", "interaction", "investigation"}
 
 
 def test_workflow_tools_cover_listing_detail_running_and_results() -> None:

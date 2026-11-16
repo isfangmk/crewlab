@@ -11,8 +11,6 @@ import io
 import tarfile
 from typing import Any
 
-import pytest
-
 from app.services.sandbox import sandbox_service
 
 

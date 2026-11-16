@@ -329,8 +329,8 @@ class KnowledgeNode(CanvasNode):
         return template_input(self.node_def.query, state, "query")
 
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
-        from app.services.knowledge.knowledge_service import search_for_agent
         from app.services.knowledge.knowledge_scope import KnowledgeScope
+        from app.services.knowledge.knowledge_service import search_for_agent
 
         node = self.node_def
         query = workflow_vars.render(node.query, state)
@@ -495,9 +495,10 @@ def _http_request(
     method: str, url: str, headers: dict[str, str], body: str | None
 ) -> dict[str, Any]:
     data = None if body is None else body.encode("utf-8")
-    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    # noqa 说明：出网请求是工作流 HTTP 节点的预期行为，url 来自用户配置的节点定义
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)  # noqa: S310
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310
             text = response.read().decode("utf-8", errors="replace")
             return {
                 "status": response.status,

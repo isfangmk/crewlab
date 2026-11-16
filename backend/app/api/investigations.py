@@ -10,13 +10,12 @@ import json
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sse_starlette import EventSourceResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sse_starlette import EventSourceResponse
 
 from app.api.deps import get_db, require_auth, require_not_viewer
 from app.models.investigation import InvestigationDispatch
-from app.models.user import User
 from app.services.investigation import dispatch_service
 from app.services.investigation.investigation_events import (
     TERMINAL_EVENTS,

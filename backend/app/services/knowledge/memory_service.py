@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.memory import MemoryItem
 from app.services.agent import agent_service
-from app.vector_store import MEMORY_NAMESPACE, get_vector_store, raise_vector_store_unavailable
 from app.services.platform.embedding_client import embed_text
+from app.vector_store import MEMORY_NAMESPACE, get_vector_store, raise_vector_store_unavailable
 
 logger = logging.getLogger(__name__)
 

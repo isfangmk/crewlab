@@ -71,7 +71,8 @@ async def save_from_tool_result(
         payload_json = ""
         file_name = ""
         if kind == "file":
-            assert isinstance(payload, dict)
+            if not isinstance(payload, dict):
+                raise ValueError("Artifact 文件载荷必须是对象")
             # base64 里可能带换行（用户代码按行编码），先剥离再校验
             b64 = "".join(str(payload.get("data", "")).split())
             try:

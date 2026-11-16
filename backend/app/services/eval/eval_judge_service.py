@@ -114,11 +114,17 @@ async def judge_result(
     if result.session_id:
         try:
             messages = await chat_service.list_messages(db, result.session_id)
-            tool_lines = [
-                f"- {m.tool_name or m.tool_call_id}: {str(m.content)[:200]}"
-                for m in messages
-                if m.role == "tool" and (m.tool_name or m.content)
-            ]
+            # 工具名 / 调用 id 存在 tool_call_json 里，消息行本体没有这两个字段
+            tool_lines = []
+            for m in messages:
+                if m.role != "tool":
+                    continue
+                raw = json.loads(m.tool_call_json) if m.tool_call_json else {}
+                meta = raw if isinstance(raw, dict) else {}
+                label = str(meta.get("name") or meta.get("id") or meta.get("tool_call_id") or "")
+                if not label and not m.content:
+                    continue
+                tool_lines.append(f"- {label or 'tool'}: {str(m.content)[:200]}")
             if tool_lines:
                 tool_context = "\n【工具返回摘要】\n" + "\n".join(tool_lines[:20])
         except Exception:  # noqa: BLE001 - 评分上下文缺失不阻塞判分
@@ -143,7 +149,9 @@ async def judge_result(
             extra_body=extra if extra else None,
             response_format={"type": "json_object"},
         )
-        content = resp.choices[0].message.content or ""
+        # litellm 把流式 wrapper 并进了返回类型注解；这里是非流式响应，choices 实际存在
+        choices = getattr(resp, "choices") or []
+        content = choices[0].message.content or ""
         dims = parse_judge_response(content)
     except Exception as exc:  # noqa: BLE001 - 判分失败显式落 parse_error
         logger.exception("LLM 评分失败 result_id=%s", result.id)

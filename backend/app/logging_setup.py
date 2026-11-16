@@ -176,7 +176,9 @@ def _maybe_setup_otlp() -> None:
         return
     try:
         from opentelemetry import trace
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+
+        # 可选依赖：缺包由下面的 ImportError 统一转成可读报错
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # pyright: ignore[reportMissingImports]
             OTLPSpanExporter,
         )
         from opentelemetry.sdk.resources import Resource

@@ -29,7 +29,7 @@ def _validate_change_summary(value: str) -> str:
 async def snapshot_agent_version(
     db: AsyncSession,
     agent_name: str,
-    snapshot: dict,
+    snapshot: object,
     *,
     created_by: int | None,
     change_summary: str = "",

@@ -18,8 +18,8 @@ from app.db import get_db
 from app.models.audit import AuditLog
 from app.models.user import User
 from app.services.observability.audit_service import write_audit
-from app.services.platform.auth_service import AuthUser
 from app.services.observability.redaction import redact_value
+from app.services.platform.auth_service import AuthUser
 
 router = APIRouter(tags=["audit"])
 

@@ -33,7 +33,6 @@ async def list_workflows(status: str = "", keyword: str = "", limit: int = 20) -
     from sqlalchemy import func, or_, select
 
     from app.models.workflow import Workflow as WorkflowRow
-    from app.models.workflow import WorkflowRun as WorkflowRunRow
     from app.schemas.workflow import parse_definition
 
     if limit < 1 or limit > 50:

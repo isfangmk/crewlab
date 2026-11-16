@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.trigger import TriggerRule, TriggerRun
-from app.services.workflow import workflow_runner
 from app.services.observability.audit_service import write_audit
+from app.services.workflow import workflow_runner
 
 logger = logging.getLogger(__name__)
 

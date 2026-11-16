@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.pool import NullPool
 
 from app.db import create_db_engine
@@ -57,7 +57,7 @@ pytestmark = pytest.mark.skipif(
 async def test_code_runs_in_container_and_returns_output(db_sessions) -> None:
     """代码在容器里跑，stdout 要如实回来。"""
 
-    async with db_sessions() as db:
+    async with db_sessions():
         result = await sandbox_service.run_code(
             code="print(6 * 7)",
             ctx=sandbox_service.SandboxContext(
@@ -74,7 +74,7 @@ async def test_code_runs_in_container_and_returns_output(db_sessions) -> None:
 async def test_failing_code_reports_stderr_and_exit_code(db_sessions) -> None:
     """失败的代码要留下 stderr 与非零退出码，不能当成成功。"""
 
-    async with db_sessions() as db:
+    async with db_sessions():
         result = await sandbox_service.run_code(
             code="import sys; sys.stderr.write('boom\\n'); raise SystemExit(3)",
             ctx=sandbox_service.SandboxContext(
@@ -102,7 +102,7 @@ async def test_network_is_blocked_by_default(db_sessions) -> None:
         "except Exception:\n"
         "    print('NET_BLOCKED')\n"
     )
-    async with db_sessions() as db:
+    async with db_sessions():
         result = await sandbox_service.run_code(
             code=code,
             ctx=sandbox_service.SandboxContext(
@@ -150,7 +150,7 @@ async def test_output_capture_is_reliable_across_runs(db_sessions) -> None:
     """
 
     for i in range(6):
-        async with db_sessions() as db:
+        async with db_sessions():
             result = await sandbox_service.run_code(
                 code=f"print('run-{i}')",
                 ctx=sandbox_service.SandboxContext(
@@ -171,7 +171,7 @@ async def test_sandbox_cannot_read_host_files(db_sessions) -> None:
         "print('HOST_DIR' if os.path.exists('/mnt/c/Users') "
         "or os.path.exists('/mnt/d') else 'ISOLATED')\n"
     )
-    async with db_sessions() as db:
+    async with db_sessions():
         result = await sandbox_service.run_code(
             code=code,
             ctx=sandbox_service.SandboxContext(

@@ -23,14 +23,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app as _app_pkg
 from app.adk_runtime.sandbox_code_executor import SandboxCodeExecutor
 from app.adk_runtime.toolset import build_knowledge_tools
-from app.tools.catalog import tool_param_specs
 from app.models.skill import UserSkill
-from app.services.mcp import mcp_service
-from app.services.skills import skill_bundle
-from app.services.skills import skill_groups
 from app.services.knowledge.knowledge_scope import KnowledgeScope
+from app.services.mcp import mcp_service
 from app.services.mcp.mcp_service import McpToolRef
+from app.services.skills import skill_bundle, skill_groups
 from app.services.skills.skill_bundle import RISK_LEVELS, SkillPayload
+from app.tools.catalog import tool_param_specs
 
 logger = logging.getLogger(__name__)
 

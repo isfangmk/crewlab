@@ -23,8 +23,7 @@ from sqlalchemy import func, select
 
 from app.db import SessionLocal
 from app.models.knowledge import KnowledgeDoc
-from app.services.knowledge import knowledge_service
-from app.services.knowledge import knowledge_source_service
+from app.services.knowledge import knowledge_service, knowledge_source_service
 from app.services.observability.audit_service import write_audit
 
 logger = logging.getLogger(__name__)

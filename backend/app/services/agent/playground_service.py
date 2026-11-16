@@ -15,10 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adk_runtime.stream_bridge import SseFrame, stream_adk_turn
 from app.services.agent import agent_service
-from app.services.platform import app_settings_service
-from app.services.platform import llm_config
 from app.services.agent.agent_service import ResolvedAgent
 from app.services.agent.agent_tool_service import build_agent_tool_bundle
+from app.services.platform import app_settings_service, llm_config
 from app.services.platform.llm_config import resolve_model
 
 logger = logging.getLogger(__name__)

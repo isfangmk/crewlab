@@ -15,8 +15,8 @@ from pathlib import Path
 
 from sqlalchemy import (
     LargeBinary,
-    exists,
     delete,
+    exists,
     func,
     literal,
     or_,
@@ -25,10 +25,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
-from app.models.knowledge import KnowledgeChunk, KnowledgeDoc
+
 from app.config import get_settings
-from app.services.platform.embedding_client import embed_text, embed_texts
+from app.models.knowledge import KnowledgeChunk, KnowledgeDoc
 from app.services.knowledge.knowledge_scope import KnowledgeScope, path_condition, scope_condition
+from app.services.platform.embedding_client import embed_text, embed_texts
 from app.vector_store import (
     KNOWLEDGE_NAMESPACE,
     get_vector_store,
@@ -962,8 +963,9 @@ def extract_upload_text(*, filename: str, raw: bytes) -> str:
             raise ValueError("文件内容为空")
         return content
     if lower.endswith(".pdf"):
-        from pypdf import PdfReader
         import io
+
+        from pypdf import PdfReader
 
         reader = PdfReader(io.BytesIO(raw))
         parts: list[str] = []

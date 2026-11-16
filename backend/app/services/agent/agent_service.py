@@ -15,13 +15,13 @@ from app.adk_runtime.naming import adk_identifier, root_adk_name
 from app.models.agent import UserAgent
 from app.models.mcp import McpServer
 from app.services.agent import agent_version_service
-from app.services.platform import app_settings_service
 from app.services.knowledge.knowledge_scope import (
     KnowledgeScope,
     empty_scope,
     parse_scope,
     scope_to_wire,
 )
+from app.services.platform import app_settings_service
 
 logger = logging.getLogger(__name__)
 

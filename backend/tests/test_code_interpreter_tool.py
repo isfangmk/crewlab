@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 
-import httpx
 import pytest
 
-from app.config import get_settings
 from app.adk_runtime.workflow_node_impl import SANDBOX_RESULT_MARKER
+from app.config import get_settings
 from app.tools.code_interpreter import (
     MAX_ARTIFACT_BYTES,
     MAX_ARTIFACTS,

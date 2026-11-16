@@ -53,13 +53,13 @@ from app.db import SessionLocal, engine
 from app.logging_setup import setup_logging
 from app.middleware_request_id import RequestIdMiddleware
 from app.models import Base
-from app.services.platform.auth_service import ensure_bootstrap_admin
-from app.services.platform.llm_config import ensure_seed_provider
 from app.services.platform.app_settings_service import (
     ensure_agent_runtime,
     ensure_knowledge_settings,
     ensure_system_timezone,
 )
+from app.services.platform.auth_service import ensure_bootstrap_admin
+from app.services.platform.llm_config import ensure_seed_provider
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,6 @@ import httpx
 import pytest
 
 from app.db import create_db_engine
-
 from tests.conftest import login_access_token
 
 
@@ -375,7 +374,7 @@ async def test_session_model_filter_and_summary_stats(
     不是模型输出；用真实对话会让断言依赖上游。
     """
 
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app.config import get_settings
     from app.models.attachment import ChatAttachment

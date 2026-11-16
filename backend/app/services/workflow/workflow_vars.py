@@ -133,7 +133,8 @@ def resolve_expression(expression: str, state: dict[str, Any]) -> Any:
 
     tokens = parse_expression(expression)
     root = tokens[0]
-    assert isinstance(root, str)
+    if not isinstance(root, str):
+        raise ValueError(f"表达式根变量非法: {expression}")
     if root not in state:
         raise MissingVariableError(root)
     value = state[root]

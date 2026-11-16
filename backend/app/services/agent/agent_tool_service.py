@@ -13,10 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adk_runtime.web_search_tool import build_web_search_tool
 from app.services.agent import agent_service
-from app.services.mcp import mcp_service
-from app.services.skills import skills_service
 from app.services.agent.agent_service import ResolvedAgent
+from app.services.mcp import mcp_service
 from app.services.platform.web_search_service import resolve_deepseek_search_cred
+from app.services.skills import skills_service
 
 logger = logging.getLogger(__name__)
 

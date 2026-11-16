@@ -237,7 +237,7 @@ async def retry_worker(db, dispatch_uid: str, worker_uid: str) -> InvestigationW
     row.error = ""
     row.log_text = ""
     row.finished_at = None
-    await _merge_findings(db, dispatch, worker_uid, None)
+    await _merge_findings(dispatch, worker_uid, None)
     # 重试回到进行中：终态先撤销，跑完再重新聚合
     dispatch.status = "running"
     dispatch.finished_at = None
@@ -306,7 +306,6 @@ async def _worker_task(
     try:
         agent = await _assemble_worker(
             session_id=session_id,
-            question=question,
             spec=spec,
             budget=budget,
         )
@@ -336,7 +335,7 @@ async def _worker_task(
 
 
 async def _assemble_worker(
-    *, session_id: str, question: str, spec: dict[str, str], budget: WorkerBudget
+    *, session_id: str, spec: dict[str, str], budget: WorkerBudget
 ):
     """按会话助理配置装配单路 worker（只读工具 + 继承 MCP + 禁写闸门）。"""
 
@@ -372,7 +371,6 @@ async def _assemble_worker(
             name=spec["name"],
             target=spec["target"],
             instruction=spec.get("instruction", ""),
-            question=question,
             extra_tools=bundle.extra_tools,
             # 技能不进 worker（口径：只读内置 + 知识库 + 继承 MCP）：
             # load_skill 展开后的声明工具会与既有工具撞名（Tool names must be unique）
@@ -418,7 +416,7 @@ async def _persist_worker_result(db, dispatch_uid: str, result: WorkerResult) ->
         budget["used_tokens"] = result.usage
     row.budget_json = json.dumps(budget, ensure_ascii=False)
 
-    await _merge_findings(db, dispatch, result.worker_uid, result.findings)
+    await _merge_findings(dispatch, result.worker_uid, result.findings)
     await db.commit()
 
     publish = investigation_events.open(dispatch_uid)
@@ -445,7 +443,7 @@ async def _persist_worker_result(db, dispatch_uid: str, result: WorkerResult) ->
     await _refresh_dispatch_state(db, dispatch_uid)
 
 
-async def _merge_findings(db, dispatch: InvestigationDispatch, worker_uid: str, new_findings: list[dict] | None) -> None:
+async def _merge_findings(dispatch: InvestigationDispatch, worker_uid: str, new_findings: list[dict] | None) -> None:
     """合并本路发现到全局编号序列：旧发现转 retired，新发现追加新号（不复用）。"""
 
     existing = json.loads(dispatch.findings_json or "[]")

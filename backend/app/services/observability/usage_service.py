@@ -237,7 +237,11 @@ async def usage_summary(
         models_seen.add(model_key)
         agents_seen.add(agent_key)
         channels_seen.add(channel_key)
-        turns, prompt, completion, total_tokens = row[4], row[5], row[6], row[7]
+        # prompt/completion/total 在 SQL 侧已 coalesce 为 0，这里对齐类型
+        turns = row[4]
+        prompt = int(row[5] or 0)
+        completion = int(row[6] or 0)
+        total_tokens = int(row[7] or 0)
         duration_sum, duration_n = row[8], row[9]
         cost = _cost_of(price_for(prices, model_key), prompt, completion)
         for bucket, key in ((by_day, day_key), (by_model, model_key), (by_agent, agent_key)):
@@ -276,7 +280,8 @@ async def usage_summary(
     today_stmt = select(func.coalesce(func.sum(ObservationTurn.total_tokens), 0)).where(
         day_expr == datetime.now(tz).strftime("%Y-%m-%d")
     )
-    today_tokens = int((await db.execute(today_stmt)).scalar_one())
+    # SQL 侧已 coalesce 为 0，这里对齐类型
+    today_tokens = int((await db.execute(today_stmt)).scalar_one() or 0)
 
     return {
         "stats": stats,

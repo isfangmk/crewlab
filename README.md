@@ -31,6 +31,7 @@ cd ..
 .\scripts\service.ps1 restart backend   # 后端改代码后用这个
 .\scripts\service.ps1 stop              # 停前后端
 .\scripts\backend-typecheck.ps1         # basedpyright
+.\scripts\backend-lint.ps1              # ruff（app + tests 必须 0 违规）
 ```
 
 健康检查：`http://127.0.0.1:18080/healthz`

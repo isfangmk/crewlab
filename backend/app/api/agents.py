@@ -12,12 +12,10 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
-from app.services.agent import agent_service
-from app.services.agent import agent_version_service
-from app.services.agent import playground_service
+from app.services.agent import agent_service, agent_version_service, playground_service
+from app.services.knowledge.knowledge_scope import KnowledgeScope, parse_scope, validate_scope
 from app.services.observability.audit_service import write_audit
 from app.services.platform.auth_service import AuthUser
-from app.services.knowledge.knowledge_scope import KnowledgeScope, parse_scope, validate_scope
 
 router = APIRouter(tags=["agents"])
 
@@ -371,7 +369,7 @@ async def playground_stream(
                 actor_user_id=user.id,
                 action="agent.playground",
                 resource_type="agent",
-                resource_id=draft.name,
+                resource_id=draft.name or "",
             )
             async for frame in playground_service.stream_preview(
                 db,

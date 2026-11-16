@@ -189,7 +189,11 @@ async def _request_token(
     elif auth_method == "client_secret_post" and client_secret:
         body["client_secret"] = client_secret
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-        resp = await client.post(token_endpoint, data=body, auth=auth)
+        # auth 只在 client_secret 类认证方式下携带；None 时不带认证头
+        if auth is None:
+            resp = await client.post(token_endpoint, data=body)
+        else:
+            resp = await client.post(token_endpoint, data=body, auth=auth)
         if resp.status_code != 200:
             raise ValueError(f"换取 token 失败（HTTP {resp.status_code}）")
         payload = resp.json()

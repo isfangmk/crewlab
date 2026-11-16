@@ -105,7 +105,7 @@ async def sync_vault_once(
         )
     )
     for key in rows.all():
-        if not key.startswith(prefix) or key in files:
+        if not key or not key.startswith(prefix) or key in files:
             continue
         if await delete_vault_doc(db, external_key=key):
             stats["deleted"] += 1

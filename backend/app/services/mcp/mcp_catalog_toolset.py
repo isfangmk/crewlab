@@ -9,8 +9,8 @@ from typing import Optional
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
-from google.adk.tools.mcp_tool.mcp_tool import McpTool
 from google.adk.tools.mcp_tool.mcp_session_manager import MCPSessionManager
+from google.adk.tools.mcp_tool.mcp_tool import McpTool
 from mcp.types import Tool as McpSdkTool
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -110,12 +110,13 @@ class CachedMcpCatalogToolset(BaseToolset):
             server.approval_policy,
         )
 
-    async def list_resources(self, readonly_context=None) -> list[str]:
+    # readonly_context 是 LoadMcpResourceTool 契约参数（SDK 调用），实现侧不需要
+    async def list_resources(self, readonly_context=None) -> list[str]:  # pyright: ignore[reportUnusedParameter]
         """LoadMcpResourceTool 契约：返回资源名清单（读缓存，不连远程）。"""
 
         return [item.get("name", "") for item in self._resources if item.get("name")]
 
-    async def read_resource(self, name: str, readonly_context=None):
+    async def read_resource(self, name: str, readonly_context=None):  # pyright: ignore[reportUnusedParameter]
         """LoadMcpResourceTool 契约：按资源名实时读取，返回 SDK 内容对象列表。"""
 
         uri = ""

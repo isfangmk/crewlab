@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.adk_runtime.agent_factory import FOLLOWUPS_INSTRUCTION, build_chat_agent
 from app.adk_runtime.stream_bridge import SseFrame

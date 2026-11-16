@@ -18,17 +18,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
-from app.services.eval import annotation_service
-from app.services.eval import eval_gate_service
-from app.services.eval import eval_judge_service
-from app.services.eval import eval_runner
-from app.services.eval import eval_service
-from app.services.eval import eval_share_service
-from app.services.eval import redteam_library
+from app.services.eval import (
+    annotation_service,
+    eval_gate_service,
+    eval_judge_service,
+    eval_runner,
+    eval_service,
+    eval_share_service,
+    redteam_library,
+)
 from app.services.observability.audit_service import write_audit
+from app.services.observability.redaction import redact_value
 from app.services.platform.auth_service import AuthUser
 from app.services.platform.llm_config import resolve_model
-from app.services.observability.redaction import redact_value
 
 router = APIRouter(tags=["evals"])
 

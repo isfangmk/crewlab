@@ -7,6 +7,7 @@ URL 里的 userinfo 与敏感查询参数同样不能带出。
 from __future__ import annotations
 
 import re
+from typing import Any
 from urllib.parse import unquote
 
 from app.logging_setup import is_secret_key, redact_secrets
@@ -66,7 +67,7 @@ def redact_url(url: str) -> str:
     return f"{scheme}{authority}{remainder}{query}{fragment}"
 
 
-def redact_value(value: object) -> object:
+def redact_value(value: object) -> Any:
     """按类型递归脱敏：dict 按键名、str 按内嵌密钥、URL 另做结构化遮蔽。"""
 
     if isinstance(value, dict):

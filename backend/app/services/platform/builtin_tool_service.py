@@ -8,7 +8,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.platform.web_search_service import deepseek_web_search, resolve_deepseek_search_cred
+from app.services.platform.web_search_service import (
+    deepseek_web_search,
+    resolve_deepseek_search_cred,
+)
 from app.tools.catalog import (
     BUILTIN_TOOL_GROUPS,
     BUILTIN_TOOL_SPECS,

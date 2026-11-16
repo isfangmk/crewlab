@@ -14,11 +14,11 @@ from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.pool import NullPool
 
-from app.db import create_db_engine
 from app.adk_runtime.sandbox_code_executor import SandboxCodeExecutor, _session_id
+from app.db import create_db_engine
 from app.services.sandbox import sandbox_service
 
 
@@ -45,7 +45,6 @@ def db_sessions():
     import asyncio
 
     from app.config import get_settings
-    from app.db import SessionLocal as ModuleSessionLocal
 
     engine = create_db_engine(get_settings().database_url, poolclass=NullPool)
     maker = async_sessionmaker(engine, expire_on_commit=False)

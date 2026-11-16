@@ -17,16 +17,15 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import delete
 
-from app.db import create_db_engine
 from app.adk_runtime.workflow_node_impl import (
     SANDBOX_RESULT_MARKER,
     _build_sandbox_script,
     _parse_sandbox_payload,
     _parse_sandbox_reads,
 )
+from app.db import create_db_engine
 from app.models.sandbox import SandboxExecution
-from app.services.sandbox import sandbox_query_service
-from app.services.sandbox import sandbox_service
+from app.services.sandbox import sandbox_query_service, sandbox_service
 
 
 @asynccontextmanager
@@ -37,7 +36,7 @@ async def _db_sessions() -> AsyncGenerator[object, None]:
     直接用它会在下一次用例里报 Event loop is closed。
     """
 
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app.config import get_settings
 

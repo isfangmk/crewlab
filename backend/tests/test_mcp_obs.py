@@ -47,9 +47,9 @@ class TestToolSurface:
     def test_readonly_heuristic_labels(self):
         """查询工具过只读启发式 → 安全；写工具不过 → 需审批（与后端判定同口径）。"""
 
-        from app.services.mcp.mcp_service import _needs_approval
-
         import server as obs_server
+
+        from app.services.mcp.mcp_service import _needs_approval
 
         names = set(obs_server.server._tool_manager._tools)
         approval_needed = {n for n in names if _needs_approval("non_readonly", n, "")}
@@ -61,7 +61,6 @@ class TestIncidentCrossDomain:
 
     def test_metric_error_spike_in_incident_window(self, obs):
         t_start = abs_offset(INCIDENT["degrade_start"])
-        t_end = abs_offset(INCIDENT["recover"])
         inc = obs_series.rate("http_requests_total",
                               {"service": "payment-svc", "code": "504",
                                "route": "/payments/charge"}, t_start + 400)

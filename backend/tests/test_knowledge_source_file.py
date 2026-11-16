@@ -51,7 +51,6 @@ def _backend_upload_dir() -> Path:
         for line in env_file.read_text(encoding="utf-8").splitlines():
             if line.startswith("KNOWLEDGE_UPLOAD_DIR="):
                 configured = line.split("=", 1)[1].strip().strip('"')
-    relative = not Path(configured).is_absolute() if configured else True
     if not configured:
         configured = "./data/uploads"
     path = Path(configured)

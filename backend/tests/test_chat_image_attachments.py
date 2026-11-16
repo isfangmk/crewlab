@@ -10,7 +10,6 @@ import pytest
 
 from app.adk_runtime.stream_bridge import _user_content_with_images
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 # 1x1 蓝色 PNG

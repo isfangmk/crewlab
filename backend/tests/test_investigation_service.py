@@ -11,7 +11,8 @@ import json
 import uuid
 
 import pytest
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings

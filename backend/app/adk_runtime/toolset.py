@@ -15,7 +15,6 @@ from app.tools.catalog import (
     builtin_tool_registry,
     tool_impl,
     tool_param_specs,
-    workflow_tool_names,
 )
 from app.tools.knowledge import query_knowledge, scoped_query_knowledge
 from app.tools.user_input import ASK_USER_TOOL_NAME

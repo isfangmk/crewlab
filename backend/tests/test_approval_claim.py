@@ -31,7 +31,7 @@ def _approval_row(session_id: str) -> Approval:
 def _new_sessionmaker():
     """每个用例独立建 engine：模块级 engine 会跨事件循环复用连接而报错。"""
 
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app.config import get_settings
 

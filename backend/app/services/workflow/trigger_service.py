@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
-from datetime import datetime, timedelta, timezone, tzinfo
+from datetime import datetime, timezone, tzinfo
 from typing import Any
 from uuid import uuid4
 
@@ -17,8 +17,7 @@ from croniter import croniter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.trigger import TriggerRun, TriggerRule
-from app.services.observability.audit_service import write_audit
+from app.models.trigger import TriggerRule, TriggerRun
 from app.services.platform.auth_service import hash_token
 
 logger = logging.getLogger(__name__)
