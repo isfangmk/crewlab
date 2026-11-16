@@ -31,6 +31,8 @@ import { Button, Chip, ChoiceChip, CodeBlock, DropdownMenu, DropdownMenuContent,
 import { Modal } from '@/components/Modal';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
+import { DispatchBlock } from '@/components/investigation/DispatchBlock';
+import type { LocateTarget } from '@/components/investigation/InvestigationWorkbench';
 import { SearchResults, collectToolSources, extractSources } from '@/components/SourcesBlock';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';import { InterpreterArtifacts, type InterpreterArtifact } from '@/components/InterpreterArtifacts';
@@ -68,6 +70,8 @@ type Props = {
   followupsActive?: boolean;
   /** 点击建议问题：填入输入框并立即发送 */
   onUseSuggestion?(text: string): void;
+  /** 引用角标/排查块定位：跳右栏工作台的发现或 worker */
+  onLocate?(target: LocateTarget): void;
 };
 
 export function MessageBubble({
@@ -80,11 +84,19 @@ export function MessageBubble({
   onEditResend,
   followupsActive,
   onUseSuggestion,
+  onLocate,
 }: Props) {
   if ((message.kind === 'tool_card' || message.role === 'tool') && message.tool_call) {
-    return <ToolCallBlock call={fromSummary(message.tool_call)} onConfirmConfigDraft={onConfirmConfigDraft} />;
+    return (
+      <ToolCallBlock
+        call={fromSummary(message.tool_call)}
+        pending={message.pending}
+        onConfirmConfigDraft={onConfirmConfigDraft}
+        onLocate={onLocate}
+      />
+    );
   }
-  if (message.role === 'tool') return <ToolBubble message={message} onConfirmConfigDraft={onConfirmConfigDraft} />;
+  if (message.role === 'tool') return <ToolBubble message={message} onConfirmConfigDraft={onConfirmConfigDraft} onLocate={onLocate} />;
   if (message.role === 'user') {
     return (
       <UserBubble
@@ -116,6 +128,7 @@ export function MessageBubble({
       onConfirmConfigDraft={onConfirmConfigDraft}
       followupsActive={followupsActive}
       onUseSuggestion={onUseSuggestion}
+      onLocate={onLocate}
     />
   );
 }
@@ -134,6 +147,16 @@ function fromSummary(tc: ToolCallSummary) {
     arguments: args as Record<string, unknown> | undefined,
     result,
   };
+}
+
+/** 把正文里的独立 [n] 引用标记换成 #cite-n 链接（渲染层转角标）；超出发现数的不动。 */
+function decorateCitations(text: string, maxN: number): string {
+  if (maxN <= 0) return text;
+  return text.replace(/\[(\d{1,2})\](?!\()/g, (m, nStr: string) => {
+    const n = Number(nStr);
+    if (n < 1 || n > maxN) return m;
+    return `[${n}](#cite-${n})`;
+  });
 }
 
 function safeParse(s: string): unknown {
@@ -356,7 +379,7 @@ function compactUserContent(
   return tr('确认创建这条告警规则', 'Confirm creating this alert rule');
 }
 
-function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUseSuggestion }: Props) {
+function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUseSuggestion, onLocate }: Props) {
   // Codex-style: no rounded card around assistant prose. Render markdown
   // flush against the column so headings/lists/code blocks read like a
   // document. Tool calls (when attached) appear as their own rows inside
@@ -364,7 +387,14 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
   // 流式只渲染已到正文；底部 ThinkingIndicator 表示进行中，不在气泡内再叠三点。
   const { tr } = useI18n();
   // 建议问题块是界面元数据：剥离出正文，单独渲染成可点 chip 组
-  const { body, questions } = useMemo(() => parseFollowups(message.content ?? ''), [message.content]);
+  const { body: rawBody, questions } = useMemo(() => parseFollowups(message.content ?? ''), [message.content]);
+  // 汇总引用角标：带排查工具卡时把正文里的独立 [n] 变成可点角标（定位右栏发现）
+  const findingCount = useMemo(() => {
+    const tc = message.tool_calls?.find((t) => t.name === 'dispatch_investigation');
+    const result = tc?.result as { findings?: { n?: number }[] } | undefined;
+    return Math.max(0, ...(result?.findings ?? []).map((f) => (typeof f.n === 'number' ? f.n : 0)));
+  }, [message.tool_calls]);
+  const body = useMemo(() => decorateCitations(rawBody, findingCount), [rawBody, findingCount]);
   // 记住被点的那条并高亮「已提问」；点一次即发问，整组随即失效
   const [usedQuestion, setUsedQuestion] = useState<string | null>(null);
   // 本回答用到的检索结果统一收口到气泡底部一块，工具卡内与卡下都不重复列
@@ -379,7 +409,34 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
       {body !== '' && (
         <div className="md-body text-zinc-100">
           {/* 图表由 run_python 的 chart() 产出物渲染，正文只承载文字 */}
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a({ href, children }) {
+                // 引用角标：点开定位右栏工作台对应发现
+                if (href?.startsWith('#cite-')) {
+                  const n = Number(href.slice(6));
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => onLocate?.({ kind: 'finding', n })}
+                      className="mx-0.5 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded bg-indigo-500/15 px-[3px] align-[2px] text-[9px] font-semibold text-indigo-300 hover:bg-indigo-500/25"
+                      aria-label={tr(`引用发现 ${n}`, `Cite finding ${n}`)}
+                    >
+                      {children}
+                    </button>
+                  );
+                }
+                return (
+                  <a href={href} target="_blank" rel="noreferrer">
+                    {children}
+                  </a>
+                );
+              },
+            }}
+          >
+            {body}
+          </ReactMarkdown>
         </div>
       )}
       {message.tool_calls?.map((tc, i) => (
@@ -465,7 +522,7 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
   );
 }
 
-function ToolBubble({ message, onConfirmConfigDraft }: Props) {
+function ToolBubble({ message, onConfirmConfigDraft, onLocate }: Props) {
   // History-reload path: the message persisted by the agent loop only
   // carries the tool name + JSON result string. We don't have args for
   // these (would need to join chat_tool_calls); show what we have.
@@ -477,6 +534,8 @@ function ToolBubble({ message, onConfirmConfigDraft }: Props) {
   return (
     <ToolCallBlock
       onConfirmConfigDraft={onConfirmConfigDraft}
+      onLocate={onLocate}
+      pending={message.pending}
       call={{
         name: message.tool_name ?? 'tool',
         // 历史消息没有执行状态，仅从明确的结果字段恢复；错误/耗时同源恢复
@@ -506,6 +565,8 @@ function ToolCallBlock({
   call,
   onConfirmConfigDraft,
   showSearchResults = true,
+  pending,
+  onLocate,
 }: {
   call: {
     name: string;
@@ -519,7 +580,14 @@ function ToolCallBlock({
   onConfirmConfigDraft?: ConfirmConfigDraft;
   /** 气泡已聚合检索结果时置 false，避免同一批结果渲染两次。 */
   showSearchResults?: boolean;
+  /** 回合未收口：排查折叠块只展示进行态 */
+  pending?: boolean;
+  onLocate?: (target: LocateTarget) => void;
 }) {
+  // 并行排查工具卡走专属折叠块（计数 + 每路结论 + 跳右栏）
+  if (call.name === 'dispatch_investigation') {
+    return <DispatchBlock call={call} pending={pending} onLocate={onLocate} />;
+  }
   const artifacts = interpreterArtifactsOf(call);
   const searchResults = showSearchResults ? extractSources(call.name, call.result) : [];
   return (

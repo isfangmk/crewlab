@@ -21,8 +21,9 @@ import {
 
 import { AgentBadge } from '@/components/AgentBadge';
 import { ArtifactsPanel } from '@/components/ArtifactsPanel';
+import { InvestigationWorkbench, type LocateTarget } from '@/components/investigation/InvestigationWorkbench';
 
-import { Download, PanelRight, Share2 } from 'lucide-react';
+import { Download, PanelRight, Radar, Share2 } from 'lucide-react';
 
 import {
   ErrorBanner, PageHeader, RowAction } from '@/components/ui';
@@ -174,6 +175,16 @@ export default function ChatThreadPage() {
   // Artifacts 侧栏：开关 + 刷新信号（代码解释器 tool_end 后递增触发重新拉取）
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [artifactTick, setArtifactTick] = useState(0);
+
+  // 排查工作台侧栏：开关 + 定位请求（引用角标/折叠块跳转，seq 变化触发滚动）
+  const [showWorkbench, setShowWorkbench] = useState(false);
+  const [workbenchLocate, setWorkbenchLocate] = useState<(LocateTarget & { seq: number }) | null>(null);
+
+  // 引用角标/折叠块 → 右栏工作台定位
+  const locateInWorkbench = (target: LocateTarget) => {
+    setShowWorkbench(true);
+    setWorkbenchLocate({ ...target, seq: Date.now() });
+  };
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -825,6 +836,8 @@ export default function ChatThreadPage() {
       }
       if (detail.type === 'tool_start') {
         const t = detail.event;
+        // 并行排查派发：自动展开右栏工作台看 worker 实时进度
+        if (t.name === 'dispatch_investigation') setShowWorkbench(true);
         const card: ChatMessage = {
           id: `tool-card-${t.tool_call_id}`,
           role: 'tool',
@@ -1270,6 +1283,9 @@ export default function ChatThreadPage() {
           onToolStart: (t) => {
 
             if (activeSessionRef.current !== turnSessionID) return;
+
+            // 并行排查派发：自动展开右栏工作台看 worker 实时进度
+            if (t.name === 'dispatch_investigation') setShowWorkbench(true);
 
             const card: ChatMessage = {
 
@@ -1996,6 +2012,20 @@ export default function ChatThreadPage() {
 
                 <RowAction
 
+                  icon={Radar}
+
+                  onClick={() => setShowWorkbench((v) => !v)}
+
+                  aria-pressed={showWorkbench}
+
+                >
+
+                  {tr('排查', 'Investigation')}
+
+                </RowAction>
+
+                <RowAction
+
                   icon={Share2}
 
                   onClick={() => setShareOpen(true)}
@@ -2071,6 +2101,8 @@ export default function ChatThreadPage() {
                   followupsActive={!isViewer && m.id === latestAssistantId}
 
                   onUseSuggestion={isViewer ? undefined : useSuggestion}
+
+                  onLocate={isViewer ? undefined : locateInWorkbench}
 
                   onRegenerate={isViewer ? undefined : regenerate}
 
@@ -2194,6 +2226,15 @@ export default function ChatThreadPage() {
         </div>
 
       </div>
+
+      {showWorkbench && sessionId && (
+        <InvestigationWorkbench
+          sessionId={sessionId}
+          locate={workbenchLocate}
+          onRequestSummary={isViewer ? undefined : (text) => { void send(text, [], {}); }}
+          onClose={() => setShowWorkbench(false)}
+        />
+      )}
 
       {showArtifacts && sessionId && (
 
