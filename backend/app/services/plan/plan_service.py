@@ -362,6 +362,8 @@ async def _run_plan(plan_uid: str) -> None:
                 step_name = step.name
                 step_instruction = step.instruction
                 step_order = step.order_index
+                # 声明了所需工具就收窄该步挂载面（tools 从展示升为治理输入）
+                step_tools = tuple(json.loads(step.tools_hint or "[]"))
                 await publish(
                     {
                         "event": "step_started",
@@ -390,6 +392,7 @@ async def _run_plan(plan_uid: str) -> None:
                     name=step_name,
                     instruction=step_instruction,
                     budget=budget,
+                    tools=step_tools,
                 )
                 turn = await run_plan_step(
                     agent=agent,
@@ -480,7 +483,14 @@ async def _finish_plan(
     )
 
 
-async def _assemble_step(*, session_id: str, name: str, instruction: str, budget: WorkerBudget):
+async def _assemble_step(
+    *,
+    session_id: str,
+    name: str,
+    instruction: str,
+    budget: WorkerBudget,
+    tools: tuple[str, ...] = (),
+):
     """按会话助理配置装配单步 agent（只读工具 + 继承 MCP + 禁写闸门）。"""
 
     from app.services.agent import agent_service
@@ -530,6 +540,8 @@ async def _assemble_step(*, session_id: str, name: str, instruction: str, budget
             llm_timeout_seconds=int(runtime_cfg["llm_timeout_seconds"]),
             persona=build_plan_step_persona(name, instruction),
             readonly_tools=PLAN_STEP_READONLY_TOOL_NAMES,
+            # 声明了所需工具就收窄挂载面，不声明挂默认全量只读集
+            tool_focus=tools or None,
         )
 
 

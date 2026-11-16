@@ -75,8 +75,8 @@ def _refresh_lock(dispatch_uid: str) -> asyncio.Lock:
     return lock
 
 
-def parse_workers_json(workers_json: str) -> list[dict[str, str]]:
-    """校验并规整 worker 规格：[{name, target, instruction}]。"""
+def parse_workers_json(workers_json: str) -> list[dict[str, Any]]:
+    """校验并规整 worker 规格：[{name, target, instruction, tools?}]。"""
 
     try:
         raw = json.loads(workers_json)
@@ -86,7 +86,7 @@ def parse_workers_json(workers_json: str) -> list[dict[str, str]]:
         raise ValueError("workers_json 必须是数组")
     if not (_MIN_WORKERS <= len(raw) <= _MAX_WORKERS):
         raise ValueError(f"worker 数量必须在 {_MIN_WORKERS}..{_MAX_WORKERS}")
-    specs: list[dict[str, str]] = []
+    specs: list[dict[str, Any]] = []
     for i, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ValueError(f"workers[{i}] 必须是对象")
@@ -95,7 +95,18 @@ def parse_workers_json(workers_json: str) -> list[dict[str, str]]:
         instruction = str(item.get("instruction") or "").strip()
         if name == "" or target == "":
             raise ValueError(f"workers[{i}].name/target 不能为空")
-        specs.append({"name": name[:128], "target": target, "instruction": instruction})
+        tools_raw = item.get("tools") or []
+        if not isinstance(tools_raw, list):
+            raise ValueError(f"workers[{i}].tools 必须是数组")
+        tools = [str(t).strip() for t in tools_raw if str(t).strip()]
+        specs.append(
+            {
+                "name": name[:128],
+                "target": target,
+                "instruction": instruction,
+                "tools": tools[:8],
+            }
+        )
     return specs
 
 
@@ -104,7 +115,7 @@ async def start_dispatch(
     *,
     session_id: str,
     question: str,
-    workers: list[dict[str, str]],
+    workers: list[dict[str, Any]],
     budget: WorkerBudget,
     created_by: int | None,
 ) -> InvestigationDispatch:
@@ -336,7 +347,7 @@ async def _worker_task(
 
 
 async def _assemble_worker(
-    *, session_id: str, spec: dict[str, str], budget: WorkerBudget
+    *, session_id: str, spec: dict[str, Any], budget: WorkerBudget
 ):
     """按会话助理配置装配单路 worker（只读工具 + 继承 MCP + 禁写闸门）。"""
 
@@ -387,6 +398,8 @@ async def _assemble_worker(
             disallowed_tool_names=bundle.disallowed_tool_names,
             budget=budget,
             llm_timeout_seconds=int(runtime_cfg["llm_timeout_seconds"]),
+            # 声明了所需工具就收窄挂载面，不声明挂默认全量只读集
+            tool_focus=tuple(spec.get("tools") or ()) or None,
         )
 
 

@@ -27,7 +27,7 @@ async def create_plan(
 
     title: 计划标题（短，概括任务）。
     question: 总目标：用户要解决的问题（一句话，会传给每个步骤）。
-    steps_json: 步骤 JSON 数组，如 [{"name":"调研产品格局","instruction":"侧重国内方案","tools":["web_search"]}]，1..12 步；instruction 是本步具体要求，tools 是预估工具（仅展示）。
+    steps_json: 步骤 JSON 数组，如 [{"name":"调研产品格局","instruction":"侧重国内方案","tools":["web_search"]}]，1..12 步；instruction 是本步具体要求，tools 是本步需要的工具（按声明收窄挂载，留空挂默认只读集）。
     max_steps_per_step: 每步最大模型调用次数（步数预算）。
     timeout_seconds_per_step: 每步墙钟超时秒数。
     token_budget_per_step: 每步 token 软限，超限中止该步。

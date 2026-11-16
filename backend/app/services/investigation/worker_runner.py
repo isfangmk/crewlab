@@ -51,6 +51,14 @@ _WORKER_WRITE_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 无人值守执行的统筹纪律：worker 与计划步骤共用，在 build_worker_agent 装配点统一注入。
+# 工具面已按任务裁剪，但挂载不代表都要用——不加纪律时目标松散的单元会乱逛无关工具。
+HEADLESS_FOCUS_GUIDANCE = (
+    "聚焦纪律：只调用与本任务直接相关的工具，已挂载的工具不代表都要用一遍；"
+    "与本任务无关的工具一律不调用，禁止为了「看看有没有」而扫描探索；"
+    "证据不足时在结论里标注缺口，不要为了凑证据扩大调用范围。"
+)
+
 
 @dataclass
 class WorkerResult:
@@ -66,6 +74,27 @@ class WorkerResult:
     usage: dict[str, int] = field(default_factory=dict)
     duration_ms: int = 0
     log_text: str = ""
+
+
+def filter_tools_by_focus(
+    tools: list[Any], focus: set[str] | tuple[str, ...] | None
+) -> list[Any]:
+    """按声明的工具名收窄挂载面；未声明（空/None）保持全量。
+
+    知识检索闭包版的函数名是 scoped_query_knowledge，按 query_knowledge 匹配。
+    """
+
+    if not focus:
+        return tools
+    wanted = set(focus)
+    kept: list[Any] = []
+    for tool in tools:
+        name = getattr(tool, "name", "") or ""
+        if name == "scoped_query_knowledge":
+            name = "query_knowledge"
+        if name in wanted:
+            kept.append(tool)
+    return kept
 
 
 def build_worker_tool_gate(
@@ -113,11 +142,13 @@ def build_worker_agent(
     llm_timeout_seconds: int = 120,
     persona: str | None = None,
     readonly_tools: tuple[str, ...] = WORKER_READONLY_TOOL_NAMES,
+    tool_focus: tuple[str, ...] | None = None,
 ) -> LlmAgent:
     """装配单路无人值守 agent：只读内置白名单 + 知识检索 + 继承的 MCP（禁写闸门拦）。
 
     persona 覆盖默认排查人设（计划步骤传执行人设）；
-    readonly_tools 覆盖只读内置白名单（计划步骤加 run_python）。
+    readonly_tools 覆盖只读内置白名单（计划步骤加 run_python）；
+    tool_focus 是编排者声明的本路/本步所需工具，非空则按名收窄挂载面。
     """
 
     budget = budget or WorkerBudget()
@@ -125,6 +156,7 @@ def build_worker_agent(
     tools.extend(build_knowledge_tools(knowledge_scope))
     if extra_tools:
         tools.extend(extra_tools)
+    tools = filter_tools_by_focus(tools, tool_focus)
     if persona is None:
         persona = (
             f"你是并行排查中的「{name}」，无人值守的只读排查员。\n"
@@ -138,6 +170,8 @@ def build_worker_agent(
         )
     if instruction.strip():
         persona = f"{persona}\n\n本路补充要求：{instruction.strip()}"
+    # 统筹纪律最后压阵：worker 与计划步骤同一装配入口，一处注入全覆盖
+    persona = f"{persona}\n{HEADLESS_FOCUS_GUIDANCE}"
     return build_chat_agent(
         provider_id=provider_id,
         model=model,

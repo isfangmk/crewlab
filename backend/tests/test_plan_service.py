@@ -531,3 +531,46 @@ async def test_event_channel_reopens_after_terminal() -> None:
 
     await publish2({"event": "plan_finished", "plan_uid": uid, "status": "succeeded"})
     assert bus.is_finished(uid) is True
+
+
+@pytest.mark.asyncio
+async def test_step_tools_focus_passed_to_assemble(monkeypatch) -> None:
+    """步骤声明的 tools 传到装配收窄挂载面；未声明传空（挂默认全量）。"""
+
+    tag = f"pl-{uuid.uuid4().hex[:8]}"
+    session_ids = await _insert_session(tag)
+    plan_uids: list[str] = []
+    captured: list[tuple[str, ...]] = []
+
+    async def fake_assemble(**kwargs):
+        captured.append(tuple(kwargs.get("tools") or ()))
+        return object()
+
+    async def fake_run_step(*, name, **_kwargs):
+        return _ok(name)
+
+    monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
+    monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
+
+    try:
+        plan = await _create_plan(
+            tag,
+            session_ids[0],
+            [
+                {"name": "有声明", "instruction": "", "tools": ["web_search"]},
+                {"name": "无声明", "instruction": ""},
+            ],
+        )
+        plan_uids.append(plan.plan_uid)
+
+        engine = create_db_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+                assert await plan_service.start_plan(db, plan.plan_uid) is True
+        finally:
+            await engine.dispose()
+
+        assert await _wait_plan_status(plan.plan_uid, {"succeeded", "paused", "stopped"}) == "succeeded"
+        assert captured == [("web_search",), ()]
+    finally:
+        await _cleanup(session_ids, plan_uids)

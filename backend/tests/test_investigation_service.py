@@ -15,15 +15,17 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.adk_runtime.headless import WorkerBudget, parse_findings
 from app.config import get_settings
 from app.db import create_db_engine
 from app.models.chat import ChatSession
 from app.models.investigation import InvestigationDispatch, InvestigationWorkerRun
 from app.services.investigation import dispatch_service
-from app.adk_runtime.headless import WorkerBudget, parse_findings
 from app.services.investigation.worker_runner import (
     WorkerResult,
+    build_worker_agent,
     build_worker_tool_gate,
+    filter_tools_by_focus,
 )
 
 
@@ -339,3 +341,62 @@ async def test_stop_dispatch_marks_workers_stopped(monkeypatch) -> None:
         assert wire["workers"][0]["status"] == "stopped"
     finally:
         await _cleanup(session_ids, dispatch_uids)
+
+
+def test_parse_workers_json_accepts_tool_focus() -> None:
+    """worker 规格可选 tools 声明：规整后随 spec 传到装配收窄挂载面。"""
+
+    specs = dispatch_service.parse_workers_json(
+        json.dumps([{"name": "甲", "target": "目标", "tools": ["query_knowledge", "", "web_search"]}])
+    )
+    assert specs[0]["tools"] == ["query_knowledge", "web_search"]
+    specs2 = dispatch_service.parse_workers_json(
+        json.dumps([{"name": "乙", "target": "目标"}])
+    )
+    assert specs2[0]["tools"] == []
+
+
+def test_filter_tools_by_focus_narrows_mounts() -> None:
+    """按声明收窄挂载面：命中保留（知识闭包版按 query_knowledge 匹配），未声明全量。"""
+
+    class _Tool:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    tools = [
+        _Tool("recall_memory"),
+        _Tool("scoped_query_knowledge"),
+        _Tool("web_search"),
+        _Tool("mcp__x__query"),
+    ]
+    kept = filter_tools_by_focus(tools, {"query_knowledge", "mcp__x__query"})
+    assert [t.name for t in kept] == ["scoped_query_knowledge", "mcp__x__query"]
+    assert filter_tools_by_focus(tools, None) is tools
+    assert filter_tools_by_focus(tools, ()) is tools
+
+
+def test_worker_agent_injects_focus_guidance_and_focus_mounts() -> None:
+    """统筹纪律在唯一装配入口注入；tool_focus 非空时收窄挂载面。"""
+
+    kwargs = dict(
+        provider_id="custom",
+        model="m",
+        model_prefix="openai/",
+        base_url="https://example.com/v1",
+        api_key="k",
+        name="w",
+        target="t",
+        instruction="",
+    )
+    agent = build_worker_agent(**kwargs)
+    assert "聚焦纪律" in (agent.instruction or "")
+    assert "无关的工具一律不调用" in (agent.instruction or "")
+    # 默认全量只读面：工作流查询等都挂着
+    default_names = {getattr(t, "name", "") for t in agent.tools}
+    assert {"recall_memory", "list_workflows", "query_knowledge"} <= default_names
+
+    focused = build_worker_agent(**kwargs, tool_focus=("query_knowledge",))
+    focused_names = {getattr(t, "name", "") for t in focused.tools}
+    assert "query_knowledge" in focused_names
+    assert "recall_memory" not in focused_names
+    assert "list_workflows" not in focused_names
