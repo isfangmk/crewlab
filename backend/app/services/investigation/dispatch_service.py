@@ -266,10 +266,12 @@ async def retry_worker(db, dispatch_uid: str, worker_uid: str) -> InvestigationW
     runtime.all_done.clear()
 
     config = json.loads(dispatch.config_json or "{}")
+    # 缺省取 WorkerBudget()：预算默认值只有 headless 一个源头
+    defaults = WorkerBudget()
     budget = WorkerBudget(
-        max_steps=int(config.get("max_steps_per_worker") or 8),
-        timeout_seconds=int(config.get("timeout_seconds_per_worker") or 120),
-        token_budget=int(config.get("token_budget_per_worker") or 8000),
+        max_steps=int(config.get("max_steps_per_worker") or defaults.max_steps),
+        timeout_seconds=int(config.get("timeout_seconds_per_worker") or defaults.timeout_seconds),
+        token_budget=int(config.get("token_budget_per_worker") or defaults.token_budget),
     )
     spec = next(
         (w for w in config.get("workers", []) if w.get("name") == row.name),

@@ -547,10 +547,12 @@ async def _assemble_step(
 
 def _budget_of(plan: PlanExecution) -> WorkerBudget:
     config = json.loads(plan.config_json or "{}")
+    # 缺省取 WorkerBudget()：预算默认值只有 headless 一个源头
+    defaults = WorkerBudget()
     return WorkerBudget(
-        max_steps=int(config.get("max_steps_per_step") or 12),
-        timeout_seconds=int(config.get("timeout_seconds_per_step") or 300),
-        token_budget=int(config.get("token_budget_per_step") or 60000),
+        max_steps=int(config.get("max_steps_per_step") or defaults.max_steps),
+        timeout_seconds=int(config.get("timeout_seconds_per_step") or defaults.timeout_seconds),
+        token_budget=int(config.get("token_budget_per_step") or defaults.token_budget),
     )
 
 

@@ -29,14 +29,14 @@ _FINDINGS_FENCE_RE = re.compile(r"```findings\s*\n(.*?)```", re.DOTALL)
 
 @dataclass(frozen=True)
 class WorkerBudget:
-    """单个无人值守回合的三重预算（缺省与派发工具默认一致）。"""
+    """单个无人值守回合的三重预算（缺省与派发/计划工具默认一致，单一源头）。"""
 
     # RunConfig.max_llm_calls；0 表示不限步
     max_steps: int = 12
     # 墙钟秒数，超时中止该回合；0 表示不限
     timeout_seconds: int = 300
     # token 软限：累计 usage 超限即中止；0 表示不限
-    token_budget: int = 60000
+    token_budget: int = 150000
 
 
 @dataclass

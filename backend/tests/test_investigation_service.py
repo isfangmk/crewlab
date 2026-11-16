@@ -150,17 +150,22 @@ async def test_worker_gate_blocks_write_names() -> None:
 
 
 def test_dispatch_budget_defaults() -> None:
-    """派发工具默认预算与 WorkerBudget 缺省一致，两处不许漂移。"""
+    """派发/计划工具默认预算与 WorkerBudget 缺省一致，多处不许漂移。"""
 
     import inspect
 
     from app.tools.investigation import dispatch_investigation
+    from app.tools.plan import create_plan
 
+    defaults = WorkerBudget()
     params = inspect.signature(dispatch_investigation).parameters
-    assert params["max_steps_per_worker"].default == 12
-    assert params["timeout_seconds_per_worker"].default == 300
-    assert params["token_budget_per_worker"].default == 60000
-    assert WorkerBudget() == WorkerBudget(max_steps=12, timeout_seconds=300, token_budget=60000)
+    assert params["max_steps_per_worker"].default == defaults.max_steps
+    assert params["timeout_seconds_per_worker"].default == defaults.timeout_seconds
+    assert params["token_budget_per_worker"].default == defaults.token_budget
+    plan_params = inspect.signature(create_plan).parameters
+    assert plan_params["max_steps_per_step"].default == defaults.max_steps
+    assert plan_params["timeout_seconds_per_step"].default == defaults.timeout_seconds
+    assert plan_params["token_budget_per_step"].default == defaults.token_budget
 
 
 @pytest.mark.asyncio

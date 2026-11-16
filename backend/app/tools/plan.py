@@ -20,7 +20,7 @@ async def create_plan(
     steps_json: str,
     max_steps_per_step: int = 12,
     timeout_seconds_per_step: int = 300,
-    token_budget_per_step: int = 60000,
+    token_budget_per_step: int = 150000,
     tool_context=None,
 ) -> dict:
     """创建一个待确认的执行计划：产出可编辑的步骤清单，用户确认后逐步执行。
