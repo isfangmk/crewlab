@@ -19,13 +19,11 @@ import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
 import { StatusPill } from '@/components/ui';
 
-/** dispatch_investigation 的工具返回形状（与后端 tool_result_wire 对齐）。 */
+/** dispatch_investigation 的工具返回形状（与后端 dispatch_handle_wire 对齐）。 */
 type DispatchToolResult = {
   dispatch_uid?: string;
   status?: string;
-  partial?: boolean;
   message?: string;
-  still_running?: { worker_uid: string; name: string }[];
   workers?: {
     worker_uid: string;
     name: string;
@@ -62,7 +60,7 @@ export function DispatchBlock({
 
   const statusKey = (wire?.status ??
     (pending || result.status === undefined ? 'running' : result.status)) as keyof typeof DISPATCH_STATUS_META;
-  const active = statusKey === 'running' || statusKey === 'partial';
+  const active = statusKey === 'running';
   const tick = useTicker(active);
 
   // 快照补活：重试/后台续跑后数字与结论会变，工具卡静态结果是旧的

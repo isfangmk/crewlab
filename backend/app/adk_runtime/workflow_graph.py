@@ -134,6 +134,7 @@ async def assemble(
     stop_after: str | None = None,
     on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     run_uid: str = "",
+    extra_tools: dict[str, Any] | None = None,
 ) -> RunAssembly:
     """装配可执行的 ADK 图；run_values 交给开始节点写进共享状态。
 
@@ -141,6 +142,8 @@ async def assemble(
     stop_after 用于单节点试跑：跑到该节点就收工。
     on_event 为流式订阅者：节点开始/结束会即时推出去。
     run_uid 记进运行上下文：代码节点在沙盒里跑时，执行记录要能回指这次运行。
+    extra_tools 是编排发起方注入的运行上下文（如任务节点的 task_runner），
+    键与 _load_tools 的产物合并、后者优先，避免覆盖引擎自己的依赖。
     """
 
     run_ctx = RunContext(
@@ -152,6 +155,9 @@ async def assemble(
     )
     tools = await _load_tools(db, definition)
     tools["run_values"] = run_values
+    if extra_tools:
+        for key, value in extra_tools.items():
+            tools.setdefault(key, value)
     approved = set() if approved_gates is None else approved_gates
     node_map: dict[str, Any] = {}
 

@@ -1,7 +1,7 @@
-"""并行排查编排：并行执行、软截止返回、后台续跑、发现编号与停止。
+"""并行排查编排：扇出等全部收口（join）、发现编号、重试与停止。
 
-执行缝（worker 的装配与 LLM 执行）打桩，落库/事件总线/编号/状态机全走真实实现；
-用例自带专属 tag，finally 全清理（沿用 test_share_admin 口径）。
+执行缝（worker 的装配与 LLM 执行）打桩，编排图/落库/事件总线/编号/状态机
+全走真实实现；用例自带专属 tag，finally 全清理（沿用 test_share_admin 口径）。
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from app.config import get_settings
 from app.db import create_db_engine
 from app.models.chat import ChatMessage, ChatSession
 from app.models.investigation import InvestigationDispatch, InvestigationWorkerRun
+from app.models.workflow import WorkflowNodeRun, WorkflowRun
 from app.services.investigation import dispatch_service
 from app.services.investigation.worker_runner import (
     WorkerResult,
@@ -30,7 +31,7 @@ from app.services.investigation.worker_runner import (
 
 
 async def _cleanup(session_ids: list[str], dispatch_uids: list[str]) -> None:
-    """插桩数据全清理：worker 行、派发行、临时会话。"""
+    """插桩数据全清理：worker 行、派发行、系统编排运行、临时会话。"""
 
     engine = create_db_engine(get_settings().database_url)
     try:
@@ -59,10 +60,62 @@ async def _cleanup(session_ids: list[str], dispatch_uids: list[str]) -> None:
                         )
                     )
             if session_ids:
+                # 本会话触发的系统编排运行与节点记录一并清理（壳工作流保留：单例模板）
+                runs = (
+                    (
+                        await db.scalars(
+                            select(WorkflowRun).where(
+                                WorkflowRun.triggered_by.in_(
+                                    [f"session:{sid}" for sid in session_ids]
+                                )
+                            )
+                        )
+                    )
+                    .all()
+                )
+                if runs:
+                    await db.execute(
+                        sa_delete(WorkflowNodeRun).where(
+                            WorkflowNodeRun.run_id.in_([r.id for r in runs])
+                        )
+                    )
+                    await db.execute(
+                        sa_delete(WorkflowRun).where(
+                            WorkflowRun.id.in_([r.id for r in runs])
+                        )
+                    )
                 # 自动汇总消息一并清理（SQLite 未必启用 FK 级联）
                 await db.execute(sa_delete(ChatMessage).where(ChatMessage.session_id.in_(session_ids)))
                 await db.execute(sa_delete(ChatSession).where(ChatSession.id.in_(session_ids)))
             await db.commit()
+    finally:
+        await engine.dispose()
+
+
+async def _wait_dispatch_terminal(dispatch_uid: str, timeout_seconds: float = 10.0) -> str:
+    """轮询派发状态到终态（编排后台执行是异步的，等它收口）。"""
+
+    engine = create_db_engine(get_settings().database_url)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
+    try:
+        status = ""
+        while loop.time() < deadline:
+            async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+                row = (
+                    await db.scalars(
+                        select(InvestigationDispatch).where(
+                            InvestigationDispatch.dispatch_uid == dispatch_uid
+                        )
+                    )
+                ).first()
+                status = row.status if row is not None else ""
+            if status in ("succeeded", "failed", "stopped"):
+                # 等编排图自身收尾（join/节点落库）再返回，避免测试清理与后台任务赛跑
+                await asyncio.sleep(0.1)
+                return status
+            await asyncio.sleep(0.05)
+        raise AssertionError(f"派发未在 {timeout_seconds}s 内收口: status={status}")
     finally:
         await engine.dispose()
 
@@ -171,27 +224,20 @@ def test_dispatch_budget_defaults() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dispatch_soft_deadline_and_background_completion(monkeypatch) -> None:
-    """软截止先回初步结果，未完的路后台续跑；全局发现编号按完成顺序分配。"""
+async def test_dispatch_runs_to_completion(monkeypatch) -> None:
+    """编排等全部路收口：发现编号按完成顺序分配；运行记录落在工作流运行里。"""
 
     tag = f"iv-{uuid.uuid4().hex[:8]}"
     session_ids = await _insert_session(tag)
     dispatch_uids: list[str] = []
-    gate_slow = asyncio.Event()
 
     async def fake_assemble(**_kwargs):
         return object()
 
     async def fake_run_worker(*, worker_uid, name, publish, stop_check, **kwargs):
-        if name == "慢路":
-            # 慢路：外部放行后才完成，模拟 LLM 长跑
-            await gate_slow.wait()
-            return _make_result(
-                worker_uid, "succeeded", [{"title": "慢发现", "detail": "d", "evidence": []}]
-            )
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.05 if name == "快路" else 0.15)
         return _make_result(
-            worker_uid, "succeeded", [{"title": "快发现", "detail": "d", "evidence": []}]
+            worker_uid, "succeeded", [{"title": f"{name}发现", "detail": "d", "evidence": []}]
         )
 
     monkeypatch.setattr(dispatch_service, "_assemble_worker", fake_assemble)
@@ -213,26 +259,41 @@ async def test_dispatch_soft_deadline_and_background_completion(monkeypatch) -> 
             )
             dispatch_uids.append(dispatch.dispatch_uid)
 
-        # 软截止 1s：慢路未完 → False（初步结果），发现只含快路的 1 号
-        complete = await dispatch_service.wait_dispatch(dispatch.dispatch_uid, 1)
-        assert complete is False
-        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-            partial = await dispatch_service.tool_result_wire(db, dispatch.dispatch_uid)
-        assert partial["partial"] is True
-        assert [w["name"] for w in partial["still_running"]] == ["慢路"]
-        assert [f["n"] for f in partial["findings"]] == [1]
+        status = await _wait_dispatch_terminal(dispatch.dispatch_uid)
+        assert status == "succeeded"
 
-        # 放行慢路 → 后台续跑完成 → 全部终态
-        gate_slow.set()
-        complete2 = await dispatch_service.wait_dispatch(dispatch.dispatch_uid, 10)
-        assert complete2 is True
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-            final = await dispatch_service.tool_result_wire(db, dispatch.dispatch_uid)
-        assert final["partial"] is False
-        assert {f["n"] for f in final["findings"]} == {1, 2}
-        assert final["status"] == "succeeded"
+            wire = await dispatch_service.get_dispatch_wire(db, dispatch.dispatch_uid)
+        # 两路都收口：发现全局编号 1、2（完成顺序分配）
+        assert {f["n"] for f in wire["findings"]} == {1, 2}
+        assert wire["stats"]["succeeded"] == 2
+
+        # 运行记录打通：这次编排是一条系统工作流运行，节点记录含任务与汇合
+        run_row = (
+            (
+                await db.scalars(
+                    select(WorkflowRun)
+                    .where(
+                        WorkflowRun.trigger == "investigation",
+                        WorkflowRun.triggered_by == f"session:{session_ids[0]}",
+                    )
+                    .order_by(WorkflowRun.id.desc())
+                )
+            )
+            .first()
+        )
+        assert run_row is not None
+        assert run_row.status == "succeeded"
+        node_runs = (
+            (
+                await db.scalars(
+                    select(WorkflowNodeRun).where(WorkflowNodeRun.run_id == run_row.id)
+                )
+            )
+            .all()
+        )
+        assert {"task", "join"} <= {r.node_kind for r in node_runs}
     finally:
-        gate_slow.set()
         await _cleanup(session_ids, dispatch_uids)
 
 
@@ -278,7 +339,7 @@ async def test_retry_renumbers_findings(monkeypatch) -> None:
                 created_by=None,
             )
             dispatch_uids.append(dispatch.dispatch_uid)
-        assert await dispatch_service.wait_dispatch(dispatch.dispatch_uid, 10) is True
+        assert await _wait_dispatch_terminal(dispatch.dispatch_uid) == "succeeded"
 
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             wire = await dispatch_service.get_dispatch_wire(db, dispatch.dispatch_uid)
@@ -291,7 +352,7 @@ async def test_retry_renumbers_findings(monkeypatch) -> None:
                 db, dispatch.dispatch_uid, failed["worker_uid"]
             )
             assert row is not None and row.attempt == 2
-        assert await dispatch_service.wait_dispatch(dispatch.dispatch_uid, 10) is True
+        assert await _wait_dispatch_terminal(dispatch.dispatch_uid) == "succeeded"
 
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             final = await dispatch_service.get_dispatch_wire(db, dispatch.dispatch_uid)
@@ -340,7 +401,7 @@ async def test_stop_dispatch_marks_workers_stopped(monkeypatch) -> None:
         await asyncio.sleep(0.05)
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             assert await dispatch_service.stop_dispatch(db, dispatch.dispatch_uid) is True
-        assert await dispatch_service.wait_dispatch(dispatch.dispatch_uid, 10) is True
+        assert await _wait_dispatch_terminal(dispatch.dispatch_uid) == "stopped"
 
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             wire = await dispatch_service.get_dispatch_wire(db, dispatch.dispatch_uid)

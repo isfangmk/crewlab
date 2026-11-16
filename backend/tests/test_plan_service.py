@@ -20,6 +20,7 @@ from app.config import get_settings
 from app.db import create_db_engine
 from app.models.chat import ChatMessage, ChatSession
 from app.models.plan import PlanExecution, PlanStep
+from app.models.workflow import WorkflowNodeRun, WorkflowRun
 from app.services.investigation.investigation_events import InvestigationEventBus
 from app.services.plan import plan_service
 
@@ -48,6 +49,30 @@ async def _cleanup(session_ids: list[str], plan_uids: list[str]) -> None:
                         sa_delete(PlanExecution).where(PlanExecution.id.in_(ids))
                     )
             if session_ids:
+                # 本会话触发的系统编排运行与节点记录一并清理（壳工作流保留：单例模板）
+                runs = (
+                    (
+                        await db.scalars(
+                            select(WorkflowRun).where(
+                                WorkflowRun.triggered_by.in_(
+                                    [f"session:{sid}" for sid in session_ids]
+                                )
+                            )
+                        )
+                    )
+                    .all()
+                )
+                if runs:
+                    await db.execute(
+                        sa_delete(WorkflowNodeRun).where(
+                            WorkflowNodeRun.run_id.in_([r.id for r in runs])
+                        )
+                    )
+                    await db.execute(
+                        sa_delete(WorkflowRun).where(
+                            WorkflowRun.id.in_([r.id for r in runs])
+                        )
+                    )
                 # 自动汇总消息一并清理（SQLite 未必启用 FK 级联）
                 await db.execute(sa_delete(ChatMessage).where(ChatMessage.session_id.in_(session_ids)))
                 await db.execute(sa_delete(ChatSession).where(ChatSession.id.in_(session_ids)))

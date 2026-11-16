@@ -9,7 +9,7 @@ import { getToken } from '@/store/auth';
 import { errorText } from '@/lib/errors';
 
 export type WorkerStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'stopped';
-export type DispatchStatus = 'running' | 'partial' | 'succeeded' | 'failed' | 'stopped';
+export type DispatchStatus = 'running' | 'succeeded' | 'failed' | 'stopped';
 
 export type FindingEvidence = {
   call_id: string;

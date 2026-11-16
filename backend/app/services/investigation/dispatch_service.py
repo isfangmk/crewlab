@@ -1,9 +1,12 @@
-"""并行排查编排：派发 N 路 worker、软截止返回、重试、停止与 wire 转换。
+"""并行排查编排：N 路 worker 的派发、重试、停止与 wire 转换。
+
+编排归属工作流：扇出 N 个任务节点并行分支，join 等全部路终态才放行——
+「等待完成后再出结论」由图结构保证；工具只返回启动句柄，结论由终态聚合
+（_refresh_dispatch_state_locked）触发自动汇总写回对话流。
 
 口径：
-  - 软截止：工具等全部 worker 终态或到期即返回；未完的路后台续跑，
-    进度继续走事件总线（investigation_events），右栏可看；
   - findings 全局编号且不复用：重试路的新发现追加新号，旧号保留 retired 标记；
+  - worker 起跑即写 running（库里的状态与真实执行对齐）；
   - 后台任务持强引用防 GC 回收（仿 eval_runner）；
   - 单路失败不拖垮整次排查，状态记在 worker 行上。
 """
@@ -53,11 +56,8 @@ class _DispatchRuntime:
     dispatch_uid: str
     stop: StopSignal
     worker_uids: list[str] = field(default_factory=list)
-    # 工具已软截止返回（findings 不全但已出初步汇总）
-    returned_partial: bool = False
     # 用户请求过停止
     stop_requested: bool = False
-    all_done: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 # 进程内运行态注册表：排查结束后保留到 GC，工具等待与停止都从这取
@@ -144,10 +144,15 @@ async def start_dispatch(
     runtime = _DispatchRuntime(dispatch_uid=dispatch_uid, stop=StopSignal(f"dispatch:{dispatch_uid}"))
     _runtimes[dispatch_uid] = runtime
 
-    for spec in workers:
+    worker_uid_by_node: dict[str, str] = {}
+    specs_by_node: dict[str, dict[str, Any]] = {}
+    for i, spec in enumerate(workers, start=1):
         worker_uid = str(uuid.uuid4())
+        node_id = f"worker_{i}"
         runtime.worker_uids.append(worker_uid)
         runtime.stop.begin(worker_uid)
+        worker_uid_by_node[node_id] = worker_uid
+        specs_by_node[node_id] = spec
         db.add(
             InvestigationWorkerRun(
                 dispatch_id=dispatch.id,
@@ -168,49 +173,191 @@ async def start_dispatch(
     await db.commit()
     await db.refresh(dispatch)
 
-    for worker_uid, spec in zip(runtime.worker_uids, workers):
-        task = asyncio.create_task(
-            _worker_task(
-                dispatch_uid=dispatch_uid,
-                worker_uid=worker_uid,
-                session_id=session_id,
-                question=question,
-                spec=spec,
-                budget=budget,
-            )
+    # 编排收敛到工作流：扇出 + join 等全部收口，运行记录落在工作流运行里
+    from app.services.workflow import workflow_service
+    from app.services.workflow.system_templates import investigation_definition
+
+    definition = investigation_definition(workers)
+    run = await workflow_service.create_system_run(
+        db,
+        workflow_name=workflow_service.SYSTEM_WORKFLOW_INVESTIGATION,
+        definition=definition,
+        trigger=workflow_service.RUN_TRIGGER_INVESTIGATION,
+        triggered_by=f"session:{session_id}",
+        payload={"question": question},
+    )
+    publish = investigation_events.open(dispatch_uid)
+    _spawn(
+        _run_dispatch_graph(
+            run_uid=run.run_uid,
+            dispatch_uid=dispatch_uid,
+            session_id=session_id,
+            question=question,
+            budget=budget,
+            stop=runtime.stop,
+            worker_uid_by_node=worker_uid_by_node,
+            specs_by_node=specs_by_node,
+            publish=publish,
         )
-        _tasks.add(task)
-        task.add_done_callback(_tasks.discard)
+    )
     return dispatch
 
 
-async def wait_dispatch(dispatch_uid: str, soft_deadline_seconds: int) -> bool:
-    """等全部 worker 终态或软截止到期。
+def _spawn(coro: Any) -> None:
+    """后台任务强引用登记：防 GC 回收，结束自动摘除。"""
 
-    返回 True 表示全部终态（完整结果）；False 表示到期（初步结果，后台续跑）。
-    """
+    task = asyncio.create_task(coro)
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
 
-    runtime = _runtimes.get(dispatch_uid)
-    if runtime is None:
-        return True
-    try:
-        await asyncio.wait_for(
-            runtime.all_done.wait(),
-            timeout=soft_deadline_seconds if soft_deadline_seconds > 0 else None,
+
+async def _run_dispatch_graph(
+    *,
+    run_uid: str,
+    dispatch_uid: str,
+    session_id: str,
+    question: str,
+    budget: WorkerBudget,
+    stop: StopSignal,
+    worker_uid_by_node: dict[str, str],
+    specs_by_node: dict[str, dict[str, Any]],
+    publish: Any,
+) -> None:
+    """跑并行编排图：每路一个任务节点并行分支，join 等全部收口。"""
+
+    from app.services.workflow import workflow_service
+
+    async def task_runner(node: Any) -> dict[str, Any]:
+        worker_uid = worker_uid_by_node.get(node.id)
+        spec = specs_by_node.get(node.id)
+        if worker_uid is None or spec is None:
+            raise RuntimeError(f"任务节点没有对应的 worker 行: {node.id}")
+        return await _execute_worker(
+            dispatch_uid=dispatch_uid,
+            worker_uid=worker_uid,
+            session_id=session_id,
+            question=question,
+            spec=spec,
+            budget=budget,
+            stop=stop,
+            publish=publish,
         )
-        return True
-    except asyncio.TimeoutError:
-        runtime.returned_partial = True
+
+    try:
         async with SessionLocal() as db:
-            await _refresh_dispatch_state(db, dispatch_uid)
-        return False
+            run = await workflow_service.get_run(db, run_uid)
+            await workflow_service.execute_existing_run(
+                db, run=run, extra_tools={"task_runner": task_runner}
+            )
+    except Exception:
+        logger.exception("排查编排执行失败 dispatch_uid=%s run_uid=%s", dispatch_uid, run_uid)
+        # 编排中断也不能把路卡在非终态：显式收成失败并走同一聚合收口
+        try:
+            async with SessionLocal() as db:
+                dispatch = (
+                    await db.scalars(
+                        select(InvestigationDispatch).where(
+                            InvestigationDispatch.dispatch_uid == dispatch_uid
+                        )
+                    )
+                ).first()
+                if dispatch is None:
+                    return
+                rows = (
+                    (
+                        await db.scalars(
+                            select(InvestigationWorkerRun).where(
+                                InvestigationWorkerRun.dispatch_id == dispatch.id
+                            )
+                        )
+                    )
+                    .all()
+                )
+                now = datetime.now(timezone.utc)
+                for row in rows:
+                    if row.status not in _TERMINAL_WORKER:
+                        row.status = "failed"
+                        row.error = "编排执行中断"
+                        row.finished_at = now
+                await db.commit()
+                await _refresh_dispatch_state(db, dispatch_uid)
+        except Exception:
+            logger.exception("排查编排中断兜底失败 dispatch_uid=%s", dispatch_uid)
 
 
-def is_partial(dispatch_uid: str) -> bool:
-    """软截止后仍有 worker 在后台续跑。"""
+async def _execute_worker(
+    *,
+    dispatch_uid: str,
+    worker_uid: str,
+    session_id: str,
+    question: str,
+    spec: dict[str, Any],
+    budget: WorkerBudget,
+    stop: StopSignal,
+    publish: Any,
+) -> dict[str, Any]:
+    """单路 worker 执行：装配 → 运行 → 落库；起跑即写 running。"""
 
-    runtime = _runtimes.get(dispatch_uid)
-    return bool(runtime and runtime.returned_partial and not runtime.all_done.is_set())
+    # worker_started 在任务入口发：装配失败也要让右栏看到「已开始」
+    await publish(
+        {
+            "event": "worker_started",
+            "dispatch_uid": dispatch_uid,
+            "worker_uid": worker_uid,
+            "name": spec["name"],
+            "target": spec["target"],
+        }
+    )
+    # 起跑即写 running：库里的状态与真实执行对齐（修复「跑着还显示排队」）
+    try:
+        async with SessionLocal() as db:
+            row = (
+                await db.scalars(
+                    select(InvestigationWorkerRun).where(
+                        InvestigationWorkerRun.worker_uid == worker_uid
+                    )
+                )
+            ).first()
+            if row is not None:
+                row.status = "running"
+                await db.commit()
+    except Exception:
+        logger.exception("worker 状态写 running 失败 worker_uid=%s", worker_uid)
+    try:
+        agent = await _assemble_worker(
+            session_id=session_id,
+            spec=spec,
+            budget=budget,
+        )
+        result = await run_worker(
+            agent=agent,
+            dispatch_uid=dispatch_uid,
+            worker_uid=worker_uid,
+            name=spec["name"],
+            target=spec["target"],
+            question=question,
+            instruction=spec.get("instruction", ""),
+            budget=budget,
+            publish=publish,
+            stop_check=lambda: stop.is_stopped(worker_uid),
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - 装配失败也记成单路失败
+        logger.exception("worker 装配失败 worker_uid=%s", worker_uid)
+        result = WorkerResult(worker_uid=worker_uid, status="failed", error=str(exc))
+    stop.end(worker_uid)
+    try:
+        async with SessionLocal() as db:
+            await _persist_worker_result(db, dispatch_uid, result)
+    except Exception:  # noqa: BLE001
+        logger.exception("worker 结果落库失败 worker_uid=%s", worker_uid)
+    return {
+        "status": result.status,
+        "conclusion": result.conclusion,
+        "error": result.error,
+        "duration_ms": result.duration_ms,
+    }
 
 
 async def stop_dispatch(db, dispatch_uid: str) -> bool:
@@ -262,8 +409,6 @@ async def retry_worker(db, dispatch_uid: str, worker_uid: str) -> InvestigationW
     if worker_uid not in runtime.worker_uids:
         runtime.worker_uids.append(worker_uid)
     runtime.stop.begin(worker_uid)
-    runtime.returned_partial = False
-    runtime.all_done.clear()
 
     config = json.loads(dispatch.config_json or "{}")
     # 缺省取 WorkerBudget()：预算默认值只有 headless 一个源头
@@ -277,75 +422,21 @@ async def retry_worker(db, dispatch_uid: str, worker_uid: str) -> InvestigationW
         (w for w in config.get("workers", []) if w.get("name") == row.name),
         {"name": row.name, "target": row.target, "instruction": ""},
     )
-    task = asyncio.create_task(
-        _worker_task(
+    publish = investigation_events.open(dispatch_uid)
+    _spawn(
+        _execute_worker(
             dispatch_uid=dispatch_uid,
             worker_uid=worker_uid,
             session_id=dispatch.session_id,
             question=dispatch.question,
             spec=spec,
             budget=budget,
+            stop=runtime.stop,
+            publish=publish,
         )
     )
-    _tasks.add(task)
-    task.add_done_callback(_tasks.discard)
     await db.refresh(row)
     return row
-
-
-async def _worker_task(
-    *,
-    dispatch_uid: str,
-    worker_uid: str,
-    session_id: str,
-    question: str,
-    spec: dict[str, str],
-    budget: WorkerBudget,
-) -> None:
-    """单路 worker 的后台执行：装配 → 运行 → 落库 → 聚合派发状态。"""
-
-    publish = investigation_events.open(dispatch_uid)
-    runtime = _runtimes.get(dispatch_uid)
-    stop = runtime.stop if runtime is not None else StopSignal(f"dispatch:{dispatch_uid}")
-    # worker_started 在任务入口发：装配失败也要让右栏看到「已开始」
-    await publish(
-        {
-            "event": "worker_started",
-            "dispatch_uid": dispatch_uid,
-            "worker_uid": worker_uid,
-            "name": spec["name"],
-            "target": spec["target"],
-        }
-    )
-    try:
-        agent = await _assemble_worker(
-            session_id=session_id,
-            spec=spec,
-            budget=budget,
-        )
-        result = await run_worker(
-            agent=agent,
-            dispatch_uid=dispatch_uid,
-            worker_uid=worker_uid,
-            name=spec["name"],
-            target=spec["target"],
-            question=question,
-            instruction=spec.get("instruction", ""),
-            budget=budget,
-            publish=publish,
-            stop_check=lambda: stop.is_stopped(worker_uid),
-        )
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - 装配失败也记成单路失败
-        logger.exception("worker 装配失败 worker_uid=%s", worker_uid)
-        result = WorkerResult(worker_uid=worker_uid, status="failed", error=str(exc))
-    stop.end(worker_uid)
-    try:
-        async with SessionLocal() as db:
-            await _persist_worker_result(db, dispatch_uid, result)
-    except Exception:  # noqa: BLE001
-        logger.exception("worker 结果落库失败 worker_uid=%s", worker_uid)
 
 
 async def _assemble_worker(
@@ -526,9 +617,7 @@ async def _refresh_dispatch_state_locked(db, dispatch_uid: str) -> dict[str, Any
     running = [r for r in rows if r.status not in _TERMINAL_WORKER]
 
     if running:
-        dispatch.status = "partial" if (runtime and runtime.returned_partial) else "running"
-        if runtime:
-            runtime.all_done.clear()
+        dispatch.status = "running"
     else:
         if runtime and runtime.stop_requested:
             dispatch.status = "stopped"
@@ -562,9 +651,6 @@ async def _refresh_dispatch_state_locked(db, dispatch_uid: str) -> dict[str, Any
         budget["used_tokens_total"] = used_total
     dispatch.budget_json = json.dumps(budget, ensure_ascii=False)
     await db.commit()
-    # 全部终态：提交后再唤醒等待方，否则唤醒时状态还没落库（丢失更新的读端）
-    if not running and runtime is not None:
-        runtime.all_done.set()
 
     publish = investigation_events.open(dispatch_uid)
     stats = _stats_of(rows, dispatch)
@@ -731,37 +817,18 @@ async def list_dispatches(
     return [await dispatch_to_wire(db, r) for r in rows], total
 
 
-async def tool_result_wire(db, dispatch_uid: str) -> dict[str, Any]:
-    """dispatch_investigation 的工具返回：初步/完整结果 + 仍在跑的路。"""
+async def dispatch_handle_wire(db, dispatch_uid: str) -> dict[str, Any]:
+    """dispatch_investigation 的工具返回：启动句柄（路名单），不带任何结论。
+
+    「等待完成后再出结论」是编排语义：结论只由收口后的自动汇总写进对话，
+    工具不再返回中间态结果，主回合没有可据以下结论的素材。
+    """
 
     wire = await get_dispatch_wire(db, dispatch_uid)
     if wire is None:
         raise LookupError(f"排查不存在: {dispatch_uid}")
-    still_running = [
-        {"worker_uid": w["worker_uid"], "name": w["name"]}
-        for w in wire["workers"]
-        if w["status"] not in _TERMINAL_WORKER
-    ]
-    return {
-        "dispatch_uid": dispatch_uid,
-        "status": wire["status"],
-        "partial": bool(still_running),
-        "workers": [
-            {
-                "worker_uid": w["worker_uid"],
-                "name": w["name"],
-                "status": w["status"],
-                "conclusion": w["conclusion"],
-                "findings": [
-                    f
-                    for f in wire["findings"]
-                    if f.get("worker_uid") == w["worker_uid"] and not f.get("retired")
-                ],
-                "error": w["error"],
-                "duration_ms": w["duration_ms"],
-            }
-            for w in wire["workers"]
-        ],
-        "still_running": still_running,
-        "findings": [f for f in wire["findings"] if not f.get("retired")],
-    }
+    wire["message"] = (
+        f"已派发 {len(wire['workers'])} 路并行排查：编排会等全部路收口，"
+        "收口后自动汇总结论进对话；过程中不返回中间结论。"
+    )
+    return wire

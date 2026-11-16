@@ -1,7 +1,9 @@
-"""规划执行编排：计划 CRUD、顺序执行、失败恢复与 wire 转换。
+"""规划执行编排：计划 CRUD、顺序链图执行、失败恢复与 wire 转换。
 
 口径：
   - 计划先落 draft（create_plan 工具产出可编辑计划），用户确认后 start 逐步执行；
+  - 编排归属工作流：一段执行 = 一次顺序链图运行（pending 步骤各一个任务节点），
+    运行记录落在工作流运行里；
   - 步骤严格按 order_index 顺序执行（非并行），前置步骤结论进下一步上下文；
   - 单步失败即暂停（paused）等用户决定：重试此步（增量续跑）/ 跳过并继续 / 停止；
   - 事件走 investigation_events 总线（与排查共用），plan_finished 收尾。
@@ -283,173 +285,288 @@ async def skip_step(db: AsyncSession, plan_uid: str, step_uid: str) -> bool:
 
 
 def _spawn_runner(plan_uid: str) -> None:
-    """起顺序执行循环（同一计划同一时刻只跑一个循环）。"""
+    """起一段顺序链图执行（同一计划同一时刻只跑一段）。"""
 
     runtime = _ensure_runtime(plan_uid)
-    # 新一轮运行从干净信号开始：暂停/停止只作用于发起它们的那一轮，
-    # 否则 paused 恢复的第一圈会被上一轮的暂停信号拦回去
+    # 新一段从干净信号开始：暂停/停止只作用于发起它们的那一段，
+    # 否则 paused 恢复的第一段会被上一段的暂停信号拦回去
     runtime.pause_requested = False
     runtime.stop_requested = False
     if runtime.running:
         return
     runtime.running = True
-    task = asyncio.create_task(_run_plan(plan_uid))
+    task = asyncio.create_task(_run_plan_graph(plan_uid))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
 
 
-async def _run_plan(plan_uid: str) -> None:
-    """顺序执行计划步骤：单步失败即暂停等用户决定。"""
+async def _mark_paused(db: AsyncSession, plan: PlanExecution, publish: Any) -> None:
+    """计划转 paused 等用户决定：状态落库 + 事件。"""
+
+    async with _refresh_lock(plan.plan_uid):
+        plan.status = "paused"
+        await db.commit()
+    await publish(
+        {"event": "plan_updated", "plan_uid": plan.plan_uid, "status": "paused"}
+    )
+
+
+async def _run_plan_graph(plan_uid: str) -> None:
+    """一段顺序链图执行：pending 步骤各一个任务节点，节点入口做状态机闸。
+
+    一段 = 一次工作流运行；单步失败即暂停（下一步骤的入口闸收口本段），
+    恢复（重试/跳过/继续）时按剩余 pending 步骤生成新的一段。
+    """
 
     publish = investigation_events.open(plan_uid, terminal_events=PLAN_TERMINAL_EVENTS)
     runtime = _ensure_runtime(plan_uid)
     await publish({"event": "plan_started", "plan_uid": plan_uid})
     try:
-        while True:
-            # 装配与执行都在锁外：只在落库聚合时持锁
-            async with SessionLocal() as db:
-                plan = await _get_plan(db, plan_uid)
-                if plan is None:
-                    return
-                rows = await _steps_of(db, plan.id)
+        from app.services.workflow import workflow_service
+        from app.services.workflow.system_templates import plan_definition
 
-                if runtime.stop_requested:
-                    await _finish_plan(
-                        db, plan, rows, status="stopped", publish=publish
-                    )
-                    return
-                failed = [r for r in rows if r.status == "failed"]
-                if runtime.pause_requested or failed:
-                    async with _refresh_lock(plan_uid):
-                        plan.status = "paused"
-                        await db.commit()
-                    await publish(
-                        {"event": "plan_updated", "plan_uid": plan_uid, "status": "paused"}
-                    )
-                    return
-                pending = [r for r in rows if r.status in ("pending", "queued")]
-                if not pending:
-                    await _finish_plan(
-                        db, plan, rows, status="succeeded", publish=publish
-                    )
-                    return
-
-                step = pending[0]
-                step.status = "running"
-                # 记录开始时刻：前端「已运行」读秒的锚点
-                step.started_at = datetime.now(timezone.utc)
-                await db.commit()
-                budget = _budget_of(plan)
-                prior = [
-                    (r.name, r.summary)
-                    for r in rows
-                    if r.status == "succeeded" and r.summary
-                ]
-                prompt = build_plan_step_prompt(
-                    question=plan.question,
-                    name=step.name,
-                    instruction=step.instruction,
-                    prior_summaries=prior,
-                )
-                session_id = plan.session_id
-                step_uid = step.step_uid
-                step_name = step.name
-                step_instruction = step.instruction
-                step_order = step.order_index
-                # 声明了所需工具就收窄该步挂载面（tools 从展示升为治理输入）
-                step_tools = tuple(json.loads(step.tools_hint or "[]"))
-                await publish(
+        async with SessionLocal() as db:
+            plan = await _get_plan(db, plan_uid)
+            if plan is None:
+                return
+            rows = await _steps_of(db, plan.id)
+            # 段前闸：与原执行循环的顶部检查同口径
+            if runtime.stop_requested:
+                await _finish_plan(db, plan, rows, status="stopped", publish=publish)
+                return
+            if runtime.pause_requested or any(r.status == "failed" for r in rows):
+                await _mark_paused(db, plan, publish)
+                return
+            pending = [r for r in rows if r.status in ("pending", "queued")]
+            if not pending:
+                await _finish_plan(db, plan, rows, status="succeeded", publish=publish)
+                return
+            budget = _budget_of(plan)
+            step_uid_by_node = {
+                f"step_{i}": r.step_uid for i, r in enumerate(pending, start=1)
+            }
+            definition = plan_definition(
+                [
                     {
-                        "event": "step_started",
-                        "plan_uid": plan_uid,
-                        "step_uid": step_uid,
-                        "name": step_name,
-                        "order_index": step_order,
+                        "name": r.name,
+                        "target": r.name,
+                        "instruction": r.instruction,
+                        "tools": json.loads(r.tools_hint or "[]"),
                     }
-                )
-
-            runtime.stop.begin(step_uid)
-
-            # 默认参数即时绑定本轮 step_uid，避免下一轮重绑后闭包看错步骤
-            def _stop_check(uid: str = step_uid) -> bool:
-                return (
-                    runtime.stop.is_stopped(uid)
-                    or runtime.stop_requested
-                    or runtime.pause_requested
-                )
-
-            turn_error = ""
-            turn = None
-            try:
-                agent = await _assemble_step(
-                    session_id=session_id,
-                    name=step_name,
-                    instruction=step_instruction,
-                    budget=budget,
-                    tools=step_tools,
-                )
-                turn = await run_plan_step(
-                    agent=agent,
-                    plan_uid=plan_uid,
-                    step_uid=step_uid,
-                    name=step_name,
-                    prompt=prompt,
-                    budget=budget,
-                    publish=publish,
-                    stop_check=_stop_check,
-                )
-            except Exception as exc:  # noqa: BLE001 - 装配失败也记成单步失败
-                logger.exception("计划步骤装配失败 step_uid=%s", step_uid)
-                turn_error = str(exc)
-            finally:
-                runtime.stop.end(step_uid)
-
-            async with _refresh_lock(plan_uid):
-                async with SessionLocal() as db:
-                    step = await _get_step(db, step_uid)
-                    if step is not None:
-                        if turn is not None:
-                            step.log_text = turn.log_text
-                            step.usage_json = json.dumps(turn.usage, ensure_ascii=False)
-                            step.duration_ms = turn.duration_ms
-                            if turn.status == "succeeded":
-                                step.status = "succeeded"
-                                step.summary = turn.conclusion
-                                step.findings_json = json.dumps(
-                                    turn.findings, ensure_ascii=False
-                                )
-                                step.finished_at = datetime.now(timezone.utc)
-                            elif turn.status == "stopped":
-                                # 暂停打断的步骤退回待执行；停止打断的记 stopped
-                                step.status = (
-                                    "stopped" if runtime.stop_requested else "pending"
-                                )
-                                step.log_text = turn.log_text
-                            else:
-                                step.status = "failed"
-                                step.error = turn.error
-                                step.finished_at = datetime.now(timezone.utc)
-                        else:
-                            step.status = "failed"
-                            step.error = turn_error
-                            step.finished_at = datetime.now(timezone.utc)
-                        await db.commit()
-                    status = step.status if step is not None else "failed"
-                    error = step.error if step is not None else turn_error
-                    duration_ms = step.duration_ms if step is not None else 0
-            await publish(
-                {
-                    "event": "step_finished",
-                    "plan_uid": plan_uid,
-                    "step_uid": step_uid,
-                    "status": status,
-                    "summary": (step.summary if step is not None else ""),
-                    "error": error,
-                    "duration_ms": duration_ms,
-                }
+                    for r in pending
+                ]
             )
+            run = await workflow_service.create_system_run(
+                db,
+                workflow_name=workflow_service.SYSTEM_WORKFLOW_PLAN,
+                definition=definition,
+                trigger=workflow_service.RUN_TRIGGER_PLAN,
+                triggered_by=f"session:{plan.session_id}",
+                payload={"plan_uid": plan_uid},
+            )
+
+        async def step_runner(node: Any) -> dict[str, Any]:
+            step_uid = step_uid_by_node.get(node.id)
+            if step_uid is None:
+                raise RuntimeError(f"任务节点没有对应的步骤行: {node.id}")
+            return await _execute_step_node(
+                plan_uid=plan_uid,
+                step_uid=step_uid,
+                budget=budget,
+                publish=publish,
+                runtime=runtime,
+            )
+
+        try:
+            async with SessionLocal() as db:
+                run_row = await workflow_service.get_run(db, run.run_uid)
+                await workflow_service.execute_existing_run(
+                    db, run=run_row, extra_tools={"task_runner": step_runner}
+                )
+        except Exception:
+            logger.exception(
+                "计划编排执行失败 plan_uid=%s run_uid=%s", plan_uid, run.run_uid
+            )
+            # 编排中断兜底：running 步骤退回 pending 并转 paused，不让计划悬死
+            try:
+                async with SessionLocal() as db:
+                    plan = await _get_plan(db, plan_uid)
+                    if plan is None:
+                        return
+                    rows = await _steps_of(db, plan.id)
+                    for row in rows:
+                        if row.status == "running":
+                            row.status = "pending"
+                    await db.commit()
+                    await _mark_paused(db, plan, publish)
+            except Exception:
+                logger.exception("计划编排中断兜底失败 plan_uid=%s", plan_uid)
     finally:
         runtime.running = False
+
+
+async def _execute_step_node(
+    *,
+    plan_uid: str,
+    step_uid: str,
+    budget: WorkerBudget,
+    publish: Any,
+    runtime: _PlanRuntime,
+) -> dict[str, Any]:
+    """单步任务节点：入口状态机闸 → 执行 → 落库 → 段尾收口检查。"""
+
+    from app.adk_runtime.workflow_nodes import WorkflowStopped
+
+    # —— 入口闸：暂停/停止/失败都在这里收口本段，不再往下走 ——
+    async with SessionLocal() as db:
+        plan = await _get_plan(db, plan_uid)
+        if plan is None:
+            raise WorkflowStopped("计划不存在")
+        rows = await _steps_of(db, plan.id)
+        if runtime.stop_requested:
+            await _finish_plan(db, plan, rows, status="stopped", publish=publish)
+            raise WorkflowStopped("计划已停止")
+        if runtime.pause_requested or any(r.status == "failed" for r in rows):
+            await _mark_paused(db, plan, publish)
+            raise WorkflowStopped("计划暂停，等待用户决定")
+        step = next((r for r in rows if r.step_uid == step_uid), None)
+        if step is None or step.status not in ("pending", "queued"):
+            # 段外操作已改掉这一步（如段内被跳过）：空转通过，不改状态
+            return {
+                "status": step.status if step is not None else "missing",
+                "noop": True,
+            }
+        step.status = "running"
+        # 记录开始时刻：前端「已运行」读秒的锚点
+        step.started_at = datetime.now(timezone.utc)
+        await db.commit()
+        prior = [
+            (r.name, r.summary)
+            for r in rows
+            if r.status == "succeeded" and r.summary
+        ]
+        prompt = build_plan_step_prompt(
+            question=plan.question,
+            name=step.name,
+            instruction=step.instruction,
+            prior_summaries=prior,
+        )
+        session_id = plan.session_id
+        step_name = step.name
+        step_instruction = step.instruction
+        step_order = step.order_index
+        # 声明了所需工具就收窄该步挂载面（tools 从展示升为治理输入）
+        step_tools = tuple(json.loads(step.tools_hint or "[]"))
+        await publish(
+            {
+                "event": "step_started",
+                "plan_uid": plan_uid,
+                "step_uid": step_uid,
+                "name": step_name,
+                "order_index": step_order,
+            }
+        )
+
+    runtime.stop.begin(step_uid)
+
+    # 默认参数即时绑定本步 step_uid，避免闭包看错步骤
+    def _stop_check(uid: str = step_uid) -> bool:
+        return (
+            runtime.stop.is_stopped(uid)
+            or runtime.stop_requested
+            or runtime.pause_requested
+        )
+
+    turn_error = ""
+    turn = None
+    try:
+        agent = await _assemble_step(
+            session_id=session_id,
+            name=step_name,
+            instruction=step_instruction,
+            budget=budget,
+            tools=step_tools,
+        )
+        turn = await run_plan_step(
+            agent=agent,
+            plan_uid=plan_uid,
+            step_uid=step_uid,
+            name=step_name,
+            prompt=prompt,
+            budget=budget,
+            publish=publish,
+            stop_check=_stop_check,
+        )
+    except Exception as exc:  # noqa: BLE001 - 装配失败也记成单步失败
+        logger.exception("计划步骤装配失败 step_uid=%s", step_uid)
+        turn_error = str(exc)
+    finally:
+        runtime.stop.end(step_uid)
+
+    async with _refresh_lock(plan_uid):
+        async with SessionLocal() as db:
+            step = await _get_step(db, step_uid)
+            if step is not None:
+                if turn is not None:
+                    step.log_text = turn.log_text
+                    step.usage_json = json.dumps(turn.usage, ensure_ascii=False)
+                    step.duration_ms = turn.duration_ms
+                    if turn.status == "succeeded":
+                        step.status = "succeeded"
+                        step.summary = turn.conclusion
+                        step.findings_json = json.dumps(
+                            turn.findings, ensure_ascii=False
+                        )
+                        step.finished_at = datetime.now(timezone.utc)
+                    elif turn.status == "stopped":
+                        # 暂停打断的步骤退回待执行；停止打断的记 stopped
+                        step.status = (
+                            "stopped" if runtime.stop_requested else "pending"
+                        )
+                        step.log_text = turn.log_text
+                    else:
+                        step.status = "failed"
+                        step.error = turn.error
+                        step.finished_at = datetime.now(timezone.utc)
+                else:
+                    step.status = "failed"
+                    step.error = turn_error
+                    step.finished_at = datetime.now(timezone.utc)
+                await db.commit()
+            status = step.status if step is not None else "failed"
+            error = step.error if step is not None else turn_error
+            summary = step.summary if step is not None else ""
+            duration_ms = step.duration_ms if step is not None else 0
+    await publish(
+        {
+            "event": "step_finished",
+            "plan_uid": plan_uid,
+            "step_uid": step_uid,
+            "status": status,
+            "summary": summary,
+            "error": error,
+            "duration_ms": duration_ms,
+        }
+    )
+
+    # —— 段尾收口：全部步骤终态时收尾（成功收口 / 失败暂停）——
+    async with SessionLocal() as db:
+        plan = await _get_plan(db, plan_uid)
+        if plan is None:
+            return {"status": status}
+        rows = await _steps_of(db, plan.id)
+        failed = any(r.status == "failed" for r in rows)
+        if all(r.status in _TERMINAL_STEP for r in rows):
+            if failed:
+                await _mark_paused(db, plan, publish)
+            else:
+                await _finish_plan(db, plan, rows, status="succeeded", publish=publish)
+        elif runtime.stop_requested:
+            await _finish_plan(db, plan, rows, status="stopped", publish=publish)
+        elif runtime.pause_requested or failed:
+            # 本段最后一步被打断（暂停留下 pending）：转 paused 等决定
+            await _mark_paused(db, plan, publish)
+    return {"status": status, "summary": summary}
 
 
 async def _finish_plan(

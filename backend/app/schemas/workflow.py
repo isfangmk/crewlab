@@ -38,6 +38,7 @@ NodeKind = Literal[
     "switch",
     "loop",
     "agent",
+    "task",
     "knowledge",
     "search",
     "mcp",
@@ -131,6 +132,18 @@ class WorkflowVariable(BaseModel):
         return
 
 
+class TaskSpec(BaseModel):
+    """任务节点的执行参数：无人值守执行器（排查的每一路 / 计划的每一步）。
+
+    任务节点不进画布节点库（系统编排模板专用）；「怎么执行」由编排发起方
+    在装配时经 task_runner 注入，这里只描述「做什么」。
+    """
+
+    target: str = Field(min_length=1, max_length=2000)
+    instruction: str = Field(default="", max_length=8000)
+    tools: list[str] = Field(default_factory=list)
+
+
 class WorkflowNode(BaseModel):
     """一个图节点。各 kind 只允许填自己那部分字段，其余必须为空。"""
 
@@ -151,6 +164,9 @@ class WorkflowNode(BaseModel):
     model: str = Field(default="", max_length=128)
     # agent：节点级指令
     instruction: str = Field(default="", max_length=8000)
+
+    # task：任务节点的执行参数（系统编排模板专用）
+    task: TaskSpec | None = None
 
     # knowledge / search / http 等节点的主参数，支持 {{变量}} 插值
     query: str = Field(default="", max_length=2000)
@@ -270,6 +286,13 @@ class WorkflowNode(BaseModel):
     @model_validator(mode="after")
     def _check_kind_fields(self) -> WorkflowNode:
         kind = self.kind
+        if kind != "task" and self.task is not None:
+            raise ValueError(f"{kind} 节点不能设置 task 字段: {self.id}")
+        if kind == "task":
+            if self.task is None:
+                raise ValueError(f"任务节点必须声明执行参数 task: {self.id}")
+            self._reject(kind, variables=True, agent=True, query=True, mcp=True, http=True, code=True, code_exec=True)
+            return self
         if kind == "start":
             if len(self.variables) == 0:
                 raise ValueError(f"开始节点必须声明至少一个输入变量: {self.id}")

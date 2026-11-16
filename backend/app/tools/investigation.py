@@ -1,8 +1,7 @@
-"""并行子代理排查工具：主代理派发 N 路只读 worker 与结果回取。
+"""并行子代理排查工具：主代理派发 N 路只读 worker 与快照回取。
 
-dispatch_investigation 内部并行起子代理（复用子助理装配），
-软截止后先回初步 findings 供主代理汇总，未完的路后台续跑；
-get_investigation 供「汇总结论回对话」/ 重试后重新归因的回合取快照。
+dispatch_investigation 派发后立即返回运行句柄（编排等全部路收口，
+结论由自动汇总写回对话）；get_investigation 供重试后重新归因的回合取快照。
 """
 
 from __future__ import annotations
@@ -18,22 +17,21 @@ logger = logging.getLogger(__name__)
 async def dispatch_investigation(
     question: str,
     workers_json: str,
-    soft_deadline_seconds: int = 60,
     max_steps_per_worker: int = 12,
     timeout_seconds_per_worker: int = 300,
     token_budget_per_worker: int = 150000,
     tool_context: Any = None,
 ) -> dict:
-    """把问题拆给 N 路只读子代理并行排查，返回带证据的结构化发现。
+    """把问题拆给 N 路只读子代理并行排查，收口后自动汇总进对话。
 
     question: 要排查的总问题（一句话）。
     workers_json: worker 规格 JSON 数组，如 [{"name":"指标员","target":"关联指标趋势","instruction":"侧重近24h","tools":["query_knowledge"]}]，1..8 路；tools 可选，是本路需要的工具（按声明收窄挂载，留空挂默认只读集）。
-    soft_deadline_seconds: 软截止秒数；到期先返回初步结果，未完的路后台继续跑。
     max_steps_per_worker: 每路最大模型调用次数（步数预算）。
     timeout_seconds_per_worker: 每路墙钟超时秒数。
     token_budget_per_worker: 每路 token 软限，超限中止该路（默认 150000：多工具集下每轮调用约 4-5k，检索返回会随上下文累积放大）。
 
-    汇总结论时请在正文用 [n] 标记引用 findings 里的发现编号 n（如 [1]），用户可点角标定位证据。
+    返回启动句柄（路名单），不返回结论；全部路收口后编排自动把汇总结论
+    写进对话流。要取某次排查的快照（状态/发现/证据）用 get_investigation。
     """
 
     # 服务层在函数内导入：目录注册链（catalog → 本模块）不能反向引到 worker 装配
@@ -51,8 +49,6 @@ async def dispatch_investigation(
         timeout_seconds=max(1, int(timeout_seconds_per_worker)),
         token_budget=max(0, int(token_budget_per_worker)),
     )
-    if soft_deadline_seconds < 1 or soft_deadline_seconds > 600:
-        return {"error": "soft_deadline_seconds 范围是 1..600"}
 
     async with SessionLocal() as db:
         from app.models.chat import ChatSession
@@ -70,21 +66,13 @@ async def dispatch_investigation(
         dispatch_uid = dispatch.dispatch_uid
 
     logger.info(
-        "dispatch_investigation 派发 dispatch_uid=%s workers=%s soft_deadline=%ss",
+        "dispatch_investigation 派发 dispatch_uid=%s workers=%s",
         dispatch_uid,
         [s["name"] for s in specs],
-        soft_deadline_seconds,
     )
-    complete = await dispatch_service.wait_dispatch(dispatch_uid, int(soft_deadline_seconds))
     async with SessionLocal() as db:
-        result = await dispatch_service.tool_result_wire(db, dispatch_uid)
-    if not complete:
-        result["message"] = (
-            f"软截止 {soft_deadline_seconds}s 已到：先基于已完成的发现汇总，"
-            f"仍在跑的路有 {len(result['still_running'])} 条，"
-            f"跑完后可调用 get_investigation 取最终发现再补一轮归因。"
-        )
-    return result
+        handle = await dispatch_service.dispatch_handle_wire(db, dispatch_uid)
+    return handle
 
 
 async def get_investigation(dispatch_uid: str) -> dict:

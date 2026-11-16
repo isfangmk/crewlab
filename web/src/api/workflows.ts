@@ -15,6 +15,7 @@ export type NodeKind =
   | 'switch'
   | 'loop'
   | 'agent'
+  | 'task'
   | 'knowledge'
   | 'search'
   | 'mcp'

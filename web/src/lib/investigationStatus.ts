@@ -14,7 +14,6 @@ export type InvestigationStatusMeta = {
 
 export const DISPATCH_STATUS_META: Record<DispatchStatus, InvestigationStatusMeta> = {
   running: { tone: 'info', zh: '进行中', en: 'Running', pulse: true },
-  partial: { tone: 'warn', zh: '初步汇总', en: 'Partial', pulse: true },
   succeeded: { tone: 'ok', zh: '完成', en: 'Succeeded' },
   failed: { tone: 'danger', zh: '失败', en: 'Failed' },
   stopped: { tone: 'neutral', zh: '已停止', en: 'Stopped' },

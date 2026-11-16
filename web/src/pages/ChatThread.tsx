@@ -184,6 +184,8 @@ export default function ChatThreadPage() {
   // 引用角标/折叠块 → 右栏工作台定位
   const locateInWorkbench = (target: LocateTarget) => {
     setShowWorkbench(true);
+    // 两个工作台互斥停靠：开一个关另一个，对话列不被挤窄
+    setShowPlanWorkbench(false);
     setWorkbenchLocate({ ...target, seq: Date.now() });
   };
 
@@ -194,6 +196,7 @@ export default function ChatThreadPage() {
   // 计划卡 → 右栏执行进度定位
   const locateInPlanWorkbench = (target: PlanLocateTarget) => {
     setShowPlanWorkbench(true);
+    setShowWorkbench(false);
     setPlanLocate({ ...target, seq: Date.now() });
   };
 
@@ -1004,9 +1007,15 @@ export default function ChatThreadPage() {
       }
       if (detail.type === 'tool_start') {
         const t = detail.event;
-        // 并行排查/规划执行派发：自动展开右栏看实时进度
-        if (t.name === 'dispatch_investigation') setShowWorkbench(true);
-        if (t.name === 'create_plan') setShowPlanWorkbench(true);
+        // 并行排查/规划执行派发：自动展开右栏看实时进度（两栏互斥，不挤压对话）
+        if (t.name === 'dispatch_investigation') {
+          setShowWorkbench(true);
+          setShowPlanWorkbench(false);
+        }
+        if (t.name === 'create_plan') {
+          setShowPlanWorkbench(true);
+          setShowWorkbench(false);
+        }
         const card: ChatMessage = {
           id: `tool-card-${t.tool_call_id}`,
           role: 'tool',
@@ -1453,9 +1462,15 @@ export default function ChatThreadPage() {
 
             if (activeSessionRef.current !== turnSessionID) return;
 
-            // 并行排查/规划执行派发：自动展开右栏看实时进度
-            if (t.name === 'dispatch_investigation') setShowWorkbench(true);
-            if (t.name === 'create_plan') setShowPlanWorkbench(true);
+            // 并行排查/规划执行派发：自动展开右栏看实时进度（两栏互斥，不挤压对话）
+            if (t.name === 'dispatch_investigation') {
+              setShowWorkbench(true);
+              setShowPlanWorkbench(false);
+            }
+            if (t.name === 'create_plan') {
+              setShowPlanWorkbench(true);
+              setShowWorkbench(false);
+            }
 
             const card: ChatMessage = {
 
@@ -2184,7 +2199,13 @@ export default function ChatThreadPage() {
 
                   icon={Radar}
 
-                  onClick={() => setShowWorkbench((v) => !v)}
+                  onClick={() => {
+
+                    setShowWorkbench(!showWorkbench);
+
+                    if (!showWorkbench) setShowPlanWorkbench(false);
+
+                  }}
 
                   aria-pressed={showWorkbench}
 
@@ -2198,7 +2219,13 @@ export default function ChatThreadPage() {
 
                   icon={ListChecks}
 
-                  onClick={() => setShowPlanWorkbench((v) => !v)}
+                  onClick={() => {
+
+                    setShowPlanWorkbench(!showPlanWorkbench);
+
+                    if (!showPlanWorkbench) setShowWorkbench(false);
+
+                  }}
 
                   aria-pressed={showPlanWorkbench}
 

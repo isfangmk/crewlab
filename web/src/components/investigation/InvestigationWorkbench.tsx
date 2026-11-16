@@ -73,7 +73,7 @@ export function InvestigationWorkbench({
   const loadSeq = useRef(0);
 
   const statusKey = (wire?.status ?? 'running') as keyof typeof DISPATCH_STATUS_META;
-  const active = statusKey === 'running' || statusKey === 'partial';
+  const active = statusKey === 'running';
   const tick = useTicker(active);
 
   const loadList = useCallback(async () => {

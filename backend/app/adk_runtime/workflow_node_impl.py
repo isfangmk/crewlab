@@ -865,12 +865,39 @@ class GateNode(CanvasNode):
         return {"gate": node.id, "kind": node.kind, "prompt": prompt}
 
 
+class TaskNode(CanvasNode):
+    """任务节点：无人值守执行器（并行排查的每一路 / 计划的每一步）。
+
+    执行内核在编排发起方（dispatch/plan service）注入的 task_runner 里：
+    工具面收窄、聚焦纪律、预算收口都留在原装配点，节点只负责把「这一格」
+    跑完并把结果摘要写进共享状态，供汇合点与运行记录使用。
+    """
+
+    def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        spec = self.node_def.task
+        if spec is None:
+            return {}
+        snapshot: dict[str, Any] = {"target": spec.target}
+        if spec.instruction:
+            snapshot["instruction"] = spec.instruction
+        if spec.tools:
+            snapshot["tools"] = list(spec.tools)
+        return snapshot
+
+    async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
+        runner = self._tools.get("task_runner")
+        if runner is None:
+            raise RuntimeError("任务节点缺少执行上下文: 未注入 task_runner")
+        return await runner(self.node_def)
+
+
 NODE_BUILDERS: dict[str, type[CanvasNode]] = {
     "start": StartNode,
     "approval": GateNode,
     "input": GateNode,
     "end": EndNode,
     "join": JoinNodeImpl,
+    "task": TaskNode,
     "knowledge": KnowledgeNode,
     "search": SearchNode,
     "mcp": ToolNode,

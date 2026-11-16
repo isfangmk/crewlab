@@ -47,9 +47,33 @@ RUN_FAILED = "failed"
 RUN_WAITING = "waiting"
 RUN_STOPPED = "stopped"
 
-# 触发来源：manual 是正式运行，debug 是画布上的单节点试跑
+# 触发来源：manual 是正式运行，debug 是画布上的单节点试跑；
+# investigation / plan 是系统编排（会话内执行模式的运行都落到运行记录里）
 RUN_TRIGGER_MANUAL = "manual"
 RUN_TRIGGER_DEBUG = "debug"
+RUN_TRIGGER_INVESTIGATION = "investigation"
+RUN_TRIGGER_PLAN = "plan"
+
+# 系统编排的壳工作流：运行定义随运行快照，壳只承载归属与命名；
+# 画布本体放一张最小合法图（占位），保证详情/解析路径拿到的是合法定义
+SYSTEM_WORKFLOW_SHELL_DEFINITION = json.dumps(
+    {
+        "nodes": [
+            {
+                "id": "start",
+                "kind": "start",
+                "label": "开始",
+                "variables": [{"name": "input", "type": "string"}],
+            },
+            {"id": "end", "kind": "end", "label": "结束"},
+        ],
+        "edges": [{"id": "e1", "source": "start", "target": "end"}],
+    },
+    ensure_ascii=False,
+)
+SYSTEM_WORKFLOW_INVESTIGATION = "系统 · 并行排查"
+SYSTEM_WORKFLOW_PLAN = "系统 · 执行计划"
+SYSTEM_WORKFLOW_NOTE = "系统编排模板：运行由会话内的执行模式自动创建，画布不参与执行。"
 
 
 def initial_state_of(
@@ -144,6 +168,7 @@ async def execute_existing_run(
     *,
     run: WorkflowRun,
     on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    extra_tools: dict[str, Any] | None = None,
 ) -> WorkflowRun:
     """执行一条已建好的运行记录（发起与执行分离时用）。
 
@@ -160,6 +185,7 @@ async def execute_existing_run(
         state=state,
         resumed_state=None,
         on_event=on_event,
+        extra_tools=extra_tools,
     )
 
 
@@ -205,6 +231,62 @@ async def create_run(
         sorted(initial_state),
     )
     return run, definition
+
+
+async def create_system_run(
+    db: AsyncSession,
+    *,
+    workflow_name: str,
+    definition: WorkflowDefinition,
+    trigger: str,
+    triggered_by: str,
+    payload: dict[str, Any],
+) -> WorkflowRun:
+    """系统编排运行：按需建壳工作流，快照本次生成的定义，建运行记录。
+
+    会话内的执行模式（并行排查 / 计划执行）都落工作流运行记录，trigger 区分
+    来源；定义随运行快照，壳工作流的画布不参与执行。
+    """
+
+    row = (
+        await db.scalars(select(WorkflowRow).where(WorkflowRow.name == workflow_name))
+    ).first()
+    if row is None:
+        row = WorkflowRow(
+            name=workflow_name,
+            description=SYSTEM_WORKFLOW_NOTE,
+            definition_json=SYSTEM_WORKFLOW_SHELL_DEFINITION,
+            status="draft",
+        )
+        db.add(row)
+        await db.flush()
+    elif row.definition_json in ("", "{}"):
+        # 早期壳行的占位空图不是合法定义：补成最小合法图，详情/解析路径才走得通
+        row.definition_json = SYSTEM_WORKFLOW_SHELL_DEFINITION
+        await db.commit()
+    run_uid = f"run_{uuid4().hex[:12]}"
+    run = WorkflowRun(
+        workflow_id=row.id,
+        run_uid=run_uid,
+        definition_json=definition.model_dump_json(),
+        workflow_version=row.version,
+        workflow_status="draft",
+        status=RUN_RUNNING,
+        trigger=trigger,
+        triggered_by=triggered_by,
+        input_json=json.dumps(initial_state_of(definition, payload), ensure_ascii=False),
+    )
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+    logger.info(
+        "系统编排运行创建 run_uid=%s workflow=%s trigger=%s nodes=%s",
+        run_uid,
+        workflow_name,
+        trigger,
+        [n.id for n in definition.nodes],
+    )
+    return run
 
 
 async def execute_run(
@@ -481,6 +563,7 @@ async def _drive(
     resumed_state: dict[str, Any] | None,
     approved: set[str] | None = None,
     on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    extra_tools: dict[str, Any] | None = None,
 ) -> WorkflowRun:
     """真正跑 ADK 图；把节点记录与最终状态落库。
 
@@ -526,6 +609,7 @@ async def _drive(
             approved_gates=approved,
             on_event=on_event,
             run_uid=run.run_uid,
+            extra_tools=extra_tools,
         )
         runner = Runner(
             app_name=WORKFLOW_APP_NAME,
@@ -573,10 +657,10 @@ async def _drive(
                 gate.kind,
             )
         elif _is_interrupted(exc):
-            # 用户主动停止：已跑过的节点照样落库，方便看跑到哪一步
+            # 主动停止 / 编排段收口（计划暂停等）：已跑过的节点照样落库
             status = RUN_STOPPED
-            error = "运行被用户停止"
-            logger.info("运行被用户停止 run_uid=%s", run.run_uid)
+            error = str(exc) if str(exc) else "运行被用户停止"
+            logger.info("运行中断 run_uid=%s reason=%s", run.run_uid, error)
         else:
             status = RUN_FAILED
             error = f"{type(exc).__name__}: {exc}"
