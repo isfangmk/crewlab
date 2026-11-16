@@ -448,6 +448,122 @@ describe('KnowledgePage', () => {
     await waitFor(() => expect(listURLSeen).toContain('q=DNS'));
   });
 
+  it('试调旋钮：RRF 阈值 / 范围模式 / 返回条数透传进检索请求', async () => {
+    let searchURLSeen = '';
+    server.use(
+      http.get('/api/v1/agents', () => HttpResponse.json({ items: [], total: 0 })),
+      http.get(searchURL, ({ request }) => {
+        searchURLSeen = request.url;
+        return HttpResponse.json({ items: [], total: 0 });
+      }),
+    );
+
+    render(<KnowledgePage />);
+    await openSearchView();
+    await userEvent.click(screen.getByRole('button', { name: '试调' }));
+
+    await userEvent.click(screen.getByRole('combobox', { name: '返回条数' }));
+    await userEvent.click(await screen.findByRole('option', { name: '20' }));
+    await userEvent.type(screen.getByRole('spinbutton', { name: 'RRF 阈值覆盖' }), '0.02');
+    await userEvent.click(screen.getByRole('combobox', { name: '范围模式' }));
+    await userEvent.click(await screen.findByRole('option', { name: '全库' }));
+
+    await userEvent.type(screen.getByPlaceholderText(/语义检索：全库/), '巡检{Enter}');
+    await waitFor(() => expect(searchURLSeen).not.toBe(''));
+    const params = new URL(searchURLSeen).searchParams;
+    expect(params.get('limit')).toBe('20');
+    expect(params.get('min_score')).toBe('0.02');
+    // 全库范围不叠加浏览上下文（目录 / 来源组）
+    expect(params.get('path_prefix')).toBeNull();
+    expect(params.get('builtin')).toBeNull();
+    expect(params.get('scope_path')).toBeNull();
+  });
+
+  it('按助理范围：knowledge_scope 转成 scope 参数', async () => {
+    let searchURLSeen = '';
+    server.use(
+      http.get('/api/v1/agents', () =>
+        HttpResponse.json({
+          items: [
+            {
+              name: 'ops',
+              display_name: '运维助理',
+              knowledge_scope: { paths: ['ops'], doc_ids: ['doc-1'] },
+            },
+          ],
+          total: 1,
+        }),
+      ),
+      http.get(searchURL, ({ request }) => {
+        searchURLSeen = request.url;
+        return HttpResponse.json({ items: [], total: 0 });
+      }),
+    );
+
+    render(<KnowledgePage />);
+    await openSearchView();
+    await userEvent.click(screen.getByRole('button', { name: '试调' }));
+    await userEvent.click(await screen.findByRole('combobox', { name: '范围模式' }));
+    await userEvent.click(await screen.findByRole('option', { name: '按助理范围' }));
+    await userEvent.click(await screen.findByRole('combobox', { name: '助理' }));
+    await userEvent.click(await screen.findByRole('option', { name: '运维助理（ops）' }));
+
+    await userEvent.type(screen.getByPlaceholderText(/语义检索：助理 运维助理（ops） 的知识范围/), '巡检{Enter}');
+    await waitFor(() => expect(searchURLSeen).not.toBe(''));
+    const params = new URL(searchURLSeen).searchParams;
+    expect(params.getAll('scope_path')).toEqual(['ops']);
+    expect(params.getAll('scope_doc')).toEqual(['doc-1']);
+    expect(params.get('path_prefix')).toBeNull();
+    expect(params.get('builtin')).toBeNull();
+  });
+
+  it('阈值非法显式报错，不发检索请求', async () => {
+    let searchCalls = 0;
+    server.use(
+      http.get('/api/v1/agents', () => HttpResponse.json({ items: [], total: 0 })),
+      http.get(searchURL, () => {
+        searchCalls += 1;
+        return HttpResponse.json({ items: [], total: 0 });
+      }),
+    );
+
+    render(<KnowledgePage />);
+    await openSearchView();
+    await userEvent.click(screen.getByRole('button', { name: '试调' }));
+    await userEvent.type(screen.getByRole('spinbutton', { name: 'RRF 阈值覆盖' }), '-1');
+    await userEvent.type(screen.getByPlaceholderText(/语义检索：组织知识库/), '巡检{Enter}');
+
+    expect(await screen.findByText('RRF 阈值必须是 >= 0 的数字')).toBeInTheDocument();
+    expect(searchCalls).toBe(0);
+  });
+
+  it('空态文案是当前查询词，请求在途显示检索中', async () => {
+    let call = 0;
+    server.use(
+      http.get(searchURL, async () => {
+        call += 1;
+        // 第二次请求人为放慢，制造「在途」窗口
+        if (call === 2) await new Promise((resolve) => setTimeout(resolve, 300));
+        return HttpResponse.json({ items: [], total: 0 });
+      }),
+    );
+
+    render(<KnowledgePage />);
+    await openSearchView();
+    const input = await screen.findByPlaceholderText(/语义检索：组织知识库/);
+
+    await userEvent.type(input, '旧词{Enter}');
+    expect(await screen.findByText('没有命中「旧词」的切块')).toBeInTheDocument();
+
+    await userEvent.clear(input);
+    await userEvent.type(input, '新词{Enter}');
+    // 在途：显示检索中（带当前查询词），不再挂着上一次查询词的空态
+    expect(await screen.findByText('正在检索「新词」')).toBeInTheDocument();
+    expect(screen.queryByText('没有命中「旧词」的切块')).not.toBeInTheDocument();
+    // 完成后空态文案是当前查询词
+    expect(await screen.findByText('没有命中「新词」的切块')).toBeInTheDocument();
+  });
+
   it('更新时间列：显示完整日期时间并按列排序', async () => {
     const newer = {
       id: '601',

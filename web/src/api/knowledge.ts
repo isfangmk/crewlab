@@ -140,7 +140,7 @@ export function searchKnowledge(
     builtin?: boolean;
     // 来源类型：与侧边栏分组正交，用于组织文档内按 manual / upload / repo 收口
     sourceType?: DocSource;
-    // RRF 阈值覆盖（检索试跑页试调）；不传 = 服务端全局 knowledge.rrf_min_score
+    // RRF 阈值覆盖（知识库语义检索试调）；不传 = 服务端全局 knowledge.rrf_min_score
     minScore?: number;
   },
 ) {

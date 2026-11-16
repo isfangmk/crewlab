@@ -1,7 +1,7 @@
 // 知识检索共享组件：命中行 / 语义检索面板 / 命中块定位横幅。
-// 知识库页与检索试跑页共用同一套结果呈现（分数栏、命中块编号、空态口径），
-// 抽出来避免两处各维护一份后展示口径漂移。
+// 结果呈现（分数栏、命中块编号、空态口径）独立成组件，页面只负责检索状态与试调参数。
 import { Search, SearchX } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Button, Chip, EmptyStateCard, FilterBar, SearchInput, TableCard, TableHead, COL, tableLayout } from '@/components/ui';
 import { localizedDocTitle, localizedPath, type SearchHit } from '@/api/knowledge';
 import { useI18n } from '@/i18n/locale';
@@ -66,6 +66,9 @@ export function SemanticSearchPanel({
   scopeLabel,
   onOpenHit,
   noHitsHint,
+  searching,
+  extraControls,
+  footer,
 }: {
   query: string;
   onQueryChange(next: string): void;
@@ -75,13 +78,19 @@ export function SemanticSearchPanel({
   hits: SearchHit[];
   scopeLabel: string;
   onOpenHit(hit: SearchHit): void;
-  // 无命中提示可按页面语境覆盖（检索试跑页直接提示调阈值，不必绕去设置页）
+  // 无命中提示可按调用方语境覆盖（如直接提示调 RRF 阈值）
   noHitsHint?: string;
+  // 请求在途：计数区显示检索中，空态不误报「没有命中」
+  searching?: boolean;
+  // 检索主行的追加控件（如试调开关），渲染在计数之前
+  extraControls?: ReactNode;
+  // 筛选卡第二行（如试调参数胶囊行）
+  footer?: ReactNode;
 }) {
   const { tr } = useI18n();
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-5 pt-3">
-      <FilterBar className="mb-3">
+      <FilterBar className="mb-3" footer={footer}>
         <SearchInput
           value={query}
           onChange={onQueryChange}
@@ -96,17 +105,20 @@ export function SemanticSearchPanel({
           variant="primary"
           size="sm"
           type="button"
-          disabled={query.trim() === ''}
+          disabled={query.trim() === '' || searching === true}
           onClick={onRun}
           className="inline-flex shrink-0 items-center gap-1.5"
         >
           <Search size={13} />
           {tr('检索', 'Search')}
         </Button>
+        {extraControls}
         <span className="ml-auto shrink-0 pr-1 text-[11px] tabular-nums text-zinc-500">
-          {searchedQuery !== null
-            ? tr(`命中 ${hits.length} 条`, `${hits.length} hit(s)`)
-            : tr('尚未检索', 'Not searched yet')}
+          {searching === true
+            ? tr('检索中…', 'Searching…')
+            : searchedQuery !== null
+              ? tr(`命中 ${hits.length} 条`, `${hits.length} hit(s)`)
+              : tr('尚未检索', 'Not searched yet')}
         </span>
       </FilterBar>
 
@@ -118,6 +130,12 @@ export function SemanticSearchPanel({
             '按整句提问或描述检索；命中的是文档切块而不是标题。',
             'Ask with a phrase; matches are document chunks, not titles.',
           )}
+        />
+      ) : searching === true ? (
+        <EmptyStateCard
+          icon={Search}
+          title={tr('检索中…', 'Searching…')}
+          hint={tr(`正在检索「${searchedQuery}」`, `Searching "${searchedQuery}"`)}
         />
       ) : hits.length === 0 ? (
         <EmptyStateCard

@@ -885,7 +885,7 @@ async def search_docs(
             score += 1.0 / (_RRF_K + keyword_rank[doc_id])
         rrf[doc_id] = score
 
-    # 阈值可被调用方覆盖（检索试跑页试调），未传仍走全局设置
+    # 阈值可被调用方覆盖（知识库语义检索试调），未传仍走全局设置
     if min_score is None:
         min_score = await resolve_rrf_min_score(db)
     elif not math.isfinite(min_score) or min_score < 0:

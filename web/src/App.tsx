@@ -28,7 +28,6 @@ const WorkflowEditorPage = lazy(() => import('@/pages/WorkflowEditor'));
 const WorkflowRunPage = lazy(() => import('@/pages/WorkflowRun'));
 const SandboxPage = lazy(() => import('@/pages/Sandbox'));
 const KnowledgePage = lazy(() => import('@/pages/Knowledge'));
-const KnowledgePlaygroundPage = lazy(() => import('@/pages/KnowledgePlayground'));
 const KnowledgeSourcesPage = lazy(() => import('@/pages/KnowledgeSources'));
 const SessionsPage = lazy(() => import('@/pages/Sessions'));
 const ObservabilityPage = lazy(() => import('@/pages/Observability'));
@@ -130,7 +129,6 @@ export default function App() {
         <Route path="/workflows/runs/:runUid" element={<WorkflowRunPage />} />
         <Route path="/workflows/:id" element={<WorkflowEditorPage key={location.pathname} />} />
         <Route path="/knowledge" element={<KnowledgePage />} />
-        <Route path="/knowledge/playground" element={<KnowledgePlaygroundPage />} />
         <Route path="/knowledge/sources" element={<KnowledgeSourcesPage />} />
         <Route path="/settings" element={<SettingsLayout />}>
           <Route index element={<Navigate to="llm" replace />} />

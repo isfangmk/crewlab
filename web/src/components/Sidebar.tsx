@@ -33,7 +33,6 @@ import {
   Package,
   Terminal,
   FolderGit2,
-  SearchCheck,
   Workflow,
   Rocket,
   Clock,
@@ -389,7 +388,6 @@ export function Sidebar() {
           items={[
             { key: 'knowledge', to: '/knowledge', icon: BookOpen, label: tr('知识库', 'Knowledge') },
             { key: 'knowledge-sources', to: '/knowledge/sources', icon: FolderGit2, label: tr('外部源', 'External sources') },
-            { key: 'knowledge-playground', to: '/knowledge/playground', icon: SearchCheck, label: tr('检索试跑', 'Retrieval playground') },
           ]}
         />
 

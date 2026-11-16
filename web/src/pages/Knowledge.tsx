@@ -57,10 +57,11 @@ import { splitFrontmatter } from '@/lib/frontmatter';
 import type { IconType } from '@/lib/icon';
 import { Modal } from '@/components/Modal';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { flash, Button, Chip, COL, EmptyStateCard, ErrorBanner, FilterBar, FilterChip, FilterPill, Input, PageHeader, RowAction, RowActionIcon, SearchInput, Select, SortableHead, StatusPill, TableCard, TableHead, TablePager, Tabs, TabsList, TabsTrigger, Textarea, tableLayout } from '@/components/ui';
+import { flash, Button, ChoiceChip, Chip, COL, EmptyStateCard, ErrorBanner, FilterBar, FilterChip, FilterPill, Input, PageHeader, RowAction, RowActionIcon, SearchInput, Select, SortableHead, StatusPill, TableCard, TableHead, TablePager, Tabs, TabsList, TabsTrigger, Textarea, tableLayout } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { LocateBanner, SemanticSearchPanel } from '@/components/knowledge/SearchPanel';
 import { formatBytes, fullDateTime } from '@/lib/format';
+import { listAgents, type AgentSummary } from '@/api/agents';
 import {
   createDoc,
   deleteDoc,
@@ -104,6 +105,8 @@ const PAGE_SIZE_OPTIONS = [20, 50, 100];
 // 视图模式：文档浏览（列表 + 筛选）与语义检索（命中列表）是两个页级视图，
 // 用共享 Tabs 承载，不把检索塞进 FilterBar 的筛选条件里。
 type ViewMode = 'docs' | 'search';
+// 语义检索的范围模式：当前目录（跟随浏览上下文）/ 全库 / 按助理知识范围
+type ScopeMode = 'dir' | 'all' | 'agent';
 
 type SourceGroup = 'org' | 'builtin';
 
@@ -240,6 +243,15 @@ export default function KnowledgePage() {
   const [searchedQuery, setSearchedQuery] = useState<string | null>(null);
   // 打开文档时定位到的命中块；关闭编辑器即清空
   const [locate, setLocate] = useState<{ chunkIndex: number; excerpt: string } | null>(null);
+  // 试调旋钮（默认折叠）：返回条数 / RRF 阈值覆盖（空串 = 全局阈值）/ 范围模式
+  const [tuningOpen, setTuningOpen] = useState(false);
+  const [limit, setLimit] = useState(10);
+  const [minScoreText, setMinScoreText] = useState('');
+  const [scopeMode, setScopeMode] = useState<ScopeMode>('dir');
+  const [agentName, setAgentName] = useState('');
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
+  // 检索请求在途：空态不误报「没有命中」，计数区显示检索中
+  const [searching, setSearching] = useState(false);
   // 目录树按来源组聚合，各树计数互不混算
   const [orgPaths, setOrgPaths] = useState<PathRow[]>([]);
   const [builtinPaths, setBuiltinPaths] = useState<PathRow[]>([]);
@@ -311,6 +323,26 @@ export default function KnowledgePage() {
   useEffect(() => {
     void fetchTrees();
   }, [fetchTrees]);
+
+  // 助理下拉数据：按需拉取（展开试调时才请求），按助理范围检索取的是它真实的 knowledge_scope
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
+  useEffect(() => {
+    if (!tuningOpen || agentsLoaded) return;
+    let cancelled = false;
+    void listAgents()
+      .then((res) => {
+        if (!cancelled) {
+          setAgents(res.items ?? []);
+          setAgentsLoaded(true);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setErr(errorText(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tuningOpen, agentsLoaded]);
 
 
 
@@ -420,7 +452,16 @@ export default function KnowledgePage() {
     [tr],
   );
 
-  // 语义检索：独立功能，不是筛选条件。作用范围 = 当前来源组 + 当前目录
+  // 按助理范围检索的 wire 形态；空范围不传，与后端「空 = 不限」口径一致
+  const searchScopeWire = useMemo(() => {
+    if (scopeMode !== 'agent') return undefined;
+    const scope = agents.find((a) => a.name === agentName)?.knowledge_scope;
+    if (!scope || (scope.paths.length === 0 && scope.doc_ids.length === 0)) return undefined;
+    return { paths: [...scope.paths], doc_ids: [...scope.doc_ids] };
+  }, [scopeMode, agentName, agents]);
+
+  // 语义检索：独立功能，不是筛选条件。范围默认跟随浏览上下文（来源组 + 当前目录），
+  // 可在试调里切成全库或按助理知识范围
   const runSearch = async () => {
     const current = ++searchSeq.current;
     const nextQuery = searchQuery.trim();
@@ -429,21 +470,39 @@ export default function KnowledgePage() {
       setSearchedQuery(null);
       return;
     }
+    // 阈值非法显式报错，不悄悄退回全局——试调就是要看到真实生效的口径
+    let minScore: number | undefined;
+    const raw = minScoreText.trim();
+    if (raw !== '') {
+      minScore = Number(raw);
+      if (!Number.isFinite(minScore) || minScore < 0) {
+        setErr(tr('RRF 阈值必须是 >= 0 的数字', 'RRF threshold must be a number >= 0'));
+        return;
+      }
+    }
+    setErr(null);
     setLocate(null);
+    // 提交即记录查询词并清掉旧结果：请求在途显示「检索中」，空态不会挂着上一次的查询词
+    setSearchedQuery(nextQuery);
+    setHits([]);
+    setSearching(true);
     try {
       const res = await searchKnowledge(nextQuery, {
-        limit: 10,
-        pathPrefix: activePath || undefined,
-        builtin: group === 'builtin',
+        limit,
+        pathPrefix: scopeMode === 'dir' ? activePath || undefined : undefined,
+        builtin: scopeMode === 'dir' ? group === 'builtin' : undefined,
         // 来源筛选只在组织文档下有意义；内置组的所有文档都是 vault
         sourceType: group === 'org' && sourceFilter !== '' ? sourceFilter : undefined,
+        scope: searchScopeWire,
+        minScore,
       });
       // 连续检索时只有最后一次结果可以落到界面上
       if (searchSeq.current !== current) return;
       setHits(res.items ?? []);
-      setSearchedQuery(nextQuery);
+      setSearching(false);
     } catch (e) {
       if (searchSeq.current !== current) return;
+      setSearching(false);
       setErr(errorText(e));
     }
   };
@@ -453,6 +512,7 @@ export default function KnowledgePage() {
     setSearchQuery('');
     setHits([]);
     setSearchedQuery(null);
+    setSearching(false);
     setLocate(null);
   }, []);
 
@@ -472,14 +532,28 @@ export default function KnowledgePage() {
     visible_documents: total,
     sample_document_ids: items.slice(0, 6).map((doc) => doc.id).join(', '),
     loading,
+    scope_mode: scopeMode,
+    has_min_score: minScoreText.trim() !== '',
+    search_hits: hits.length,
   });
 
-  // 语义检索是独立功能：作用范围 = 当前来源组 + 当前目录
-  const searchScopeLabel = activePath
-    ? tr(`「${localizedPath(activePath)}」`, `"${localizedPath(activePath)}"`)
-    : group === 'builtin'
-      ? tr('内置知识库', 'built-in knowledge base')
-      : tr('组织知识库', 'organization knowledge');
+  // 检索面板占位符随范围模式变化，让「搜的是谁的知识」始终可见
+  const searchScopeLabel =
+    scopeMode === 'all'
+      ? tr('全库', 'entire knowledge base')
+      : scopeMode === 'agent'
+        ? (() => {
+            const agent = agents.find((a) => a.name === agentName);
+            const label = agent ? `${agent.display_name}（${agent.name}）` : tr('未选助理', 'none');
+            return searchScopeWire
+              ? tr(`助理 ${label} 的知识范围`, `assistant ${label} scope`)
+              : tr(`助理 ${label} · 空范围 = 全库`, `assistant ${label} · empty scope = all`);
+          })()
+        : activePath
+          ? tr(`「${localizedPath(activePath)}」`, `"${localizedPath(activePath)}"`)
+          : group === 'builtin'
+            ? tr('内置知识库', 'built-in knowledge base')
+            : tr('组织知识库', 'organization knowledge');
 
   // 来源筛选：组织文档里 manual / upload / URL / Git 混在一起，检索与列表都要能按来源收口；
   // 内置组只有 vault，给筛选反而制造「选了也一样」的假控件，因此不显示。
@@ -549,19 +623,122 @@ export default function KnowledgePage() {
       </Tabs>
 
       {view === 'search' ? (
-        <SemanticSearchPanel
-          query={searchQuery}
-          onQueryChange={setSearchQuery}
-          onRun={() => void runSearch()}
-          onReset={resetSearch}
-          searchedQuery={searchedQuery}
-          hits={hits}
-          scopeLabel={searchScopeLabel}
-          onOpenHit={(hit) => {
-            setLocate({ chunkIndex: hit.chunk_index, excerpt: hit.excerpt });
-            setDocModal({ doc: hit.doc, mode: 'edit' });
-          }}
-        />
+        <>
+          {err && (
+            <div className="mx-6 mt-3">
+              <ErrorBanner>{err}</ErrorBanner>
+            </div>
+          )}
+          <SemanticSearchPanel
+            query={searchQuery}
+            onQueryChange={setSearchQuery}
+            onRun={() => void runSearch()}
+            onReset={resetSearch}
+            searchedQuery={searchedQuery}
+            hits={hits}
+            scopeLabel={searchScopeLabel}
+            searching={searching}
+            extraControls={
+              // 试调参数默认折叠：日常检索只看检索框，需要调口径时再展开
+              <ChoiceChip
+                active={tuningOpen}
+                label={tr('试调', 'Tuning')}
+                onClick={() => setTuningOpen((open) => !open)}
+              />
+            }
+            footer={
+              tuningOpen ? (
+                <>
+                  <FilterPill
+                    label={tr('返回条数', 'Limit')}
+                    active={limit !== 10}
+                    onClear={() => setLimit(10)}
+                    width="w-[8rem]"
+                  >
+                    <Select
+                      aria-label={tr('返回条数', 'Limit')}
+                      value={String(limit)}
+                      onValueChange={(v) => setLimit(Number(v))}
+                      options={[
+                        { value: '5', label: '5' },
+                        { value: '10', label: '10' },
+                        { value: '20', label: '20' },
+                      ]}
+                      variant="ghost"
+                      className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+                    />
+                  </FilterPill>
+                  <FilterPill
+                    label={tr('RRF 阈值', 'RRF min')}
+                    active={minScoreText.trim() !== ''}
+                    onClear={() => setMinScoreText('')}
+                    width="w-[7.5rem]"
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={minScoreText}
+                      onChange={(e) => setMinScoreText(e.target.value)}
+                      placeholder={tr('全局', 'global')}
+                      aria-label={tr('RRF 阈值覆盖', 'RRF threshold override')}
+                      className="h-7 w-full min-w-0 border-0 bg-transparent px-0 text-[12px]"
+                    />
+                  </FilterPill>
+                  <FilterPill
+                    label={tr('范围', 'Scope')}
+                    active={scopeMode !== 'dir'}
+                    onClear={() => {
+                      setScopeMode('dir');
+                      setAgentName('');
+                    }}
+                    width="w-[9.5rem]"
+                  >
+                    <Select
+                      aria-label={tr('范围模式', 'Scope mode')}
+                      value={scopeMode}
+                      onValueChange={(v) => {
+                        setScopeMode(v as ScopeMode);
+                        setAgentName('');
+                      }}
+                      options={[
+                        { value: 'dir', label: tr('当前目录', 'Current folder') },
+                        { value: 'all', label: tr('全库', 'Entire base') },
+                        { value: 'agent', label: tr('按助理范围', 'By assistant') },
+                      ]}
+                      variant="ghost"
+                      className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+                    />
+                  </FilterPill>
+                  {scopeMode === 'agent' && (
+                    <FilterPill
+                      label={tr('助理', 'Assistant')}
+                      active={agentName !== ''}
+                      onClear={() => setAgentName('')}
+                      width="w-[11rem]"
+                    >
+                      <Select
+                        aria-label={tr('助理', 'Assistant')}
+                        value={agentName}
+                        onValueChange={setAgentName}
+                        options={[
+                          { value: '', label: tr('选择助理…', 'Pick an assistant…') },
+                          ...agents.map((a) => ({ value: a.name, label: `${a.display_name}（${a.name}）` })),
+                        ]}
+                        variant="ghost"
+                        className="h-7 min-w-0 border-0 bg-transparent px-0 text-[12px] shadow-none"
+                      />
+                    </FilterPill>
+                  )}
+                </>
+              ) : null
+            }
+            onOpenHit={(hit) => {
+              setLocate({ chunkIndex: hit.chunk_index, excerpt: hit.excerpt });
+              setDocModal({ doc: hit.doc, mode: 'edit' });
+            }}
+          />
+        </>
       ) : (
         <>
           <FilterBar

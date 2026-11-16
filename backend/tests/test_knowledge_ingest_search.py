@@ -192,7 +192,7 @@ async def test_rrf_min_score_filters_hits(env: dict[str, str], api_base: str) ->
 
 @pytest.mark.asyncio
 async def test_search_min_score_override(env: dict[str, str], api_base: str) -> None:
-    """请求级 min_score 覆盖全局阈值（检索试跑页试调用）；负值显式拒绝。"""
+    """请求级 min_score 覆盖全局阈值（知识库语义检索试调）；负值显式拒绝。"""
 
     async with httpx.AsyncClient(base_url=api_base, timeout=120.0) as client:
         if (await client.get("/healthz")).status_code != 200:
