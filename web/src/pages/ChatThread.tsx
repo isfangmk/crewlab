@@ -186,6 +186,22 @@ export default function ChatThreadPage() {
     setWorkbenchLocate({ ...target, seq: Date.now() });
   };
 
+  // 会话内排查发现的最大编号：汇总正文的 [n] 引用角标按它渲染（工具卡是独立消息，取全局）
+  const investigationFindingN = useMemo(() => {
+    let max = 0;
+    for (const m of messages) {
+      const calls = [...(m.tool_calls ?? []), ...(m.tool_call ? [m.tool_call] : [])];
+      for (const tc of calls) {
+        if (tc.name !== 'dispatch_investigation' && tc.name !== 'get_investigation') continue;
+        const findings = (tc.result as { findings?: { n?: number }[] } | undefined)?.findings ?? [];
+        for (const f of findings) {
+          if (typeof f.n === 'number' && f.n > max) max = f.n;
+        }
+      }
+    }
+    return max;
+  }, [messages]);
+
   const [submitting, setSubmitting] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -2103,6 +2119,8 @@ export default function ChatThreadPage() {
                   onUseSuggestion={isViewer ? undefined : useSuggestion}
 
                   onLocate={isViewer ? undefined : locateInWorkbench}
+
+                  findingCount={investigationFindingN}
 
                   onRegenerate={isViewer ? undefined : regenerate}
 

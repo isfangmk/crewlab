@@ -35,9 +35,10 @@ logger = logging.getLogger(__name__)
 # headless 会话标识：worker 不进对话会话，用独立应用名隔离
 WORKER_APP_NAME = "investigation_worker"
 
-# worker 只读内置工具白名单：只查不改
+# worker 只读内置工具白名单：只查不改。
+# query_knowledge 不在此列：知识检索统一由 build_knowledge_tools 按知识范围挂载，
+# 两处同名注册会让模型侧校验「Tool names must be unique」直接拒单。
 WORKER_READONLY_TOOL_NAMES: tuple[str, ...] = (
-    "query_knowledge",
     "recall_memory",
     "list_workflows",
     "get_workflow",

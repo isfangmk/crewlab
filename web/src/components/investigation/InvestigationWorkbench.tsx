@@ -63,6 +63,8 @@ export function InvestigationWorkbench({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [highlightN, setHighlightN] = useState<number | null>(null);
+  // 待定位目标：切换排查/快照未到时先挂起，锚点就绪再滚动
+  const [pendingLocate, setPendingLocate] = useState<LocateTarget | null>(null);
   // 静默刷新序号：只认最后一次请求，避免慢响应回填旧数据
   const loadSeq = useRef(0);
 
@@ -138,19 +140,50 @@ export function InvestigationWorkbench({
     return () => ctrl.abort();
   }, [selectedUid, loadWire]);
 
-  // 定位请求：滚动到发现/worker 并短暂高亮
+  // 定位请求：挂起待解析（切换排查/快照未到都等）
   useEffect(() => {
     if (!locate) return;
-    if (locate.kind === 'finding') {
-      setHighlightN(locate.n);
-      const el = document.getElementById(`inv-finding-${locate.n}`);
-      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else {
+    setPendingLocate(locate);
+    if (locate.kind === 'worker') {
       setExpanded((prev) => ({ ...prev, [locate.workerUid]: true }));
-      const el = document.getElementById(`inv-worker-${locate.workerUid}`);
-      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [locate]);
+
+  // 解析挂起的定位：先切到持有目标的排查，锚点就绪后滚动高亮
+  useEffect(() => {
+    if (!pendingLocate) return;
+    const owner = (items ?? []).find((d) =>
+      pendingLocate.kind === 'finding'
+        ? d.findings.some((f) => f.n === pendingLocate.n && !f.retired)
+        : d.workers.some((w) => w.worker_uid === pendingLocate.workerUid),
+    );
+    if (owner && owner.dispatch_uid !== selectedUid) {
+      setSelectedUid(owner.dispatch_uid);
+      return;
+    }
+    if (!wire) return;
+    if (pendingLocate.kind === 'finding') {
+      const f = wire.findings.find((x) => x.n === pendingLocate.n && !x.retired);
+      if (!f) return;
+      // 发现的锚点在 worker 展开体内：先展开所属 worker 再滚动
+      setExpanded((prev) => ({ ...prev, [f.worker_uid]: true }));
+      setHighlightN(pendingLocate.n);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          document.getElementById(`inv-finding-${pendingLocate.n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      });
+    } else {
+      if (!wire.workers.some((w) => w.worker_uid === pendingLocate.workerUid)) return;
+      setExpanded((prev) => ({ ...prev, [pendingLocate.workerUid]: true }));
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          document.getElementById(`inv-worker-${pendingLocate.workerUid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      });
+    }
+    setPendingLocate(null);
+  }, [pendingLocate, wire, items, selectedUid]);
 
   const doStop = async () => {
     if (!selectedUid) return;

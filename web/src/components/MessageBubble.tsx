@@ -72,6 +72,8 @@ type Props = {
   onUseSuggestion?(text: string): void;
   /** 引用角标/排查块定位：跳右栏工作台的发现或 worker */
   onLocate?(target: LocateTarget): void;
+  /** 会话内排查发现的最大编号：>0 时正文 [n] 渲染为引用角标 */
+  findingCount?: number;
 };
 
 export function MessageBubble({
@@ -85,6 +87,7 @@ export function MessageBubble({
   followupsActive,
   onUseSuggestion,
   onLocate,
+  findingCount,
 }: Props) {
   if ((message.kind === 'tool_card' || message.role === 'tool') && message.tool_call) {
     return (
@@ -129,6 +132,7 @@ export function MessageBubble({
       followupsActive={followupsActive}
       onUseSuggestion={onUseSuggestion}
       onLocate={onLocate}
+      findingCount={findingCount}
     />
   );
 }
@@ -379,7 +383,7 @@ function compactUserContent(
   return tr('确认创建这条告警规则', 'Confirm creating this alert rule');
 }
 
-function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUseSuggestion, onLocate }: Props) {
+function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUseSuggestion, onLocate, findingCount = 0 }: Props) {
   // Codex-style: no rounded card around assistant prose. Render markdown
   // flush against the column so headings/lists/code blocks read like a
   // document. Tool calls (when attached) appear as their own rows inside
@@ -388,12 +392,7 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
   const { tr } = useI18n();
   // 建议问题块是界面元数据：剥离出正文，单独渲染成可点 chip 组
   const { body: rawBody, questions } = useMemo(() => parseFollowups(message.content ?? ''), [message.content]);
-  // 汇总引用角标：带排查工具卡时把正文里的独立 [n] 变成可点角标（定位右栏发现）
-  const findingCount = useMemo(() => {
-    const tc = message.tool_calls?.find((t) => t.name === 'dispatch_investigation');
-    const result = tc?.result as { findings?: { n?: number }[] } | undefined;
-    return Math.max(0, ...(result?.findings ?? []).map((f) => (typeof f.n === 'number' ? f.n : 0)));
-  }, [message.tool_calls]);
+  // 汇总引用角标：会话有排查发现时把正文里的独立 [n] 变成可点角标（定位右栏发现）
   const body = useMemo(() => decorateCitations(rawBody, findingCount), [rawBody, findingCount]);
   // 记住被点的那条并高亮「已提问」；点一次即发问，整组随即失效
   const [usedQuestion, setUsedQuestion] = useState<string | null>(null);

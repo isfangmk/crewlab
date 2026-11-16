@@ -147,7 +147,11 @@ export function DispatchBlock({
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setOpen((v) => !v);
+          // 展开即重拉快照：重试/后台续跑后的数字与结论不靠订阅也能对齐
+          void loadWire();
+        }}
         aria-label={tr(`并行排查 ${counts.total} 路`, `Investigation ${counts.total} lanes`)}
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-zinc-300 hover:bg-zinc-800/40"
       >

@@ -374,7 +374,9 @@ async def _assemble_worker(
             instruction=spec.get("instruction", ""),
             question=question,
             extra_tools=bundle.extra_tools,
-            skills=bundle.runtime_skills,
+            # 技能不进 worker（口径：只读内置 + 知识库 + 继承 MCP）：
+            # load_skill 展开后的声明工具会与既有工具撞名（Tool names must be unique）
+            skills=[],
             knowledge_scope=scope,
             model_prefix=llm.model_prefix,
             provider_extra_body=llm_config.provider_extra_body(llm),

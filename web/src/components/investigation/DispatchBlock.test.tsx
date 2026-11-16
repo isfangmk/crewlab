@@ -142,8 +142,8 @@ describe('汇总引用角标', () => {
           id: 'm-1',
           role: 'assistant',
           content: '源头是 v3.2.1 发布[2]，Redis 是慢性问题[1]。',
-          tool_calls: [call as never],
         }}
+        findingCount={2}
         onLocate={onLocate}
       />,
     );
@@ -154,7 +154,7 @@ describe('汇总引用角标', () => {
     expect(screen.getByRole('button', { name: '引用发现 1' })).toBeInTheDocument();
   });
 
-  it('没有排查工具卡时正文 [n] 保持原样', () => {
+  it('没有排查发现时正文 [n] 保持原样', () => {
     render(<MessageBubble message={{ id: 'm-2', role: 'assistant', content: '结论见 [1]。' }} />);
     expect(screen.queryByRole('button', { name: /引用发现/ })).not.toBeInTheDocument();
   });
