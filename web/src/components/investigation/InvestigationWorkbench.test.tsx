@@ -102,20 +102,23 @@ beforeEach(() => {
 });
 
 describe('InvestigationWorkbench', () => {
-  it('渲染快照：问题、统计、worker 卡与底部动作', async () => {
+  it('渲染快照：kicker、问题、统计三格、跑道行；执行全程零操作按钮', async () => {
     render(
       <InvestigationWorkbench sessionId="s-1" onClose={() => {}} />,
     );
+    // 面板头 kicker 与问题标题
+    expect(await screen.findByText('并行排查 · 跑道')).toBeInTheDocument();
     expect(await screen.findByText('过去 24 小时告警异常')).toBeInTheDocument();
-    // 统计：1/2 完成 + 1 条发现
+    // 统计三格：完成 1/2 路 + 工具调用
     expect(await screen.findByText('1/2')).toBeInTheDocument();
+    expect(screen.getByText('工具调用')).toBeInTheDocument();
     expect(screen.getByText('指标员')).toBeInTheDocument();
     expect(screen.getByText('变更员')).toBeInTheDocument();
     // 运行中的路自动展开：日志可见
     expect(await screen.findByText('拉取近 24h 发布记录')).toBeInTheDocument();
-    // 底部动作
-    expect(screen.getByRole('button', { name: '全部停止' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '汇总结论回对话' })).toBeInTheDocument();
+    // 执行全程零操作按钮：停止/汇总类按钮一律不存在
+    expect(screen.queryByRole('button', { name: '全部停止' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '汇总结论回对话' })).not.toBeInTheDocument();
   });
 
   it('重试此路发出 POST 并刷新', async () => {

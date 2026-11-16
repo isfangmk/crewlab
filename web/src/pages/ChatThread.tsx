@@ -2419,7 +2419,6 @@ export default function ChatThreadPage() {
         <InvestigationWorkbench
           sessionId={sessionId}
           locate={workbenchLocate}
-          onRequestSummary={isViewer ? undefined : (text) => { void send(text, [], {}); }}
           onClose={() => setShowWorkbench(false)}
         />
       )}
@@ -2428,7 +2427,6 @@ export default function ChatThreadPage() {
         <PlanWorkbench
           sessionId={sessionId}
           locate={planLocate}
-          onRequestSummary={isViewer ? undefined : (text) => { void send(text, [], {}); }}
           onClose={() => setShowPlanWorkbench(false)}
         />
       )}

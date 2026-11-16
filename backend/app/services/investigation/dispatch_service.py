@@ -572,8 +572,40 @@ async def _refresh_dispatch_state_locked(db, dispatch_uid: str) -> dict[str, Any
         {"event": "dispatch_updated", "dispatch_uid": dispatch_uid, "status": dispatch.status, "stats": stats}
     )
     if not running:
+        # 全部收口：自动汇总写回对话流，汇总随终态事件带 message_id 供前端取
+        from app.services.chat.auto_summary import run_auto_summary
+
+        items = [
+            {
+                "label": f"{r.name}（{r.target}）" if r.target else r.name,
+                "status": r.status,
+                "conclusion": (
+                    json.loads(r.findings_json or "{}").get("conclusion")
+                    or r.error
+                    or "无结论"
+                ),
+            }
+            for r in rows
+        ]
+        gaps = [f"{r.name}：{r.error}" for r in rows if r.status != "succeeded" and r.error]
+        summary_message_id = await run_auto_summary(
+            db,
+            session_id=dispatch.session_id,
+            kind="investigation",
+            run_uid=dispatch_uid,
+            header=f"后台排查已全部完成 · {len(rows)} 路收口",
+            question=dispatch.question,
+            items=items,
+            gaps=gaps,
+        )
         await publish(
-            {"event": "dispatch_finished", "dispatch_uid": dispatch_uid, "status": dispatch.status, "stats": stats}
+            {
+                "event": "dispatch_finished",
+                "dispatch_uid": dispatch_uid,
+                "status": dispatch.status,
+                "stats": stats,
+                "summary_message_id": summary_message_id,
+            }
         )
     return {"status": dispatch.status, "stats": stats}
 

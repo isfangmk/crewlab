@@ -23,6 +23,7 @@ import { loadChatAttachment, type ChatMessage, type ImageAttachment, type ToolCa
 import { streamApproveApproval, rejectApproval, getApproval, type UserInputAnswer } from '@/api/approvals';
 import { emitChatLive } from '@/lib/chatLiveBus';
 import { cn } from '@/lib/cn';
+import { requestChatRefetch } from '@/lib/chatLiveBus';
 import { isConfigDraftConfirmationMessage } from '@/lib/configDraftConfirmation';
 import { parseFollowups } from '@/lib/followups';
 import { useI18n } from '@/i18n/locale';
@@ -94,6 +95,10 @@ export function MessageBubble({
   onLocatePlan,
   findingCount,
 }: Props) {
+  // 跑完自动汇总：特写卡片形态（标题行 + 汇总正文 + 引用角标），不是普通气泡
+  if (message.role === 'assistant' && message.id.startsWith('auto-summary-')) {
+    return <AutoSummaryCard message={message} onLocate={onLocate} findingCount={findingCount} />;
+  }
   if ((message.kind === 'tool_card' || message.role === 'tool') && message.tool_call) {
     return (
       <ToolCallBlock
@@ -390,6 +395,77 @@ function compactUserContent(
   return tr('确认创建这条告警规则', 'Confirm creating this alert rule');
 }
 
+// 跑完自动汇总的特写卡（设计稿 parallel-serial-ui · auto-mock）：左紫条 +
+// 「✦ 自动汇总」徽记 + 标题行（完成情况+计数）+ 汇总正文（[n] 角标可点定位）
+// + 虚线底注。消息内容首行即标题（run_auto_summary 统一拼），空行后是正文。
+function AutoSummaryCard({
+  message,
+  onLocate,
+  findingCount = 0,
+}: {
+  message: ChatMessage;
+  onLocate?: (target: LocateTarget) => void;
+  findingCount?: number;
+}) {
+  const { tr } = useI18n();
+  const raw = message.content ?? '';
+  const splitAt = raw.indexOf('\n\n');
+  const title = splitAt > 0 ? raw.slice(0, splitAt) : raw;
+  const bodyRaw = splitAt > 0 ? raw.slice(splitAt + 2) : '';
+  const body = useMemo(() => decorateCitations(bodyRaw, findingCount), [bodyRaw, findingCount]);
+  return (
+    <div
+      className="rounded-[13px] rounded-l-[3px] border border-l-[3px] border-zinc-800/60 border-l-violet-500 bg-zinc-900/40 px-4 py-3"
+      data-testid="auto-summary-card"
+    >
+      <div className="flex items-center gap-2.5">
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-violet-400/15 px-2 py-0.5 text-[9.5px] font-bold tracking-wide text-violet-300">
+          <span aria-hidden>✦</span>
+          {tr('自动汇总', 'Auto summary')}
+        </span>
+        <span className="min-w-0 truncate text-[12.5px] font-semibold text-zinc-100">{title}</span>
+      </div>
+      {body !== '' && (
+        <div className="md-body mt-2.5 text-[12px] leading-[1.9] text-zinc-100">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a({ href, children }) {
+                if (href?.startsWith('#cite-')) {
+                  const n = Number(href.slice(6));
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => onLocate?.({ kind: 'finding', n })}
+                      className="mx-0.5 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded bg-violet-400/15 px-[3px] align-[2px] text-[9px] font-bold text-violet-300 hover:bg-violet-400/30"
+                      aria-label={tr(`引用发现 ${n}`, `Cite finding ${n}`)}
+                    >
+                      {children}
+                    </button>
+                  );
+                }
+                return (
+                  <a href={href} target="_blank" rel="noreferrer">
+                    {children}
+                  </a>
+                );
+              },
+            }}
+          >
+            {body}
+          </ReactMarkdown>
+        </div>
+      )}
+      <div className="mt-3 border-t border-dashed border-zinc-700/60 pt-2.5 text-[10px] leading-4 text-zinc-500">
+        {tr(
+          '含缺口标注与 [n] 引用角标 · 对结论不满意直接追问「换角度重新汇总」',
+          'Gaps marked and [n] citations clickable · ask for a re-summary anytime',
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUseSuggestion, onLocate, onLocatePlan, findingCount = 0 }: Props) {
   // Codex-style: no rounded card around assistant prose. Render markdown
   // flush against the column so headings/lists/code blocks read like a
@@ -597,11 +673,11 @@ function ToolCallBlock({
 }) {
   // 并行排查工具卡走专属折叠块（计数 + 每路结论 + 跳右栏）
   if (call.name === 'dispatch_investigation') {
-    return <DispatchBlock call={call} pending={pending} onLocate={onLocate} />;
+    return <DispatchBlock call={call} pending={pending} />;
   }
   // 规划执行工具卡走专属折叠块（步骤清单 + 待确认可调可执行）
   if (call.name === 'create_plan') {
-    return <PlanBlock call={call} pending={pending} onLocatePlan={onLocatePlan} />;
+    return <PlanBlock call={call} pending={pending} interactive={onLocatePlan !== undefined} />;
   }
   const artifacts = interpreterArtifactsOf(call);
   const searchResults = showSearchResults ? extractSources(call.name, call.result) : [];
@@ -995,12 +1071,6 @@ function argCommandText(args: unknown): string {
     if (typeof c === 'string') return c;
   }
   return '';
-}
-
-const CHAT_REFETCH_EVENT = 'ongrid:chat-refetch';
-
-function requestChatRefetch() {
-  window.dispatchEvent(new Event(CHAT_REFETCH_EVENT));
 }
 
 // PendingApprovalCard renders the shared in-conversation approve/reject

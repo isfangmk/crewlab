@@ -32,6 +32,7 @@ export type PlanStep = {
   usage: Record<string, number>;
   error: string;
   duration_ms: number;
+  started_at: string | null;
   finished_at: string | null;
 };
 
@@ -83,7 +84,13 @@ export type PlanStreamEvent =
       duration_ms: number;
     }
   | { event: 'plan_updated'; plan_uid: string; status: PlanStatus }
-  | { event: 'plan_finished'; plan_uid: string; status: PlanStatus };
+  | {
+      event: 'plan_finished';
+      plan_uid: string;
+      status: PlanStatus;
+      /** 自动汇总消息 id：前端据此重拉消息列表 */
+      summary_message_id?: string | null;
+    };
 
 /** 终止事件：收到它就不再有后续了。 */
 const TERMINAL_EVENTS = new Set(['plan_finished']);

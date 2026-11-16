@@ -20,3 +20,10 @@ export type ChatLiveDetail =
 export function emitChatLive(detail: ChatLiveDetail): void {
   window.dispatchEvent(new CustomEvent<ChatLiveDetail>(CHAT_LIVE_EVENT, { detail }));
 }
+
+/** 消息列表需要重拉（自动汇总等带外补写落库后广播）。 */
+export const CHAT_REFETCH_EVENT = 'ongrid:chat-refetch';
+
+export function requestChatRefetch(): void {
+  window.dispatchEvent(new Event(CHAT_REFETCH_EVENT));
+}

@@ -1033,6 +1033,25 @@ async def list_messages(db: AsyncSession, session_id: str) -> list[ChatMessage]:
     return list(result.all())
 
 
+async def append_assistant_message(
+    db: AsyncSession, *, session_id: str, message_id: str, content: str
+) -> ChatMessage:
+    """带外补写 assistant 正文消息（自动汇总等后台产出）。
+
+    与回合产出共用 _add_message 收口：seq 排序、字段规整口径一致。
+    """
+
+    return await _add_message(
+        db,
+        message_id=message_id,
+        session_id=session_id,
+        role="assistant",
+        kind="message",
+        content=content,
+        tool_call=None,
+    )
+
+
 async def rename_session(db: AsyncSession, session_id: str, title: str) -> ChatSession:
     """重命名会话标题。"""
 

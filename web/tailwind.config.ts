@@ -25,13 +25,27 @@ const config: Config = {
         ok: 'rgb(var(--ok) / <alpha-value>)',
         danger: 'rgb(var(--danger) / <alpha-value>)',
       },
+      // 执行视图动画（设计稿 parallel-serial-ui 口径）：
+      // sweep = motif 轨道扫光；grow = 跑道底部/分段进度带的行进条；pulse-dot = 心跳点。
       animation: {
         'pulse-dot': 'pulse-dot 1.4s ease-in-out infinite',
+        sweep: 'sweep 1.6s linear infinite',
+        grow: 'grow 3.2s ease-in-out infinite',
+        'grow-strip': 'grow 2.8s ease-in-out infinite',
       },
       keyframes: {
         'pulse-dot': {
           '0%, 80%, 100%': { opacity: '0.2' },
           '40%': { opacity: '1' },
+        },
+        sweep: {
+          '0%': { transform: 'translateX(-120%)' },
+          '100%': { transform: 'translateX(420%)' },
+        },
+        grow: {
+          '0%': { width: '12%' },
+          '55%': { width: '72%' },
+          '100%': { width: '12%' },
         },
       },
     },

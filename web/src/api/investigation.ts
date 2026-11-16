@@ -101,7 +101,14 @@ export type InvestigationStreamEvent =
       usage: Record<string, number>;
     }
   | { event: 'dispatch_updated'; dispatch_uid: string; status: DispatchStatus; stats: InvestigationStats }
-  | { event: 'dispatch_finished'; dispatch_uid: string; status: DispatchStatus; stats: InvestigationStats };
+  | {
+      event: 'dispatch_finished';
+      dispatch_uid: string;
+      status: DispatchStatus;
+      stats: InvestigationStats;
+      /** 自动汇总消息 id：前端据此重拉消息列表 */
+      summary_message_id?: string | null;
+    };
 
 /** 终止事件：收到它就不再有后续了。 */
 const TERMINAL_EVENTS = new Set(['dispatch_finished']);

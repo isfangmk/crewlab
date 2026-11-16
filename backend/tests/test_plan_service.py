@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.adk_runtime.headless import HeadlessResult, WorkerBudget
 from app.config import get_settings
 from app.db import create_db_engine
-from app.models.chat import ChatSession
+from app.models.chat import ChatMessage, ChatSession
 from app.models.plan import PlanExecution, PlanStep
 from app.services.investigation.investigation_events import InvestigationEventBus
 from app.services.plan import plan_service
@@ -48,6 +48,8 @@ async def _cleanup(session_ids: list[str], plan_uids: list[str]) -> None:
                         sa_delete(PlanExecution).where(PlanExecution.id.in_(ids))
                     )
             if session_ids:
+                # 自动汇总消息一并清理（SQLite 未必启用 FK 级联）
+                await db.execute(sa_delete(ChatMessage).where(ChatMessage.session_id.in_(session_ids)))
                 await db.execute(sa_delete(ChatSession).where(ChatSession.id.in_(session_ids)))
             await db.commit()
     finally:
@@ -572,5 +574,72 @@ async def test_step_tools_focus_passed_to_assemble(monkeypatch) -> None:
 
         assert await _wait_plan_status(plan.plan_uid, {"succeeded", "paused", "stopped"}) == "succeeded"
         assert captured == [("web_search",), ()]
+    finally:
+        await _cleanup(session_ids, plan_uids)
+
+
+@pytest.mark.asyncio
+async def test_auto_summary_written_and_idempotent(monkeypatch) -> None:
+    """跑完自动汇总：终态后对话流里有汇总消息；同一次运行重复触发不重复写。"""
+
+    from app.models.chat import ChatMessage
+    from app.services.chat.auto_summary import run_auto_summary
+
+    tag = f"pl-{uuid.uuid4().hex[:8]}"
+    session_ids = await _insert_session(tag)
+    plan_uids: list[str] = []
+
+    async def fake_assemble(**_kwargs):
+        return object()
+
+    async def fake_run_step(*, name, **_kwargs):
+        return _ok(name)
+
+    monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
+    monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
+
+    try:
+        plan = await _create_plan(tag, session_ids[0], [{"name": "步骤一"}, {"name": "步骤二"}])
+        plan_uids.append(plan.plan_uid)
+
+        engine = create_db_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+                assert await plan_service.start_plan(db, plan.plan_uid) is True
+        finally:
+            await engine.dispose()
+
+        assert await _wait_plan_status(plan.plan_uid, {"succeeded", "paused", "stopped"}) == "succeeded"
+
+        # 汇总消息已落库：头部 + 各步结论（LLM 桩走拼接降级文本）
+        message_id = f"auto-summary-plan-{plan.plan_uid}"
+        engine = create_db_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+                msg = await db.get(ChatMessage, message_id)
+                assert msg is not None
+                assert msg.role == "assistant"
+                assert "计划执行已全部完成" in (msg.content or "")
+                assert "结论步骤一" in (msg.content or "")
+
+                # 幂等：同一次运行再触发不重复写
+                again = await run_auto_summary(
+                    db,
+                    session_id=session_ids[0],
+                    kind="plan",
+                    run_uid=plan.plan_uid,
+                    header="计划执行已全部完成 · 2 步收口",
+                    question="总目标",
+                    items=[{"label": "1 · 步骤一", "status": "succeeded", "conclusion": "结论步骤一"}],
+                    gaps=[],
+                )
+                assert again == message_id
+                rows = (
+                    (await db.scalars(select(ChatMessage).where(ChatMessage.id == message_id)))
+                    .all()
+                )
+                assert len(rows) == 1
+        finally:
+            await engine.dispose()
     finally:
         await _cleanup(session_ids, plan_uids)

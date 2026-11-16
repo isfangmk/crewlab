@@ -67,7 +67,7 @@ class PlanStep(Base):
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     instruction: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    # 预估工具清单（纯展示，如 ["web_search"]）
+    # 本步所需工具清单（声明后收窄挂载面，如 ["web_search"]）
     tools_hint: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     # pending | running | succeeded | failed | skipped | stopped
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
@@ -83,4 +83,6 @@ class PlanStep(Base):
     usage_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 步骤开始执行时刻：运行中读秒的锚点（前端「已运行」计时用）
+    started_at: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True)

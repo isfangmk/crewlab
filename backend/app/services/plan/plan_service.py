@@ -235,20 +235,12 @@ async def stop_plan(db: AsyncSession, plan_uid: str) -> bool:
         return False
     runtime.stop_requested = True
     if not runtime.running:
-        # 循环不在跑（draft/paused）：直接落终态
-        async with _refresh_lock(plan_uid):
-            rows = await _steps_of(db, plan.id)
-            for row in rows:
-                if row.status not in _TERMINAL_STEP:
-                    row.status = "stopped"
-            plan.status = "stopped"
-            plan.finished_at = datetime.now(timezone.utc)
-            await db.commit()
+        # 循环不在跑（draft/paused）：直接落终态，收口与运行路径同一函数（含自动汇总）
+        rows = await _steps_of(db, plan.id)
         publish = investigation_events.open(
             plan_uid, terminal_events=PLAN_TERMINAL_EVENTS
         )
-        await publish({"event": "plan_updated", "plan_uid": plan_uid, "status": "stopped"})
-        await publish({"event": "plan_finished", "plan_uid": plan_uid, "status": "stopped"})
+        await _finish_plan(db, plan, rows, status="stopped", publish=publish)
     return True
 
 
@@ -344,6 +336,8 @@ async def _run_plan(plan_uid: str) -> None:
 
                 step = pending[0]
                 step.status = "running"
+                # 记录开始时刻：前端「已运行」读秒的锚点
+                step.started_at = datetime.now(timezone.utc)
                 await db.commit()
                 budget = _budget_of(plan)
                 prior = [
@@ -478,8 +472,39 @@ async def _finish_plan(
     await publish(
         {"event": "plan_updated", "plan_uid": plan.plan_uid, "status": status}
     )
+    # 全部收口：自动汇总写回对话流，汇总随终态事件带 message_id 供前端取
+    from app.services.chat.auto_summary import run_auto_summary
+
+    items = [
+        {
+            "label": f"{r.order_index + 1} · {r.name}",
+            "status": r.status,
+            "conclusion": r.summary or r.error or "无结论",
+        }
+        for r in rows
+    ]
+    gaps = [
+        f"{r.name}：{r.error or r.summary}"
+        for r in rows
+        if r.status in ("failed", "skipped", "stopped")
+    ]
+    summary_message_id = await run_auto_summary(
+        db,
+        session_id=plan.session_id,
+        kind="plan",
+        run_uid=plan.plan_uid,
+        header=f"计划执行已全部完成 · {len(rows)} 步收口",
+        question=plan.question,
+        items=items,
+        gaps=gaps,
+    )
     await publish(
-        {"event": "plan_finished", "plan_uid": plan.plan_uid, "status": status}
+        {
+            "event": "plan_finished",
+            "plan_uid": plan.plan_uid,
+            "status": status,
+            "summary_message_id": summary_message_id,
+        }
     )
 
 
@@ -592,6 +617,7 @@ def _step_to_wire(row: PlanStep) -> dict[str, Any]:
         "usage": json.loads(row.usage_json or "{}"),
         "error": row.error,
         "duration_ms": row.duration_ms,
+        "started_at": row.started_at.isoformat() if row.started_at else None,
         "finished_at": row.finished_at.isoformat() if row.finished_at else None,
     }
 

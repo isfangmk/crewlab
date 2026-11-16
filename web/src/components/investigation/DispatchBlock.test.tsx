@@ -104,32 +104,32 @@ beforeEach(() => {
 });
 
 describe('DispatchBlock', () => {
-  it('折叠头显示路数与计数，展开看每路结论', async () => {
+  it('卡片默认展开：头部路数与状态，行列表显示发现/错误与形态脚注', async () => {
     render(<DispatchBlock call={call} />);
     const head = screen.getByRole('button', { name: /并行排查 2 路/ });
-    expect(head).toHaveAttribute('aria-expanded', 'false');
-    // 计数在折叠头右侧
-    expect(head.textContent).toContain('1 完成');
-    expect(head.textContent).toContain('1 失败');
-
-    await userEvent.click(head);
-    expect(screen.getByText('Redis 内存持续爬升未回落')).toBeInTheDocument();
-    expect(screen.getByText('指标员')).toBeInTheDocument();
-    expect(screen.getByText('历史员')).toBeInTheDocument();
+    expect(head).toHaveAttribute('aria-expanded', 'true');
+    // 非运行中：状态 pill 显示「完成」
+    expect(head.textContent).toContain('完成');
+    // 行列表：成功路显示发现计数，失败路显示错误
+    expect(await screen.findByText('指标员 · 1 条发现')).toBeInTheDocument();
+    expect(screen.getByText('历史员 · connect timeout')).toBeInTheDocument();
+    // c-foot 形态说明
+    expect(screen.getByText(/跑道式：2 路同时推进，各有时钟/)).toBeInTheDocument();
   });
 
-  it('行尾定位按钮回调 workerUid', async () => {
-    const onLocate = vi.fn();
-    render(<DispatchBlock call={call} onLocate={onLocate} />);
-    await userEvent.click(screen.getByRole('button', { name: /并行排查 2 路/ }));
-    await userEvent.click(screen.getByRole('button', { name: /在工作台定位 指标员/ }));
-    expect(onLocate).toHaveBeenCalledWith({ kind: 'worker', workerUid: 'w-1' });
-  });
-
-  it('pending 时折叠头显示进行中', () => {
+  it('pending 时状态 pill 显示 N 路运行中', () => {
     render(<DispatchBlock call={{ name: 'dispatch_investigation', arguments: call.arguments }} pending />);
     const head = screen.getByRole('button', { name: /并行排查 2 路/ });
-    expect(head.textContent).toContain('进行中');
+    expect(head.textContent).toContain('路运行中');
+  });
+
+  it('折叠后只留头部，再展开恢复行列表', async () => {
+    render(<DispatchBlock call={call} />);
+    const head = screen.getByRole('button', { name: /并行排查 2 路/ });
+    await userEvent.click(head);
+    expect(screen.queryByText(/跑道式：2 路同时推进/)).not.toBeInTheDocument();
+    await userEvent.click(head);
+    expect(screen.getByText(/跑道式：2 路同时推进/)).toBeInTheDocument();
   });
 });
 
@@ -157,6 +157,28 @@ describe('汇总引用角标', () => {
   it('没有排查发现时正文 [n] 保持原样', () => {
     render(<MessageBubble message={{ id: 'm-2', role: 'assistant', content: '结论见 [1]。' }} />);
     expect(screen.queryByRole('button', { name: /引用发现/ })).not.toBeInTheDocument();
+  });
+
+  it('自动汇总消息渲染特写卡：标题行 + 正文 + 底注，[n] 可点定位', async () => {
+    const onLocate = vi.fn();
+    render(
+      <MessageBubble
+        message={{
+          id: 'auto-summary-investigation-d-1',
+          role: 'assistant',
+          content:
+            '后台排查已全部完成 · 2 路收口（1 成功 / 1 失败）\n\n源头是 v3.2.1 发布[2]；应用日志一路预算超限未覆盖，证据缺口待人工补充。',
+        }}
+        findingCount={2}
+        onLocate={onLocate}
+      />,
+    );
+    expect(screen.getByText('自动汇总')).toBeInTheDocument();
+    expect(screen.getByText('后台排查已全部完成 · 2 路收口（1 成功 / 1 失败）')).toBeInTheDocument();
+    expect(screen.getByText(/证据缺口待人工补充/)).toBeInTheDocument();
+    expect(screen.getByText(/换角度重新汇总/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '引用发现 2' }));
+    await waitFor(() => expect(onLocate).toHaveBeenCalledWith({ kind: 'finding', n: 2 }));
   });
 });
 

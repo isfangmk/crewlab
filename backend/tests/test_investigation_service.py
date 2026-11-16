@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.adk_runtime.headless import WorkerBudget, parse_findings
 from app.config import get_settings
 from app.db import create_db_engine
-from app.models.chat import ChatSession
+from app.models.chat import ChatMessage, ChatSession
 from app.models.investigation import InvestigationDispatch, InvestigationWorkerRun
 from app.services.investigation import dispatch_service
 from app.services.investigation.worker_runner import (
@@ -59,6 +59,8 @@ async def _cleanup(session_ids: list[str], dispatch_uids: list[str]) -> None:
                         )
                     )
             if session_ids:
+                # 自动汇总消息一并清理（SQLite 未必启用 FK 级联）
+                await db.execute(sa_delete(ChatMessage).where(ChatMessage.session_id.in_(session_ids)))
                 await db.execute(sa_delete(ChatSession).where(ChatSession.id.in_(session_ids)))
             await db.commit()
     finally:

@@ -77,10 +77,9 @@ async def test_session_web_search_requires_toggle() -> None:
 
     import uuid as _uuid
 
+    from app.adk_runtime.web_search_tool import build_session_web_search_tool
     from app.db import SessionLocal
     from app.models.chat import ChatSession
-
-    from app.adk_runtime.web_search_tool import build_session_web_search_tool
 
     session = ChatSession(
         id=f"websearch-{_uuid.uuid4().hex[:8]}", title="t", web_search_enabled=False
