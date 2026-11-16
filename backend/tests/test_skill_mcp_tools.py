@@ -10,6 +10,7 @@ import json
 
 from google.adk.skills import Frontmatter, Skill
 
+from app.db import SessionLocal
 from app.models.mcp import McpServer
 from app.services.agent.agent_service import (
     ResolvedAgent,
@@ -154,7 +155,6 @@ def _server(
         endpoint="http://127.0.0.1:9999/mcp",
         credential="",
         header_template_json="{}",
-        trusted=False,
         approval_policy="never",
         enabled=True,
         status=status,
@@ -176,6 +176,16 @@ def _server(
     )
 
 
+def test_chat_instruction_pins_tool_names() -> None:
+    """主指令不许把 search/load 说成通用动作：那会诱导模型发明裸名 search_tools。"""
+
+    from app.adk_runtime.agent_factory import CHAT_AGENT_INSTRUCTION
+
+    assert "禁止发明清单外的工具名" in CHAT_AGENT_INSTRUCTION
+    assert "mcp__<服务>__search_tools" in CHAT_AGENT_INSTRUCTION
+    assert "search/load 类工具" not in CHAT_AGENT_INSTRUCTION
+
+
 async def test_mcp_tools_enter_search_index_not_context() -> None:
     """MCP 工具一律不进初始上下文：只暴露 search/load，业务工具留在检索目录里。"""
 
@@ -186,7 +196,8 @@ async def test_mcp_tools_enter_search_index_not_context() -> None:
     # 检索目录构建只读进程内向量缓存（线上由 warm_vector_cache_from_db 预热）
     tool_search_index._VECTOR_CACHE[_WIRE] = [0.0, 1.0]  # noqa: SLF001
     tool_search_index._VECTOR_CACHE[list_hosts] = [0.0, 1.0]  # noqa: SLF001
-    toolsets = await build_searchable_mcp_toolsets(None, [server])
+    async with SessionLocal() as db:
+        toolsets = await build_searchable_mcp_toolsets(db, [server])
     assert len(toolsets) == 1
     toolset = toolsets[0]
     try:
@@ -211,10 +222,11 @@ async def test_unmounted_mcp_server_is_not_searchable() -> None:
     server = _server()
     unmounted = filter_mcp_servers_by_tools([server], ["query_knowledge"])
     assert unmounted == []
-    assert await build_searchable_mcp_toolsets(None, unmounted) == []
+    async with SessionLocal() as db:
+        assert await build_searchable_mcp_toolsets(db, unmounted) == []
 
-    broken = _server(status="error")
-    assert await build_searchable_mcp_toolsets(None, [broken]) == []
+        broken = _server(status="error")
+        assert await build_searchable_mcp_toolsets(db, [broken]) == []
 
 
 async def test_unselected_tool_is_not_searchable() -> None:
@@ -227,11 +239,12 @@ async def test_unselected_tool_is_not_searchable() -> None:
     # 向量缓存里同时有两条：如果白名单没生效，list_hosts 会出现在索引里
     tool_search_index._VECTOR_CACHE[_WIRE] = [0.0, 1.0]  # noqa: SLF001
     tool_search_index._VECTOR_CACHE[list_hosts] = [0.0, 1.0]  # noqa: SLF001
-    toolsets = await build_searchable_mcp_toolsets(
-        None,
-        [server],
-        allowed_tools=["query_knowledge", _WIRE],
-    )
+    async with SessionLocal() as db:
+        toolsets = await build_searchable_mcp_toolsets(
+            db,
+            [server],
+            allowed_tools=["query_knowledge", _WIRE],
+        )
     assert len(toolsets) == 1
     toolset = toolsets[0]
     try:
@@ -255,7 +268,8 @@ async def test_single_tool_server_still_keeps_search_entry() -> None:
 
     server = _server(tools=["get_host_load"])
     tool_search_index._VECTOR_CACHE[_WIRE] = [0.0, 1.0]  # noqa: SLF001
-    toolsets = await build_searchable_mcp_toolsets(None, [server], allowed_tools=[_WIRE])
+    async with SessionLocal() as db:
+        toolsets = await build_searchable_mcp_toolsets(db, [server], allowed_tools=[_WIRE])
     assert len(toolsets) == 1
     toolset = toolsets[0]
     try:
