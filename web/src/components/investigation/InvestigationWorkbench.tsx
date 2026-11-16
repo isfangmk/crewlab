@@ -22,6 +22,7 @@ import {
   CodeBlock,
   DetailStat,
   DetailStatGrid,
+  EmptyState,
   flash,
   RowAction,
   Select,
@@ -290,7 +291,20 @@ export function InvestigationWorkbench({
         <div className="border-b border-danger/20 bg-danger/5 px-3 py-2 text-[11px] text-danger">{err}</div>
       )}
 
-      {!wire && !err && (
+      {/* 无排查任务：空态引导，不是加载中 */}
+      {!err && items?.length === 0 && (
+        <EmptyState
+          icon={Search}
+          className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center"
+          title={tr('本会话还没有排查任务', 'No investigations in this session yet')}
+          hint={tr(
+            '在对话里描述要排查的问题，助理会派多路只读子代理并行取证',
+            'Describe what to investigate in the chat; the assistant will fan out read-only workers',
+          )}
+        />
+      )}
+
+      {!wire && !err && (items === null || items.length > 0) && (
         <div className="flex flex-1 items-center justify-center text-[11px] text-zinc-500">
           {tr('加载中…', 'Loading…')}
         </div>

@@ -154,4 +154,13 @@ describe('InvestigationWorkbench', () => {
     render(<InvestigationWorkbench sessionId="s-1" onClose={() => {}} />);
     expect(await screen.findByText('正在核对灰度与回滚记录…')).toBeInTheDocument();
   });
+
+  it('无排查任务显示空态引导，不卡在加载中', async () => {
+    server.use(
+      http.get('/api/v1/investigations', () => HttpResponse.json({ items: [], total: 0 })),
+    );
+    render(<InvestigationWorkbench sessionId="s-1" onClose={() => {}} />);
+    expect(await screen.findByText('本会话还没有排查任务')).toBeInTheDocument();
+    expect(screen.queryByText('加载中…')).not.toBeInTheDocument();
+  });
 });
