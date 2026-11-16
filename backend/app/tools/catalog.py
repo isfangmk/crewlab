@@ -108,7 +108,7 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
     {
         "name": "dispatch_investigation",
         "group": "investigation",
-        "description": "把多线索问题派给 N 路只读子代理并行排查，返回带证据的结构化发现；软截止先出初步汇总，未完的路后台继续",
+        "description": "把问题拆给 N 路只读子代理并行排查，返回带证据的结构化发现；软截止先出初步汇总，未完的路后台继续",
         "risk": "safe",
         "mount": "always",
     },
@@ -122,7 +122,7 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
     {
         "name": "create_plan",
         "group": "planning",
-        "description": "多步骤任务先拆成可编辑的执行计划，用户确认后逐步执行；每步结论回写计划",
+        "description": "把任务拆成可编辑的执行计划，用户确认后逐步执行；每步结论回写计划",
         "risk": "safe",
         "mount": "always",
     },

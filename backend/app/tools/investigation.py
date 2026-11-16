@@ -24,7 +24,7 @@ async def dispatch_investigation(
     token_budget_per_worker: int = 60000,
     tool_context: Any = None,
 ) -> dict:
-    """把一个多线索问题派给 N 路只读子代理并行排查，返回带证据的结构化发现。
+    """把问题拆给 N 路只读子代理并行排查，返回带证据的结构化发现。
 
     question: 要排查的总问题（一句话）。
     workers_json: worker 规格 JSON 数组，如 [{"name":"指标员","target":"关联指标趋势","instruction":"侧重近24h"}]，1..8 路。

@@ -23,7 +23,7 @@ async def create_plan(
     token_budget_per_step: int = 60000,
     tool_context=None,
 ) -> dict:
-    """创建一个待确认的执行计划：多步骤任务先拆计划，用户确认后逐步执行。
+    """创建一个待确认的执行计划：产出可编辑的步骤清单，用户确认后逐步执行。
 
     title: 计划标题（短，概括任务）。
     question: 总目标：用户要解决的问题（一句话，会传给每个步骤）。
