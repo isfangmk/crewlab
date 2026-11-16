@@ -54,12 +54,9 @@ def apply_thinking_extra(
 ) -> dict[str, Any]:
     """按对话开关改写思考相关的厂商请求体字段（就地修改并返回）。
 
-    thinking（DashScope 形态）：extra_body 声明了就按开关改写；
-    custom（OpenAI 兼容）未声明时也注入，否则开关对上游无效。
-    reasoning_effort（OpenAI 形态）：聚合网关只认它、忽略 thinking——实测只有它能
-    开出 reasoning_content（thinking 形态被静默忽略，开关等于白开）。
-    开=medium（简短推理），关=none（实测不进推理）；声明了同样按开关改写。
-    测试用同一函数构造上游探针体，产品与测试形态不许再各写各的。
+    thinking（DashScope 形态）：extra_body 声明了就按开关改写；custom 未声明也注入。
+    reasoning_effort（OpenAI 形态）：声明了同样按开关改写；custom 注入开=medium、
+    关=none。两种形态并注入，网关认哪种由它自己定；测试用本函数构造探针体。
     """
 
     if "thinking" in extra_body or provider_id == "custom":

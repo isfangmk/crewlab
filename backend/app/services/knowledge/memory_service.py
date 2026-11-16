@@ -110,8 +110,7 @@ async def compose_memory_hint(
 ) -> str:
     """把「本助理记忆 ∪ 全局记忆」的启用条目拼成注入人设的段落（无记忆返回空串）。
 
-    长期记忆自动进上下文，不依赖模型自觉调 recall_memory——弱模型忘了调工具时，
-    身份/账号类事实也必须在场（工时填报缺账号就是这么丢的）。
+    自动进上下文，不依赖模型自觉调 recall_memory。
     """
 
     scope = _normalize_scope(agent_id)
