@@ -343,7 +343,7 @@ export default function KnowledgePlaygroundPage() {
           label={tr('返回条数', 'Limit')}
           active={limit !== 10}
           onClear={() => setLimit(10)}
-          width="w-[5.5rem]"
+          width="w-[8rem]"
         >
           <Select
             aria-label={tr('返回条数', 'Limit')}
