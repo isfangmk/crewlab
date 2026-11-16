@@ -49,6 +49,28 @@ FOLLOWUPS_INSTRUCTION = (
 )
 
 
+def apply_thinking_extra(
+    extra_body: dict[str, Any], *, thinking_enabled: bool, provider_id: str
+) -> dict[str, Any]:
+    """按对话开关改写思考相关的厂商请求体字段（就地修改并返回）。
+
+    thinking（DashScope 形态）：extra_body 声明了就按开关改写；
+    custom（OpenAI 兼容）未声明时也注入，否则开关对上游无效。
+    reasoning_effort（OpenAI 形态）：聚合网关只认它、忽略 thinking——实测只有它能
+    开出 reasoning_content（thinking 形态被静默忽略，开关等于白开）。
+    开=medium（简短推理），关=none（实测不进推理）；声明了同样按开关改写。
+    测试用同一函数构造上游探针体，产品与测试形态不许再各写各的。
+    """
+
+    if "thinking" in extra_body or provider_id == "custom":
+        extra_body["thinking"] = {
+            "type": "enabled" if thinking_enabled else "disabled"
+        }
+    if "reasoning_effort" in extra_body or provider_id == "custom":
+        extra_body["reasoning_effort"] = "medium" if thinking_enabled else "none"
+    return extra_body
+
+
 def build_chat_agent(
     *,
     provider_id: str,
@@ -109,12 +131,7 @@ def build_chat_agent(
         instruction = f"{instruction}\n\n{FOLLOWUPS_INSTRUCTION}"
 
     extra_body = dict(provider_extra_body) if provider_extra_body else {}
-    # DeepSeek 等在 extra_body 声明了 thinking：按开关改写。
-    # custom（OpenAI 兼容）未声明时也按对话开关注入，否则开关对上游无效。
-    if "thinking" in extra_body or provider_id == "custom":
-        extra_body["thinking"] = {
-            "type": "enabled" if thinking_enabled else "disabled"
-        }
+    apply_thinking_extra(extra_body, thinking_enabled=thinking_enabled, provider_id=provider_id)
     logger.info(
         "装配 LlmAgent agent=%s provider=%s model=%s litellm_model=%s base_url=%s "
         "extra_tools=%s extra_body_keys=%s thinking=%s timeout=%s max_turns=%s "

@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.adk_runtime.agent_factory import apply_thinking_extra
 from app.db import create_db_engine
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,7 +38,8 @@ async def _one_turn(
         json={
             "title": f"thinking-test-{thinking_enabled}",
             "provider": "custom",
-            "model": "workbuddy/glm-5.3-flash",
+            # 须在 custom 配置的 models 白名单内（resolve_model 校验）
+            "model": "workbuddy/deepseek-v4.1-flash",
             "agent_id": "default",
         },
     )
@@ -111,7 +113,10 @@ async def _upstream_reasoning_chunks(*, thinking_type: str) -> int:
         "messages": [{"role": "user", "content": PROMPT}],
         "stream": True,
         "max_tokens": 1024,
-        "thinking": {"type": thinking_type},
+        # 与产品注入同源：网关认哪种形态由 apply_thinking_extra 统一决定
+        **apply_thinking_extra(
+            {}, thinking_enabled=thinking_type == "enabled", provider_id="custom"
+        ),
     }
     reason_n = 0
     async with httpx.AsyncClient(timeout=120.0) as client:
@@ -145,7 +150,7 @@ async def test_custom_thinking_toggle_controls_thinking_delta() -> None:
     port = env.get("PORT", "18080")
     base = f"http://{host}:{port}"
 
-    # 上游 thinking=enabled 应能吐 reasoning（证明字段有效）；disabled 偶发仍吐，
+    # 按产品注入形态开思考，上游应能吐 reasoning（证明形态有效）；disabled 偶发仍吐，
     # 因此关思考的硬保证落在工作台 SSE 过滤，而不是上游自律。
     on_up = 0
     for _ in range(3):
@@ -153,8 +158,9 @@ async def test_custom_thinking_toggle_controls_thinking_delta() -> None:
         if on_up >= 1:
             break
     if on_up == 0:
-        # 上游模型/网关不吐 reasoning_content 时，下面的「关思考过滤」失去对照组，跳过
-        pytest.skip("上游 thinking=enabled 未吐 reasoning_content（模型/网关不支持）")
+        # 网关不按产品注入形态吐 reasoning_content（上游实现变了）时，
+        # 下面的「关思考过滤」失去对照组，跳过不假装通过
+        pytest.skip("上游未按产品注入形态吐 reasoning_content（网关实现可能已变）")
 
     try:
         async with httpx.AsyncClient(base_url=base, timeout=120.0) as client:
