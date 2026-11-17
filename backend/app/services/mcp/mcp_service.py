@@ -964,7 +964,11 @@ async def probe_server_health(db: AsyncSession, server: McpServer) -> bool:
         server.last_error = f"{type(exc).__name__}: {exc}"
     finally:
         if manager is not None:
-            await manager.close()
+            # 连接失败时 SDK close 会等会话任务超时，别让探活循环被单台拖住
+            try:
+                await asyncio.wait_for(manager.close(), timeout=2)
+            except Exception as exc:  # noqa: BLE001 - 清理异常不影响探活结论
+                logger.warning("探活清理 MCP session 失败 id=%s error=%s", server.id, exc)
     server.last_probed_at = datetime.now(timezone.utc)
     await db.commit()
     return ok

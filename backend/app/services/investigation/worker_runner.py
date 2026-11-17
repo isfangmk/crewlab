@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Awaitable, Callable
 
 from google.adk.agents import LlmAgent
@@ -76,14 +77,36 @@ class WorkerResult:
     log_text: str = ""
 
 
+class ToolFocus(str, Enum):
+    """工具挂载面的显式表达：NONE 表示不挂任何工具（区别于未声明的全量）。"""
+
+    NONE = "__none__"
+
+
+def normalize_tool_focus(
+    focus: set[str] | tuple[str, ...] | list[str] | ToolFocus | None,
+) -> ToolFocus | frozenset[str] | None:
+    """把上层声明归一成挂载口径：含 NONE 哨兵 → NONE；空 → None（全量）。"""
+
+    if focus is ToolFocus.NONE:
+        return ToolFocus.NONE
+    if not focus:
+        return None
+    if ToolFocus.NONE.value in focus:
+        return ToolFocus.NONE
+    return frozenset(str(name) for name in focus)
+
+
 def filter_tools_by_focus(
-    tools: list[Any], focus: set[str] | tuple[str, ...] | None
+    tools: list[Any], focus: set[str] | tuple[str, ...] | list[str] | ToolFocus | frozenset[str] | None
 ) -> list[Any]:
-    """按声明的工具名收窄挂载面；未声明（空/None）保持全量。
+    """按声明收窄挂载面；NONE 不挂任何工具，空/None 保持全量。
 
     知识检索闭包版的函数名是 scoped_query_knowledge，按 query_knowledge 匹配。
     """
 
+    if focus is ToolFocus.NONE:
+        return []
     if not focus:
         return tools
     wanted = set(focus)
@@ -142,7 +165,7 @@ def build_worker_agent(
     llm_timeout_seconds: int = 120,
     persona: str | None = None,
     readonly_tools: tuple[str, ...] = WORKER_READONLY_TOOL_NAMES,
-    tool_focus: tuple[str, ...] | None = None,
+    tool_focus: set[str] | tuple[str, ...] | list[str] | ToolFocus | None = None,
 ) -> LlmAgent:
     """装配单路无人值守 agent：只读内置白名单 + 知识检索 + 继承的 MCP（禁写闸门拦）。
 
@@ -156,7 +179,7 @@ def build_worker_agent(
     tools.extend(build_knowledge_tools(knowledge_scope))
     if extra_tools:
         tools.extend(extra_tools)
-    tools = filter_tools_by_focus(tools, tool_focus)
+    tools = filter_tools_by_focus(tools, normalize_tool_focus(tool_focus))
     if persona is None:
         persona = (
             f"你是并行排查中的「{name}」，无人值守的只读排查员。\n"

@@ -218,6 +218,11 @@ def test_parse_steps_json_validates() -> None:
             "tools": ["web_search", "run_python"],
         }
     ]
+    # 显式零工具哨兵原样透传到装配层（由 normalize_tool_focus 收口）
+    none_spec = plan_service.parse_steps_json(
+        json.dumps([{"name": "直接作答", "tools": ["__none__"]}])
+    )
+    assert none_spec[0]["tools"] == ["__none__"]
 
 
 @pytest.mark.asyncio

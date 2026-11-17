@@ -25,7 +25,7 @@ async def dispatch_investigation(
     """把问题拆给 N 路只读子代理并行排查，收口后自动汇总进对话。
 
     question: 要排查的总问题（一句话）。
-    workers_json: worker 规格 JSON 数组，如 [{"name":"指标员","target":"关联指标趋势","instruction":"侧重近24h","tools":["query_knowledge"]}]，1..8 路；tools 可选，是本路需要的工具（按声明收窄挂载，留空挂默认只读集）。
+    workers_json: worker 规格 JSON 数组，如 [{"name":"指标员","target":"关联指标趋势","instruction":"侧重近24h","tools":["query_knowledge"]}]，1..8 路；tools 可选，是本路需要的工具（按声明收窄挂载，留空挂默认只读集；只需模型直接作答、无需任何工具时填 ["__none__"]）。
     max_steps_per_worker: 每路最大模型调用次数（步数预算）。
     timeout_seconds_per_worker: 每路墙钟超时秒数。
     token_budget_per_worker: 每路 token 软限，超限中止该路（默认 150000：多工具集下每轮调用约 4-5k，检索返回会随上下文累积放大）。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Optional
@@ -147,12 +148,23 @@ class CachedMcpCatalogToolset(BaseToolset):
         return list(self._tools)
 
     async def close(self) -> None:
-        await self._session_manager.close()
-        logger.info(
-            "已关闭缓存目录 MCP session server_id=%s name=%s",
-            self._server_id,
-            self._server_name,
-        )
+        # 连接失败时 SDK 的 close 会等会话任务超时（实测 ~10s），
+        # 用短上限兜底：清理失败不该拖慢每次 agent 回合收尾。
+        try:
+            await asyncio.wait_for(self._session_manager.close(), timeout=2)
+        except Exception as exc:  # noqa: BLE001 - 清理异常只记日志
+            logger.warning(
+                "关闭缓存目录 MCP session 超时/异常 server_id=%s name=%s error=%s",
+                self._server_id,
+                self._server_name,
+                exc,
+            )
+        else:
+            logger.info(
+                "已关闭缓存目录 MCP session server_id=%s name=%s",
+                self._server_id,
+                self._server_name,
+            )
 
 
 class McpToolsView(BaseToolset):

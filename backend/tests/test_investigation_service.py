@@ -23,10 +23,12 @@ from app.models.investigation import InvestigationDispatch, InvestigationWorkerR
 from app.models.workflow import WorkflowNodeRun, WorkflowRun
 from app.services.investigation import dispatch_service
 from app.services.investigation.worker_runner import (
+    ToolFocus,
     WorkerResult,
     build_worker_agent,
     build_worker_tool_gate,
     filter_tools_by_focus,
+    normalize_tool_focus,
 )
 
 
@@ -441,6 +443,11 @@ def test_filter_tools_by_focus_narrows_mounts() -> None:
     assert [t.name for t in kept] == ["scoped_query_knowledge", "mcp__x__query"]
     assert filter_tools_by_focus(tools, None) is tools
     assert filter_tools_by_focus(tools, ()) is tools
+    # 显式零工具：不挂任何工具，区别于未声明的全量
+    assert filter_tools_by_focus(tools, ToolFocus.NONE) == []
+    assert normalize_tool_focus(["__none__"]) is ToolFocus.NONE
+    assert normalize_tool_focus([]) is None
+    assert normalize_tool_focus(["query_knowledge"]) == frozenset({"query_knowledge"})
 
 
 def test_worker_agent_injects_focus_guidance_and_focus_mounts() -> None:
@@ -468,3 +475,10 @@ def test_worker_agent_injects_focus_guidance_and_focus_mounts() -> None:
     assert "query_knowledge" in focused_names
     assert "recall_memory" not in focused_names
     assert "list_workflows" not in focused_names
+
+    # 显式零工具：连内置只读工具都不挂（额外工具面为空）
+    none_agent = build_worker_agent(**kwargs, tool_focus=(ToolFocus.NONE.value,))
+    none_names = {getattr(t, "name", "") for t in none_agent.tools}
+    assert "recall_memory" not in none_names
+    assert "list_workflows" not in none_names
+    assert "query_knowledge" not in none_names
