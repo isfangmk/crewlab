@@ -12,6 +12,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from app.adk_runtime.headless import HEADLESS_SESSION_ID_KEY
 from app.adk_runtime.workflow_node_impl import SANDBOX_RESULT_MARKER
 from app.services.sandbox import sandbox_service
 
@@ -192,6 +193,12 @@ async def run_python(
         session = getattr(tool_context, "session", None)
         session_id = getattr(session, "id", "") or ""
         function_call_id = getattr(tool_context, "function_call_id", "") or ""
+        # 无人值守 agent 的 session 是临时会话；产出物要归属真实聊天会话。
+        state = getattr(tool_context, "state", None)
+        if state is not None:
+            real_id = state.get(HEADLESS_SESSION_ID_KEY) if hasattr(state, "get") else None
+            if isinstance(real_id, str) and real_id:
+                session_id = real_id
 
     script = _build_chat_script(code)
     result = await sandbox_service.run_code(

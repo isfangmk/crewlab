@@ -497,6 +497,7 @@ async def _execute_step_node(
             budget=budget,
             publish=publish,
             stop_check=_stop_check,
+            session_id=session_id,
         )
     except Exception as exc:  # noqa: BLE001 - 装配失败也记成单步失败
         logger.exception("计划步骤装配失败 step_uid=%s", step_uid)

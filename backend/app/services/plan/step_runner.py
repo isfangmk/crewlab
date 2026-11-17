@@ -11,7 +11,12 @@ from typing import Any, Awaitable, Callable
 
 from google.adk.agents import LlmAgent
 
-from app.adk_runtime.headless import HeadlessResult, WorkerBudget, run_headless_turn
+from app.adk_runtime.headless import (
+    HEADLESS_SESSION_ID_KEY,
+    HeadlessResult,
+    WorkerBudget,
+    run_headless_turn,
+)
 from app.services.investigation.worker_runner import WORKER_READONLY_TOOL_NAMES
 
 # headless 会话标识：计划步骤不进对话会话，用独立应用名隔离
@@ -64,6 +69,7 @@ async def run_plan_step(
     budget: WorkerBudget,
     publish: Callable[[dict[str, Any]], Awaitable[None]],
     stop_check: Callable[[], bool],
+    session_id: str | None = None,
 ) -> HeadlessResult:
     """跑完一个计划步骤；超时/超限/停止/异常都转成结构化结果。"""
 
@@ -87,4 +93,5 @@ async def run_plan_step(
         stop_check=stop_check,
         opening=f"开始执行：{name}",
         closing="步骤完成",
+        session_state={HEADLESS_SESSION_ID_KEY: session_id} if session_id else None,
     )

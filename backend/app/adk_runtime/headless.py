@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # findings 输出协议：回合回答末尾的围栏 JSON
 _FINDINGS_FENCE_RE = re.compile(r"```findings\s*\n(.*?)```", re.DOTALL)
 
+# 无人值守临时会话 state 键：工具借此回传真实会话 id（产出物归属用）
+HEADLESS_SESSION_ID_KEY = "ongrid_real_session_id"
+
 
 @dataclass(frozen=True)
 class WorkerBudget:
@@ -128,11 +131,14 @@ async def run_headless_turn(
     stop_check: Callable[[], bool],
     opening: str,
     closing: str,
+    session_state: dict[str, Any] | None = None,
 ) -> HeadlessResult:
     """跑完一个无人值守回合；超时/超限/停止/异常都转成结构化结果。
 
     log 按 (line, tool=...) 调用；opening/closing 是首尾日志行，
     由调用方按各自语义给出（如「开始排查：… / 排查完成」）。
+    session_state 注入临时会话状态：无人值守 agent 的 tool_context.session
+    是独立临时会话，工具（如 run_python）借它回传真实会话等上下文。
     """
 
     started = time.monotonic()
@@ -169,6 +175,7 @@ async def run_headless_turn(
                     log=_log,
                     stop_check=stop_check,
                     usage_partial=usage_partial,
+                    session_state=session_state,
                 ),
                 timeout=budget.timeout_seconds if budget.timeout_seconds > 0 else None,
             )
@@ -221,6 +228,7 @@ async def _run_turn(
     log: Callable[..., Awaitable[None]],
     stop_check: Callable[[], bool],
     usage_partial: dict[str, int],
+    session_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """headless 跑一个回合，收集文本 / call_id / usage。
 
@@ -229,7 +237,7 @@ async def _run_turn(
     """
 
     session = await runner.session_service.create_session(
-        app_name=runner.app_name, user_id=runner.app_name
+        app_name=runner.app_name, user_id=runner.app_name, state=session_state
     )
     run_config = RunConfig()
     if budget.max_steps > 0:
