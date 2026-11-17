@@ -95,10 +95,6 @@ export function MessageBubble({
   onLocatePlan,
   findingCount,
 }: Props) {
-  // 跑完自动汇总：特写卡片形态（标题行 + 汇总正文 + 引用角标），不是普通气泡
-  if (message.role === 'assistant' && message.id.startsWith('auto-summary-')) {
-    return <AutoSummaryCard message={message} onLocate={onLocate} findingCount={findingCount} />;
-  }
   if ((message.kind === 'tool_card' || message.role === 'tool') && message.tool_call) {
     return (
       <ToolCallBlock
@@ -395,77 +391,6 @@ function compactUserContent(
   return tr('确认创建这条告警规则', 'Confirm creating this alert rule');
 }
 
-// 跑完自动汇总的特写卡（设计稿 parallel-serial-ui · auto-mock）：左紫条 +
-// 「✦ 自动汇总」徽记 + 标题行（完成情况+计数）+ 汇总正文（[n] 角标可点定位）
-// + 虚线底注。消息内容首行即标题（run_auto_summary 统一拼），空行后是正文。
-function AutoSummaryCard({
-  message,
-  onLocate,
-  findingCount = 0,
-}: {
-  message: ChatMessage;
-  onLocate?: (target: LocateTarget) => void;
-  findingCount?: number;
-}) {
-  const { tr } = useI18n();
-  const raw = message.content ?? '';
-  const splitAt = raw.indexOf('\n\n');
-  const title = splitAt > 0 ? raw.slice(0, splitAt) : raw;
-  const bodyRaw = splitAt > 0 ? raw.slice(splitAt + 2) : '';
-  const body = useMemo(() => decorateCitations(bodyRaw, findingCount), [bodyRaw, findingCount]);
-  return (
-    <div
-      className="rounded-[13px] rounded-l-[3px] border border-l-[3px] border-zinc-800/60 border-l-teal-500 bg-zinc-900/40 px-4 py-3"
-      data-testid="auto-summary-card"
-    >
-      <div className="flex items-center gap-2.5">
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-teal-400/15 px-2 py-0.5 text-[9.5px] font-bold tracking-wide text-teal-300">
-          <span aria-hidden>✦</span>
-          {tr('自动汇总', 'Auto summary')}
-        </span>
-        <span className="min-w-0 truncate text-[12.5px] font-semibold text-zinc-100">{title}</span>
-      </div>
-      {body !== '' && (
-        <div className="md-body mt-2.5 text-[12px] leading-[1.9] text-zinc-100">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              a({ href, children }) {
-                if (href?.startsWith('#cite-')) {
-                  const n = Number(href.slice(6));
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => onLocate?.({ kind: 'finding', n })}
-                      className="mx-0.5 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded bg-teal-400/15 px-[3px] align-[2px] text-[9px] font-bold text-teal-300 hover:bg-teal-400/30"
-                      aria-label={tr(`引用发现 ${n}`, `Cite finding ${n}`)}
-                    >
-                      {children}
-                    </button>
-                  );
-                }
-                return (
-                  <a href={href} target="_blank" rel="noreferrer">
-                    {children}
-                  </a>
-                );
-              },
-            }}
-          >
-            {body}
-          </ReactMarkdown>
-        </div>
-      )}
-      <div className="mt-3 border-t border-dashed border-zinc-700/60 pt-2.5 text-[10px] leading-4 text-zinc-500">
-        {tr(
-          '含缺口标注与 [n] 引用角标 · 对结论不满意直接追问「换角度重新汇总」',
-          'Gaps marked and [n] citations clickable · ask for a re-summary anytime',
-        )}
-      </div>
-    </div>
-  );
-}
-
 function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUseSuggestion, onLocate, onLocatePlan, findingCount = 0 }: Props) {
   // Codex-style: no rounded card around assistant prose. Render markdown
   // flush against the column so headings/lists/code blocks read like a
@@ -486,10 +411,14 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
   const followupsDisabled =
     usedQuestion !== null || followupsActive === false || onUseSuggestion === undefined || message.pending === true;
   const fmtTokens = (n: number) => n.toLocaleString('en-US');
+  // 自动汇总是后端补写的 assistant 消息：按普通正文渲染，只用一条细顶线标识收口
+  const isSummary = message.id.startsWith('auto-summary-');
   return (
     <div className="flex flex-col items-stretch gap-2">
       {body !== '' && (
-        <div className="md-body text-zinc-100">
+        <div
+          className={cn('md-body text-zinc-100', isSummary && 'border-t-2 border-accent/70 pt-2.5')}
+        >
           {/* 图表由 run_python 的 chart() 产出物渲染，正文只承载文字 */}
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -502,7 +431,7 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
                     <button
                       type="button"
                       onClick={() => onLocate?.({ kind: 'finding', n })}
-                      className="mx-0.5 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded bg-indigo-500/15 px-[3px] align-[2px] text-[9px] font-semibold text-indigo-300 hover:bg-indigo-500/25"
+                      className="mx-0.5 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded bg-info/15 px-[3px] align-[2px] text-[9px] font-semibold text-info hover:bg-info/25"
                       aria-label={tr(`引用发现 ${n}`, `Cite finding ${n}`)}
                     >
                       {children}

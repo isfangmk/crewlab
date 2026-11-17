@@ -159,9 +159,9 @@ describe('汇总引用角标', () => {
     expect(screen.queryByRole('button', { name: /引用发现/ })).not.toBeInTheDocument();
   });
 
-  it('自动汇总消息渲染特写卡：标题行 + 正文 + 底注，[n] 可点定位', async () => {
+  it('自动汇总消息按普通正文渲染：标题/正文保留、[n] 可点定位，不再用特写卡', async () => {
     const onLocate = vi.fn();
-    render(
+    const { container } = render(
       <MessageBubble
         message={{
           id: 'auto-summary-investigation-d-1',
@@ -173,10 +173,12 @@ describe('汇总引用角标', () => {
         onLocate={onLocate}
       />,
     );
-    expect(screen.getByText('自动汇总')).toBeInTheDocument();
-    expect(screen.getByText('后台排查已全部完成 · 2 路收口（1 成功 / 1 失败）')).toBeInTheDocument();
+    // 汇总不再走特写卡，标题与正文作为普通正文渲染
+    expect(screen.queryByTestId('auto-summary-card')).not.toBeInTheDocument();
+    expect(screen.getByText(/后台排查已全部完成/)).toBeInTheDocument();
     expect(screen.getByText(/证据缺口待人工补充/)).toBeInTheDocument();
-    expect(screen.getByText(/换角度重新汇总/)).toBeInTheDocument();
+    // 细顶线标识收口（唯一的视觉区分）
+    expect(container.querySelector('.border-t-2')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: '引用发现 2' }));
     await waitFor(() => expect(onLocate).toHaveBeenCalledWith({ kind: 'finding', n: 2 }));
   });

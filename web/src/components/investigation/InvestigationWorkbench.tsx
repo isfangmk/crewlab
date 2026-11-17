@@ -481,10 +481,10 @@ export function InvestigationWorkbench({
                             id={`inv-finding-${f.n}`}
                             className={cn(
                               'flex gap-2 rounded-md px-1.5 py-1 transition-colors',
-                              highlightN === f.n && 'bg-indigo-500/15',
+                              highlightN === f.n && 'bg-info/15',
                             )}
                           >
-                            <span className="mt-[2px] grid h-4 w-4 shrink-0 place-items-center rounded bg-indigo-500/15 text-[9px] font-medium text-indigo-300">
+                            <span className="mt-[2px] grid h-4 w-4 shrink-0 place-items-center rounded bg-info/15 text-[9px] font-medium text-info">
                               {f.n}
                             </span>
                             <span className="min-w-0 text-[10.5px] leading-4.5 text-zinc-400">
