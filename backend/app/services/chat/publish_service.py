@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -22,28 +21,25 @@ from app.services.agent import agent_service
 from app.services.chat import chat_service
 from app.services.platform.auth_service import hash_token
 from app.services.platform.llm_config import get_default_selection, resolve_model
+from app.services.platform.redis_distributed import RedisLock
 
 logger = logging.getLogger(__name__)
 
 KEY_PREFIX = "pk-"
 _MAX_EXPIRES_HOURS = 24 * 365 * 5
 
-# 同一渠道的回合串行执行：渠道复用同一个 ADK 会话，并发写入会撞 stale session
-_channel_locks: dict[str, asyncio.Lock] = {}
+# 同一渠道的回合串行执行：渠道复用同一个 ADK 会话，并发写入会撞 stale session。
+# 用 Redis 分布式锁，多 worker 下也串行（此前进程内 Lock 仅单进程有效）。
+
+
+def channel_lock(channel_id: str) -> RedisLock:
+    """取渠道级互斥锁（async with）；跨 worker 串行化。"""
+
+    return RedisLock(f"channel:{channel_id}", ttl_ms=600_000)
 
 
 class ChannelAuthError(Exception):
     """渠道 Key 鉴权失败（无效 / 停用 / 过期）。"""
-
-
-def channel_lock(channel_id: str) -> asyncio.Lock:
-    """取渠道级互斥锁；进程内有效，多进程部署需外部串行化。"""
-
-    lock = _channel_locks.get(channel_id)
-    if lock is None:
-        lock = asyncio.Lock()
-        _channel_locks[channel_id] = lock
-    return lock
 
 
 def _issue_key() -> tuple[str, str, str]:
@@ -216,7 +212,6 @@ async def delete_channel(db: AsyncSession, channel_id: str) -> None:
     row = await get_channel(db, channel_id)
     await db.delete(row)
     await db.commit()
-    _channel_locks.pop(channel_id, None)
     logger.info("删除发布渠道 id=%s name=%s", row.id, row.name)
 
 

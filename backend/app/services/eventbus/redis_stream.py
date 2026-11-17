@@ -58,7 +58,7 @@ class RedisEventStream:
             key,
             {"event": json.dumps(event, ensure_ascii=False)},
             maxlen=_MAXLEN,
-            approximate=True,
+            approximate=False,  # 精确裁剪：与进程内版硬上限一致，缓冲不超 _MAXLEN
         )
         await redis.expire(key, _STREAM_TTL)
         if event.get("event") in self._terminal:
@@ -132,7 +132,7 @@ class RedisEventStream:
                 pass
 
     def unsubscribe(
-        self, uid: str, queue: asyncio.Queue[dict[str, Any] | None]
+        self, uid: str, queue: asyncio.Queue[dict[str, Any] | None]  # pyright: ignore[reportUnusedParameter] — 公开接口保留 uid，读任务按 queue 精确取消
     ) -> None:
         reader = self._readers.pop(queue, None)
         if reader is not None and not reader.done():

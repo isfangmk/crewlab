@@ -1754,7 +1754,7 @@ async def stream_session_message(
     rule_actions = tool_bundle.rule_actions
 
     # 观测回合必须先建立：persister 要把工具/技能调用挂到该 trace 上
-    turn_control.begin_turn(session_id)
+    await turn_control.begin_turn(session_id)
     obs = await observation_service.start_chat_turn(
         session_id=session_id,
         agent_id=resolved_agent.name,
@@ -1875,7 +1875,7 @@ async def stream_session_message(
         await obs.end_error(exc)
         raise
     finally:
-        turn_control.end_turn(session_id)
+        await turn_control.end_turn(session_id)
 
 
 async def stop_session(session_id: str) -> dict:
@@ -1885,5 +1885,5 @@ async def stop_session(session_id: str) -> dict:
     不能返回假的成功信号。
     """
 
-    stopped = turn_control.request_stop(session_id)
+    stopped = await turn_control.request_stop(session_id)
     return {"stopped": stopped}

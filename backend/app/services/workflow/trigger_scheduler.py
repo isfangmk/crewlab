@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.trigger import TriggerRule, TriggerRun
 from app.services.platform.app_settings_service import get_system_timezone
+from app.services.platform.redis_distributed import LeaderLease
 from app.services.workflow import trigger_executor
 from app.services.workflow.trigger_service import TriggerValidationError, compute_next_fire
 
@@ -54,9 +55,14 @@ async def stop_scheduler() -> None:
 
 
 async def _loop() -> None:
+    # 多 worker 都在 lifespan 起这个循环；用 leader 租约保证每轮只有一个实例扫描，
+    # 避免同一 cron 被多个 worker 重复派发。
+    leader = LeaderLease("loop:trigger_scheduler", ttl_ms=120_000)
     while True:
         try:
-            await _scan_once()
+            async with leader.hold() as held:
+                if held:
+                    await _scan_once()
         except Exception as exc:  # noqa: BLE001 — 调度循环绝不退出
             logger.exception("触发器调度扫描异常: %s", exc)
         await asyncio.sleep(_SCAN_INTERVAL_SECONDS)

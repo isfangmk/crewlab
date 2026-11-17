@@ -18,6 +18,7 @@ from app.services.mcp.mcp_service import (
     probe_server_health,
     warn_unhealthy_server,
 )
+from app.services.platform.redis_distributed import LeaderLease
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,16 @@ async def probe_enabled_servers_once(db: AsyncSession) -> int:
 
 
 async def _loop() -> None:
+    # 多 worker 只有一个探活：leader 租约避免同一 Server 被重复探测/告警。
+    leader = LeaderLease("loop:mcp_health", ttl_ms=120_000)
     while True:
         try:
-            from app.db import SessionLocal
+            async with leader.hold() as held:
+                if held:
+                    from app.db import SessionLocal
 
-            async with SessionLocal() as db:
-                await probe_enabled_servers_once(db)
+                    async with SessionLocal() as db:
+                        await probe_enabled_servers_once(db)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 — 探活失败不拖垮进程，下一轮重试

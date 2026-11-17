@@ -15,9 +15,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Awaitable, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +25,7 @@ from app.adk_runtime.headless import WorkerBudget
 from app.db import SessionLocal
 from app.models.task_graph import TaskGraphNode, TaskGraphRun
 from app.schemas.task_graph import TaskGraphSpec
+from app.services.platform import redis_distributed
 from app.services.platform.task_control import StopSignal
 from app.services.taskgraph import graph_builder
 from app.services.taskgraph.node_executor import execute_node
@@ -43,31 +43,75 @@ _TERMINAL_NODE = ("succeeded", "failed", "skipped", "stopped")
 _TERMINAL_GRAPH = ("succeeded", "failed", "stopped")
 
 
-@dataclass
+def _state_key(graph_uid: str) -> str:
+    return f"taskgraph:state:{graph_uid}"
+
+
+def _nodes_key(graph_uid: str) -> str:
+    return f"taskgraph:nodes:{graph_uid}"
+
+
+def _stop_flag(graph_uid: str) -> str:
+    return f"taskgraph:stop:{graph_uid}"
+
+
 class _GraphRuntime:
-    graph_uid: str
-    stop: StopSignal
-    stop_requested: bool = False
-    running: bool = False
-    node_uids: list[str] = field(default_factory=list)
+    """任务图运行时句柄：控制状态全在 Redis，跨 worker 一致。
 
+    stop_requested 走共享标志（PubSub 同步本地镜像，供同步 stop_check 热路径读）；
+    running / node_uids 只在异步控制路径访问，直接读写 Redis。
+    """
 
-_runtimes: dict[str, _GraphRuntime] = {}
-_refresh_locks: dict[str, asyncio.Lock] = {}
+    def __init__(self, graph_uid: str) -> None:
+        self.graph_uid = graph_uid
+        self.stop = StopSignal(f"task_graph:{graph_uid}")
 
+    @property
+    def stop_requested(self) -> bool:
+        return redis_distributed.get_flag(_stop_flag(self.graph_uid))
 
-def _refresh_lock(graph_uid: str) -> asyncio.Lock:
-    return _refresh_locks.setdefault(graph_uid, asyncio.Lock())
+    async def sync_stop_requested(self) -> bool:
+        """控制路径用：从 Redis 权威刷新本地镜像后返回。"""
+
+        return await redis_distributed.sync_flag(_stop_flag(self.graph_uid))
+
+    async def set_stop_requested(self, value: bool) -> None:
+        await redis_distributed.set_flag(_stop_flag(self.graph_uid), value)
+
+    async def is_running(self) -> bool:
+        value = await cast(
+            Awaitable[str | None],
+            redis_distributed.get_redis().hget(_state_key(self.graph_uid), "running"),
+        )
+        return value == "1"
+
+    async def set_running(self, value: bool) -> None:
+        redis = redis_distributed.get_redis()
+        key = _state_key(self.graph_uid)
+        await cast(Awaitable[int], redis.hset(key, "running", "1" if value else "0"))
+        await cast(Awaitable[int], redis.expire(key, 3600))
+
+    async def exists(self) -> bool:
+        return bool(
+            await cast(
+                Awaitable[int],
+                redis_distributed.get_redis().exists(_state_key(self.graph_uid)),
+            )
+        )
+
+    async def node_uids(self) -> list[str]:
+        return await redis_distributed.set_members(_nodes_key(self.graph_uid))
+
+    async def add_node_uid(self, node_uid: str) -> None:
+        await redis_distributed.set_add(_nodes_key(self.graph_uid), node_uid)
 
 
 def _ensure_runtime(graph_uid: str) -> _GraphRuntime:
-    runtime = _runtimes.get(graph_uid)
-    if runtime is None:
-        runtime = _GraphRuntime(
-            graph_uid=graph_uid, stop=StopSignal(f"task_graph:{graph_uid}")
-        )
-        _runtimes[graph_uid] = runtime
-    return runtime
+    return _GraphRuntime(graph_uid)
+
+
+def _refresh_lock(graph_uid: str) -> redis_distributed.RedisLock:
+    return redis_distributed.RedisLock(f"taskgraph:refresh:{graph_uid}", ttl_ms=60_000)
 
 
 def _budget_of(graph: TaskGraphRun) -> WorkerBudget:
@@ -217,8 +261,8 @@ async def _run_graph(graph_uid: str, session_id: str) -> None:
 
     publish = task_graph_events.open(graph_uid)
     runtime = _ensure_runtime(graph_uid)
-    runtime.running = True
-    runtime.stop_requested = False
+    await runtime.set_running(True)
+    await runtime.set_stop_requested(False)
     await publish({"event": "graph_started", "graph_uid": graph_uid})
     try:
         from app.services.workflow import workflow_service
@@ -228,7 +272,7 @@ async def _run_graph(graph_uid: str, session_id: str) -> None:
             if graph is None:
                 return
             nodes = await _nodes_of(db, graph.id)
-            if runtime.stop_requested:
+            if await runtime.sync_stop_requested():
                 await _finish_graph(db, graph, nodes, status="stopped", publish=publish)
                 return
             pending = [n for n in nodes if n.status in ("pending", "queued")]
@@ -287,7 +331,7 @@ async def _run_graph(graph_uid: str, session_id: str) -> None:
         async with SessionLocal() as db:
             await _refresh_graph_state(db, graph_uid, publish)
     finally:
-        runtime.running = False
+        await runtime.set_running(False)
 
 
 # ---------------------------------------------------------------------------
@@ -305,10 +349,11 @@ async def _refresh_graph_state(
         if graph is None:
             return {}
         nodes = await _nodes_of(db, graph.id)
-        runtime = _runtimes.get(graph_uid)
+        runtime = _ensure_runtime(graph_uid)
+        stop_requested = await runtime.sync_stop_requested()
 
         # 停止请求：把所有未终态节点收口为 stopped，避免图悬在 running。
-        if runtime is not None and runtime.stop_requested:
+        if stop_requested:
             for node in nodes:
                 if node.status not in _TERMINAL_NODE:
                     node.status = "stopped"
@@ -320,7 +365,7 @@ async def _refresh_graph_state(
 
         if running:
             graph.status = "running"
-        elif runtime is not None and runtime.stop_requested:
+        elif stop_requested:
             graph.status = "stopped"
         elif all(s == "succeeded" for s in statuses):
             graph.status = "succeeded"
@@ -330,8 +375,9 @@ async def _refresh_graph_state(
             graph.status = "failed"
 
         if not running:
-            graph.finished_at = datetime.now(timezone.utc)
-            graph.duration_ms = _wall_clock_ms(graph, finished=graph.finished_at)
+            finished_at = datetime.now(timezone.utc)
+            graph.finished_at = finished_at
+            graph.duration_ms = _wall_clock_ms(graph, finished=finished_at)
         await db.commit()
 
         stats = _stats_of(nodes)
@@ -396,8 +442,9 @@ async def _finish_graph(
             if node.status not in _TERMINAL_NODE:
                 node.status = "stopped" if status == "stopped" else node.status
         graph.status = status
-        graph.finished_at = datetime.now(timezone.utc)
-        graph.duration_ms = _wall_clock_ms(graph, finished=graph.finished_at)
+        finished_at = datetime.now(timezone.utc)
+        graph.finished_at = finished_at
+        graph.duration_ms = _wall_clock_ms(graph, finished=finished_at)
         await db.commit()
 
     await publish(
@@ -474,11 +521,11 @@ async def stop_graph(db: AsyncSession, graph_uid: str) -> bool:
         return False
     runtime = _ensure_runtime(graph_uid)
     any_active = False
-    for node_uid in runtime.node_uids:
-        if runtime.stop.request_stop(node_uid):
+    for node_uid in await runtime.node_uids():
+        if await runtime.stop.request_stop(node_uid):
             any_active = True
-    runtime.stop_requested = True
-    if not runtime.running:
+    await runtime.set_stop_requested(True)
+    if not await runtime.is_running():
         nodes = await _nodes_of(db, graph.id)
         await _finish_graph(
             db, graph, nodes, status="stopped", publish=task_graph_events.open(graph_uid)
@@ -510,9 +557,8 @@ async def retry_node(db: AsyncSession, graph_uid: str, node_uid: str) -> TaskGra
     await db.commit()
 
     runtime = _ensure_runtime(graph_uid)
-    if node_uid not in runtime.node_uids:
-        runtime.node_uids.append(node_uid)
-    runtime.stop.begin(node_uid)
+    await runtime.add_node_uid(node_uid)
+    await runtime.stop.begin(node_uid)
     session_id = graph.session_id
     logger.info("重试任务图节点 graph_uid=%s node_uid=%s attempt=%s", graph_uid, node_uid, node.attempt)
     _spawn(_run_graph(graph_uid, session_id))
@@ -537,8 +583,8 @@ async def skip_node(db: AsyncSession, graph_uid: str, node_uid: str) -> TaskGrap
     await db.commit()
     logger.info("跳过任务图节点 graph_uid=%s node_uid=%s", graph_uid, node_uid)
     # 跳过不改节点图的调度（后继已在本次运行中执行）；若图已终态则重新聚合收尾。
-    runtime = _runtimes.get(graph_uid)
-    if runtime is not None and not runtime.running:
+    runtime = _ensure_runtime(graph_uid)
+    if await runtime.exists() and not await runtime.is_running():
         await _refresh_graph_state(db, graph_uid, task_graph_events.open(graph_uid))
     return node
 

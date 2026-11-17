@@ -143,7 +143,7 @@ async def execute_node(
             }
         )
 
-    runtime.stop.begin(node_uid)
+    await runtime.stop.begin(node_uid)
 
     def _stop_check(uid: str = node_uid) -> bool:
         return runtime.stop.is_stopped(uid) or runtime.stop_requested
@@ -191,7 +191,7 @@ async def execute_node(
         logger.exception("任务图节点装配失败 node_uid=%s", node_uid)
         turn_error = str(exc)
     finally:
-        runtime.stop.end(node_uid)
+        await runtime.stop.end(node_uid)
 
     # —— 落库 ——
     async with SessionLocal() as db:

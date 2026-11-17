@@ -476,7 +476,7 @@ async def stop_run(
         await workflow_service.get_run(db, run_uid)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    stopped = run_control.request_stop(run_uid)
+    stopped = await run_control.request_stop(run_uid)
     await write_audit(
         actor_user_id=user.id,
         action="workflow.run_stop",

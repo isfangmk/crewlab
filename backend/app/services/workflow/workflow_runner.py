@@ -46,7 +46,7 @@ async def start_run(
         )
         run_uid = run.run_uid
         # 停止标记要在返回 run_uid 之前登记：调用方拿到 uid 就可能立刻点停止
-        workflow_service.run_control.begin_run(run_uid)
+        await workflow_service.run_control.begin_run(run_uid)
 
     publish = workflow_events.open(run_uid)
     _spawn(_run_detached(run_uid, publish))

@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models.knowledge import KnowledgeDoc
 from app.services.knowledge.knowledge_service import delete_vault_doc, upsert_vault_doc
+from app.services.platform.redis_distributed import LeaderLease
 
 logger = logging.getLogger(__name__)
 
@@ -116,31 +117,35 @@ _task: asyncio.Task | None = None
 
 
 async def _loop(root: Path) -> None:
+    # 多 worker 只有一个做文件同步：leader 租约避免重复重切块/重嵌入。
+    leader = LeaderLease("loop:knowledge_vault_sync", ttl_ms=120_000)
     # 首轮即启动同步：首轮固定记日志，之后只在内容有变化时记
     first_round = True
     while True:
         try:
-            from app.db import SessionLocal
+            async with leader.hold() as held:
+                if held:
+                    from app.db import SessionLocal
 
-            async with SessionLocal() as db:
-                stats = await sync_vault_once(db, root)
-            if first_round:
-                logger.info(
-                    "内置知识库启动同步 dir=%s created=%s updated=%s deleted=%s unchanged=%s",
-                    root,
-                    stats["created"],
-                    stats["updated"],
-                    stats["deleted"],
-                    stats["unchanged"],
-                )
-            elif stats["created"] or stats["updated"] or stats["deleted"]:
-                logger.info(
-                    "内置知识库同步 created=%s updated=%s deleted=%s unchanged=%s",
-                    stats["created"],
-                    stats["updated"],
-                    stats["deleted"],
-                    stats["unchanged"],
-                )
+                    async with SessionLocal() as db:
+                        stats = await sync_vault_once(db, root)
+                    if first_round:
+                        logger.info(
+                            "内置知识库启动同步 dir=%s created=%s updated=%s deleted=%s unchanged=%s",
+                            root,
+                            stats["created"],
+                            stats["updated"],
+                            stats["deleted"],
+                            stats["unchanged"],
+                        )
+                    elif stats["created"] or stats["updated"] or stats["deleted"]:
+                        logger.info(
+                            "内置知识库同步 created=%s updated=%s deleted=%s unchanged=%s",
+                            stats["created"],
+                            stats["updated"],
+                            stats["deleted"],
+                            stats["unchanged"],
+                        )
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 — 同步失败不拖垮进程，下一轮重试

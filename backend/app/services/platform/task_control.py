@@ -1,59 +1,35 @@
-"""进程内任务的停止信号。
+"""任务的停止信号（跨 worker）。
 
-对话回合与工作流运行共用同一套「进行中登记 + 停止标记」语义，
-避免两处各写一份状态机导致行为漂移。
+对话回合、工作流运行、任务图节点共用同一套「进行中登记 + 停止标记」语义，
+底层经 Redis PubSub 广播，保证 A worker 点停止、B worker 的任务也能收到。
+is_stopped 保持同步（ADK 的 stop_check 要求同步 callable，且每帧高频调用）。
 """
 
 from __future__ import annotations
 
-import logging
-import threading
-
-logger = logging.getLogger(__name__)
+from app.services.platform import redis_distributed
 
 
 class StopSignal:
-    """一组任务的进行中登记与停止标记。"""
+    """一组任务的进行中登记与停止标记（Redis 广播 + 本地同步读）。"""
 
     def __init__(self, label: str) -> None:
-        self._label = label
-        self._lock = threading.Lock()
-        self._active: set[str] = set()
-        self._stopped: set[str] = set()
+        self._prefix = f"{label}:"
 
-    def begin(self, task_id: str) -> None:
-        """任务开始：登记为进行中，并清除上一次遗留的停止标记。"""
+    def _key(self, task_id: str) -> str:
+        return f"{self._prefix}{task_id}"
 
-        with self._lock:
-            self._active.add(task_id)
-            self._stopped.discard(task_id)
+    async def begin(self, task_id: str) -> None:
+        await redis_distributed.begin(self._key(task_id))
 
-    def request_stop(self, task_id: str) -> bool:
-        """请求停止任务。
-
-        返回 True 表示确有进行中的任务并已置停止标记；返回 False 表示它已经结束，
-        调用方应如实告知用户「没有可停止的任务」。
-        """
-
-        with self._lock:
-            if task_id not in self._active:
-                logger.info("停止请求被忽略：%s已结束 task_id=%s", self._label, task_id)
-                return False
-            self._stopped.add(task_id)
-        logger.info("收到停止请求 %s task_id=%s", self._label, task_id)
-        return True
+    async def request_stop(self, task_id: str) -> bool:
+        return await redis_distributed.request_stop(self._key(task_id))
 
     def is_stopped(self, task_id: str) -> bool:
-        with self._lock:
-            return task_id in self._stopped
+        return redis_distributed.is_stopped(self._key(task_id))
 
     def has_active(self, task_id: str) -> bool:
-        with self._lock:
-            return task_id in self._active
+        return redis_distributed.has_active(self._key(task_id))
 
-    def end(self, task_id: str) -> None:
-        """任务结束：清除进行中登记与停止标记。"""
-
-        with self._lock:
-            self._active.discard(task_id)
-            self._stopped.discard(task_id)
+    async def end(self, task_id: str) -> None:
+        await redis_distributed.end(self._key(task_id))

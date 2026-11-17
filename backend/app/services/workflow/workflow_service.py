@@ -567,7 +567,7 @@ async def _drive(
     # 登记为进行中：前端点「停止运行」时才有地方置标记。
     # 续跑不重复登记：登记会清掉停止标记，用户刚点的停止就被抹掉了。
     if resumed_state is None:
-        run_control.begin_run(run.run_uid)
+        await run_control.begin_run(run.run_uid)
 
     async def emit(event: dict[str, Any]) -> None:
         if on_event is not None:
@@ -656,7 +656,7 @@ async def _drive(
         # Runner.close() 是唯一会关闭 toolset（MCP session manager）的路径
         if runner is not None:
             await runner.close()
-        run_control.end_run(run.run_uid)
+        await run_control.end_run(run.run_uid)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     run.status = status
@@ -985,7 +985,7 @@ async def resume_run(
     await db.commit()
     await db.refresh(run)
     # 续跑同样要登记为进行中，用户才能在续跑期间点停止
-    run_control.begin_run(run.run_uid)
+    await run_control.begin_run(run.run_uid)
     if background:
         return run
     return await _drive(

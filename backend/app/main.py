@@ -143,6 +143,11 @@ async def lifespan(_app: FastAPI):
 
     await connect_redis()
 
+    # 跨 worker 停止/共享标志广播：订阅后各 worker 才能收到其他 worker 的停止请求
+    from app.services.platform.redis_distributed import start_stop_listener, stop_stop_listener
+
+    await start_stop_listener()
+
     async with engine.begin() as conn:
         if engine.dialect.name == "postgresql":
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -219,6 +224,7 @@ async def lifespan(_app: FastAPI):
     await stop_mcp_health()
     await stop_vault_sync()
     await stop_scheduler()
+    await stop_stop_listener()
     await close_redis()
     await engine.dispose()
     logger.info("后端已关闭")
