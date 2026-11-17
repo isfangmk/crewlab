@@ -18,7 +18,9 @@ export type ChatLiveDetail =
   | { type: 'tool_end'; event: ToolStreamEvent }
   | { type: 'approval_pending'; event: ApprovalPendingStreamEvent }
   // 用户已对某条审批做出决定：会话据此收起「等待你确认」提示。
-  | { type: 'approval_decided'; approvalId: string };
+  | { type: 'approval_decided'; approvalId: string }
+  // create_plan 落库：右栏工作台据此重拉列表并切到新计划。
+  | { type: 'plan_created'; planUid: string };
 
 export function emitChatLive(detail: ChatLiveDetail): void {
   window.dispatchEvent(new CustomEvent<ChatLiveDetail>(CHAT_LIVE_EVENT, { detail }));

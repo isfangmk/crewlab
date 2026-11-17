@@ -26,7 +26,11 @@ import {
 } from '@/api/plan';
 import { PLAN_STATUS_META, STEP_STATUS_META } from '@/lib/planStatus';
 import { fmtAgo, fmtDuration, isStale, useTicker } from '@/lib/runTimer';
-import { requestChatRefetch } from '@/lib/chatLiveBus';
+import {
+  CHAT_LIVE_EVENT,
+  requestChatRefetch,
+  type ChatLiveDetail,
+} from '@/lib/chatLiveBus';
 import { errorText } from '@/lib/errors';
 import { fullDateTime } from '@/lib/format';
 import { useI18n } from '@/i18n/locale';
@@ -117,6 +121,18 @@ export function PlanWorkbench({
   useEffect(() => {
     if (selectedUid) void loadWire(selectedUid, false);
   }, [selectedUid, loadWire]);
+
+  // 新建计划落库：重拉列表并切到新计划（否则工作台停在刚打开时选中的旧计划）
+  useEffect(() => {
+    const onLive = (ev: Event) => {
+      const detail = (ev as CustomEvent<ChatLiveDetail>).detail;
+      if (detail?.type !== 'plan_created') return;
+      setSelectedUid(detail.planUid);
+      void loadList();
+    };
+    window.addEventListener(CHAT_LIVE_EVENT, onLive);
+    return () => window.removeEventListener(CHAT_LIVE_EVENT, onLive);
+  }, [loadList]);
 
   // 事件订阅：日志/心跳就地记录，生命周期事件静默对齐快照
   useEffect(() => {

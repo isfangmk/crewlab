@@ -78,7 +78,7 @@ import {
 import { listAgents, type AgentSummary } from '@/api/agents';
 
 import { listApprovals, type Approval } from '@/api/approvals';
-import { CHAT_LIVE_EVENT, type ChatLiveDetail } from '@/lib/chatLiveBus';
+import { CHAT_LIVE_EVENT, emitChatLive, type ChatLiveDetail } from '@/lib/chatLiveBus';
 
 import { ApiError } from '@/api/client';
 
@@ -1078,6 +1078,11 @@ export default function ChatThreadPage() {
           setArtifactTick((v) => v + 1);
           setShowArtifacts(true);
         }
+        // create_plan 落库（后台回合路径）：通知右栏工作台切到新计划
+        if (t.name === 'create_plan' && t.status === 'success') {
+          const newUid = (t.result as { plan_uid?: string } | undefined)?.plan_uid;
+          if (newUid) emitChatLive({ type: 'plan_created', planUid: newUid });
+        }
       }
     };
     window.addEventListener(CHAT_LIVE_EVENT, onLive);
@@ -1589,6 +1594,16 @@ export default function ChatThreadPage() {
               setArtifactTick((v) => v + 1);
 
               setShowArtifacts(true);
+
+            }
+
+            // create_plan 落库：通知右栏工作台重拉列表并切到新计划
+
+            if (t.name === 'create_plan' && t.status === 'success') {
+
+              const newUid = (t.result as { plan_uid?: string } | undefined)?.plan_uid;
+
+              if (newUid) emitChatLive({ type: 'plan_created', planUid: newUid });
 
             }
 
