@@ -11,6 +11,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(autouse=True)
+async def _redis_connection() -> None:
+    """直连服务的测试不经过 lifespan：这里显式连接真 Redis，结束关闭。
+
+    强依赖约束不变——业务代码仍要求先 connect 才能 get_redis；只是测试夹具
+    代替 lifespan 完成初始化。用的是真 Redis（禁 mock）。
+    """
+
+    from app.redis import close, connect
+
+    await connect()
+    try:
+        yield
+    finally:
+        await close()
+
+
+@pytest.fixture(autouse=True)
 def _stub_summary_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     """自动汇总的 LLM 调用打桩（沿用执行缝打桩口径），返回拼接降级文本。
 
