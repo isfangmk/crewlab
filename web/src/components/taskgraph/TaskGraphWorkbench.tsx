@@ -28,6 +28,8 @@ import { CHAT_LIVE_EVENT, relaySummaryDelta, requestChatRefetch, type ChatLiveDe
 import { fmtDuration, useTicker } from '@/lib/runTimer';
 import { fullDateTime } from '@/lib/format';
 import { GRAPH_STATUS_META, NODE_STATUS_META } from '@/lib/taskGraphStatus';
+import { buildMermaidGraph } from '@/lib/taskGraphMermaid';
+import { MermaidGraph } from '@/components/MermaidGraph';
 import { cn } from '@/lib/cn';
 import {
   CodeBlock,
@@ -191,7 +193,7 @@ export function TaskGraphWorkbench({
   }, [pendingLocate, items, selectedUid, wire]);
 
   const stats = wire?.stats;
-  const layers = useMemo(() => layerize(wire?.nodes ?? []), [wire]);
+  const mermaidText = useMemo(() => buildMermaidGraph(wire?.nodes ?? []), [wire]);
   const meta = wire ? GRAPH_STATUS_META[wire.status] : GRAPH_STATUS_META.running;
 
   const doRetry = async (nodeUid: string) => {
@@ -251,27 +253,15 @@ export function TaskGraphWorkbench({
               <span>{tr('全程', 'Total')} {fmtDuration(wire.duration_ms || (active && wire.started_at ? tick - new Date(wire.started_at).getTime() : 0))}</span>
               <span>{stats?.running ?? 0} {tr('个节点在跑', 'nodes running')}</span>
             </div>
-            {/* 拓扑分层：每层一行，层内并排 */}
-            <div className="mt-3 flex flex-col gap-1">
-              {layers.map((layer, li) => (
-                <div key={li} className="flex items-center gap-1">
-                  {li > 0 && <span className="w-2 text-center text-[10px] text-zinc-600">↓</span>}
-                  {layer.map((node) => (
-                    <div
-                      key={node.node_uid}
-                      title={node.name}
-                      className={cn(
-                        'h-[22px] flex-1 rounded-md border',
-                        node.status === 'succeeded' ? 'border-ok/30 bg-ok/20'
-                          : node.status === 'running' ? 'border-accent/30 bg-accent/20'
-                          : node.status === 'failed' ? 'border-danger/30 bg-danger/20'
-                          : node.status === 'skipped' ? 'border-warn/30 bg-warn/20'
-                          : 'border-zinc-700 bg-zinc-800/30',
-                      )}
-                    />
-                  ))}
-                </div>
-              ))}
+            {/* 拓扑图：mermaid 按 depends_on 渲染并行起点与汇合，节点按状态着色 */}
+            <div className="mt-3 rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-2 py-2">
+              {wire && wire.nodes.length > 0 && (
+                <MermaidGraph
+                  definition={mermaidText}
+                  ariaLabel={tr('任务图拓扑', 'Task graph topology')}
+                  className="[&_svg]:max-h-44"
+                />
+              )}
             </div>
             {items && items.length > 1 && (
               <div className="mt-3">
@@ -456,25 +446,4 @@ function FindingRow({ finding, n, highlighted, anchorId }: {
       )}
     </div>
   );
-}
-
-/** 按 depends_on 分层：同层并行，层间串行/汇合。 */
-function layerize(nodes: TaskGraphNode[]): TaskGraphNode[][] {
-  const byLocal = new Map(nodes.map((n) => [n.local_id, n]));
-  const depth = new Map<string, number>();
-  const resolve = (n: TaskGraphNode, seen: Set<string>): number => {
-    if (depth.has(n.local_id)) return depth.get(n.local_id)!;
-    if (seen.has(n.local_id)) return 0;
-    seen.add(n.local_id);
-    const deps = n.depends_on.map((d) => byLocal.get(d)).filter((x): x is TaskGraphNode => !!x);
-    const d = deps.length === 0 ? 0 : 1 + Math.max(...deps.map((x) => resolve(x, seen)));
-    depth.set(n.local_id, d);
-    return d;
-  };
-  for (const n of nodes) resolve(n, new Set());
-  const layers: TaskGraphNode[][] = [];
-  for (const n of nodes) {
-    (layers[depth.get(n.local_id) ?? 0] ??= []).push(n);
-  }
-  return layers.filter(Boolean);
 }

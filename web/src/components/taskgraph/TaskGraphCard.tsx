@@ -17,21 +17,13 @@ import {
 } from '@/api/taskGraph';
 import { relaySummaryDelta, requestChatRefetch } from '@/lib/chatLiveBus';
 import { useExecLock } from '@/lib/useExecLock';
-import { fmtAgo, fmtDuration, isStale, useTicker } from '@/lib/runTimer';
-import { GRAPH_STATUS_META, NODE_STATUS_META } from '@/lib/taskGraphStatus';
-import type { StatusTone } from '@/components/ui';
+import { fmtAgo, fmtDuration, useTicker } from '@/lib/runTimer';
+import { GRAPH_STATUS_META } from '@/lib/taskGraphStatus';
+import { buildMermaidGraph } from '@/lib/taskGraphMermaid';
+import { MermaidGraph } from '@/components/MermaidGraph';
 import { cn } from '@/lib/cn';
 import { StatusPill, flash } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
-
-// 状态色调对应圆点色（Tailwind 需静态 class，不能动态拼接）。
-const TONE_DOT: Record<StatusTone, string> = {
-  ok: 'bg-ok',
-  warn: 'bg-warn',
-  danger: 'bg-danger',
-  info: 'bg-info',
-  neutral: 'bg-zinc-500',
-};
 
 type GraphToolResult = {
   graph_uid?: string;
@@ -206,7 +198,7 @@ export function TaskGraphCard({
     return { ...base, ...(result.stats ?? {}) };
   }, [wire, nodes, result.stats]);
 
-  const layers = useMemo(() => layerize(nodes), [nodes]);
+  const mermaidText = useMemo(() => buildMermaidGraph(nodes), [nodes]);
   const meta = GRAPH_STATUS_META[statusKey] ?? GRAPH_STATUS_META.running;
 
   const totalMs = useMemo(() => {
@@ -325,39 +317,13 @@ export function TaskGraphCard({
         </span>
       </button>
 
-      {/* 拓扑条：每层内并排，层间有分隔，直观表达并行/串行/汇合 */}
-      <div className="flex flex-col gap-1.5 border-t border-zinc-800/60 px-3.5 py-2.5">
-        {layers.map((layer, li) => (
-          <div key={li} className="flex items-center gap-1.5">
-            {li > 0 && <span className="w-3 shrink-0 text-center text-[10px] text-zinc-600">↓</span>}
-            {layer.map((node) => {
-              const nm = NODE_STATUS_META[node.status] ?? NODE_STATUS_META.pending;
-              const stale = node.status === 'running' && isStale(
-                node.started_at ? new Date(node.started_at).getTime() : null, tick,
-              );
-              return (
-                <div
-                  key={node.node_uid}
-                  className={cn(
-                    'flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border px-2 py-1.5',
-                    node.status === 'running' ? 'border-accent/30 bg-accent/5'
-                      : node.status === 'failed' ? 'border-danger/30 bg-danger/5'
-                      : 'border-zinc-800/60 bg-zinc-950/40',
-                  )}
-                >
-                  <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', stale ? 'bg-warn' : TONE_DOT[nm.tone])} />
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-200" title={node.target}>
-                    {node.name}
-                  </span>
-                  {node.depends_on.length > 0 && (
-                    <span className="shrink-0 text-[8.5px] text-zinc-600">←{node.depends_on.length}</span>
-                  )}
-                  <span className="shrink-0 text-[10px] tabular-nums text-zinc-500">{node.duration_ms > 0 ? fmtDuration(node.duration_ms) : ''}</span>
-                </div>
-              );
-            })}
-          </div>
-        ))}
+      {/* 拓扑图：mermaid 按 depends_on 渲染并行起点与汇合，节点按状态着色 */}
+      <div className="border-t border-zinc-800/60 px-2.5 py-2">
+        <MermaidGraph
+          definition={mermaidText}
+          ariaLabel={tr(`任务图拓扑：${nodes.length} 节点`, `Task graph topology: ${nodes.length} nodes`)}
+          className="[&_svg]:max-h-40"
+        />
       </div>
 
       {expanded && (isDraft || isPaused) && editNodes === null && (
@@ -474,26 +440,4 @@ export function TaskGraphCard({
       </div>
     </div>
   );
-}
-
-/** 按 depends_on 把节点分层：同层并行，层间串行/汇合。 */
-function layerize(nodes: TaskGraphNode[]): TaskGraphNode[][] {
-  const byLocal = new Map(nodes.map((n) => [n.local_id, n]));
-  const depth = new Map<string, number>();
-  const resolve = (n: TaskGraphNode, seen: Set<string>): number => {
-    if (depth.has(n.local_id)) return depth.get(n.local_id)!;
-    if (seen.has(n.local_id)) return 0;
-    seen.add(n.local_id);
-    const deps = n.depends_on.map((d) => byLocal.get(d)).filter((x): x is TaskGraphNode => !!x);
-    const d = deps.length === 0 ? 0 : 1 + Math.max(...deps.map((x) => resolve(x, seen)));
-    depth.set(n.local_id, d);
-    return d;
-  };
-  for (const n of nodes) resolve(n, new Set());
-  const layers: TaskGraphNode[][] = [];
-  for (const n of nodes) {
-    const d = depth.get(n.local_id) ?? 0;
-    (layers[d] ??= []).push(n);
-  }
-  return layers.filter(Boolean);
 }

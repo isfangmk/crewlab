@@ -62,13 +62,11 @@ beforeEach(() => {
 });
 
 describe('TaskGraphCard', () => {
-  it('按 depends_on 拓扑渲染节点与汇合标记', async () => {
+  it('按 depends_on 渲染拓扑节点与节点数', async () => {
     render(<TaskGraphCard call={call} />);
     expect(await screen.findByText('甲')).toBeTruthy();
     expect(screen.getByText('乙')).toBeTruthy();
     expect(screen.getByText('丙')).toBeTruthy();
-    // C 依赖两个前驱，显示 ←2
-    expect(screen.getByText('←2')).toBeTruthy();
     expect(screen.getByText(/3 节点/)).toBeTruthy();
   });
 
