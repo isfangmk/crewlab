@@ -137,6 +137,12 @@ async def lifespan(_app: FastAPI):
     setup_logging(settings.log_level)
     logger.info("启动 AI 工作台后端 app=%s log_file=logs/backend.log", settings.app_name)
 
+    # Redis 强依赖：先连并探活，连不上直接启动失败（不进 yield，服务不可用）
+    from app.redis import close as close_redis
+    from app.redis import connect as connect_redis
+
+    await connect_redis()
+
     async with engine.begin() as conn:
         if engine.dialect.name == "postgresql":
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -213,6 +219,7 @@ async def lifespan(_app: FastAPI):
     await stop_mcp_health()
     await stop_vault_sync()
     await stop_scheduler()
+    await close_redis()
     await engine.dispose()
     logger.info("后端已关闭")
 

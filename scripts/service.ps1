@@ -1,15 +1,15 @@
-# AI workbench service manager: backend (uvicorn :18080) + frontend (Vite :5173) + mcp (obs-tools SSE :18099)
+# AI workbench service manager: redis (:6379) + backend (uvicorn :18080) + frontend (Vite :5173) + mcp (obs-tools SSE :18099)
 # Usage:
-#   scripts/service.ps1 start   [backend|frontend|mcp|all]   (default all)
-#   scripts/service.ps1 stop    [backend|frontend|mcp|all]
-#   scripts/service.ps1 restart [backend|frontend|mcp|all]
+#   scripts/service.ps1 start   [backend|frontend|mcp|redis|all]   (default all)
+#   scripts/service.ps1 stop    [backend|frontend|mcp|redis|all]
+#   scripts/service.ps1 restart [backend|frontend|mcp|redis|all]
 param(
   [Parameter(Position = 0, Mandatory = $true)]
   [ValidateSet('start', 'stop', 'restart')]
   [string]$Action,
 
   [Parameter(Position = 1)]
-  [ValidateSet('backend', 'frontend', 'mcp', 'all')]
+  [ValidateSet('backend', 'frontend', 'mcp', 'redis', 'all')]
   [string]$Target = 'all'
 )
 
@@ -93,6 +93,17 @@ function Start-One([string]$Name) {
       $LogFile = Join-Path $Logs "mcp.log"
       $Arg = "/c `"`"$Python`" server.py > `"$LogFile`" 2>&1`""
     }
+    'redis' {
+      # Redis 强依赖：用户自备的 Windows Redis，绑定 127.0.0.1:6379，日志重定向到 logs/redis.log
+      $Port = 6379
+      $WorkDir = "C:\Users\admin\Downloads\Redis-x64-5.0.14.1"
+      $Server = Join-Path $WorkDir "redis-server.exe"
+      if (-not (Test-Path $Server)) {
+        Write-Error "redis-server.exe not found at $Server; 请自备 Redis 并修改 service.ps1 的 Redis 路径"
+      }
+      $LogFile = Join-Path $Logs "redis.log"
+      $Arg = "/c `"`"$Server`" `"$WorkDir\redis.windows.conf`" --port 6379 --bind 127.0.0.1 > `"$LogFile`" 2>&1`""
+    }
   }
 
   $PidFile = Join-Path $Logs "$Name.pid"
@@ -119,8 +130,8 @@ function Start-One([string]$Name) {
   Write-Host "log=$Logs\$Name.log (logger overwrite)"
 }
 
-$ports = @{ backend = 18080; frontend = 5173; mcp = 18099 }
-$names = if ($Target -eq 'all') { @('backend', 'frontend', 'mcp') } else { @($Target) }
+$ports = @{ backend = 18080; frontend = 5173; mcp = 18099; redis = 6379 }
+$names = if ($Target -eq 'all') { @('redis', 'backend', 'frontend', 'mcp') } else { @($Target) }
 
 foreach ($name in $names) {
   switch ($Action) {

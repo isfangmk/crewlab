@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     app_name: str = Field(alias="APP_NAME")
     database_url: str = Field(alias="DATABASE_URL")
+    # Redis 强依赖：事件总线、对话流多订阅者续接、分布式锁与共享状态统一走它。
+    # 不设默认值：缺项即启动失败，禁止进程内回退（与全局"强依赖"口径一致）。
+    redis_url: str = Field(alias="REDIS_URL")
     # 向量存储与业务数据库分离，可独立切换实现：
     #   auto    = 按 DATABASE_URL 推导（PG → pgvector，SQLite → sqlite 向量文件）
     #   pgvector= 复用业务 PG 库建 pgvector 向量表（要求 DATABASE_URL 是 postgresql）

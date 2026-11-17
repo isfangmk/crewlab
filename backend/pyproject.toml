@@ -18,6 +18,8 @@ dependencies = [
   "httpx",
   "python-multipart",
   "sse-starlette",
+  # Redis 强依赖：事件总线、对话流多订阅者、分布式锁与共享状态统一走它
+  "redis>=5,<6",
   "google-adk",
   "litellm",
   "pgvector",
