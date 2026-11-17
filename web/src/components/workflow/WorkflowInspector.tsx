@@ -327,6 +327,8 @@ function KindFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catal
       return <StartNodeFields node={node} onNodeChange={onNodeChange} />;
     case 'agent':
       return <AgentFields node={node} catalog={catalog} onNodeChange={onNodeChange} />;
+    case 'task':
+      return <TaskFields node={node} onNodeChange={onNodeChange} />;
     case 'knowledge':
       return <KnowledgeFields node={node} onNodeChange={onNodeChange} />;
     case 'search':
@@ -473,6 +475,59 @@ function SearchFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange
           className="h-8 text-[11.5px]"
         />
       </Field>
+    </>
+  );
+}
+
+// 任务节点：无人值守执行器。目标必填；工具按声明收窄挂载面，留空挂默认只读集。
+function TaskFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange(patch: Partial<WorkflowNode>): void }) {
+  const { tr } = useI18n();
+  const task = node.task ?? { target: '', instruction: '', tools: [] };
+  return (
+    <>
+      <Field label={tr('排查目标', 'Target')} required hint={tr('这一格要查清楚什么，一句话', 'What this task must find out')}>
+        <Textarea
+          value={task.target}
+          onChange={(event) => onNodeChange({ task: { ...task, target: event.target.value } })}
+          rows={2}
+          className="text-[11.5px]"
+        />
+      </Field>
+      <Field label={tr('补充要求', 'Instruction')} hint={tr('侧重、范围、输出口径（可选）', 'Focus, scope, output style (optional)')}>
+        <Textarea
+          value={task.instruction}
+          onChange={(event) => onNodeChange({ task: { ...task, instruction: event.target.value } })}
+          rows={2}
+          className="text-[11.5px]"
+        />
+      </Field>
+      <Field
+        label={tr('所需工具', 'Tools')}
+        hint={tr('逗号分隔；按声明收窄挂载面，留空挂默认只读集', 'Comma separated; mounts only declared tools, empty mounts the default read-only set')}
+      >
+        <Input
+          value={task.tools.join(', ')}
+          onChange={(event) =>
+            onNodeChange({
+              task: {
+                ...task,
+                tools: event.target.value
+                  .split(/[,，\s]+/)
+                  .map((t) => t.trim())
+                  .filter(Boolean),
+              },
+            })
+          }
+          className="h-8 text-[11.5px]"
+          placeholder={tr('如 query_knowledge, web_search', 'e.g. query_knowledge, web_search')}
+        />
+      </Field>
+      <InfoBox tone="muted">
+        {tr(
+          '运行时按平台默认模型装配只读子代理，预算走全局缺省（12 步 / 300 秒 / 15 万 token）。',
+          'Runs a read-only worker with the default model; budget follows the global defaults (12 steps / 300s / 150k tokens).',
+        )}
+      </InfoBox>
     </>
   );
 }

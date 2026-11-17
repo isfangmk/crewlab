@@ -54,28 +54,12 @@ RUN_TRIGGER_DEBUG = "debug"
 RUN_TRIGGER_INVESTIGATION = "investigation"
 RUN_TRIGGER_PLAN = "plan"
 
-# 系统编排的壳工作流：运行定义随运行快照，壳只承载归属与命名；
-# 画布本体放一张最小合法图（占位），保证详情/解析路径拿到的是合法定义
-SYSTEM_WORKFLOW_SHELL_DEFINITION = json.dumps(
-    {
-        "nodes": [
-            {
-                "id": "start",
-                "kind": "start",
-                "label": "开始",
-                "x": 40,
-                "y": 0,
-                "variables": [{"name": "input", "type": "string"}],
-            },
-            {"id": "end", "kind": "end", "label": "结束", "x": 260, "y": 0},
-        ],
-        "edges": [{"id": "e1", "source": "start", "target": "end"}],
-    },
-    ensure_ascii=False,
-)
+# 系统编排的壳工作流：承载归属与命名，画布同步最近一次运行的编排定义（不参与执行）
 SYSTEM_WORKFLOW_INVESTIGATION = "系统 · 并行排查"
 SYSTEM_WORKFLOW_PLAN = "系统 · 执行计划"
-SYSTEM_WORKFLOW_NOTE = "系统编排模板：运行由会话内的执行模式自动创建，画布不参与执行。"
+SYSTEM_WORKFLOW_NOTE = (
+    "系统编排模板：运行由会话内的执行模式自动创建，画布随最近一次运行的定义同步，不参与执行。"
+)
 
 
 def initial_state_of(
@@ -247,30 +231,31 @@ async def create_system_run(
     """系统编排运行：按需建壳工作流，快照本次生成的定义，建运行记录。
 
     会话内的执行模式（并行排查 / 计划执行）都落工作流运行记录，trigger 区分
-    来源；定义随运行快照，壳工作流的画布不参与执行。
+    来源。壳工作流的画布同步最近一次生成的编排定义——工作流页里能直接看到
+    两种模式的图形状；执行只用运行自己的定义快照，壳画布不参与执行。
     """
 
     row = (
         await db.scalars(select(WorkflowRow).where(WorkflowRow.name == workflow_name))
     ).first()
+    definition_json = definition.model_dump_json()
     if row is None:
         row = WorkflowRow(
             name=workflow_name,
             description=SYSTEM_WORKFLOW_NOTE,
-            definition_json=SYSTEM_WORKFLOW_SHELL_DEFINITION,
+            definition_json=definition_json,
             status="draft",
         )
         db.add(row)
         await db.flush()
-    elif row.definition_json in ("", "{}"):
-        # 早期壳行的占位空图不是合法定义：补成最小合法图，详情/解析路径才走得通
-        row.definition_json = SYSTEM_WORKFLOW_SHELL_DEFINITION
+    elif row.definition_json != definition_json:
+        row.definition_json = definition_json
         await db.commit()
     run_uid = f"run_{uuid4().hex[:12]}"
     run = WorkflowRun(
         workflow_id=row.id,
         run_uid=run_uid,
-        definition_json=definition.model_dump_json(),
+        definition_json=definition_json,
         workflow_version=row.version,
         workflow_status="draft",
         status=RUN_RUNNING,
@@ -613,6 +598,11 @@ async def _drive(
             run_uid=run.run_uid,
             extra_tools=extra_tools,
         )
+        # 装配完成即归还池连接：图执行可能长达数分钟（无人值守 worker 一次
+        # 几分钟），不能全程占住连接，否则并发几路就把池抽干（QueuePool
+        # limit reached）。末尾落库时会话自动重开事务；expire_on_commit=False，
+        # 已加载的运行行属性归还不失效。
+        await db.commit()
         runner = Runner(
             app_name=WORKFLOW_APP_NAME,
             node=assembly.graph,

@@ -65,6 +65,7 @@ NODE_KINDS: dict[str, tuple[str, str, str]] = {
     "switch": ("条件分支", "Switch", "flow"),
     "loop": ("循环", "Loop", "flow"),
     "agent": ("LLM 节点", "LLM node", "model"),
+    "task": ("任务", "Task", "action"),
     "knowledge": ("知识检索", "Knowledge search", "action"),
     "search": ("联网搜索", "Web search", "action"),
     "mcp": ("工具", "Tool", "action"),

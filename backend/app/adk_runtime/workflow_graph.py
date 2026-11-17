@@ -158,6 +158,13 @@ async def assemble(
     if extra_tools:
         for key, value in extra_tools.items():
             tools.setdefault(key, value)
+    # 任务节点缺省执行器：画布直接运行时没有服务注入的 task_runner，
+    # 按节点声明自足执行（默认模型 + 只读工具面）；系统编排的注入优先。
+    has_task = any(n.kind == "task" for n in definition.nodes)
+    if has_task and "task_runner" not in tools:
+        from app.services.workflow.task_executor import build_canvas_task_runner
+
+        tools["task_runner"] = build_canvas_task_runner(run_uid=run_uid)
     approved = set() if approved_gates is None else approved_gates
     node_map: dict[str, Any] = {}
 

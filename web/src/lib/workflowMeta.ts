@@ -229,6 +229,7 @@ export function emptyNode(kind: NodeKind, id: string, position: { x: number; y: 
     branch_mode: 'expr',
     max_iterations: 5,
     prompt: '',
+    task: kind === 'task' ? { target: '', instruction: '', tools: [] } : null,
     timeout_seconds: null,
     retry_count: 0,
   };
@@ -257,6 +258,8 @@ export function nodeIssue(node: WorkflowNode, zh = true): string | null {
       if (need(node.provider) || need(node.model)) return zh ? '请选择模型' : 'Pick a model';
       if (need(node.instruction)) return zh ? '请填写指令' : 'Instruction required';
       return null;
+    case 'task':
+      return need(node.task?.target ?? '') ? (zh ? '请填写排查目标' : 'Target required') : null;
     case 'knowledge':
       return need(node.query) ? (zh ? '请填写检索语句' : 'Query required') : null;
     case 'search':

@@ -123,8 +123,17 @@ export type WorkflowNode = {
   // approval / input
   prompt: string;
 
+  // task：无人值守执行参数（目标必填，工具按声明收窄挂载面）
+  task: TaskSpec | null;
+
   timeout_seconds: number | null;
   retry_count: number;
+};
+
+export type TaskSpec = {
+  target: string;
+  instruction: string;
+  tools: string[];
 };
 
 export type WorkflowEdge = {
@@ -288,6 +297,7 @@ export function blankDefinition(): WorkflowDefinition {
         branch_mode: 'expr',
         max_iterations: 5,
         prompt: '',
+        task: null,
         timeout_seconds: null,
         retry_count: 0,
       },
