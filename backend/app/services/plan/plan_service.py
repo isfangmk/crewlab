@@ -29,6 +29,7 @@ from app.models.chat import ChatSession
 from app.models.plan import PlanExecution, PlanStep
 from app.services.investigation.investigation_events import investigation_events
 from app.services.investigation.worker_runner import build_worker_agent
+from app.services.plan import plan_artifacts
 from app.services.plan.step_runner import (
     PLAN_STEP_READONLY_TOOL_NAMES,
     build_plan_step_persona,
@@ -493,6 +494,23 @@ async def _execute_step_node(
             budget=budget,
             tools=step_tools,
         )
+
+        # 步骤内 run_python 的产出物即时落 artifacts 表（挂真实会话），
+        # 否则只在 sandbox_executions、前端产出物面板看不到。
+        step_message_id = f"plan-step-{step_uid}"
+
+        async def _on_tool_response(call_id: str, name: str, response: Any) -> None:
+            async with SessionLocal() as artifact_db:
+                await plan_artifacts.persist_tool_response(
+                    artifact_db,
+                    session_id=session_id,
+                    message_id=step_message_id,
+                    call_id=call_id,
+                    name=name,
+                    response=response,
+                )
+                await artifact_db.commit()
+
         turn = await run_plan_step(
             agent=agent,
             plan_uid=plan_uid,
@@ -503,6 +521,7 @@ async def _execute_step_node(
             publish=publish,
             stop_check=_stop_check,
             session_id=session_id,
+            on_tool_response=_on_tool_response,
         )
     except Exception as exc:  # noqa: BLE001 - 装配失败也记成单步失败
         logger.exception("计划步骤装配失败 step_uid=%s", step_uid)

@@ -11,6 +11,7 @@ import logging
 import time
 from typing import Any, Awaitable, Callable
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adk_runtime.headless import (
@@ -18,7 +19,9 @@ from app.adk_runtime.headless import (
     WorkerBudget,
     run_headless_turn,
 )
-from app.services.chat import artifact_service, chat_service
+from app.models.artifact import Artifact
+from app.services.chat import chat_service
+from app.services.plan import plan_artifacts
 from app.services.plan.step_runner import render_prior_context
 
 logger = logging.getLogger(__name__)
@@ -35,7 +38,10 @@ _SUMMARY_PERSONA = (
     "需要图表展示对比时，用 run_python 的 chart() 助手产出图表产出物；"
     "正文只写文字结论，禁止把 ECharts 配置或图表数据 JSON 写进正文。\n"
     "证据不足时如实标注缺口，不要编造数据。\n"
-    "直接输出最终回答正文，不要输出工具栏、JSON、代码块或任何过程说明。"
+    "严格约束：你的回复的第一个字就是给用户看的最终答案正文。"
+    "禁止输出任何自我分析、推理、思考过程、自问自答、"
+    "『我需要』『让我』『The prior step』『分析：』之类的铺垫文字，"
+    "无论中文英文都不允许；直接给出结论正文。"
 )
 
 
@@ -52,18 +58,6 @@ def build_summary_prompt(*, question: str, steps: list[dict[str, Any]]) -> str:
         ]
     )
     return "\n".join(parts) + "\n"
-
-
-def _synthetic_tool_call(call_id: str, result: dict) -> dict:
-    """汇总消息的合成 run_python 卡：让前端按产出物卡渲染内联图。"""
-
-    return {
-        "id": f"summary-py-{call_id}",
-        "name": "run_python",
-        "status": "success",
-        "arguments": {},
-        "result": result,
-    }
 
 
 async def run_plan_summary(
@@ -112,26 +106,15 @@ async def run_plan_summary(
         saved_artifact_rows: list[Any] = []
 
         async def _on_tool_response(call_id: str, name: str, response: Any) -> None:
-            # run_python 的产出物落 artifacts 表并挂到汇总消息 id
-            if name != "run_python" or not isinstance(response, dict):
-                return
-            try:
-                rows = await artifact_service.save_from_tool_result(
-                    db,
-                    session_id=session_id,
-                    tool_call_id=call_id,
-                    tool_name=name,
-                    message_id=message_id,
-                )
-                saved_artifact_rows.extend(rows)
-                logger.info(
-                    "收尾汇总产出物落库 plan_uid=%s call_id=%s count=%s",
-                    plan_uid,
-                    call_id,
-                    len(rows),
-                )
-            except Exception:  # noqa: BLE001 - 产出物落库失败不拖垮汇总正文
-                logger.warning("汇总产出物落库失败 call_id=%s", call_id, exc_info=True)
+            rows = await plan_artifacts.persist_tool_response(
+                db,
+                session_id=session_id,
+                message_id=message_id,
+                call_id=call_id,
+                name=name,
+                response=response,
+            )
+            saved_artifact_rows.extend(rows)
 
         async def _log(line: str, tool: str = "") -> None:
             logger.debug("汇总回合 %s tool=%s", line, tool)
@@ -172,11 +155,31 @@ async def run_plan_summary(
         body = turn.conclusion.strip() or "（汇总未产出结论）"
         content = f"{header}\n\n{body}"
 
+        # 汇总回合自己没画新图时，复用步骤已落库的产物（模型判断"图已生成"是正常复用），
+        # 这样汇总消息始终内联步骤产出的图表，不会出现"说有图却没产物"。
+        display_rows = saved_artifact_rows
+        if not display_rows:
+            step_rows = (
+                await db.scalars(
+                    select(Artifact)
+                    .where(
+                        Artifact.session_id == session_id,
+                        Artifact.message_id.like("plan-step-%"),
+                    )
+                    .order_by(Artifact.created_at.asc(), Artifact.seq.asc())
+                )
+            ).all()
+            display_rows = list(step_rows)
+            if display_rows:
+                logger.info(
+                    "收尾汇总复用步骤产物 plan_uid=%s count=%s",
+                    plan_uid,
+                    len(display_rows),
+                )
+
         tool_call = None
-        if saved_artifact_rows:
-            tool_call = _synthetic_tool_call(
-                plan_uid, artifact_service.tool_result_update(saved_artifact_rows)
-            )
+        if display_rows:
+            tool_call = plan_artifacts.synthetic_tool_call(plan_uid, display_rows)
         await chat_service.append_assistant_message(
             db,
             session_id=session_id,

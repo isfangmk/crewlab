@@ -361,6 +361,10 @@ async def _run_turn(
                     await on_tool_response(cid, fname, response)
                 continue
             if part.text:
+                # thought=True 是模型推理（DeepSeek reasoning_content），不进正文；
+                # 与普通对话 stream_bridge 同口径，避免思考过程泄漏到回答/汇总。
+                if getattr(part, "thought", False) is True:
+                    continue
                 text = part.text
                 is_partial = bool(getattr(event, "partial", False)) and on_text_delta is not None
                 # 流式终包会回放整段：推过 partial 后跳过，避免正文翻倍
