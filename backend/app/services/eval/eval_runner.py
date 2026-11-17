@@ -28,8 +28,8 @@ from app.request_context import set_request_id
 from app.services.chat import chat_service
 from app.services.eval import eval_judge_service, eval_service
 from app.services.observability import observation_service
-from app.services.platform import notification_bus
 from app.services.observability.audit_service import write_audit
+from app.services.platform import notification_bus
 
 logger = logging.getLogger(__name__)
 

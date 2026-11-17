@@ -44,6 +44,12 @@ describe('parseSseFrame', () => {
   it('默认事件名是 message', () => {
     expect(parseSseFrame('data: 1')?.event).toBe('message');
   });
+
+  it('捕获 id 行供 Last-Event-ID 断点续传', () => {
+    const frame = parseSseFrame('id: 123-0\nevent: chat_refetch\ndata: {}');
+    expect(frame?.id).toBe('123-0');
+    expect(parseSseFrame('event: x\ndata: 1')?.id).toBeUndefined();
+  });
 });
 
 describe('readSseFrames', () => {

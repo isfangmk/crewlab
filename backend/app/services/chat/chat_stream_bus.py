@@ -19,8 +19,8 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator
-from typing import Any
+from collections.abc import AsyncIterator, Awaitable
+from typing import Any, cast
 
 from app.redis import get_redis
 
@@ -51,15 +51,18 @@ async def start_turn(session_id: str) -> str:
 
     turn_id = str(uuid.uuid4())
     redis = get_redis()
-    await redis.hset(
-        _active_key(session_id),
-        mapping={
-            "turn_id": turn_id,
-            "started_at": str(int(time.time())),
-            "status": "running",
-        },
+    await cast(
+        Awaitable[int],
+        redis.hset(
+            _active_key(session_id),
+            mapping={
+                "turn_id": turn_id,
+                "started_at": str(int(time.time())),
+                "status": "running",
+            },
+        ),
     )
-    await redis.expire(_active_key(session_id), _ACTIVE_TTL)
+    await cast(Awaitable[bool], redis.expire(_active_key(session_id), _ACTIVE_TTL))
     logger.info("对话回合登记 session_id=%s turn_id=%s", session_id, turn_id)
     return turn_id
 
@@ -86,15 +89,15 @@ async def finish_turn(session_id: str, *, status: str = "finished") -> None:
     redis = get_redis()
     key = _active_key(session_id)
     # 用短 TTL 保留一会儿，供刚到的订阅者判断"回合已结束"
-    await redis.hset(key, "status", status)
-    await redis.expire(key, 60)
+    await cast(Awaitable[int], redis.hset(key, "status", status))
+    await cast(Awaitable[bool], redis.expire(key, 60))
 
 
 async def active_turn(session_id: str) -> dict[str, str] | None:
     """查活跃回合登记；无登记或已结束返回 None。"""
 
     redis = get_redis()
-    raw = await redis.hgetall(_active_key(session_id))
+    raw = await cast(Awaitable[dict[str, str]], redis.hgetall(_active_key(session_id)))
     if not raw or raw.get("status") not in (None, "running"):
         return None
     return raw

@@ -70,7 +70,17 @@ function Start-One([string]$Name) {
         Write-Error "backend missing .venv; run: uv sync (in backend/)"
       }
       $env:PYTHONUTF8 = "1"
-      $Arg = "/c `"`"$Uvicorn`" app.main:app --host 127.0.0.1 --port 18080 --log-level info`""
+      # 多 worker：架构已全量 Redis 化（帧总线/事件总线/锁/停止/共享状态/通知），
+      # 代码层面多 worker 安全。但 Windows 上 uvicorn 的多进程 supervisor 用
+      # SO_REUSEPORT 共享监听 socket，Windows 不支持 → 第二个 worker 起不来
+      # （OSError WinError 10022），故本地默认单 worker（不传 --workers）。
+      # 真正的多 worker 部署放 Linux：设 UVICORN_WORKERS=N 即启用。
+      $Workers = $env:UVICORN_WORKERS
+      $WorkersArg = ""
+      if ($Workers -and ([int]$Workers -gt 1)) {
+        $WorkersArg = " --workers $Workers"
+      }
+      $Arg = "/c `"`"$Uvicorn`" app.main:app --host 127.0.0.1 --port 18080 --log-level info$WorkersArg`""
     }
     'frontend' {
       $Port = 5173
