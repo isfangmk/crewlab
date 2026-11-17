@@ -107,6 +107,8 @@ import {
 
 } from '@/lib/chatTurnRegistry';
 
+import { attachActiveTurn } from '@/lib/chatTurnAttach';
+
 
 
 type LocationState = {
@@ -910,6 +912,17 @@ export default function ChatThreadPage() {
 
     };
 
+  }, [sessionId]);
+
+  // 多标签页续流：打开/切到本会话时，若 Redis 登记有进行中回合且不是本标签发起的，
+  // attach 该回合事件流，补发已产出帧并续推后续帧（走 onLive 复用同一套渲染）。
+  useEffect(() => {
+    if (!sessionId) return;
+    // 本标签正在发（自己持有 controller）时由自己的 SSE 路径消费，不重复 attach
+    if (getChatTurnController(sessionId) !== null) return;
+    const ctrl = new AbortController();
+    void attachActiveTurn(sessionId, ctrl.signal).catch(() => {});
+    return () => ctrl.abort();
   }, [sessionId]);
 
   // 审批 SSE 续跑：把增量帧接到当前会话消息列表，恢复打字机

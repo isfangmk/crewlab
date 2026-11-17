@@ -510,6 +510,37 @@ export async function consumeSseResponse(res: Response, cbs: StreamCallbacks): P
 // AbortSignal to cancel mid-flight; the server will see a closed
 // connection and the agent loop's per-tool timeouts will eventually
 // release any in-flight tunnel calls.
+/** 查会话当前进行中的回合；第二个标签页打开时据此 attach 续流。 */
+export async function getActiveTurn(
+  sessionId: string | number,
+): Promise<{ turn_id: string | null }> {
+  return request(
+    'GET',
+    `/api/v1/chat/sessions/${encodeURIComponent(String(sessionId))}/active-turn`,
+  );
+}
+
+/** 读取某回合的帧流（供 attach 用；返回原始 Response，帧解析交给调用方）。 */
+export async function openTurnEventStream(
+  sessionId: string | number,
+  turnId: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const base = `/api/v1/chat/sessions/${encodeURIComponent(String(sessionId))}`;
+  const headers: Record<string, string> = { Accept: 'text/event-stream' };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return fetch(`${base}/events?turn_id=${encodeURIComponent(turnId)}`, {
+    headers,
+    signal,
+  });
+}
+
+/**
+ * 发起流式回合：POST 只登记回合拿 turn_id，真正的帧走 GET .../events 读 Redis 帧流。
+ * 帧不随 POST 返回，因此第二个标签页拿同一个 turn_id 也能补发+续推同一回合。
+ * 签名与回调对调用方不变：拿到 done 帧才 resolve。
+ */
 export async function streamMessage(
   sessionId: string | number,
   content: string,
@@ -517,9 +548,8 @@ export async function streamMessage(
   opts: SendOptions,
   signal?: AbortSignal,
 ): Promise<void> {
-  const url = `/api/v1/chat/sessions/${encodeURIComponent(String(sessionId))}/messages/stream`;
+  const base = `/api/v1/chat/sessions/${encodeURIComponent(String(sessionId))}`;
   const headers: Record<string, string> = {
-    Accept: 'text/event-stream',
     'Content-Type': 'application/json',
   };
   const token = getToken();
@@ -537,13 +567,37 @@ export async function streamMessage(
   if (opts.locale) body.locale = opts.locale;
   if (opts.clientMessageId) body.client_message_id = opts.clientMessageId;
 
-  const res = await fetch(url, {
+  // 1) 发起回合：服务端后台生产，立即返回 turn_id
+  const startRes = await fetch(`${base}/messages/stream`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
     signal,
   });
+  if (!startRes.ok) {
+    const detail = await startRes.text().catch(() => '');
+    throw new Error(`发起对话失败 HTTP ${startRes.status}: ${detail.slice(0, 200)}`);
+  }
+  const started = (await startRes.json()) as { turn_id: string };
+  if (!started.turn_id) throw new Error('发起对话未返回 turn_id');
 
+  // 2) 订阅该回合帧流（与其他标签页共享，互不抢帧）
+  await consumeTurnEvents(base, started.turn_id, headers, cbs, signal);
+}
+
+/** GET events 帧流 + 复用 consumeSseResponse 的分发/打字机逻辑。 */
+async function consumeTurnEvents(
+  base: string,
+  turnId: string,
+  headers: Record<string, string>,
+  cbs: StreamCallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
+  const sseHeaders = { ...headers, Accept: 'text/event-stream' };
+  const res = await fetch(
+    `${base}/events?turn_id=${encodeURIComponent(turnId)}`,
+    { headers: sseHeaders, signal },
+  );
   await consumeSseResponse(res, cbs);
 }
 
@@ -562,22 +616,26 @@ export async function streamEditResend(
   };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(
-    `/api/v1/chat/sessions/${encodeURIComponent(String(sessionId))}/messages/edit-resend`,
-    {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        message_id: messageId,
-        content,
-        thinking_enabled: opts.thinkingEnabled,
-        web_search_enabled: opts.webSearchEnabled,
-        attachment_ids: opts.attachmentIds ?? [],
-      }),
-      signal,
-    },
-  );
-  await consumeSseResponse(res, cbs);
+  const base = `/api/v1/chat/sessions/${encodeURIComponent(String(sessionId))}`;
+  const startRes = await fetch(`${base}/messages/edit-resend`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      message_id: messageId,
+      content,
+      thinking_enabled: opts.thinkingEnabled,
+      web_search_enabled: opts.webSearchEnabled,
+      attachment_ids: opts.attachmentIds ?? [],
+    }),
+    signal,
+  });
+  if (!startRes.ok) {
+    const detail = await startRes.text().catch(() => '');
+    throw new Error(`编辑重发失败 HTTP ${startRes.status}: ${detail.slice(0, 200)}`);
+  }
+  const started = (await startRes.json()) as { turn_id: string };
+  if (!started.turn_id) throw new Error('编辑重发未返回 turn_id');
+  await consumeTurnEvents(base, started.turn_id, headers, cbs, signal);
 }
 
 function dispatchFrame(event: string, data: string, cbs: StreamCallbacks) {

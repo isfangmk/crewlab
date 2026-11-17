@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +31,13 @@ from app.schemas.chat import (
     UpdateSessionPrefsRequest,
     UpdateSessionTitleRequest,
 )
-from app.services.chat import attachment_service, chat_service, share_service
+from app.services.chat import (
+    attachment_service,
+    chat_service,
+    chat_stream_bus,
+    chat_stream_orchestrator,
+    share_service,
+)
 from app.services.observability.audit_service import write_audit
 from app.services.platform.auth_service import AuthUser
 
@@ -577,42 +584,95 @@ async def stream_message(
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_not_viewer),
 ):
-    # 对话消息发送不进审计：核心高频操作，消息已全量落 chat_messages，再记审计只是重复
+    """发起流式回合：登记回合 + 后台生产，立即返回 turn_id。
+
+    帧不随本请求返回：所有订阅者（含发起标签页）统一走 GET .../events 读 Redis
+    帧流，支持多标签页补发+续推。本端点不再持有 SSE 连接。
+    """
     set_session_id(session_id)
+    try:
+        await chat_service.get_session(db, session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    turn_id = await chat_stream_orchestrator.begin_streamed_turn(
+        session_id=session_id,
+        content=body.content,
+        provider=body.provider,
+        model=body.model,
+        client_message_id=body.client_message_id,
+        thinking_enabled=body.thinking_enabled,
+        web_search_enabled=body.web_search_enabled,
+        attachment_ids=body.attachment_ids,
+        locale=body.locale,
+        mentions=[m.model_dump() for m in body.mentions],
+    )
+    return {"session_id": session_id, "turn_id": turn_id}
+
+
+@router.get("/chat/sessions/{session_id}/active-turn")
+async def get_active_turn(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+):
+    """查会话当前进行中的回合；供第二个标签页打开时 attach 续流。
+
+    无进行中回合返回 {"turn_id": null}。刷新后前端据此决定是否连事件流。
+    """
+
+    set_session_id(session_id)
+    try:
+        await chat_service.get_session(db, session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    active = await chat_stream_bus.active_turn(session_id)
+    return {"turn_id": active.get("turn_id") if active else None}
+
+
+@router.get("/chat/sessions/{session_id}/events")
+async def stream_session_events(
+    session_id: str,
+    request: Request,
+    turn_id: str = Query(..., description="要订阅的回合 id（POST /messages/stream 返回）"),
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+):
+    """订阅某回合的帧流：Last-Event-ID 或 ?last_id 续传，先补发后实时续推。
+
+    多个标签页可同时订阅同一回合；各自从自己的 last_id 读，互不消费、互不抢帧。
+    """
+
+    set_session_id(session_id)
+    try:
+        await chat_service.get_session(db, session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    header_id = request.headers.get("last-event-id", "")
+    query_id = request.query_params.get("last_id", "")
+    last_id = header_id or query_id or "0-0"
 
     async def gen():
         try:
-            async for frame in chat_service.stream_session_message(
-                db,
-                session_id=session_id,
-                content=body.content,
-                provider=body.provider,
-                model=body.model,
-                client_message_id=body.client_message_id,
-                thinking_enabled=body.thinking_enabled,
-                web_search_enabled=body.web_search_enabled,
-                attachment_ids=body.attachment_ids,
-                locale=body.locale,
-                mentions=[m.model_dump() for m in body.mentions],
+            async for stream_id, event, data in chat_stream_bus.subscribe(
+                turn_id, last_id=last_id
             ):
                 yield {
-                    "event": frame.event,
-                    "data": json.dumps(frame.data, ensure_ascii=False),
+                    "event": event,
+                    "id": stream_id,
+                    "data": json.dumps(data, ensure_ascii=False),
                 }
-        except LookupError as exc:
-            logger.exception("流式回合失败 session_id=%s", session_id)
-            yield {
-                "event": "error",
-                "data": json.dumps({"error": str(exc)}, ensure_ascii=False),
-            }
-        except Exception as exc:
-            logger.exception("流式回合异常 session_id=%s", session_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - SSE 流内异常转成 error 帧，避免连接悬空
+            logger.exception("会话帧流订阅失败 session_id=%s", session_id)
             yield {
                 "event": "error",
                 "data": json.dumps({"error": str(exc)}, ensure_ascii=False),
             }
 
-    # sep="\n"：与前端按 \\n\\n 切帧一致，避免 \\r\\n\\r\\n 导致整段缓冲
+    # sep="\n"：与前端按 \n\n 切帧一致；id 字段供 Last-Event-ID 续传
     return _sse_from_stream(gen())
 
 
@@ -623,54 +683,34 @@ async def edit_and_resend(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ):
-    """编辑用户消息：截断后续并按新正文重发。"""
+    """编辑用户消息并截断后续后重发：登记回合 + 后台生产，返回 turn_id。"""
 
     set_session_id(session_id)
 
-    async def gen():
-        try:
-            await chat_service.prepare_resend_from_user_message(
-                db, session_id, body.message_id
-            )
-            # 截断已落库：审计记编辑重发，正文不进详情（消息本体在 chat_messages）
-            await write_audit(
-                actor_user_id=user.id,
-                action="session.edit_resend",
-                resource_type="chat_session",
-                resource_id=session_id,
-                detail={"message_id": body.message_id},
-            )
-            async for frame in chat_service.stream_session_message(
-                db,
-                session_id=session_id,
-                content=body.content,
-                provider=None,
-                model=None,
-                client_message_id=None,
-                thinking_enabled=body.thinking_enabled,
-                web_search_enabled=body.web_search_enabled,
-                attachment_ids=body.attachment_ids,
-            ):
-                yield {
-                    "event": frame.event,
-                    "data": json.dumps(frame.data, ensure_ascii=False),
-                }
-        except LookupError as exc:
-            logger.exception("编辑重发失败 session_id=%s", session_id)
-            yield {
-                "event": "error",
-                "data": json.dumps({"error": str(exc)}, ensure_ascii=False),
-            }
-        except ValueError as exc:
-            yield {
-                "event": "error",
-                "data": json.dumps({"error": str(exc)}, ensure_ascii=False),
-            }
-        except Exception as exc:
-            logger.exception("编辑重发异常 session_id=%s", session_id)
-            yield {
-                "event": "error",
-                "data": json.dumps({"error": str(exc)}, ensure_ascii=False),
-            }
+    async def prepare(db: AsyncSession) -> None:
+        await chat_service.prepare_resend_from_user_message(
+            db, session_id, body.message_id
+        )
+        # 截断已落库：审计记编辑重发，正文不进详情（消息本体在 chat_messages）
+        await write_audit(
+            actor_user_id=user.id,
+            action="session.edit_resend",
+            resource_type="chat_session",
+            resource_id=session_id,
+            detail={"message_id": body.message_id},
+        )
 
-    return _sse_from_stream(gen())
+    turn_id = await chat_stream_orchestrator.begin_streamed_turn(
+        session_id=session_id,
+        content=body.content,
+        provider=None,
+        model=None,
+        client_message_id=None,
+        thinking_enabled=body.thinking_enabled,
+        web_search_enabled=body.web_search_enabled,
+        attachment_ids=body.attachment_ids,
+        locale=None,
+        mentions=None,
+        before_produce=prepare,
+    )
+    return {"session_id": session_id, "turn_id": turn_id}
