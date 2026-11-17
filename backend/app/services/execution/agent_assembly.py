@@ -45,10 +45,11 @@ async def assemble_agent(
 ) -> LlmAgent:
     """装配一个无人值守只读 agent。
 
-    - 只读白名单内置工具 + 知识检索 + 继承的 MCP（禁写闸门拦）；
+    - 内置只读工具 + 知识检索 + 继承的 MCP（禁写闸门拦）；
     - persona 缺省用节点人设，汇总传自定义人设；
     - allow_run_python=True 时把 run_python 加入只读白名单并免闸门启发式；
-    - tools 非空则按名收窄挂载面（"__none__" 表示不挂任何工具）。
+    - tools 非空则按名收窄挂载面（"__none__" 表示不挂任何工具）；其中 mcp__*
+      业务工具名作为 MCP 检索目录白名单，让节点能 search→load 真正需要的工具。
 
     会话/模型/工具在单一 SessionLocal 里解析，装配在会话外完成，避免长事务。
     """
@@ -79,7 +80,15 @@ async def assemble_agent(
         if resolved_agent.model != "":
             use_model = resolved_agent.model
         llm = await resolve_model(db, session.provider, use_model)
-        bundle = await build_agent_tool_bundle(db, resolved_agent)
+        # 节点声明的 MCP 业务工具名转成检索目录白名单：MCP 走 search→load 延迟
+        # 加载，初始挂载的只有 discovery 入口，不能拿业务名按挂载名过滤（会全删）。
+        # 未声明 MCP 工具时保留助理自身口径；__none__ 在装配层清空全部 MCP。
+        mcp_focus = [t for t in tools if t.startswith("mcp__")]
+        bundle = await build_agent_tool_bundle(
+            db,
+            resolved_agent,
+            allowed_tools_override=mcp_focus if mcp_focus else None,
+        )
         runtime_cfg = await app_settings_service.get_agent_runtime(db)
         scope = (
             resolved_agent.knowledge_scope

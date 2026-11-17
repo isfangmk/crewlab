@@ -39,15 +39,24 @@ async def build_agent_tool_bundle(
     agent: ResolvedAgent,
     *,
     web_search_enabled: bool = False,
+    allowed_tools_override: list[str] | None = None,
 ) -> AgentToolBundle:
     """按助理配置装配技能、MCP 工具、审批与禁用名单。
 
     技能先解析再按「白名单 + 技能声明的工具」筛选 MCP Server：技能可以先建后改，
     只依赖保存助理时并入的白名单会漏掉后来新增的 MCP 工具。
+
+    allowed_tools_override 供无人值守节点按本节点声明的 MCP 工具收窄检索目录：
+    覆盖助理自身白名单，让 searchable 目录只含本节点要用的业务工具；None 时
+    保持助理口径不变（主对话/子助理/审批/playground 均走此默认路径）。
     """
 
     runtime_skills = await skills_service.resolve_skills(db, agent.skills)
-    allowed_tools = agent_service.effective_allowed_tools(agent, runtime_skills)
+    allowed_tools = (
+        list(allowed_tools_override)
+        if allowed_tools_override is not None
+        else agent_service.effective_allowed_tools(agent, runtime_skills)
+    )
     mcp_servers = await mcp_service.list_enabled_servers(db)
     mcp_servers = agent_service.filter_mcp_servers_by_tools(mcp_servers, allowed_tools)
     from app.services.mcp.tool_search_index import warm_vector_cache_from_db

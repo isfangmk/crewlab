@@ -12,6 +12,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable
 
 from google.adk.tools import FunctionTool
+from google.adk.tools.base_toolset import BaseToolset
 
 from app.tools.catalog import tool_impl
 
@@ -81,6 +82,10 @@ def filter_tools_by_focus(
     """按声明收窄挂载面；NONE 不挂任何工具，空/None 保持全量。
 
     知识检索闭包版的函数名是 scoped_query_knowledge，按 query_knowledge 匹配。
+
+    MCP 走可搜索 toolset：初始挂载的是 discovery 入口，业务工具名（mcp__*）
+    要经 search→load 才进入上下文。因此 toolset 不能按 discovery 工具名匹配，
+    而按 focus 是否声明了该命名空间（mcp__<server>__）下的业务工具来判断保留。
     """
 
     if focus is ToolFocus.NONE:
@@ -90,6 +95,14 @@ def filter_tools_by_focus(
     wanted = set(focus)
     kept: list[Any] = []
     for tool in tools:
+        # 可搜索 MCP toolset：按命名空间声明保留，而非按 discovery 入口名匹配。
+        if isinstance(tool, BaseToolset):
+            ns = getattr(tool, "namespace", "") or ""
+            if isinstance(ns, str) and ns and any(
+                name.startswith(f"{ns}__") for name in wanted
+            ):
+                kept.append(tool)
+            continue
         name = getattr(tool, "name", "") or ""
         if name == "scoped_query_knowledge":
             name = "query_knowledge"
