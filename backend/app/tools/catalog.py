@@ -125,6 +125,27 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
         "risk": "safe",
         "mount": "always",
     },
+    {
+        "name": "create_skill",
+        "group": "config",
+        "description": "按用户描述新建技能：需给出 key/description/instructions/risk/group，可通过 tools 声明技能工具",
+        "risk": "mutating",
+        "mount": "always",
+    },
+    {
+        "name": "install_skill_from_url",
+        "group": "config",
+        "description": "从网址安装技能：支持 zip 直链或 git 仓库（github 等），下载后导入为平台技能",
+        "risk": "mutating",
+        "mount": "always",
+    },
+    {
+        "name": "install_skill_from_zip",
+        "group": "config",
+        "description": "从对话上传的 zip 附件安装技能：参数是 attachment_id",
+        "risk": "mutating",
+        "mount": "always",
+    },
 ]
 
 
@@ -136,6 +157,40 @@ async def _web_search_signature(
     """仅用于导出参数签名；真正执行走 run_builtin_tool。"""
 
     raise RuntimeError("web_search 须经 run_builtin_tool 注入 DeepSeek 凭证后执行")
+
+
+async def _create_skill_signature(
+    key: str,  # pyright: ignore[reportUnusedParameter]
+    description: str,  # pyright: ignore[reportUnusedParameter]
+    instructions: str,  # pyright: ignore[reportUnusedParameter]
+    risk: str,  # pyright: ignore[reportUnusedParameter]
+    group: str,  # pyright: ignore[reportUnusedParameter]
+    preapproved_tools: str = "",  # pyright: ignore[reportUnusedParameter]
+    tools: str = "",  # pyright: ignore[reportUnusedParameter]
+) -> dict:
+    """仅用于导出参数签名；真正执行走对话装配的 FunctionTool。"""
+
+    raise RuntimeError("create_skill 须经对话工具装配后执行")
+
+
+async def _install_skill_from_url_signature(
+    url: str,  # pyright: ignore[reportUnusedParameter]
+    risk: str = "",  # pyright: ignore[reportUnusedParameter]
+    group: str = "",  # pyright: ignore[reportUnusedParameter]
+) -> dict:
+    """仅用于导出参数签名；真正执行走对话工具装配的 FunctionTool。"""
+
+    raise RuntimeError("install_skill_from_url 须经对话工具装配后执行")
+
+
+async def _install_skill_from_zip_signature(
+    attachment_id: str,  # pyright: ignore[reportUnusedParameter]
+    risk: str = "",  # pyright: ignore[reportUnusedParameter]
+    group: str = "",  # pyright: ignore[reportUnusedParameter]
+) -> dict:
+    """仅用于导出参数签名；真正执行走对话工具装配的 FunctionTool。"""
+
+    raise RuntimeError("install_skill_from_zip 须经对话工具装配后执行")
 
 
 # 目录、ADK 装配、技能声明、手动运行都从这一张表取实现，避免多处硬编码工具名
@@ -154,6 +209,9 @@ _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
     "submit_task_graph": submit_task_graph,
     "get_task_graph": get_task_graph,
     "update_task_graph": update_task_graph,
+    "create_skill": _create_skill_signature,
+    "install_skill_from_url": _install_skill_from_url_signature,
+    "install_skill_from_zip": _install_skill_from_zip_signature,
 }
 
 
@@ -238,6 +296,7 @@ BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
     "workflow": {"title": "工作流", "title_en": "Workflow"},
     "interaction": {"title": "澄清交互", "title_en": "User input"},
     "taskgraph": {"title": "任务图执行", "title_en": "Task graph"},
+    "config": {"title": "技能管理", "title_en": "Skill management"},
 }
 
 

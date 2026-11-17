@@ -13,11 +13,27 @@ from app.models.attachment import ChatAttachment
 
 logger = logging.getLogger(__name__)
 
-# 仅允许图片 MIME；与前端 ChatInput 的 ACCEPTED_IMAGE_TYPES 对齐
+# 对话附件 MIME：图片 + 技能 zip 包
 ALLOWED_MIME_TYPES: frozenset[str] = frozenset(
-    {"image/png", "image/jpeg", "image/webp"}
+    {
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "application/zip",
+        "application/x-zip-compressed",
+    }
 )
 MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+MAX_ZIP_ATTACHMENT_BYTES = 32 * 1024 * 1024
+ZIP_MIME_TYPES: frozenset[str] = frozenset(
+    {"application/zip", "application/x-zip-compressed"}
+)
+
+
+def max_bytes_for_mime(mime_type: str) -> int:
+    """按 mime 取附件上限：图片仍 5MB，zip 技能包放宽到 32MB。"""
+
+    return MAX_ZIP_ATTACHMENT_BYTES if mime_type in ZIP_MIME_TYPES else MAX_ATTACHMENT_BYTES
 
 
 def attachment_to_wire(row: ChatAttachment) -> dict:
@@ -75,10 +91,9 @@ async def create_attachment(
     _validate_mime_type(mime_type)
     if len(data) == 0:
         raise ValueError("文件内容为空")
-    if len(data) > MAX_ATTACHMENT_BYTES:
-        raise ValueError(
-            f"文件超过上限: {len(data)} > {MAX_ATTACHMENT_BYTES} 字节"
-        )
+    max_bytes = max_bytes_for_mime(mime_type)
+    if len(data) > max_bytes:
+        raise ValueError(f"文件超过上限: {len(data)} > {max_bytes} 字节")
 
     encoded = base64.b64encode(bytes(data)).decode("ascii")
     row = ChatAttachment(

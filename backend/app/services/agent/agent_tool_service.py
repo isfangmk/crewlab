@@ -11,7 +11,13 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.adk_runtime.skill_tools import (
+    build_create_skill_tool,
+    build_install_skill_from_url_tool,
+    build_install_skill_from_zip_tool,
+)
 from app.adk_runtime.web_search_tool import build_web_search_tool
+from app.request_context import session_id_var, user_id_var
 from app.services.agent import agent_service
 from app.services.agent.agent_service import ResolvedAgent
 from app.services.mcp import mcp_service
@@ -106,6 +112,26 @@ async def build_agent_tool_bundle(
         search_base, search_key = await resolve_deepseek_search_cred(db)
         extra_tools.append(build_web_search_tool(base_url=search_base, api_key=search_key))
         logger.info("已挂载 web_search agent=%s", agent.name)
+    # 对话创建 / 安装技能：三个变更类工具随助理始终装配，走同一套人工审批闸门。
+    # 归属信息从请求上下文取：会话路径的 user_id/session_id 已由鉴权与编排入口写入。
+    raw_uid = user_id_var.get()
+    owner_user_id = int(raw_uid) if raw_uid not in ("", "-") and raw_uid.isdigit() else None
+    session_id = session_id_var.get()
+    extra_tools.extend(
+        [
+            build_create_skill_tool(db, owner_user_id=owner_user_id),
+            build_install_skill_from_url_tool(db, owner_user_id=owner_user_id),
+            build_install_skill_from_zip_tool(
+                db, session_id=session_id, owner_user_id=owner_user_id
+            ),
+        ]
+    )
+    logger.info(
+        "已挂载技能创建/安装工具 agent=%s session_id=%s owner=%s",
+        agent.name,
+        session_id,
+        owner_user_id,
+    )
     # 非 safe 的内置工具默认进闸（如 run_workflow）：默认要人工确认；
     # 审批规则 auto_approve 可以免审——风险定级与是否审批是两根轴
     from app.tools.catalog import BUILTIN_TOOL_SPECS

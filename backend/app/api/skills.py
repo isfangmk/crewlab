@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth, require_not_viewer
@@ -13,12 +14,20 @@ from app.db import get_db
 from app.schemas.skill import SkillPayloadIn
 from app.services.observability.audit_service import write_audit
 from app.services.platform.auth_service import AuthUser
-from app.services.skills import skill_bundle, skill_groups, skills_service
+from app.services.skills import skill_bundle, skill_groups, skill_install_service, skills_service
 from app.services.skills.skill_bundle import RISK_LEVELS, SkillPayload
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["skills"])
+
+
+class InstallFromUrlIn(BaseModel):
+    """从网址安装技能；risk/group 在技能包未声明时必填。"""
+
+    url: str = Field(min_length=1)
+    risk: str | None = None
+    group: str | None = None
 
 
 def _payload_from_in(body: SkillPayloadIn) -> SkillPayload:
@@ -179,6 +188,31 @@ async def delete_skill(
         resource_id=key,
     )
     return {"deleted": key}
+
+
+@router.post("/skills/install-from-url")
+async def install_skill_from_url(
+    body: InstallFromUrlIn,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    """从网址安装技能（zip 直链或 git 仓库），供非对话/前端直接复用。
+
+    SSRF 防护、risk/group 校验、审计均在 service 层统一完成；这里只做入参转换。
+    """
+
+    try:
+        result = await skill_install_service.install_skill_from_url(
+            db,
+            url=body.url,
+            risk=body.risk,
+            group=body.group,
+            owner_user_id=user.id,
+        )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("REST 安装技能 url=%s key=%s", body.url, result["key"])
+    return result
 
 
 @router.post("/skills/parse")
