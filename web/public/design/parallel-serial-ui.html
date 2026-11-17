@@ -11,7 +11,7 @@
     --chip: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line2: rgba(255,255,255,.15);
     --text: #e9e9ee; --muted: #9a9aa4; --dim: #66666f;
     --sky: #38bdf8; --sky-soft: rgba(56,189,248,.13); --sky-line: rgba(56,189,248,.35);
-    --violet: #a78bfa; --violet-soft: rgba(167,139,250,.13); --violet-line: rgba(167,139,250,.35);
+    --serial: #2dd4bf; --serial-soft: rgba(45,212,191,.13); --serial-line: rgba(45,212,191,.35);
     --ok: #34d399; --ok-soft: rgba(52,211,153,.13);
     --warn: #fbbf24; --warn-soft: rgba(251,191,36,.12);
     --danger: #f87171; --danger-soft: rgba(248,113,113,.12);
@@ -21,7 +21,7 @@
     --chip: rgba(0,0,0,.045); --line: rgba(0,0,0,.09); --line2: rgba(0,0,0,.16);
     --text: #1b1b21; --muted: #5d5d68; --dim: #92929c;
     --sky: #0284c7; --sky-soft: rgba(2,132,199,.10); --sky-line: rgba(2,132,199,.3);
-    --violet: #7c3aed; --violet-soft: rgba(124,58,237,.10); --violet-line: rgba(124,58,237,.3);
+    --serial: #0d9488; --serial-soft: rgba(13,148,136,.10); --serial-line: rgba(13,148,136,.3);
     --ok: #059669; --ok-soft: rgba(5,150,105,.1);
     --warn: #d97706; --warn-soft: rgba(217,119,6,.1);
     --danger: #dc2626; --danger-soft: rgba(220,38,38,.1);
@@ -40,7 +40,7 @@
 
   .hero { margin: 30px 0 8px; }
   .hero h1 { font-size: 22px; letter-spacing: .5px; }
-  .hero h1 b.sky { color: var(--sky); } .hero h1 b.violet { color: var(--violet); }
+  .hero h1 b.sky { color: var(--sky); } .hero h1 b.violet { color: var(--serial); }
   .hero p { margin-top: 8px; color: var(--muted); font-size: 12.5px; }
 
   .section-tag { display: inline-flex; align-items: center; gap: 7px; margin: 30px 0 14px; font-size: 12px; font-weight: 600; letter-spacing: 2px; color: var(--dim); }
@@ -52,12 +52,12 @@
   /* 通用面板（模拟右栏工作台） */
   .panel { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); backdrop-filter: blur(10px); overflow: hidden; }
   .panel.parallel { box-shadow: 0 0 0 1px var(--sky-line), 0 18px 48px -24px rgba(56,189,248,.28); }
-  .panel.serial { box-shadow: 0 0 0 1px var(--violet-line), 0 18px 48px -24px rgba(167,139,250,.28); }
+  .panel.serial { box-shadow: 0 0 0 1px var(--serial-line), 0 18px 48px -24px rgba(45,212,191,.28); }
 
   .p-head { padding: 16px 18px 12px; border-bottom: 1px solid var(--line); }
   .p-kicker { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 700; letter-spacing: 2.5px; }
   .parallel .p-kicker { color: var(--sky); }
-  .serial .p-kicker { color: var(--violet); }
+  .serial .p-kicker { color: var(--serial); }
   .p-title { margin-top: 8px; font-size: 15px; font-weight: 650; }
   .p-sub { margin-top: 5px; font-size: 11px; color: var(--muted); }
   .p-sub .live-clock { font-variant-numeric: tabular-nums; color: var(--text); }
@@ -76,10 +76,10 @@
   .serial .motif { gap: 0; align-items: center; }
   .serial .motif .node { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--chip); border: 1.5px solid var(--line2); z-index: 1; }
   .serial .motif .node.done { background: var(--ok); border-color: var(--ok); }
-  .serial .motif .node.run { background: var(--violet); border-color: var(--violet); box-shadow: 0 0 0 4px var(--violet-soft); animation: pulse 1.8s ease-in-out infinite; }
+  .serial .motif .node.run { background: var(--serial); border-color: var(--serial); box-shadow: 0 0 0 4px var(--serial-soft); animation: pulse 1.8s ease-in-out infinite; }
   .serial .motif .link { flex: 1; height: 2px; background: var(--line2); }
   .serial .motif .link.done { background: var(--ok); }
-  .serial .motif .link.run { background: linear-gradient(90deg, var(--ok), var(--violet)); }
+  .serial .motif .link.run { background: linear-gradient(90deg, var(--ok), var(--serial)); }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
 
   /* 统计行 */
@@ -124,54 +124,54 @@
   .step .rail { flex: none; width: 26px; display: flex; flex-direction: column; align-items: center; }
   .step .nd { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 10.5px; font-weight: 700; background: var(--chip); border: 1.5px solid var(--line2); color: var(--dim); z-index: 1; }
   .step.done .nd { background: var(--ok); border-color: var(--ok); color: #fff; }
-  .step.run .nd { background: var(--violet); border-color: var(--violet); color: #fff; box-shadow: 0 0 0 5px var(--violet-soft); animation: pulse 1.8s ease-in-out infinite; }
+  .step.run .nd { background: var(--serial); border-color: var(--serial); color: #fff; box-shadow: 0 0 0 5px var(--serial-soft); animation: pulse 1.8s ease-in-out infinite; }
   .step.fail .nd { background: var(--danger); border-color: var(--danger); color: #fff; }
   .step .line { width: 2px; flex: 1; margin-top: 4px; background: var(--line2); border-radius: 2px; }
   .step.done .line { background: var(--ok); }
-  .step.run .line { background: linear-gradient(180deg, var(--violet), var(--line2)); }
+  .step.run .line { background: linear-gradient(180deg, var(--serial), var(--line2)); }
   .step:last-child .line { display: none; }
   .step .body { flex: 1; min-width: 0; padding-bottom: 2px; }
   .step .r1 { display: flex; align-items: center; gap: 8px; }
   .step .nm { font-size: 12.5px; font-weight: 620; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .step .el { font-size: 11.5px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--muted); }
-  .step.run .el { color: var(--violet); }
+  .step.run .el { color: var(--serial); }
   .step .sum { margin-top: 5px; font-size: 10.5px; color: var(--muted); background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; line-height: 1.6; }
   .step .beat { margin-top: 5px; font-size: 10px; color: var(--dim); display: flex; gap: 6px; align-items: center; font-variant-numeric: tabular-nums; }
-  .step .beat .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--violet); animation: pulse 1.4s ease-in-out infinite; }
+  .step .beat .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--serial); animation: pulse 1.4s ease-in-out infinite; }
 
   /* 底部动作条 */
   .p-foot { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
   .btn { flex: 1; text-align: center; padding: 9px 10px; border-radius: 9px; font-size: 11.5px; font-weight: 600; border: 1px solid var(--line2); background: var(--chip); color: var(--muted); }
   .btn.mode { border-color: transparent; color: #fff; }
   .parallel .btn.mode { background: var(--sky); }
-  .serial .btn.mode { background: var(--violet); }
+  .serial .btn.mode { background: var(--serial); }
 
   /* ============ 对话内卡片对照 ============ */
   .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
   .card { border: 1px solid var(--line); border-radius: 13px; background: var(--panel); overflow: hidden; }
   .card.parallel { box-shadow: 0 0 0 1px var(--sky-line); }
-  .card.serial { box-shadow: 0 0 0 1px var(--violet-line); }
+  .card.serial { box-shadow: 0 0 0 1px var(--serial-line); }
   .c-head { display: flex; align-items: center; gap: 9px; padding: 10px 13px; cursor: default; }
   .c-head .chev { color: var(--dim); font-size: 10px; }
   .c-head .ic { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 11px; }
   .card.parallel .ic { background: var(--sky-soft); color: var(--sky); }
-  .card.serial .ic { background: var(--violet-soft); color: var(--violet); }
+  .card.serial .ic { background: var(--serial-soft); color: var(--serial); }
   .c-head .nm { font-size: 12px; font-weight: 650; }
   .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; font-weight: 600; padding: 2.5px 8px; border-radius: 999px; letter-spacing: .3px; }
   .pill i { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
   .pill.run { background: var(--sky-soft); color: var(--sky); } .pill.run i { background: var(--sky); animation: pulse 1.3s ease-in-out infinite; }
-  .card.serial .pill.run { background: var(--violet-soft); color: var(--violet); } .card.serial .pill.run i { background: var(--violet); }
+  .card.serial .pill.run { background: var(--serial-soft); color: var(--serial); } .card.serial .pill.run i { background: var(--serial); }
   .pill.ok { background: var(--ok-soft); color: var(--ok); } .pill.ok i { background: var(--ok); }
   .pill.warn { background: var(--warn-soft); color: var(--warn); } .pill.warn i { background: var(--warn); }
   .c-head .clock { margin-left: auto; font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
-  .card.parallel .clock { color: var(--sky); } .card.serial .clock { color: var(--violet); }
+  .card.parallel .clock { color: var(--sky); } .card.serial .clock { color: var(--serial); }
   .c-head .clock small { display: block; font-size: 8.5px; letter-spacing: 1px; font-weight: 500; color: var(--dim); text-align: right; }
   .c-strip { padding: 0 13px 11px; display: flex; gap: 6px; }
   .c-strip .seg { flex: 1; height: 5px; border-radius: 3px; background: var(--chip); overflow: hidden; position: relative; }
   .c-strip .seg.done { background: var(--ok-soft); }
   .c-strip .seg.run::after { content: ""; position: absolute; inset: 0; width: 45%; background: currentColor; border-radius: 3px; animation: grow 2.8s ease-in-out infinite; }
   .card.parallel .c-strip .seg.run { color: var(--sky); background: var(--sky-soft); }
-  .card.serial .c-strip .seg.run { color: var(--violet); background: var(--violet-soft); }
+  .card.serial .c-strip .seg.run { color: var(--serial); background: var(--serial-soft); }
   .c-strip .seg.fail { background: var(--danger-soft); }
   .c-body { border-top: 1px solid var(--line); padding: 10px 13px; display: flex; flex-direction: column; gap: 7px; background: var(--chip); }
   .c-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
@@ -179,12 +179,12 @@
   .c-row.done .n { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
   .c-row.run .n { border-color: transparent; color: #fff; }
   .card.parallel .c-row.run .n { background: var(--sky); }
-  .card.serial .c-row.run .n { background: var(--violet); }
+  .card.serial .c-row.run .n { background: var(--serial); }
   .c-row .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
   .c-row.run .t { color: var(--text); font-weight: 600; }
   .c-row .tm { font-size: 10px; font-variant-numeric: tabular-nums; color: var(--dim); }
   .c-row.run .tm { color: var(--sky); font-weight: 650; }
-  .card.serial .c-row.run .tm { color: var(--violet); }
+  .card.serial .c-row.run .tm { color: var(--serial); }
   .c-foot { padding: 9px 13px; border-top: 1px solid var(--line); font-size: 10px; color: var(--dim); display: flex; align-items: center; gap: 6px; }
   .c-foot .hbeat { margin-left: auto; font-variant-numeric: tabular-nums; }
 
@@ -194,19 +194,19 @@
   .ck .k { font-size: 10px; letter-spacing: 2px; color: var(--dim); }
   .ck .v { margin-top: 8px; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .5px; }
   .ck .d { margin-top: 8px; font-size: 10.5px; color: var(--muted); line-height: 1.7; }
-  .ck.run .v { color: var(--sky); } .ck.run2 .v { color: var(--violet); }
+  .ck.run .v { color: var(--sky); } .ck.run2 .v { color: var(--serial); }
   .ck .beat-row { margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; font-size: 10px; color: var(--dim); background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; font-variant-numeric: tabular-nums; }
   .ck .beat-row .dot { width: 5px; height: 5px; border-radius: 50%; animation: pulse 1.4s ease-in-out infinite; }
-  .ck.run .beat-row .dot { background: var(--sky); } .ck.run2 .beat-row .dot { background: var(--violet); }
+  .ck.run .beat-row .dot { background: var(--sky); } .ck.run2 .beat-row .dot { background: var(--serial); }
 
   /* 自动汇总消息特写 */
-  .auto-mock { border: 1px solid var(--line); border-left: 3px solid var(--violet); border-radius: 13px; background: var(--panel); padding: 16px 18px; }
+  .auto-mock { border: 1px solid var(--line); border-left: 3px solid var(--serial); border-radius: 13px; background: var(--panel); padding: 16px 18px; }
   .auto-mock .a-head { display: flex; align-items: center; gap: 9px; }
-  .auto-mock .a-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; font-weight: 700; letter-spacing: .5px; padding: 2.5px 9px; border-radius: 999px; background: var(--violet-soft); color: var(--violet); }
+  .auto-mock .a-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; font-weight: 700; letter-spacing: .5px; padding: 2.5px 9px; border-radius: 999px; background: var(--serial-soft); color: var(--serial); }
   .auto-mock .a-title { font-size: 12.5px; font-weight: 650; }
   .auto-mock .a-body { margin-top: 11px; font-size: 12px; line-height: 1.9; color: var(--text); }
   .auto-mock .a-body b { color: var(--warn); }
-  .auto-mock .a-body .cite { display: inline-block; font-size: 9.5px; font-weight: 700; color: var(--violet); background: var(--violet-soft); border-radius: 5px; padding: 0 5px; margin: 0 1px; }
+  .auto-mock .a-body .cite { display: inline-block; font-size: 9.5px; font-weight: 700; color: var(--serial); background: var(--serial-soft); border-radius: 5px; padding: 0 5px; margin: 0 1px; }
   .auto-mock .a-foot { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 10px; color: var(--dim); }
 
   /* 要点 */
@@ -467,7 +467,7 @@
       <ul>
         <li>步骤竖排成<b>编号链</b>：连线画出先后依赖，当前步高亮呼吸。</li>
         <li>顶部单链 motif：<b>节点 + 连线</b>，走到第几步一目了然。</li>
-        <li>配色紫色，只有当前步有心跳计时，其余静止——表达「按序推进」。</li>
+        <li>配色青绿，只有当前步有心跳计时，其余静止——表达「按序推进」。</li>
       </ul>
     </div>
     <div class="note">

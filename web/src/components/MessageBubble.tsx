@@ -415,11 +415,11 @@ function AutoSummaryCard({
   const body = useMemo(() => decorateCitations(bodyRaw, findingCount), [bodyRaw, findingCount]);
   return (
     <div
-      className="rounded-[13px] rounded-l-[3px] border border-l-[3px] border-zinc-800/60 border-l-violet-500 bg-zinc-900/40 px-4 py-3"
+      className="rounded-[13px] rounded-l-[3px] border border-l-[3px] border-zinc-800/60 border-l-teal-500 bg-zinc-900/40 px-4 py-3"
       data-testid="auto-summary-card"
     >
       <div className="flex items-center gap-2.5">
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-violet-400/15 px-2 py-0.5 text-[9.5px] font-bold tracking-wide text-violet-300">
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-teal-400/15 px-2 py-0.5 text-[9.5px] font-bold tracking-wide text-teal-300">
           <span aria-hidden>✦</span>
           {tr('自动汇总', 'Auto summary')}
         </span>
@@ -437,7 +437,7 @@ function AutoSummaryCard({
                     <button
                       type="button"
                       onClick={() => onLocate?.({ kind: 'finding', n })}
-                      className="mx-0.5 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded bg-violet-400/15 px-[3px] align-[2px] text-[9px] font-bold text-violet-300 hover:bg-violet-400/30"
+                      className="mx-0.5 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded bg-teal-400/15 px-[3px] align-[2px] text-[9px] font-bold text-teal-300 hover:bg-teal-400/30"
                       aria-label={tr(`引用发现 ${n}`, `Cite finding ${n}`)}
                     >
                       {children}

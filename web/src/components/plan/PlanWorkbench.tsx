@@ -226,8 +226,8 @@ export function PlanWorkbench({
       {/* 面板头：kicker + 标题 + 开始时刻/全程计时/当前步 + 单链 motif */}
       <div className="border-b border-zinc-800/60 px-4 pb-3.5 pt-3.5">
         <div className="flex items-center gap-2">
-          <ListChecks size={13} className="shrink-0 text-violet-400" />
-          <span className="text-[11px] font-bold tracking-[0.2em] text-violet-400">
+          <ListChecks size={13} className="shrink-0 text-teal-400" />
+          <span className="text-[11px] font-bold tracking-[0.2em] text-teal-400">
             {tr('执行计划 · 流水线', 'Plan · pipeline')}
           </span>
           {wire && <span className="text-[10px] tabular-nums text-zinc-600">#{wire.id}</span>}
@@ -257,7 +257,7 @@ export function PlanWorkbench({
                 <span>{tr(`开始于 ${fullDateTime(wire.started_at)}`, `Started ${fullDateTime(wire.started_at)}`)}</span>
               )}
               {totalMs > 0 && (
-                <span className={cn('font-semibold tabular-nums', active ? 'text-violet-300' : 'text-zinc-300')}>
+                <span className={cn('font-semibold tabular-nums', active ? 'text-teal-300' : 'text-zinc-300')}>
                   · {tr('全程已运行 ', 'elapsed ')}
                   {fmtDuration(totalMs)}
                 </span>
@@ -349,7 +349,7 @@ export function PlanWorkbench({
                           'grid h-[24px] w-[24px] place-items-center rounded-full text-[10.5px] font-bold',
                           s.status === 'succeeded' && 'bg-ok text-white',
                           s.status === 'skipped' && 'bg-warn text-white',
-                          isRunning && 'animate-pulse bg-violet-500 text-white shadow-[0_0_0_5px_rgba(167,139,250,0.15)]',
+                          isRunning && 'animate-pulse bg-teal-500 text-white shadow-[0_0_0_5px_rgba(167,139,250,0.15)]',
                           s.status === 'failed' && 'bg-danger text-white',
                           (s.status === 'pending' || s.status === 'queued' || s.status === 'stopped') &&
                             'bg-zinc-800 text-zinc-500 ring-1 ring-zinc-700',
@@ -372,7 +372,7 @@ export function PlanWorkbench({
                             s.status === 'succeeded' || s.status === 'skipped'
                               ? 'bg-ok'
                               : isRunning
-                                ? 'bg-gradient-to-b from-violet-400 to-zinc-700/60'
+                                ? 'bg-gradient-to-b from-teal-400 to-zinc-700/60'
                                 : 'bg-zinc-800',
                           )}
                         />
@@ -414,7 +414,7 @@ export function PlanWorkbench({
                               <span
                                 className={cn(
                                   'inline-block h-[5px] w-[5px] rounded-full',
-                                  stale ? 'bg-warn' : 'animate-pulse-dot bg-violet-400',
+                                  stale ? 'bg-warn' : 'animate-pulse-dot bg-teal-400',
                                 )}
                               />
                               {stale
@@ -439,7 +439,7 @@ export function PlanWorkbench({
                               <span
                                 className={cn(
                                   'block text-[11.5px] font-semibold tabular-nums',
-                                  isRunning ? 'text-violet-300' : 'text-zinc-300',
+                                  isRunning ? 'text-teal-300' : 'text-zinc-300',
                                 )}
                               >
                                 {fmtDuration(elapsedMs)}
@@ -541,7 +541,7 @@ function FragmentMotif({ status, last }: { status: StepStatus; last: boolean }) 
           status === 'succeeded' && 'border-ok bg-ok',
           status === 'skipped' && 'border-warn bg-warn',
           status === 'running' &&
-            'animate-pulse border-violet-400 bg-violet-400 shadow-[0_0_0_4px_rgba(167,139,250,0.15)]',
+            'animate-pulse border-teal-400 bg-teal-400 shadow-[0_0_0_4px_rgba(167,139,250,0.15)]',
           status === 'failed' && 'border-danger bg-danger',
           (status === 'pending' || status === 'queued' || status === 'stopped') && 'border-zinc-700 bg-zinc-800',
         )}
@@ -553,7 +553,7 @@ function FragmentMotif({ status, last }: { status: StepStatus; last: boolean }) 
             status === 'succeeded' || status === 'skipped'
               ? 'bg-ok'
               : status === 'running'
-                ? 'bg-gradient-to-r from-ok to-violet-400'
+                ? 'bg-gradient-to-r from-ok to-teal-400'
                 : 'bg-zinc-700/60',
           )}
         />
