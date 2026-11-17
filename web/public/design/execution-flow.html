@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="zh-CN" data-variant="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>执行体验 · 全新设计（侧栏版）</title>
+<style>
+/* ============================================================
+   设计变量（可由设计工具直接改）。深色默认，data-variant=light 覆盖。
+   单一品牌强调色 --accent；状态走 5 种语义色；模式靠结构区分。
+   ============================================================ */
+:root{
+  --bg: 11 11 17;
+  --panel: 16 16 23;
+  --card: 23 23 32;
+  --card-2: 28 28 39;
+  --border: 42 42 54;
+  --border-soft: 34 34 44;
+  --text: 244 244 245;
+  --muted: 161 161 170;
+  --faint: 113 113 122;
+
+  --accent: 139 112 242;
+  --accent-ink: 255 255 255;
+  --info: 56 168 210;
+  --ok: 22 176 122;
+  --warn: 214 158 46;
+  --danger: 232 90 90;
+  --neutral: 120 120 132;
+
+  --r-card: 14px;
+  --r-sm: 9px;
+  --r-pill: 999px;
+
+  --fs-title: 15px;
+  --fs-h: 13px;
+  --fs-body: 13px;
+  --fs-sub: 11.5px;
+  --fs-meta: 10.5px;
+
+  --wb-width: 404px;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / .28);
+}
+html[data-variant="light"]{
+  --bg: 244 245 248;
+  --panel: 250 250 252;
+  --card: 255 255 255;
+  --card-2: 247 248 251;
+  --border: 214 218 226;
+  --border-soft: 228 232 240;
+  --text: 17 24 39;
+  --muted: 71 85 105;
+  --faint: 108 122 143;
+
+  --accent: 106 84 214;
+  --accent-ink: 255 255 255;
+  --info: 13 116 145;
+  --ok: 4 120 87;
+  --warn: 161 106 12;
+  --danger: 190 36 36;
+  --neutral: 100 116 139;
+
+  --shadow-card: 0 1px 2px rgb(16 24 40 / .06), 0 8px 24px -18px rgb(16 24 40 / .25);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  background:rgb(var(--bg));color:rgb(var(--text));
+  font-size:var(--fs-body);line-height:1.6;-webkit-font-smoothing:antialiased;
+  font-variant-numeric:tabular-nums;
+}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:none}
+svg{display:block}
+
+/* ---------- 顶层三栏 ---------- */
+.app{display:flex;height:100vh;overflow:hidden}
+.sidebar{
+  width:212px;flex:none;background:rgb(var(--panel));
+  border-right:1px solid rgb(var(--border-soft));
+  display:flex;flex-direction:column;padding:18px 12px;gap:22px;
+}
+.brand{display:flex;align-items:center;gap:9px;padding:0 8px;font-weight:650;letter-spacing:-.02em;font-size:14px}
+.brand .logo{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,rgb(var(--accent)),rgb(var(--accent) / .55));display:grid;place-items:center;color:var(--accent-ink);font-size:12px;font-weight:800}
+.nav-group{display:flex;flex-direction:column;gap:2px}
+.nav-cap{font-size:var(--fs-meta);color:rgb(var(--faint));padding:0 8px 6px;letter-spacing:.08em}
+.nav-item{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:8px;color:rgb(var(--muted));font-size:12px}
+.nav-item.on{background:rgb(var(--text) / .055);color:rgb(var(--text));font-weight:550}
+.nav-item svg{opacity:.75}
+
+.stage{flex:1;min-width:0;display:flex;flex-direction:column}
+
+/* ---------- 顶部条 ---------- */
+.topbar{
+  height:56px;flex:none;border-bottom:1px solid rgb(var(--border-soft));
+  display:flex;align-items:center;gap:12px;padding:0 24px;
+}
+.topbar .ttl{font-size:var(--fs-h);font-weight:600;letter-spacing:-.01em}
+.topbar .sub{font-size:var(--fs-meta);color:rgb(var(--faint))}
+.icon-btn{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:rgb(var(--muted));border:1px solid rgb(var(--border))}
+.icon-btn:hover{background:rgb(var(--text) / .05);color:rgb(var(--text))}
+
+/* sticky 执行锁条 */
+.runbar{
+  height:38px;flex:none;display:flex;align-items:center;gap:10px;
+  padding:0 24px;background:rgb(var(--info) / .08);
+  border-bottom:1px solid rgb(var(--info) / .22);color:rgb(var(--info));font-size:var(--fs-sub);
+}
+.beat{width:6px;height:6px;border-radius:50%;background:rgb(var(--info));animation:beat 1.6s ease-in-out infinite;flex:none}
+@keyframes beat{0%,100%{opacity:.35}50%{opacity:1}}
+.runbar .stop{margin-left:auto;font-size:var(--fs-meta);color:rgb(var(--muted));border:1px solid rgb(var(--border));border-radius:7px;padding:3px 9px}
+.runbar .stop:hover{color:rgb(var(--text));border-color:rgb(var(--muted))}
+
+/* ---------- 主区：对话 + 执行侧栏 ---------- */
+.main{flex:1;min-height:0;display:flex}
+.chat-col{flex:1;min-width:0;display:flex;flex-direction:column}
+.chat-scroll{flex:1;min-height:0;overflow:auto;padding:24px 0 30px}
+.chat-inner{max-width:680px;margin:0 auto;padding:0 24px}
+
+/* 右栏执行工作台 */
+.workbench{
+  width:var(--wb-width);flex:none;background:rgb(var(--panel));
+  border-left:1px solid rgb(var(--border));display:flex;flex-direction:column;min-height:0;
+}
+.wb-panel{flex:1;min-height:0;display:none;flex-direction:column}
+.wb-panel.on{display:flex}
+
+.wb-head{padding:16px 18px 14px;border-bottom:1px solid rgb(var(--border-soft))}
+.wb-head .row{display:flex;align-items:flex-start;gap:10px}
+.wb-head .em{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:rgb(var(--accent) / .12);color:rgb(var(--accent));flex:none}
+.wb-head .ht{flex:1;min-width:0}
+.wb-head .ht .t{font-size:var(--fs-h);font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wb-head .ht .d{font-size:var(--fs-meta);color:rgb(var(--faint));margin-top:2px}
+.wb-head .x{color:rgb(var(--faint));width:22px;height:22px;display:grid;place-items:center;border-radius:6px}
+.wb-head .x:hover{background:rgb(var(--text) / .06);color:rgb(var(--text))}
+.wb-head .meta{display:flex;align-items:center;gap:8px;margin-top:11px}
+
+/* 真实进度条 */
+.progress{height:3px;background:rgb(var(--border));border-radius:2px;overflow:hidden}
+.progress>i{display:block;height:100%;background:rgb(var(--info));border-radius:2px;transition:width .4s ease}
+.progress.done>i{background:rgb(var(--ok))}
+
+/* tab */
+.wb-tabs{display:flex;gap:20px;padding:0 18px;border-bottom:1px solid rgb(var(--border-soft));height:38px;align-items:stretch;flex:none}
+.wb-tabs button{font-size:var(--fs-sub);color:rgb(var(--faint));position:relative;padding:0 1px}
+.wb-tabs button.on{color:rgb(var(--text));font-weight:550}
+.wb-tabs button.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:rgb(var(--accent));border-radius:2px}
+
+.wb-body{flex:1;min-height:0;overflow:auto;padding:16px 18px}
+
+/* 状态胶囊 */
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:var(--r-pill);font-size:var(--fs-meta);font-weight:550;border:1px solid transparent;white-space:nowrap}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.info{color:rgb(var(--info));background:rgb(var(--info) / .1);border-color:rgb(var(--info) / .22)}
+.pill.ok{color:rgb(var(--ok));background:rgb(var(--ok) / .1);border-color:rgb(var(--ok) / .22)}
+.pill.warn{color:rgb(var(--warn));background:rgb(var(--warn) / .1);border-color:rgb(var(--warn) / .22)}
+.pill.danger{color:rgb(var(--danger));background:rgb(var(--danger) / .1);border-color:rgb(var(--danger) / .22)}
+.pill.neutral{color:rgb(var(--neutral));background:rgb(var(--neutral) / .1);border-color:rgb(var(--neutral) / .2)}
+.pill.info .dot{animation:beat 1.6s ease-in-out infinite}
+
+/* 串行步骤链（结构表达顺序） */
+.stepper{list-style:none;display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:22px 1fr auto;gap:11px;align-items:start;position:relative;padding-bottom:16px}
+.step:last-child{padding-bottom:0}
+.step .rail{position:relative;display:flex;justify-content:center}
+.step .rail::after{content:"";position:absolute;top:20px;bottom:-16px;width:1px;background:rgb(var(--border))}
+.step:last-child .rail::after{display:none}
+.step .node{width:20px;height:20px;border-radius:7px;display:grid;place-items:center;font-size:9.5px;font-weight:700;border:1px solid rgb(var(--border));background:rgb(var(--card-2));color:rgb(var(--faint));z-index:1}
+.step.s-ok .node{background:rgb(var(--ok) / .14);border-color:rgb(var(--ok) / .4);color:rgb(var(--ok))}
+.step.s-run .node{background:rgb(var(--info) / .14);border-color:rgb(var(--info) / .5);color:rgb(var(--info))}
+.step.s-fail .node{background:rgb(var(--danger) / .14);border-color:rgb(var(--danger) / .45);color:rgb(var(--danger))}
+.step .txt .n{font-size:var(--fs-h);font-weight:550;color:rgb(var(--text));line-height:1.4}
+.step.pending .txt .n{color:rgb(var(--faint))}
+.step .txt .m{font-size:var(--fs-meta);color:rgb(var(--faint));margin-top:3px;line-height:1.5}
+.step .txt .m .tool{color:rgb(var(--muted))}
+.step .right{font-size:var(--fs-meta);color:rgb(var(--faint));padding-top:3px;white-space:nowrap}
+.step.s-run .right{color:rgb(var(--info))}
+.step.s-ok .right{color:rgb(var(--muted))}
+.step.s-fail .right{color:rgb(var(--danger))}
+
+/* 并行 worker（侧栏窄，单列卡片，结构表达并发） */
+.wcard{border:1px solid rgb(var(--border-soft));border-radius:var(--r-sm);padding:11px 12px;background:rgb(var(--card-2) / .5);margin-bottom:9px}
+.wcard .top{display:flex;align-items:center;gap:8px}
+.wcard .top .nm{font-size:var(--fs-h);font-weight:550;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wcard .tg{font-size:var(--fs-sub);color:rgb(var(--muted));margin-top:6px;line-height:1.5}
+.wcard .ft{display:flex;align-items:center;gap:12px;margin-top:9px;font-size:var(--fs-meta);color:rgb(var(--faint))}
+.wcard .ft b{font-weight:600;color:rgb(var(--muted))}
+
+/* 日志行 */
+.logline{display:flex;gap:9px;font-size:var(--fs-meta);color:rgb(var(--muted));padding:5px 0;border-bottom:1px solid rgb(var(--border-soft));line-height:1.5}
+.logline .t{color:rgb(var(--faint));white-space:nowrap}
+.logline .tool{color:rgb(var(--accent))}
+
+/* 统计格 */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:6px}
+.stat{border:1px solid rgb(var(--border-soft));border-radius:var(--r-sm);padding:10px 11px;background:rgb(var(--card-2) / .4)}
+.stat .v{font-size:18px;font-weight:650;letter-spacing:-.02em;line-height:1.2}
+.stat .k{font-size:var(--fs-meta);color:rgb(var(--faint));margin-top:3px}
+
+/* 右栏底部动作 */
+.wb-foot{flex:none;padding:12px 18px;border-top:1px solid rgb(var(--border-soft));display:flex;align-items:center;gap:9px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:32px;padding:0 14px;border-radius:8px;font-size:var(--fs-sub);font-weight:600}
+.btn.primary{background:rgb(var(--accent));color:var(--accent-ink);flex:1}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.ghost{border:1px solid rgb(var(--border));color:rgb(var(--muted))}
+.btn.ghost:hover{color:rgb(var(--text));border-color:rgb(var(--muted))}
+.btn:disabled{opacity:.42;cursor:not-allowed;filter:none}
+.hint{font-size:var(--fs-meta);color:rgb(var(--faint));text-align:center}
+
+/* ---------- 对话内消息 ---------- */
+.msg{display:flex;gap:12px;margin:0 0 18px}
+.av{width:26px;height:26px;flex:none;border-radius:8px;display:grid;place-items:center;font-size:11px;font-weight:700}
+.av.u{background:rgb(var(--card-2));color:rgb(var(--muted));border:1px solid rgb(var(--border))}
+.av.a{background:rgb(var(--accent) / .16);color:rgb(var(--accent))}
+.msg .body{flex:1;min-width:0}
+.bubble{background:rgb(var(--card));border:1px solid rgb(var(--border));border-radius:var(--r-card);padding:12px 15px;box-shadow:var(--shadow-card)}
+.bubble.user{background:rgb(var(--text) / .035)}
+.prose{font-size:var(--fs-body);color:rgb(var(--text));line-height:1.75}
+.prose p+p{margin-top:9px}
+
+/* 对话内精简执行卡：概览 + 在侧栏查看入口 */
+.exec-mini{border:1px solid rgb(var(--border));border-radius:var(--r-card);background:rgb(var(--card) / .72);box-shadow:var(--shadow-card);margin-top:10px;overflow:hidden;cursor:pointer;transition:border-color .15s}
+.exec-mini:hover{border-color:rgb(var(--accent) / .5)}
+.em-head{display:flex;align-items:center;gap:10px;padding:11px 14px}
+.em-head .em{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:rgb(var(--accent) / .12);color:rgb(var(--accent));flex:none}
+.em-head .ht{flex:1;min-width:0}
+.em-head .ht .t{font-size:var(--fs-h);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.em-head .ht .d{font-size:var(--fs-meta);color:rgb(var(--faint));margin-top:1px}
+.em-head .go{font-size:var(--fs-meta);color:rgb(var(--accent));white-space:nowrap}
+.em-bar{height:3px;background:rgb(var(--border));margin:0 14px;border-radius:2px;overflow:hidden}
+.em-bar>i{display:block;height:100%;background:rgb(var(--info));border-radius:2px}
+.em-bar.done>i{background:rgb(var(--ok))}
+.em-foot{display:flex;align-items:center;gap:14px;padding:9px 14px;font-size:var(--fs-meta);color:rgb(var(--faint))}
+.em-foot b{color:rgb(var(--muted));font-weight:600}
+
+/* 结论：普通正文 + 细顶线 */
+.conclusion{position:relative;padding-top:13px}
+.conclusion::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:rgb(var(--accent));border-radius:2px;opacity:.85}
+.concl-mark{display:flex;align-items:center;gap:7px;font-size:var(--fs-meta);color:rgb(var(--faint));margin-bottom:8px}
+.concl-mark .sq{width:5px;height:5px;background:rgb(var(--accent));border-radius:1px}
+.cite{display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 3px;border-radius:4px;background:rgb(var(--info) / .13);color:rgb(var(--info));font-size:9px;font-weight:700;margin:0 1px;vertical-align:baseline}
+
+/* ---------- 场景标签 ---------- */
+.scene-label{display:flex;align-items:center;gap:9px;margin:0 0 14px;font-size:var(--fs-meta);color:rgb(var(--faint));letter-spacing:.06em;text-transform:uppercase}
+.scene-label .num{font-size:9px;font-weight:700;letter-spacing:.1em;padding:2px 7px;border-radius:6px;background:rgb(var(--accent) / .12);color:rgb(var(--accent))}
+.scene-label .line{height:1px;flex:1;background:rgb(var(--border-soft))}
+.slide{display:none}
+.slide.on{display:block}
+
+/* ---------- 输入框 ---------- */
+.composer-wrap{flex:none;padding:0 24px 18px;border-top:1px solid rgb(var(--border-soft));background:rgb(var(--bg))}
+.composer{max-width:680px;margin:0 auto;border:1px solid rgb(var(--border));border-radius:13px;background:rgb(var(--card));padding:11px 14px 9px}
+.composer.locked{opacity:.62}
+.composer .ph{font-size:var(--fs-body);color:rgb(var(--faint));min-height:20px}
+.composer .tools{display:flex;align-items:center;gap:8px;margin-top:9px;font-size:var(--fs-meta);color:rgb(var(--faint))}
+.composer .tools .chip{padding:3px 8px;border:1px solid rgb(var(--border));border-radius:7px;display:inline-flex;align-items:center;gap:5px}
+.composer .tools .send{margin-left:auto;width:26px;height:26px;border-radius:7px;background:rgb(var(--text) / .07);display:grid;place-items:center;color:rgb(var(--faint))}
+.lock-msg{display:flex;align-items:center;gap:7px;color:rgb(var(--info));font-size:var(--fs-sub);margin-bottom:8px}
+
+/* ---------- 控制 ---------- */
+.fab{position:fixed;right:calc(var(--wb-width) + 18px);top:14px;z-index:30;display:flex;gap:6px}
+.fab button{background:rgb(var(--card));border:1px solid rgb(var(--border));border-radius:8px;padding:5px 10px;font-size:var(--fs-meta);color:rgb(var(--muted));box-shadow:var(--shadow-card)}
+.fab button:hover{color:rgb(var(--text))}
+.notes{
+  position:fixed;left:224px;bottom:16px;width:238px;z-index:30;
+  background:rgb(var(--card));border:1px solid rgb(var(--border));
+  border-radius:12px;box-shadow:0 12px 40px -12px rgb(0 0 0 / .5);
+  font-size:var(--fs-meta);color:rgb(var(--muted));overflow:hidden;
+}
+.notes .h{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid rgb(var(--border-soft));color:rgb(var(--text));font-weight:600;font-size:var(--fs-sub)}
+.notes ul{list-style:none;padding:9px 12px;display:flex;flex-direction:column;gap:7px}
+.notes li{display:flex;gap:8px;line-height:1.5}
+.notes li i{width:5px;height:5px;border-radius:50%;background:rgb(var(--accent));flex:none;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 左导航 -->
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">O</span> Ongrid</div>
+    <div class="nav-group">
+      <div class="nav-cap">工作区</div>
+      <div class="nav-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>首页</div>
+      <div class="nav-item on"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>会话</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-cap">能力</div>
+      <div class="nav-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a1 1 0 0 0-1.4-1.4l-3.8 3.8"/></svg>工具</div>
+      <div class="nav-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>MCP</div>
+    </div>
+  </aside>
+
+  <div class="stage">
+    <div class="topbar">
+      <div class="ttl">工作流架构梳理</div>
+      <div class="sub">· 会话 64820b62</div>
+    </div>
+
+    <!-- 执行锁条：仅执行中场景显示 -->
+    <div class="runbar" id="runbar" style="display:none">
+      <span class="beat"></span><span>正在执行</span>
+      <span style="color:rgb(var(--text))" id="runbarTask">排查知识库一致性</span>
+      <span style="color:rgb(var(--faint))" id="runbarProgress">· 2 / 4 完成</span>
+      <button class="stop">停止执行</button>
+    </div>
+
+    <div class="main">
+      <!-- ======== 对话列 ======== -->
+      <div class="chat-col">
+        <div class="chat-scroll">
+          <div class="chat-inner">
+
+          <!-- 场景0：草稿 -->
+          <section class="slide on" data-slide="0">
+            <div class="scene-label"><span class="num">01</span>草稿待执行<span class="line"></span></div>
+            <div class="msg">
+              <div class="av u">A</div>
+              <div class="body"><div class="bubble user"><div class="prose">帮我分两步梳理工作流架构：先查讲义，再定位缺口，最后给结论。</div></div></div>
+            </div>
+            <div class="msg">
+              <div class="av a">✦</div>
+              <div class="body">
+                <div class="prose">已拆分好 2 个步骤，详情在右侧工作台，确认后开始执行。</div>
+                <div class="exec-mini" onclick="showScene(0)">
+                  <div class="em-head">
+                    <div class="em"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+                    <div class="ht"><div class="t">工作流架构梳理</div><div class="d">2 个步骤 · 待确认</div></div>
+                    <span class="go">在侧栏查看 →</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 场景1：计划执行中 -->
+          <section class="slide" data-slide="1">
+            <div class="scene-label"><span class="num">02</span>执行中 · 计划（串行）<span class="line"></span></div>
+            <div class="msg">
+              <div class="av a">✦</div>
+              <div class="body">
+                <div class="exec-mini" onclick="showScene(1)">
+                  <div class="em-head">
+                    <div class="em"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+                    <div class="ht"><div class="t">工作流架构梳理</div><div class="d">第 3 / 5 步进行中</div></div>
+                    <span class="pill info"><span class="dot"></span>执行中</span>
+                  </div>
+                  <div class="em-bar"><i style="width:40%"></i></div>
+                  <div class="em-foot"><span>已用 <b>2m 14s</b></span><span>调用 <b>7</b></span><span style="margin-left:auto;color:rgb(var(--accent))">查看实时进度 →</span></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 场景2：排查执行中 -->
+          <section class="slide" data-slide="2">
+            <div class="scene-label"><span class="num">03</span>执行中 · 排查（并行）<span class="line"></span></div>
+            <div class="msg">
+              <div class="av a">✦</div>
+              <div class="body">
+                <div class="exec-mini" onclick="showScene(2)">
+                  <div class="em-head">
+                    <div class="em"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/></svg></div>
+                    <div class="ht"><div class="t">并行排查：模型响应延迟</div><div class="d">4 路 · 2 完成 / 1 进行中</div></div>
+                    <span class="pill info"><span class="dot"></span>执行中</span>
+                  </div>
+                  <div class="em-bar"><i style="width:50%"></i></div>
+                  <div class="em-foot"><span>已用 <b>46s</b></span><span>发现 <b>3</b></span><span style="margin-left:auto;color:rgb(var(--accent))">查看实时进度 →</span></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 场景3：结论 -->
+          <section class="slide" data-slide="3">
+            <div class="scene-label"><span class="num">04</span>收口结论（普通正文）<span class="line"></span></div>
+            <div class="msg">
+              <div class="av a">✦</div>
+              <div class="body">
+                <div class="bubble">
+                  <div class="conclusion">
+                    <div class="concl-mark"><span class="sq"></span>结论 · 由 5 个步骤汇总</div>
+                    <div class="prose">
+                      <p>工作流架构整体清晰，但有三处需要在落地前明确：</p>
+                      <p><b>1 · 状态真源不唯一。</b>计划状态与运行记录分表写库，缺少统一事务边界，可能出现「已暂停 / 已停止」并存的情况<span class="cite">1</span>。</p>
+                      <p><b>2 · 停止信号未打通。</b>界面停止置的是业务侧信号，图执行只认运行级信号，两者 key 不同<span class="cite">2</span>。</p>
+                      <p><b>3 · 缺乏权威概念文档。</b>节点语义、终态判定散落在多处，没有单一定义入口<span class="cite">3</span>。</p>
+                      <p>建议先统一状态机与停止信号，再补一份概念文档。</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          </div><!-- /chat-inner -->
+        </div><!-- /chat-scroll -->
+
+        <!-- 输入框：只在对话列内居中 -->
+        <div class="composer-wrap">
+          <div class="composer locked" id="composer">
+            <div class="lock-msg"><span class="beat"></span>执行完成后可继续对话</div>
+            <div class="ph">输入消息…</div>
+            <div class="tools">
+              <span class="chip">⚙ 默认代理</span><span class="chip">◈ deepseek-flash</span>
+              <span style="flex:1"></span><span class="send">↑</span>
+            </div>
+          </div>
+        </div>
+      </div><!-- /chat-col -->
+
+      <!-- ======== 右栏：执行工作台 ======== -->
+      <aside class="workbench" id="workbench">
+
+        <!-- 面板0：草稿 -->
+        <div class="wb-panel on" data-wb="0">
+          <div class="wb-head">
+            <div class="row">
+              <div class="em"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+              <div class="ht"><div class="t">工作流架构梳理</div><div class="d">2 个步骤 · 计划</div></div>
+              <button class="x"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+            </div>
+            <div class="meta"><span class="pill neutral"><span class="dot"></span>待确认</span><span style="font-size:var(--fs-meta);color:rgb(var(--faint))">预计 2–4 分钟</span></div>
+          </div>
+          <div class="wb-tabs"><button class="on">步骤</button><button>配置</button></div>
+          <div class="wb-body">
+            <ol class="stepper">
+              <li class="step pending"><div class="rail"><span class="node">01</span></div><div class="txt"><div class="n">检索知识库中的工作流架构讲义</div><div class="m"><span class="tool">query_knowledge</span></div></div></li>
+              <li class="step pending"><div class="rail"><span class="node">02</span></div><div class="txt"><div class="n">定位架构缺口与待确认项</div><div class="m"><span class="tool">query_knowledge</span></div></div></li>
+            </ol>
+          </div>
+          <div class="wb-foot">
+            <button class="btn primary" id="startBtn">▶ 开始执行</button>
+            <button class="btn ghost">编辑</button>
+          </div>
+        </div>
+
+        <!-- 面板1：计划执行中（步骤 tab） -->
+        <div class="wb-panel" data-wb="1">
+          <div class="wb-head">
+            <div class="row">
+              <div class="em"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+              <div class="ht"><div class="t">工作流架构梳理</div><div class="d">第 3 / 5 步进行中 · 已用 2m 14s</div></div>
+              <button class="x"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+            </div>
+            <div class="meta"><span class="pill info"><span class="dot"></span>执行中</span><span style="font-size:var(--fs-meta);color:rgb(var(--faint))">工具调用 7</span></div>
+            <div class="progress" style="margin-top:12px"><i style="width:40%"></i></div>
+          </div>
+          <div class="wb-tabs"><button class="on">步骤</button><button>日志</button><button>统计</button></div>
+          <div class="wb-body">
+            <ol class="stepper">
+              <li class="step s-ok"><div class="rail"><span class="node">✓</span></div><div class="txt"><div class="n">检索工作流架构讲义</div><div class="m">命中 3 篇文档 · 2 次调用</div></div><div class="right">12s</div></li>
+              <li class="step s-ok"><div class="rail"><span class="node">✓</span></div><div class="txt"><div class="n">梳理 definition / runs 分层</div><div class="m">已归纳 5 类节点语义</div></div><div class="right">9s</div></li>
+              <li class="step s-run"><div class="rail"><span class="node">03</span></div><div class="txt"><div class="n">定位架构缺口与待确认项</div><div class="m"><span class="tool">正在检索 · query_knowledge</span></div></div><div class="right">运行中</div></li>
+              <li class="step pending"><div class="rail"><span class="node">04</span></div><div class="txt"><div class="n">核对 API 接口参考</div><div class="m">等待前序完成</div></div><div class="right">—</div></li>
+              <li class="step pending"><div class="rail"><span class="node">05</span></div><div class="txt"><div class="n">汇总结论</div><div class="m">等待前序完成</div></div><div class="right">—</div></li>
+            </ol>
+          </div>
+          <div class="wb-foot"><button class="btn ghost" style="width:100%">暂停执行</button></div>
+        </div>
+
+        <!-- 面板2：排查执行中（worker 单列） -->
+        <div class="wb-panel" data-wb="2">
+          <div class="wb-head">
+            <div class="row">
+              <div class="em"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/></svg></div>
+              <div class="ht"><div class="t">并行排查：模型响应延迟</div><div class="d">4 路 · 2 完成 / 1 进行中 · 46s</div></div>
+              <button class="x"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+            </div>
+            <div class="meta"><span class="pill info"><span class="dot"></span>执行中</span><span style="font-size:var(--fs-meta);color:rgb(var(--faint))">累计发现 3</span></div>
+            <div class="progress" style="margin-top:12px"><i style="width:50%"></i></div>
+          </div>
+          <div class="wb-tabs"><button class="on">排查</button><button>日志</button><button>统计</button></div>
+          <div class="wb-body">
+            <div class="wcard">
+              <div class="top"><span class="nm">配置路径</span><span class="pill ok" style="padding:2px 7px"><span class="dot"></span>完成</span></div>
+              <div class="tg">核对 provider 与模型映射是否一致</div>
+              <div class="ft"><span>发现 <b>2</b></span><span>3 次调用</span><span>12s</span></div>
+            </div>
+            <div class="wcard">
+              <div class="top"><span class="nm">网络链路</span><span class="pill ok" style="padding:2px 7px"><span class="dot"></span>完成</span></div>
+              <div class="tg">检查网关超时与重试策略</div>
+              <div class="ft"><span>发现 <b>1</b></span><span>2 次调用</span><span>15s</span></div>
+            </div>
+            <div class="wcard" style="border-color:rgb(var(--info) / .45)">
+              <div class="top"><span class="nm">工具执行</span><span class="pill info" style="padding:2px 7px"><span class="dot"></span>进行中</span></div>
+              <div class="tg">追踪 MCP 工具调用的耗时分布</div>
+              <div class="ft"><span>检索中</span><span>2 次调用</span><span>—</span></div>
+            </div>
+            <div class="wcard">
+              <div class="top"><span class="nm">数据规模</span><span class="pill neutral" style="padding:2px 7px"><span class="dot"></span>排队</span></div>
+              <div class="tg">统计上下文体积与 token 消耗</div>
+              <div class="ft"><span>等待调度</span><span>—</span><span>—</span></div>
+            </div>
+          </div>
+          <div class="wb-foot"><button class="btn ghost" style="width:100%">停止排查</button></div>
+        </div>
+
+        <!-- 面板3：完成 -->
+        <div class="wb-panel" data-wb="3">
+          <div class="wb-head">
+            <div class="row">
+              <div class="em"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+              <div class="ht"><div class="t">工作流架构梳理</div><div class="d">全部完成 · 用时 2m 34s</div></div>
+              <button class="x"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+            </div>
+            <div class="meta"><span class="pill ok"><span class="dot"></span>已完成</span><span style="font-size:var(--fs-meta);color:rgb(var(--faint))">5 / 5 步骤成功</span></div>
+          </div>
+          <div class="wb-tabs"><button class="on">步骤</button><button>日志</button><button>统计</button></div>
+          <div class="wb-body">
+            <div class="stats">
+              <div class="stat"><div class="v">5</div><div class="k">总步骤</div></div>
+              <div class="stat"><div class="v" style="color:rgb(var(--ok))">5</div><div class="k">成功</div></div>
+              <div class="stat"><div class="v">7</div><div class="k">工具调用</div></div>
+            </div>
+            <ol class="stepper" style="margin-top:8px">
+              <li class="step s-ok"><div class="rail"><span class="node">✓</span></div><div class="txt"><div class="n">检索工作流架构讲义</div><div class="m">命中 3 篇文档</div></div><div class="right">12s</div></li>
+              <li class="step s-ok"><div class="rail"><span class="node">✓</span></div><div class="txt"><div class="n">梳理 definition / runs 分层</div><div class="m">归纳 5 类节点语义</div></div><div class="right">9s</div></li>
+              <li class="step s-ok"><div class="rail"><span class="node">✓</span></div><div class="txt"><div class="n">定位架构缺口与待确认项</div><div class="m">3 处待确认</div></div><div class="right">31s</div></li>
+              <li class="step s-ok"><div class="rail"><span class="node">✓</span></div><div class="txt"><div class="n">核对 API 接口参考</div><div class="m">一致</div></div><div class="right">18s</div></li>
+              <li class="step s-ok"><div class="rail"><span class="node">✓</span></div><div class="txt"><div class="n">汇总结论</div><div class="m">已生成</div></div><div class="right">4s</div></li>
+            </ol>
+          </div>
+          <div class="wb-foot"><button class="btn ghost" style="width:100%">查看对话中的结论 ↓</button></div>
+        </div>
+
+      </aside>
+    </div>
+  </div>
+</div>
+
+<!-- 控制 -->
+<div class="fab">
+  <button onclick="showScene(0)" data-scene="0">草稿</button>
+  <button onclick="showScene(1)" data-scene="1">计划·执行中</button>
+  <button onclick="showScene(2)" data-scene="2">排查·执行中</button>
+  <button onclick="showScene(3)" data-scene="3">结论</button>
+  <button onclick="toggleTheme()">◐ 主题</button>
+</div>
+<div class="notes" id="notes">
+  <div class="h">设计主张<span onclick="document.getElementById('notes').style.display='none'" style="margin-left:auto;cursor:pointer;color:rgb(var(--faint))">×</span></div>
+  <ul>
+    <li><i></i><span><b>侧栏即工作台</b>：详情放右栏，对话只留概览入口</span></li>
+    <li><i></i><span><b>单一强调色</b>：只品牌紫；状态走 5 语义色</span></li>
+    <li><i></i><span><b>结构区分模式</b>：串行=步骤链，并行=worker 清单</span></li>
+    <li><i></i><span><b>真实进度</b>：宽度=已完成/总数；无发光假摆动</span></li>
+    <li><i></i><span><b>结论即正文</b>：普通气泡 + 一条细顶线</span></li>
+  </ul>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const wbPanels=[...document.querySelectorAll('.wb-panel')];
+  const sceneBtns=[...document.querySelectorAll('[data-scene]')];
+  const runTasks={1:['排查知识库一致性','· 2 / 4 完成'],2:['排查：模型响应延迟','· 2 / 4 完成']};
+  function showScene(n){
+    const idx=(n+slides.length)%slides.length;
+    slides.forEach((s,i)=>s.classList.toggle('on',i===idx));
+    wbPanels.forEach((p,i)=>p.classList.toggle('on',i===idx));
+    sceneBtns.forEach((b,i)=>{
+      b.style.borderColor=i===idx?'rgb(var(--accent))':'rgb(var(--border))';
+      b.style.color=i===idx?'rgb(var(--text))':'rgb(var(--muted))';
+    });
+    const running=idx===1||idx===2;
+    document.getElementById('runbar').style.display=running?'flex':'none';
+    const composer=document.getElementById('composer');
+    composer.classList.toggle('locked',running);
+    const lockMsg=composer.querySelector('.lock-msg');
+    if(lockMsg) lockMsg.style.display=running?'flex':'none';
+    if(running){
+      document.getElementById('runbarTask').textContent=runTasks[idx][0];
+      document.getElementById('runbarProgress').textContent=runTasks[idx][1];
+    }
+  }
+  function toggleTheme(){
+    const h=document.documentElement;
+    h.dataset.variant=h.dataset.variant==='light'?'dark':'light';
+  }
+  window.addEventListener('keydown',e=>{
+    const cur=slides.findIndex(s=>s.classList.contains('on'));
+    if(e.key==='ArrowRight')showScene(cur+1);
+    if(e.key==='ArrowLeft')showScene(cur-1);
+  });
+  // 草稿：回合结束后按钮解锁
+  const startBtn=document.getElementById('startBtn');
+  startBtn.disabled=true;
+  setTimeout(()=>{ startBtn.disabled=false; },1400);
+  showScene(0);
+</script>
+</body>
+</html>

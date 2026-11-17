@@ -218,6 +218,9 @@ export default function ChatThreadPage() {
 
   const [submitting, setSubmitting] = useState(false);
 
+  // 执行态（计划/排查）独立于聊天回合：带外启动，单独锁输入框直到收口
+  const [execBusy, setExecBusy] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
 
   // 输入框草稿提升为受控：建议问题点击后借此把文本填进输入框
@@ -655,6 +658,9 @@ export default function ChatThreadPage() {
 
     setSubmitting(sessionSubmitting);
 
+    // 执行锁不跨会话继承：上一会话的执行卡卸载不会再发终态事件
+    setExecBusy(false);
+
     setError(null);
 
     setMessages([]);
@@ -932,6 +938,10 @@ export default function ChatThreadPage() {
         setSubmitting(detail.busy);
         return;
       }
+      if (detail.type === 'exec') {
+        setExecBusy(detail.busy);
+        return;
+      }
       if (detail.type === 'approval_decided') {
         setDecidedApprovals((prev) => {
           if (prev.has(detail.approvalId)) return prev;
@@ -1020,6 +1030,8 @@ export default function ChatThreadPage() {
           id: `tool-card-${t.tool_call_id}`,
           role: 'tool',
           kind: 'tool_card',
+          // 工具返回前回合未收口：禁点草稿卡的执行按钮；done 时统一清 pending
+          pending: true,
           // 流式合成卡先记本地首达时刻，refetch 后以服务端为准
           created_at: new Date().toISOString(),
           tool_call: {
@@ -1479,6 +1491,10 @@ export default function ChatThreadPage() {
               role: 'tool',
 
               kind: 'tool_card',
+
+              // 工具返回前回合未收口：禁点草稿卡的执行按钮；done 时统一清 pending
+
+              pending: true,
 
               // 流式合成卡先记本地首达时刻，refetch 后以服务端为准
 
@@ -2307,7 +2323,7 @@ export default function ChatThreadPage() {
 
                   sessionId={sessionId}
 
-                  actionsDisabled={submitting}
+                  actionsDisabled={submitting || execBusy}
 
                   followupsActive={!isViewer && m.id === latestAssistantId}
 
@@ -2332,7 +2348,7 @@ export default function ChatThreadPage() {
               ))
             )}
 
-            {submitting &&
+            {(submitting || execBusy) &&
 
               (awaitingApproval ? (
 
@@ -2408,7 +2424,7 @@ export default function ChatThreadPage() {
 
               allowAttachments
 
-              disabled={submitting}
+              disabled={submitting || execBusy}
 
               autoFocus
 

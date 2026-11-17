@@ -16,6 +16,7 @@ import {
 import { PLAN_STATUS_META, STEP_STATUS_META } from '@/lib/planStatus';
 import { fmtAgo, fmtDuration, isStale, useTicker } from '@/lib/runTimer';
 import { requestChatRefetch } from '@/lib/chatLiveBus';
+import { useExecLock } from '@/lib/useExecLock';
 import { errorText } from '@/lib/errors';
 import { flash } from '@/components/ui';
 import { useI18n } from '@/i18n/locale';
@@ -67,8 +68,9 @@ export function PlanBlock({
   const planUid = result.plan_uid ?? wire?.plan_uid ?? null;
   const interactive = interactiveProp && !pending;
 
-  const statusKey = (wire?.status ?? (pending ? 'running' : result.status ?? 'draft')) as keyof typeof PLAN_STATUS_META;
+  const statusKey = (wire?.status ?? result.status ?? 'draft') as keyof typeof PLAN_STATUS_META;
   const active = statusKey === 'running';
+  useExecLock(planUid, active);
   const tick = useTicker(active);
 
   // 快照补活：执行/重试后状态与结论会变，工具卡静态结果是旧的
@@ -389,26 +391,29 @@ export function PlanBlock({
               );
             })}
           </div>
-          {/* 草稿动作条：执行前动作（开始执行/调整计划）；执行全程零干预 */}
-          {editSteps === null && (interactive && (isDraft || isPaused)) && (
+          {/* 草稿动作条：执行前动作（开始执行/调整计划）；回合未收口禁点，执行全程零干预 */}
+          {editSteps === null && (isDraft || isPaused) && (
             <div className="flex items-center gap-2 border-t border-zinc-800/60 px-3.5 py-2">
               <span className="min-w-0 flex-1 truncate text-[10px] text-zinc-500">
-                {isDraft
-                  ? tr('确认后按步骤执行；执行全程可看实时进度', 'Confirm to run step by step; watch live progress')
-                  : tr('已暂停，可继续执行', 'Paused; resume to continue')}
+                {pending
+                  ? tr('模型正在输出，结束后可执行', 'Available when the reply finishes')
+                  : isDraft
+                    ? tr('确认后按步骤执行；执行全程可看实时进度', 'Confirm to run step by step; watch live progress')
+                    : tr('已暂停，可继续执行', 'Paused; resume to continue')}
               </span>
               {isDraft && (
                 <button
                   type="button"
+                  disabled={!interactive || busy}
                   onClick={enterEdit}
-                  className="shrink-0 rounded-md border border-zinc-700 px-2 py-1 text-[10.5px] text-zinc-300 hover:bg-zinc-800/60"
+                  className="shrink-0 rounded-md border border-zinc-700 px-2 py-1 text-[10.5px] text-zinc-300 hover:bg-zinc-800/60 disabled:opacity-50"
                 >
                   {tr('调整计划', 'Edit plan')}
                 </button>
               )}
               <button
                 type="button"
-                disabled={busy}
+                disabled={!interactive || busy}
                 onClick={() => void doStart()}
                 className="shrink-0 rounded-md bg-accent px-2 py-1 text-[10.5px] font-medium text-accent-fg hover:brightness-110 disabled:opacity-50"
               >

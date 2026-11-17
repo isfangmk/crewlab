@@ -15,6 +15,7 @@ import {
 import { DISPATCH_STATUS_META, WORKER_STATUS_META } from '@/lib/investigationStatus';
 import { fmtAgo, fmtDuration, isStale, useTicker } from '@/lib/runTimer';
 import { requestChatRefetch } from '@/lib/chatLiveBus';
+import { useExecLock } from '@/lib/useExecLock';
 import { useI18n } from '@/i18n/locale';
 import { cn } from '@/lib/cn';
 import { StatusPill } from '@/components/ui';
@@ -61,6 +62,7 @@ export function DispatchBlock({
   const statusKey = (wire?.status ??
     (pending || result.status === undefined ? 'running' : result.status)) as keyof typeof DISPATCH_STATUS_META;
   const active = statusKey === 'running';
+  useExecLock(dispatchUid, active);
   const tick = useTicker(active);
 
   // 快照补活：重试/后台续跑后数字与结论会变，工具卡静态结果是旧的
