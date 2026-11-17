@@ -1083,6 +1083,23 @@ async def update_session_model(
     return session
 
 
+def session_model_sync_target(
+    session: ChatSession, provider: str | None, model: str | None
+) -> tuple[str, str] | None:
+    """本回合请求显式选模时返回会话待写回的 (provider, model)，否则 None。
+
+    会话模型是本回合与下游（计划步骤/排查 worker）的唯一源；请求模型不写回
+    就会「建计划用请求模型、执行用旧会话模型」。编辑重发/trigger/publish 传
+    None 沿用会话模型，这里返回 None 不写回。
+    """
+
+    if provider is None or model is None:
+        return None
+    if session.provider == provider and session.model == model:
+        return None
+    return provider, model
+
+
 async def update_session_agent(
     db: AsyncSession, session_id: str, agent_id: str
 ) -> ChatSession:
@@ -1609,6 +1626,12 @@ async def stream_session_message(
     session = await get_session(db, session_id)
     use_provider = provider if provider is not None else session.provider
     use_model = model if model is not None else session.model
+    sync_target = session_model_sync_target(session, provider, model)
+    if sync_target is not None:
+        # 用户显式选模：校验后写回会话，下游（计划步骤/排查 worker）读同一份
+        await resolve_model(db, *sync_target)
+        session.provider, session.model = sync_target
+        await db.commit()
     user_message_id = client_message_id if client_message_id else str(uuid4())
     if client_message_id is not None and client_message_id == "":
         raise ValueError("client_message_id 不能为空字符串")
