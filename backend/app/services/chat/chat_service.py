@@ -1034,11 +1034,13 @@ async def list_messages(db: AsyncSession, session_id: str) -> list[ChatMessage]:
 
 
 async def append_assistant_message(
-    db: AsyncSession, *, session_id: str, message_id: str, content: str
+    db: AsyncSession, *, session_id: str, message_id: str, content: str,
+    tool_call: dict | None = None,
 ) -> ChatMessage:
     """带外补写 assistant 正文消息（自动汇总等后台产出）。
 
     与回合产出共用 _add_message 收口：seq 排序、字段规整口径一致。
+    tool_call 用于汇总消息内联产出物（合成 run_python 卡）。
     """
 
     return await _add_message(
@@ -1048,7 +1050,7 @@ async def append_assistant_message(
         role="assistant",
         kind="message",
         content=content,
-        tool_call=None,
+        tool_call=tool_call,
     )
 
 

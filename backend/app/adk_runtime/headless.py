@@ -29,6 +29,25 @@ _FINDINGS_FENCE_RE = re.compile(r"```findings\s*\n(.*?)```", re.DOTALL)
 # 无人值守临时会话 state 键：工具借此回传真实会话 id（产出物归属用）
 HEADLESS_SESSION_ID_KEY = "ongrid_real_session_id"
 
+# 工具轨迹里单个入参/返回的收敛上限：结构化数据超限则转截断文本，防 token 爆
+_TRACE_VALUE_LIMIT = 12000
+
+
+def _trace_value(value: Any) -> Any:
+    """工具入参/返回写入轨迹前的体量收敛：短结构原样保留，超限转截断文本。"""
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value[:_TRACE_VALUE_LIMIT]
+    try:
+        text = json.dumps(value, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return str(value)[:_TRACE_VALUE_LIMIT]
+    if len(text) <= _TRACE_VALUE_LIMIT:
+        return value
+    return text[:_TRACE_VALUE_LIMIT] + "…(truncated)"
+
 
 @dataclass(frozen=True)
 class WorkerBudget:
@@ -55,6 +74,8 @@ class HeadlessResult:
     usage: dict[str, int] = field(default_factory=dict)
     duration_ms: int = 0
     log_text: str = ""
+    # 本回合工具调用轨迹：{call_id, name, args, response}，供跨步上下文与汇总复用
+    tool_trace: list[dict[str, Any]] = field(default_factory=list)
 
 
 class BudgetExceeded(Exception):
@@ -132,6 +153,7 @@ async def run_headless_turn(
     opening: str,
     closing: str,
     session_state: dict[str, Any] | None = None,
+    on_tool_response: Callable[[str, str, Any], Awaitable[None]] | None = None,
 ) -> HeadlessResult:
     """跑完一个无人值守回合；超时/超限/停止/异常都转成结构化结果。
 
@@ -139,12 +161,16 @@ async def run_headless_turn(
     由调用方按各自语义给出（如「开始排查：… / 排查完成」）。
     session_state 注入临时会话状态：无人值守 agent 的 tool_context.session
     是独立临时会话，工具（如 run_python）借它回传真实会话等上下文。
+    on_tool_response 在收到工具返回时按 (call_id, name, response) 触发，
+    供调用方落产出物等副作用；不传则无额外行为。
     """
 
     started = time.monotonic()
     log_lines: list[str] = []
     # 失败中断时也要报已耗用量：回合内实时同步进来，_finish 失败路径原样带回
     usage_partial: dict[str, int] = {}
+    # 工具轨迹同理实时同步：中途失败也能带回已收集的工具输入输出
+    tool_trace_partial: list[dict[str, Any]] = []
 
     async def _log(line: str, tool: str = "") -> None:
         log_lines.append(line)
@@ -160,6 +186,7 @@ async def run_headless_turn(
             usage=usage or {},
             duration_ms=int((time.monotonic() - started) * 1000),
             log_text="\n".join(log_lines),
+            tool_trace=list(tool_trace_partial),
         )
 
     await _log(opening)
@@ -175,7 +202,9 @@ async def run_headless_turn(
                     log=_log,
                     stop_check=stop_check,
                     usage_partial=usage_partial,
+                    tool_trace_partial=tool_trace_partial,
                     session_state=session_state,
+                    on_tool_response=on_tool_response,
                 ),
                 timeout=budget.timeout_seconds if budget.timeout_seconds > 0 else None,
             )
@@ -228,12 +257,16 @@ async def _run_turn(
     log: Callable[..., Awaitable[None]],
     stop_check: Callable[[], bool],
     usage_partial: dict[str, int],
+    tool_trace_partial: list[dict[str, Any]],
     session_state: dict[str, Any] | None = None,
+    on_tool_response: Callable[[str, str, Any], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
-    """headless 跑一个回合，收集文本 / call_id / usage。
+    """headless 跑一个回合，收集文本 / call_id / usage / 工具轨迹。
 
     usage_partial 实时同步已耗用量：回合中途失败（超限/超时）时，
     调用方仍能报出已消耗的 tokens。
+    tool_trace_partial 实时同步工具轨迹：先记 call 的入参，response 到达时补齐。
+    on_tool_response 在返回到达时触发，供调用方落产出物等副作用。
     """
 
     session = await runner.session_service.create_session(
@@ -245,6 +278,8 @@ async def _run_turn(
 
     answer_parts: list[str] = []
     call_ids: set[str] = set()
+    # call_id -> 轨迹条目占位；function_call 记入参，function_response 回填 response
+    trace_by_call: dict[str, dict[str, Any]] = {}
     usage_prompt: int | None = None
     usage_completion: int | None = None
     usage_total: int | None = None
@@ -288,12 +323,28 @@ async def _run_turn(
                 fname = getattr(fc, "name", "") or ""
                 if isinstance(cid, str) and cid != "":
                     call_ids.add(cid)
+                    # 入参先登记；response 未到也保留（失败轨迹同样可追溯）
+                    entry: dict[str, Any] = {
+                        "call_id": cid,
+                        "name": fname,
+                        "args": _trace_value(getattr(fc, "args", None)),
+                        "response": None,
+                    }
+                    trace_by_call[cid] = entry
+                    tool_trace_partial.append(entry)
                 await log(f"调用工具 {fname}", tool=fname)
                 continue
             fr = getattr(part, "function_response", None)
             if fr is not None:
                 fname = getattr(fr, "name", "") or ""
+                cid = getattr(fr, "id", "") or ""
+                response = getattr(fr, "response", None)
+                response_entry = trace_by_call.get(cid) if isinstance(cid, str) else None
+                if response_entry is not None:
+                    response_entry["response"] = _trace_value(response)
                 await log(f"工具返回 {fname}", tool=fname)
+                if on_tool_response is not None:
+                    await on_tool_response(cid, fname, response)
                 continue
             if part.text:
                 answer_parts.append(part.text)

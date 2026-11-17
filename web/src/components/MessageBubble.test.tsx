@@ -924,3 +924,35 @@ describe('MessageBubble 失败工具原始错误', () => {
     expect(screen.getByText(/exit 1/)).toBeInTheDocument();
   });
 });
+
+describe('MessageBubble plan summary inline artifact', () => {
+  it('renders the chart from a summary message single tool_call', () => {
+    const toolCall: ToolCallSummary = {
+      id: 'summary-py-plan-1',
+      name: 'run_python',
+      status: 'success',
+      arguments: {},
+      result: {
+        artifacts: [
+          {
+            id: 'artifact-1',
+            kind: 'chart',
+            title: '各工作流节点数与连线数对比',
+            mime: 'application/json',
+            payload: { xAxis: { type: 'category' }, series: [] },
+          },
+        ],
+      },
+    };
+
+    render(<MessageBubble message={{
+      id: 'auto-summary-plan-1',
+      role: 'assistant',
+      kind: 'message',
+      content: '计划执行已全部完成 · 2 步收口\n\n7 个工作流共 22 节点。',
+      tool_call: toolCall,
+    }} />);
+
+    expect(screen.getByText('各工作流节点数与连线数对比')).toBeInTheDocument();
+  });
+});

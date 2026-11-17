@@ -442,7 +442,12 @@ async def _execute_step_node(
         step.started_at = datetime.now(timezone.utc)
         await db.commit()
         prior = [
-            (r.name, r.summary)
+            {
+                "name": r.name,
+                "conclusion": r.summary or "",
+                "findings": json.loads(r.findings_json or "[]"),
+                "tool_trace": json.loads(r.tool_trace_json or "[]"),
+            }
             for r in rows
             if r.status == "succeeded" and r.summary
         ]
@@ -513,6 +518,7 @@ async def _execute_step_node(
                     step.log_text = turn.log_text
                     step.usage_json = json.dumps(turn.usage, ensure_ascii=False)
                     step.duration_ms = turn.duration_ms
+                    step.tool_trace_json = json.dumps(turn.tool_trace, ensure_ascii=False)
                     if turn.status == "succeeded":
                         step.status = "succeeded"
                         step.summary = turn.conclusion
@@ -591,31 +597,30 @@ async def _finish_plan(
     await publish(
         {"event": "plan_updated", "plan_uid": plan.plan_uid, "status": status}
     )
-    # 全部收口：自动汇总写回对话流，汇总随终态事件带 message_id 供前端取
-    from app.services.chat.auto_summary import run_auto_summary
+    # 全部收口：带工具的收尾汇总写回对话流（结论含具体数据 + 内联图表）
+    from app.services.plan.plan_summary import run_plan_summary
 
-    items = [
+    # 汇总与步骤共用同一份证据视图：findings + tool_trace + conclusion
+    steps = [
         {
-            "label": f"{r.order_index + 1} · {r.name}",
-            "status": r.status,
+            "name": r.name,
             "conclusion": r.summary or r.error or "无结论",
+            "findings": json.loads(r.findings_json or "[]"),
+            "tool_trace": json.loads(r.tool_trace_json or "[]"),
         }
         for r in rows
     ]
-    gaps = [
-        f"{r.name}：{r.error or r.summary}"
-        for r in rows
-        if r.status in ("failed", "skipped", "stopped")
-    ]
-    summary_message_id = await run_auto_summary(
+    budget = _budget_of(plan)
+    header = f"计划执行已全部完成 · {len(rows)} 步收口"
+    summary_message_id = await run_plan_summary(
         db,
         session_id=plan.session_id,
-        kind="plan",
-        run_uid=plan.plan_uid,
-        header=f"计划执行已全部完成 · {len(rows)} 步收口",
+        plan_uid=plan.plan_uid,
+        header=header,
         question=plan.question,
-        items=items,
-        gaps=gaps,
+        steps=steps,
+        budget=budget,
+        assemble_step=_assemble_step,
     )
     await publish(
         {
@@ -634,8 +639,12 @@ async def _assemble_step(
     instruction: str,
     budget: WorkerBudget,
     tools: tuple[str, ...] = (),
+    persona: str | None = None,
 ):
-    """按会话助理配置装配单步 agent（只读工具 + 继承 MCP + 禁写闸门）。"""
+    """按会话助理配置装配单步 agent（只读工具 + 继承 MCP + 禁写闸门）。
+
+    persona 覆盖默认步骤人设（收尾汇总复用同款装配，只换人设）。
+    """
 
     from app.services.agent import agent_service
     from app.services.agent.agent_tool_service import build_agent_tool_bundle
@@ -682,7 +691,7 @@ async def _assemble_step(
             disallowed_tool_names=bundle.disallowed_tool_names,
             budget=budget,
             llm_timeout_seconds=int(runtime_cfg["llm_timeout_seconds"]),
-            persona=build_plan_step_persona(name, instruction),
+            persona=persona if persona is not None else build_plan_step_persona(name, instruction),
             readonly_tools=PLAN_STEP_READONLY_TOOL_NAMES,
             # 声明了所需工具就收窄挂载面，不声明挂默认全量只读集
             tool_focus=tools or None,
@@ -732,6 +741,7 @@ def _step_to_wire(row: PlanStep) -> dict[str, Any]:
         "attempt": row.attempt,
         "summary": row.summary,
         "findings": json.loads(row.findings_json or "[]"),
+        "tool_trace": json.loads(row.tool_trace_json or "[]"),
         "log_text": row.log_text,
         "usage": json.loads(row.usage_json or "{}"),
         "error": row.error,

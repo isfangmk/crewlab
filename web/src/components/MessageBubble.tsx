@@ -450,6 +450,11 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
           </ReactMarkdown>
         </div>
       )}
+      {/* 收尾汇总的内联图表：合成 run_python 卡以单个 tool_call 挂在汇总正文消息上 */}
+      {isSummary && !message.tool_calls?.length && message.tool_call && (() => {
+        const artifacts = interpreterArtifactsOf(fromSummary(message.tool_call));
+        return artifacts.length > 0 ? <InterpreterArtifacts artifacts={artifacts} /> : null;
+      })()}
       {message.tool_calls?.map((tc, i) => (
         <ToolCallBlock
           key={`${tc.name}-${i}`}

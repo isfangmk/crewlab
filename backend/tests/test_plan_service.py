@@ -22,7 +22,7 @@ from app.models.chat import ChatMessage, ChatSession
 from app.models.plan import PlanExecution, PlanStep
 from app.models.workflow import WorkflowNodeRun, WorkflowRun
 from app.services.investigation.investigation_events import InvestigationEventBus
-from app.services.plan import plan_service
+from app.services.plan import plan_service, plan_summary
 
 
 async def _cleanup(session_ids: list[str], plan_uids: list[str]) -> None:
@@ -184,6 +184,16 @@ def _ok(name: str) -> HeadlessResult:
     )
 
 
+def _stub_summary_llm(monkeypatch) -> None:
+    """收尾汇总的执行缝打桩：返回含步骤结论的正文，落库/幂等仍走真实实现。"""
+
+    async def fake_headless(*, prompt, **_kwargs):
+        body = "\n".join(line for line in prompt.splitlines() if "结论" in line)
+        return HeadlessResult(status="succeeded", conclusion=body or "汇总结论")
+
+    monkeypatch.setattr(plan_summary, "run_headless_turn", fake_headless)
+
+
 def test_parse_steps_json_validates() -> None:
     """步骤 JSON 校验：数量边界、空名、工具类型都要拦住；合法输入规整。"""
 
@@ -281,6 +291,7 @@ async def test_plan_runs_steps_in_order_with_prior_context(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
+    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(
@@ -343,6 +354,7 @@ async def test_step_failure_pauses_and_retry_resumes(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
+    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(
@@ -401,6 +413,7 @@ async def test_skip_step_continues_with_placeholder(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
+    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(
@@ -456,6 +469,7 @@ async def test_stop_plan_marks_pending_stopped(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
+    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(tag, session_ids[0], [{"name": "步骤一"}, {"name": "步骤二"}])
@@ -506,6 +520,7 @@ async def test_pause_then_resume_reexecutes_step(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
+    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(tag, session_ids[0], [{"name": "步骤一"}, {"name": "步骤二"}])
@@ -575,7 +590,9 @@ async def test_step_tools_focus_passed_to_assemble(monkeypatch) -> None:
     captured: list[tuple[str, ...]] = []
 
     async def fake_assemble(**kwargs):
-        captured.append(tuple(kwargs.get("tools") or ()))
+        # 收尾汇总也复用装配：只记录步骤的 tools focus，排除汇总装配
+        if kwargs.get("name") != "收尾汇总":
+            captured.append(tuple(kwargs.get("tools") or ()))
         return object()
 
     async def fake_run_step(*, name, **_kwargs):
@@ -583,6 +600,7 @@ async def test_step_tools_focus_passed_to_assemble(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
+    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(
@@ -627,6 +645,7 @@ async def test_auto_summary_written_and_idempotent(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
+    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(tag, session_ids[0], [{"name": "步骤一"}, {"name": "步骤二"}])

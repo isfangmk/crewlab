@@ -77,6 +77,8 @@ class PlanStep(Base):
     summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # 本步要点（findings 围栏解析结果，带 call_id 证据）
     findings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    # 本步工具调用轨迹（入参/返回收敛后）：跨步上下文与最终汇总复用
+    tool_trace_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     # 执行日志节选（实时日志走事件总线）
     log_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # 本步用量；缺键不造假 0
