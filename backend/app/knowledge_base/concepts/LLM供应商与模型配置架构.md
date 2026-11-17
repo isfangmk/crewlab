@@ -48,7 +48,7 @@ flowchart TD
 
 **两种形态并注入，网关认哪种由它自己定**；不强加 `openai/` 前缀或某家专属字段（详见《Agent装配与子代理架构》）。
 
-**跨处一致性**：这套装配被 chat、审批恢复、playground、子代理、executor、eval judge、工作流、`auto_summary` 等所有模型调用点复用，必须跨处保持一致——任何「前缀怎么拼、思考字段怎么注入」的改动都要在这些入口统一生效，不能只改一处。
+**跨处一致性**：`compose_litellm_model` / `provider_extra_body` 被 chat、审批恢复、playground、子代理、executor、eval judge、工作流、`auto_summary` 等模型调用点复用（前缀与厂商请求体的拼装口径统一在这两处）——改动前缀或 `extra_body_json` 解析需全局一致。需注意：**思考字段注入（`apply_thinking_extra`）只在 `adk_runtime/agent_factory.py` 的主对话装配点生效**；eval judge 与 `auto_summary` 只复用模型/请求体拼装，不注入 thinking/reasoning_effort，即评测裁判与自动摘要不受对话思考开关控制。
 
 ## 手动价与用量口径（llm_admin._normalize_model_prices）
 

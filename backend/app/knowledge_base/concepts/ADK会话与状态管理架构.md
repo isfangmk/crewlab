@@ -100,7 +100,7 @@ sequenceDiagram
 
 - `channel_lock()`（`publish_service.py:35`，注释在 `:31-36`）取 `RedisLock(f"channel:{channel_id}", ttl_ms=600_000)`；锁实现见《Redis强依赖与多worker协同架构》。此前用进程内 `Lock`，仅单进程有效，多 worker 失效。
 - **锁内重读快照**（`ensure_session()`，`:310-339`）：并发请求在等锁之前拿到的 `channel` 可能是旧快照（另一请求刚建好会话），锁内先 `db.refresh(channel)` 再判断，否则会重复建会话并覆盖 `session_id`。`api/publish.py:446` 也有同款「串行化，避免并发写入撞 ADK stale session」注释。
-- 过期待批由 `expire_stale_pending()`（`approval_service.py:168`）处理：把超时未决的 `pending` 审批标为 `expired`，**绝不自动批准**（与《工具执行权限与审批规则》的 SLA 口径一致）。渠道锁细节见「发布渠道相关文档」。
+- 过期待批由 `expire_stale_pending()`（`approval_service.py:168`）处理：把超时未决的 `pending` 审批标为 `expired`，**绝不自动批准**（与《工具执行权限与审批规则》的 SLA 口径一致）。渠道锁细节见《发布渠道架构》。
 
 ## 状态域边界（user_states / app_states / adk_internal_metadata）
 
