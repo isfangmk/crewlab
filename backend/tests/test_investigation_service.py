@@ -466,6 +466,10 @@ def test_worker_agent_injects_focus_guidance_and_focus_mounts() -> None:
     agent = build_worker_agent(**kwargs)
     assert "聚焦纪律" in (agent.instruction or "")
     assert "无关的工具一律不调用" in (agent.instruction or "")
+    assert "收尾纪律" in (agent.instruction or "")
+    assert "立即停止检索、直接给结论" in (agent.instruction or "")
+    assert "证据复用" in (agent.instruction or "")
+    assert "多条结论可共享同一次检索" in (agent.instruction or "")
     # 默认全量只读面：工作流查询等都挂着
     default_names = {getattr(t, "name", "") for t in agent.tools}
     assert {"recall_memory", "list_workflows", "query_knowledge"} <= default_names
