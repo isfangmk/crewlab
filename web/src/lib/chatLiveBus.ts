@@ -19,14 +19,14 @@ export type ChatLiveDetail =
   | { type: 'approval_pending'; event: ApprovalPendingStreamEvent }
   // 用户已对某条审批做出决定：会话据此收起「等待你确认」提示。
   | { type: 'approval_decided'; approvalId: string }
-  // create_plan 落库：右栏工作台据此重拉列表并切到新计划。
-  | { type: 'plan_created'; planUid: string };
+  // create_plan 的继任者 submit_task_graph 落库：右栏工作台据此重拉列表并切到新图。
+  | { type: 'graph_created'; graphUid: string };
 
 export function emitChatLive(detail: ChatLiveDetail): void {
   window.dispatchEvent(new CustomEvent<ChatLiveDetail>(CHAT_LIVE_EVENT, { detail }));
 }
 
-/** 计划收尾汇总的正文增量：把 plan 事件流的 delta 转发进对话流逐字显示。 */
+/** 任务图收尾汇总的正文增量：把事件流的 delta 转发进对话流逐字显示。 */
 export function relaySummaryDelta(messageId: string, delta: string, partial: boolean): void {
   emitChatLive({
     type: 'assistant_delta',

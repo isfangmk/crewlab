@@ -21,10 +21,9 @@ import {
 
 import { AgentBadge } from '@/components/AgentBadge';
 import { ArtifactsPanel } from '@/components/ArtifactsPanel';
-import { InvestigationWorkbench, type LocateTarget } from '@/components/investigation/InvestigationWorkbench';
-import { PlanWorkbench, type PlanLocateTarget } from '@/components/plan/PlanWorkbench';
+import { TaskGraphWorkbench, type TaskGraphLocateTarget } from '@/components/taskgraph/TaskGraphWorkbench';
 
-import { Download, ListChecks, PanelRight, Radar, Share2 } from 'lucide-react';
+import { Download, GitBranch, PanelRight, Share2 } from 'lucide-react';
 
 import {
   ErrorBanner, PageHeader, RowAction } from '@/components/ui';
@@ -177,43 +176,28 @@ export default function ChatThreadPage() {
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [artifactTick, setArtifactTick] = useState(0);
 
-  // 排查工作台侧栏：开关 + 定位请求（引用角标/折叠块跳转，seq 变化触发滚动）
-  const [showWorkbench, setShowWorkbench] = useState(false);
-  const [workbenchLocate, setWorkbenchLocate] = useState<(LocateTarget & { seq: number }) | null>(null);
+  // 任务图工作台侧栏：开关 + 定位请求（引用角标/任务图卡跳转，seq 变化触发滚动）
+  const [showGraphWorkbench, setShowGraphWorkbench] = useState(false);
+  const [graphLocate, setGraphLocate] = useState<(TaskGraphLocateTarget & { seq: number }) | null>(null);
 
-  // 引用角标/折叠块 → 右栏工作台定位
-  const locateInWorkbench = (target: LocateTarget) => {
-    setShowWorkbench(true);
-    // 两个工作台互斥停靠：开一个关另一个，对话列不被挤窄
-    setShowPlanWorkbench(false);
-    setWorkbenchLocate({ ...target, seq: Date.now() });
+  // 引用角标/任务图卡 → 右栏工作台定位
+  const locateInGraphWorkbench = (target: TaskGraphLocateTarget) => {
+    setShowGraphWorkbench(true);
+    setGraphLocate({ ...target, seq: Date.now() });
   };
 
-  // 计划工作台侧栏：开关 + 定位请求（计划卡跳转，seq 变化触发滚动）
-  const [showPlanWorkbench, setShowPlanWorkbench] = useState(false);
-  const [planLocate, setPlanLocate] = useState<(PlanLocateTarget & { seq: number }) | null>(null);
-
-  // 计划卡 → 右栏执行进度定位
-  const locateInPlanWorkbench = (target: PlanLocateTarget) => {
-    setShowPlanWorkbench(true);
-    setShowWorkbench(false);
-    setPlanLocate({ ...target, seq: Date.now() });
-  };
-
-  // 会话内排查发现的最大编号：汇总正文的 [n] 引用角标按它渲染（工具卡是独立消息，取全局）
-  const investigationFindingN = useMemo(() => {
-    let max = 0;
+  // 会话内任务图发现总数：汇总正文的 [n] 引用角标按它渲染（工具卡是独立消息，取全局）
+  const findingCount = useMemo(() => {
+    let total = 0;
     for (const m of messages) {
       const calls = [...(m.tool_calls ?? []), ...(m.tool_call ? [m.tool_call] : [])];
       for (const tc of calls) {
-        if (tc.name !== 'dispatch_investigation' && tc.name !== 'get_investigation') continue;
-        const findings = (tc.result as { findings?: { n?: number }[] } | undefined)?.findings ?? [];
-        for (const f of findings) {
-          if (typeof f.n === 'number' && f.n > max) max = f.n;
-        }
+        if (tc.name !== 'submit_task_graph' && tc.name !== 'get_task_graph') continue;
+        const nodes = (tc.result as { nodes?: { findings?: unknown[] }[] } | undefined)?.nodes ?? [];
+        for (const node of nodes) total += node.findings?.length ?? 0;
       }
     }
-    return max;
+    return total;
   }, [messages]);
 
   const [submitting, setSubmitting] = useState(false);
@@ -1017,14 +1001,9 @@ export default function ChatThreadPage() {
       }
       if (detail.type === 'tool_start') {
         const t = detail.event;
-        // 并行排查/规划执行派发：自动展开右栏看实时进度（两栏互斥，不挤压对话）
-        if (t.name === 'dispatch_investigation') {
-          setShowWorkbench(true);
-          setShowPlanWorkbench(false);
-        }
-        if (t.name === 'create_plan') {
-          setShowPlanWorkbench(true);
-          setShowWorkbench(false);
+        // 任务图提交：自动展开右栏看实时拓扑进度
+        if (t.name === 'submit_task_graph') {
+          setShowGraphWorkbench(true);
         }
         const card: ChatMessage = {
           id: `tool-card-${t.tool_call_id}`,
@@ -1078,10 +1057,10 @@ export default function ChatThreadPage() {
           setArtifactTick((v) => v + 1);
           setShowArtifacts(true);
         }
-        // create_plan 落库（后台回合路径）：通知右栏工作台切到新计划
-        if (t.name === 'create_plan' && t.status === 'success') {
-          const newUid = (t.result as { plan_uid?: string } | undefined)?.plan_uid;
-          if (newUid) emitChatLive({ type: 'plan_created', planUid: newUid });
+        // submit_task_graph 落库（后台回合路径）：通知右栏工作台切到新图
+        if (t.name === 'submit_task_graph' && t.status === 'success') {
+          const newUid = (t.result as { graph_uid?: string } | undefined)?.graph_uid;
+          if (newUid) emitChatLive({ type: 'graph_created', graphUid: newUid });
         }
       }
     };
@@ -1479,14 +1458,9 @@ export default function ChatThreadPage() {
 
             if (activeSessionRef.current !== turnSessionID) return;
 
-            // 并行排查/规划执行派发：自动展开右栏看实时进度（两栏互斥，不挤压对话）
-            if (t.name === 'dispatch_investigation') {
-              setShowWorkbench(true);
-              setShowPlanWorkbench(false);
-            }
-            if (t.name === 'create_plan') {
-              setShowPlanWorkbench(true);
-              setShowWorkbench(false);
+            // 任务图提交：自动展开右栏看实时拓扑进度
+            if (t.name === 'submit_task_graph') {
+              setShowGraphWorkbench(true);
             }
 
             const card: ChatMessage = {
@@ -1597,14 +1571,10 @@ export default function ChatThreadPage() {
 
             }
 
-            // create_plan 落库：通知右栏工作台重拉列表并切到新计划
-
-            if (t.name === 'create_plan' && t.status === 'success') {
-
-              const newUid = (t.result as { plan_uid?: string } | undefined)?.plan_uid;
-
-              if (newUid) emitChatLive({ type: 'plan_created', planUid: newUid });
-
+            // submit_task_graph 落库：通知右栏工作台重拉列表并切到新图
+            if (t.name === 'submit_task_graph' && t.status === 'success') {
+              const newUid = (t.result as { graph_uid?: string } | undefined)?.graph_uid;
+              if (newUid) emitChatLive({ type: 'graph_created', graphUid: newUid });
             }
 
           },
@@ -2228,41 +2198,15 @@ export default function ChatThreadPage() {
 
                 <RowAction
 
-                  icon={Radar}
+                  icon={GitBranch}
 
-                  onClick={() => {
+                  onClick={() => setShowGraphWorkbench(!showGraphWorkbench)}
 
-                    setShowWorkbench(!showWorkbench);
-
-                    if (!showWorkbench) setShowPlanWorkbench(false);
-
-                  }}
-
-                  aria-pressed={showWorkbench}
+                  aria-pressed={showGraphWorkbench}
 
                 >
 
-                  {tr('排查', 'Investigation')}
-
-                </RowAction>
-
-                <RowAction
-
-                  icon={ListChecks}
-
-                  onClick={() => {
-
-                    setShowPlanWorkbench(!showPlanWorkbench);
-
-                    if (!showPlanWorkbench) setShowWorkbench(false);
-
-                  }}
-
-                  aria-pressed={showPlanWorkbench}
-
-                >
-
-                  {tr('执行进度', 'Plan progress')}
+                  {tr('任务图', 'Task graph')}
 
                 </RowAction>
 
@@ -2344,11 +2288,11 @@ export default function ChatThreadPage() {
 
                   onUseSuggestion={isViewer ? undefined : useSuggestion}
 
-                  onLocate={isViewer ? undefined : locateInWorkbench}
+                  onLocate={isViewer ? undefined : locateInGraphWorkbench}
 
-                  onLocatePlan={isViewer ? undefined : locateInPlanWorkbench}
+                  onLocatePlan={isViewer ? undefined : locateInGraphWorkbench}
 
-                  findingCount={investigationFindingN}
+                  findingCount={findingCount}
 
                   onRegenerate={isViewer ? undefined : regenerate}
 
@@ -2473,19 +2417,11 @@ export default function ChatThreadPage() {
 
       </div>
 
-      {showWorkbench && sessionId && (
-        <InvestigationWorkbench
+      {showGraphWorkbench && sessionId && (
+        <TaskGraphWorkbench
           sessionId={sessionId}
-          locate={workbenchLocate}
-          onClose={() => setShowWorkbench(false)}
-        />
-      )}
-
-      {showPlanWorkbench && sessionId && (
-        <PlanWorkbench
-          sessionId={sessionId}
-          locate={planLocate}
-          onClose={() => setShowPlanWorkbench(false)}
+          locate={graphLocate}
+          onClose={() => setShowGraphWorkbench(false)}
         />
       )}
 

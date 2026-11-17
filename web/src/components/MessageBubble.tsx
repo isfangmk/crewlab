@@ -32,10 +32,8 @@ import { Button, Chip, ChoiceChip, CodeBlock, DropdownMenu, DropdownMenuContent,
 import { Modal } from '@/components/Modal';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
-import { DispatchBlock } from '@/components/investigation/DispatchBlock';
-import type { LocateTarget } from '@/components/investigation/InvestigationWorkbench';
-import { PlanBlock } from '@/components/plan/PlanBlock';
-import type { PlanLocateTarget } from '@/components/plan/PlanWorkbench';
+import { TaskGraphCard } from '@/components/taskgraph/TaskGraphCard';
+import type { TaskGraphLocateTarget } from '@/components/taskgraph/TaskGraphWorkbench';
 import { SearchResults, collectToolSources, extractSources } from '@/components/SourcesBlock';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';import { InterpreterArtifacts, type InterpreterArtifact } from '@/components/InterpreterArtifacts';
@@ -73,11 +71,11 @@ type Props = {
   followupsActive?: boolean;
   /** 点击建议问题：填入输入框并立即发送 */
   onUseSuggestion?(text: string): void;
-  /** 引用角标/排查块定位：跳右栏工作台的发现或 worker */
-  onLocate?(target: LocateTarget): void;
-  /** 计划卡定位：跳右栏执行进度的步骤 */
-  onLocatePlan?(target: PlanLocateTarget): void;
-  /** 会话内排查发现的最大编号：>0 时正文 [n] 渲染为引用角标 */
+  /** 引用角标/任务图卡定位：跳右栏工作台的节点 */
+  onLocate?(target: TaskGraphLocateTarget): void;
+  /** 任务图卡可交互（非只读账号）；保留原名以复用调用点，语义改为任务图 */
+  onLocatePlan?(target: TaskGraphLocateTarget): void;
+  /** 会话内任务图发现的最大编号：>0 时正文 [n] 渲染为引用角标 */
   findingCount?: number;
 };
 
@@ -602,16 +600,12 @@ function ToolCallBlock({
   showSearchResults?: boolean;
   /** 回合未收口：排查折叠块只展示进行态 */
   pending?: boolean;
-  onLocate?: (target: LocateTarget) => void;
-  onLocatePlan?: (target: PlanLocateTarget) => void;
+  onLocate?: (target: TaskGraphLocateTarget) => void;
+  onLocatePlan?: (target: TaskGraphLocateTarget) => void;
 }) {
-  // 并行排查工具卡走专属折叠块（计数 + 每路结论 + 跳右栏）
-  if (call.name === 'dispatch_investigation') {
-    return <DispatchBlock call={call} pending={pending} />;
-  }
-  // 规划执行工具卡走专属折叠块（步骤清单 + 待确认可调可执行）
-  if (call.name === 'create_plan') {
-    return <PlanBlock call={call} pending={pending} interactive={onLocatePlan !== undefined} />;
+  // 任务图工具卡走专属折叠块（拓扑节点 + 草稿确认 + 实时进度）
+  if (call.name === 'submit_task_graph') {
+    return <TaskGraphCard call={call} pending={pending} interactive={onLocatePlan !== undefined} />;
   }
   const artifacts = interpreterArtifactsOf(call);
   const searchResults = showSearchResults ? extractSources(call.name, call.result) : [];
