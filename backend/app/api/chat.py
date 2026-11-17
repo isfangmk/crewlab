@@ -7,10 +7,12 @@ import base64
 import json
 import logging
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import PlainTextResponse, Response
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -33,16 +35,48 @@ from app.schemas.chat import (
 )
 from app.services.chat import (
     attachment_service,
+    chat_queue,
     chat_service,
     chat_stream_bus,
     chat_stream_orchestrator,
     share_service,
 )
 from app.services.observability.audit_service import write_audit
+from app.services.platform import notification_bus
 from app.services.platform.auth_service import AuthUser
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
+
+
+class QueueMessageRequest(BaseModel):
+    """回答进行中发送的消息入队请求体；字段足够后续起回合复用。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1)
+    provider: str | None = None
+    model: str | None = None
+    thinking_enabled: bool = False
+    web_search_enabled: bool = False
+    attachment_ids: list[str] = Field(default_factory=list)
+    mentions: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def _require_session_owner(session, user: AuthUser) -> None:
+    """校验会话属当前用户；admin 放行。
+
+    属主以 owner_user_id 为准；历史会话该列可能为空，回退到 adk_user_id（建会话时
+    置为 str(user.id)）判断，避免误伤老数据。
+    """
+
+    if user.role == "admin":
+        return
+    owner_ok = session.owner_user_id == user.id or (
+        session.owner_user_id is None and session.adk_user_id == str(user.id)
+    )
+    if not owner_ok:
+        raise HTTPException(status_code=403, detail="无权操作该会话")
 
 
 def _session_out(s, stats: chat_service.SessionStats | None = None) -> ChatSessionOut:
@@ -553,6 +587,117 @@ async def stop_session(
         resource_id=session_id,
     )
     return result
+
+
+@router.post("/chat/sessions/{session_id}/queue")
+async def enqueue_message(
+    session_id: str,
+    body: QueueMessageRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    """回答进行中发送消息：入队等待当前回合结束后依次消费。"""
+
+    try:
+        session = await chat_service.get_session(db, session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _require_session_owner(session, user)
+
+    item_id, position = await chat_queue.enqueue(
+        session_id,
+        content=body.content,
+        provider=body.provider,
+        model=body.model,
+        thinking_enabled=body.thinking_enabled,
+        web_search_enabled=body.web_search_enabled,
+        attachment_ids=body.attachment_ids,
+        mentions=body.mentions,
+        owner_uid=session.owner_user_id,
+    )
+    total = await chat_queue.total(session_id)
+    await notification_bus.publish(
+        session.owner_user_id,
+        kind="queue_changed",
+        payload={"session_id": session_id, "action": "enqueued", "total": total},
+    )
+    await write_audit(
+        actor_user_id=user.id,
+        action="session.queue_enqueue",
+        resource_type="chat_session",
+        resource_id=session_id,
+        detail={"session_id": session_id, "item_id": item_id, "position": position},
+    )
+    return {"session_id": session_id, "item_id": item_id, "position": position}
+
+
+@router.get("/chat/sessions/{session_id}/queue")
+async def list_queue(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: AuthUser = Depends(require_auth),
+) -> dict:
+    """列出会话排队消息（只读，按入队顺序）。"""
+
+    try:
+        await chat_service.get_session(db, session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    items = await chat_queue.list_items(session_id)
+    return {
+        "items": [
+            {
+                "item_id": it.item_id,
+                "content": it.content,
+                "position": it.position,
+                "created_at": it.created_at,
+            }
+            for it in items
+        ],
+        "total": len(items),
+    }
+
+
+@router.delete("/chat/sessions/{session_id}/queue/{item_id}")
+async def delete_queued_message(
+    session_id: str,
+    item_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    """删除一条排队消息。"""
+
+    try:
+        session = await chat_service.get_session(db, session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _require_session_owner(session, user)
+
+    # 删前先取位置写审计；找不到视为 404，与 DELETE 语义一致
+    position = next(
+        (it.position for it in await chat_queue.list_items(session_id) if it.item_id == item_id),
+        None,
+    )
+    if position is None:
+        raise HTTPException(status_code=404, detail=f"队列项不存在: {item_id}")
+
+    removed = await chat_queue.delete(session_id, item_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"队列项不存在: {item_id}")
+    total = await chat_queue.total(session_id)
+    await notification_bus.publish(
+        session.owner_user_id,
+        kind="queue_changed",
+        payload={"session_id": session_id, "action": "deleted", "total": total},
+    )
+    await write_audit(
+        actor_user_id=user.id,
+        action="session.queue_delete",
+        resource_type="chat_session",
+        resource_id=session_id,
+        detail={"session_id": session_id, "item_id": item_id, "position": position},
+    )
+    return {"deleted": item_id}
 
 
 @router.get("/chat/sessions/{session_id}/messages")

@@ -59,6 +59,8 @@ class ChatMessage(Base):
     attachments_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 回答统计（耗时 / token），仅运行结束的最后一条 assistant 气泡写入；缺失为 NULL 不造假 0
     stats_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 该消息是否为「插话打断」写入；本阶段只加字段，写入逻辑后续阶段做
+    interrupted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         AwareDateTime(), server_default=func.now(), nullable=False

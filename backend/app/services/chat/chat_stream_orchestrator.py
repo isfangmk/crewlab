@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal
 from app.request_context import set_session_id
-from app.services.chat import chat_service, chat_stream_bus
+from app.services.chat import chat_queue, chat_service, chat_stream_bus
 from app.services.platform import notification_bus
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,81 @@ def _spawn(coro: Any) -> None:
     task = asyncio.create_task(coro)
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
+
+
+def _decorate_terminal_frame(event: str, data: dict[str, Any]) -> dict[str, Any]:
+    """终态帧挂钩点：插话打断阶段在此注入 interrupted / resume 等字段。
+
+    本阶段只占位（interrupted=False），让 done 帧结构先稳定下来；后续插话打断
+    只需改这一处，不必逐个改各调用方的帧构造。非终态帧原样返回。
+    """
+
+    if event not in ("done", "error"):
+        return data
+    decorated = dict(data)
+    decorated.setdefault("interrupted", False)
+    return decorated
+
+
+async def _drain_one_queued_turn(session_id: str) -> None:
+    """回合结束后原子取下一条队列消息并起新回合；队列空则停。
+
+    - 出队是原子的（Lua）：多 worker 不会重复消费，取不到直接返回；
+    - 新回合用 _spawn 起后台任务，其 finally 会再次调用本函数，形成链式直到空；
+      每次只起一个新回合，不会在同一回合内无限循环；
+    - 空正文的脏项跳过继续取（出队已移除本条，循环次数受队列长度约束，不会死循环）。
+    """
+
+    while True:
+        try:
+            item = await chat_queue.dequeue(session_id)
+        except Exception:  # noqa: BLE001 - 出队失败不能拖垮回合收尾
+            logger.exception("队列出队失败 session_id=%s", session_id)
+            return
+        if item is None:
+            return
+
+        try:
+            remaining = await chat_queue.total(session_id)
+        except Exception:  # noqa: BLE001 - 统计失败不阻断消费，total 退化为 0
+            logger.exception("队列长度统计失败 session_id=%s", session_id)
+            remaining = 0
+        await notification_bus.publish(
+            item.owner_uid,
+            kind="queue_changed",
+            payload={"session_id": session_id, "action": "dequeued", "total": remaining},
+        )
+
+        if not item.content:
+            logger.warning(
+                "队列项正文为空，跳过起回合 session_id=%s item_id=%s",
+                session_id,
+                item.item_id,
+            )
+            continue
+
+        logger.info(
+            "队列出队起新回合 session_id=%s item_id=%s owner_uid=%s",
+            session_id,
+            item.item_id,
+            item.owner_uid,
+        )
+        _spawn(
+            begin_streamed_turn(
+                session_id=session_id,
+                content=item.content,
+                provider=item.provider,
+                model=item.model,
+                client_message_id=None,
+                thinking_enabled=item.thinking_enabled,
+                web_search_enabled=item.web_search_enabled,
+                attachment_ids=item.attachment_ids,
+                locale=None,
+                mentions=item.mentions or None,
+                owner_uid=item.owner_uid,
+            )
+        )
+        return
 
 
 async def begin_streamed_turn(
@@ -119,7 +194,7 @@ async def _produce(
                 await chat_stream_bus.publish(
                     turn_id,
                     event=frame.event,
-                    data=frame.data,
+                    data=_decorate_terminal_frame(frame.event, frame.data),
                 )
                 if frame.event in ("done", "error"):
                     terminal = frame.event
@@ -130,7 +205,7 @@ async def _produce(
             await chat_stream_bus.publish(
                 turn_id,
                 event="error",
-                data={"error": str(exc)},
+                data=_decorate_terminal_frame("error", {"error": str(exc)}),
             )
         except Exception:  # noqa: BLE001 - 连 Redis 都挂了就只能记日志
             logger.exception("发布错误终态帧失败 session_id=%s", session_id)
@@ -149,3 +224,6 @@ async def _produce(
             turn_id,
             terminal,
         )
+        # 当前回合结束后，依次消费排队消息：链式起新回合，直到队列空。
+        # 放在 chat_refetch 通知之后，保证前端先收到本回合落库信号再处理后续回合。
+        await _drain_one_queued_turn(session_id)
