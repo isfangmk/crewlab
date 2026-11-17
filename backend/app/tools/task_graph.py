@@ -53,8 +53,10 @@ async def submit_task_graph(
     title: 图标题（短，概括任务）。
     question: 总目标：用户要解决的问题，随上下文传给每个节点。
     nodes_json: 节点 JSON 数组，每项 {"id","name","target","instruction","tools","depends_on"}：
-      - id 是局部标识（字母开头的英文，如 A/B/extract），供 depends_on 引用；
-      - name 展示名；target 是本节点要排查/执行的目标；instruction 是具体要求；
+      - id 是局部标识（字母开头的英文，如 a/b/extract），仅供 depends_on 引用，不展示给用户；
+      - name 是展示名，必须是具体任务动作（如「查询最近24小时告警」「统计各级别日志条数」），
+        禁止用 A/B/C、"并行节点"、"节点1" 这类 id 或拓扑角色名——用户看到的是 name，要能一眼看出这步干什么；
+      - target 是本节点要排查/执行的目标；instruction 是具体要求；
       - tools 是本节点所需工具名数组（["__none__"] 表示不挂任何工具，留空挂默认只读集）；
       - depends_on 是前驱 id 数组：留空=与其它起点并行，多个=等全部前驱完成的汇合点。
       1..16 个节点。
