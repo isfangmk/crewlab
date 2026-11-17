@@ -1,4 +1,6 @@
-"""凭证 CRUD：用 AUTH_TOKEN 派生 Fernet 密钥加密字段值。"""
+"""凭证 CRUD：用独立的 CREDENTIAL_ENCRYPTION_KEY 派生 Fernet 密钥加密字段值。
+
+密钥与登录口令 AUTH_TOKEN 解耦：轮换 AUTH_TOKEN 不让已存凭证永久不可解。"""
 
 from __future__ import annotations
 

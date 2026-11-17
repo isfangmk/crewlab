@@ -24,7 +24,7 @@ flowchart TD
 
 `build_skill_toolset` 用 `SkillDiscoveryMode.EAGER`：目录（名称 + 描述）写入系统提示，让模型知道有哪些能力，**避免无差别 `list_skills`**；真正的正文与脚本靠 `load_skill` 按需注入。
 
-- `scope`（助理知识范围）注入给 `query_knowledge`：空 = 全库，非空 = 助理限定目录/文档（见《检索与知识架构》）。
+- `scope`（助理知识范围）注入给 `query_knowledge`：空 = 全库，非空 = 助理限定目录/文档（见《知识库与检索架构》）。
 - 技能声明的工具（`allowed-tools`）经 `_skill_declared_tools` / `declared_tools_of_skills` 汇总；若助理禁用名单与技能声明冲突（配置漂移：技能后加声明、助理已屏蔽），装配时留痕告警（见《Agent装配与子代理架构》八步）。
 
 ## 技能包格式与校验（skill_bundle.py）

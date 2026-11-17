@@ -55,7 +55,7 @@ flowchart TD
 2. **compose_persona**：`agent_service.compose_persona(db, agent)` 拼助理人设 + `## 当前时间`（本地时间 + 时区标签 + 星期，每回合现算）。这是 chat / 审批恢复 / playground / 子助理四路汇合点。
 3. **工具返回值**：检索结果、代码输出等走工具通道，不人工拼进提示词。
 
-长期记忆通过 `compose_memory_hint` 注入（见《检索与知识架构》），同样属于第 2 块的一部分。
+长期记忆通过 `compose_memory_hint` 注入（见《记忆与工具索引架构》），同样属于第 2 块的一部分。
 
 ## 子代理装配（adk_runtime/sub_agents.py）
 
@@ -84,7 +84,7 @@ flowchart TD
 ## 与审批/知识/工具的边界
 
 - 审批闸门在 `before_tool_callback` 判定（详见《工具执行权限与审批规则》与《审批与澄清交互》），装配层负责挂接，不重复实现判定逻辑。
-- 知识范围 `KnowledgeScope` 与 web 搜索开关在装配时注入，检索实现在 `services/knowledge`（详见《检索与知识架构》）。
+- 知识范围 `KnowledgeScope` 与 web 搜索开关在装配时注入，检索实现在 `services/knowledge`（详见《知识库与检索架构》）。
 - 工具的目录、风险、实现在 `app/tools`（详见《内置工具与技能说明》）。
 
 ## 维护地图（改代码时同步更新）

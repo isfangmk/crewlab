@@ -105,6 +105,19 @@ flowchart LR
 - uid 从 `user.id` 解析；`Last-Event-ID` 请求头做续传。
 - 前端页面轮询降级为兜底：ChatThread 30s、KnowledgeSources 5s + 事件、EvalDataset 事件 + 5s、ApprovalDetail 精确监听 + 30s。
 
+**NotificationKind 全表（6 种，发射点 → 前端消费）**：
+
+| kind | 发射点 | 前端消费（useNotifications） |
+|---|---|---|
+| chat_refetch | chat_stream_orchestrator（落库） | requestChatRefetch |
+| approval_decided | approval_service | chatLiveBus approval_decided |
+| graph_created | task_graph_service | 工作台切到新图 |
+| graph_finished | task_graph_service | requestChatRefetch + graph_created |
+| knowledge_sync_done | knowledge_sync | window KNOWLEDGE_SYNC_EVENT |
+| eval_run_done | eval_runner | window EVAL_RUN_EVENT |
+
+> **区分两套事件机制**：NotificationKind 是跨标签页的「刷新信号」（上表，走 `notify:{uid}` Stream + `/events`）；SSE 帧事件（assistant_delta / tool_start / tool_end / approval_pending / node_started 等）是单次运行的数据流，走对话帧总线或工作流/任务图事件 Stream。前者只带信号、前端重拉权威数据；后者带实际数据增量。
+
 ## 多 worker 与 Windows 限制（阶段5）
 
 - `scripts/service.ps1`：仅当设置 `UVICORN_WORKERS=N` 时才加 `--workers`，本地默认单 worker。
