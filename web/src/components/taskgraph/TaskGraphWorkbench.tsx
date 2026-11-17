@@ -88,15 +88,6 @@ export function TaskGraphWorkbench({
       if (seq !== loadSeq.current) return; // 过期快照不覆盖新的
       setWire(data);
       setErr('');
-      setExpanded((prev) => {
-        const next = { ...prev };
-        for (const n of data.nodes) {
-          if ((n.status === 'running' || n.status === 'failed') && next[n.node_uid] === undefined) {
-            next[n.node_uid] = true;
-          }
-        }
-        return next;
-      });
     } catch (e) {
       if (seq !== loadSeq.current) return;
       if (!silent) setErr(errorText(e));

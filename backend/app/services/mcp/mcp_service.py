@@ -476,6 +476,54 @@ async def build_searchable_mcp_toolsets(
     return toolsets
 
 
+async def build_direct_mcp_toolsets(
+    db: AsyncSession,
+    servers: list[McpServer],
+    allowed_tools: list[str],
+) -> list:
+    """把明确声明的 MCP 工具按 wire 名直接装配为可调用实体，不走 search→load。
+
+    供已知要用哪些工具的无人值守节点：初始上下文就拿到实体工具，省掉无谓的
+    search_tools/load_tool 轮次。白名单即唯一口径——只在各 Server 目录里保留
+    声明名命中的工具，未声明的一个都不挂。
+    """
+
+    from app.services.mcp.mcp_catalog_toolset import CachedMcpCatalogToolset, McpDirectToolset
+
+    allowed = set(allowed_tools)
+    toolsets: list = []
+    skipped: list[str] = []
+    for server in servers:
+        if server.status != "ok":
+            skipped.append(server.name)
+            warn_unhealthy_server(server, site="build_direct_toolset")
+            continue
+        source = await CachedMcpCatalogToolset.create(db, server)
+        source_tools = await source.get_tools()
+        permitted = {tool.name for tool in source_tools} & allowed
+        if not permitted:
+            skipped.append(server.name)
+            continue
+        toolsets.append(
+            McpDirectToolset(
+                source,
+                # 与 SearchableToolset 同约定：namespace 用 mcp__<server>，
+                # filter_tools_by_focus 据此按 wire 名前缀保留，避免被误删。
+                namespace=f"mcp__{server.name}",
+                visible=permitted,
+            )
+        )
+        logger.info(
+            "装配直挂 MCP 工具集 id=%s name=%s tools=%s",
+            server.id,
+            server.name,
+            sorted(permitted),
+        )
+    if skipped:
+        logger.info("直挂装配跳过无声明工具的 Server names=%s", skipped)
+    return toolsets
+
+
 async def list_servers(db: AsyncSession) -> list[McpServer]:
     result = await db.scalars(select(McpServer).order_by(McpServer.id.asc()))
     return list(result.all())

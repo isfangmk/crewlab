@@ -40,6 +40,7 @@ async def build_agent_tool_bundle(
     *,
     web_search_enabled: bool = False,
     allowed_tools_override: list[str] | None = None,
+    direct_mcp_tools: bool = False,
 ) -> AgentToolBundle:
     """按助理配置装配技能、MCP 工具、审批与禁用名单。
 
@@ -49,6 +50,10 @@ async def build_agent_tool_bundle(
     allowed_tools_override 供无人值守节点按本节点声明的 MCP 工具收窄检索目录：
     覆盖助理自身白名单，让 searchable 目录只含本节点要用的业务工具；None 时
     保持助理口径不变（主对话/子助理/审批/playground 均走此默认路径）。
+
+    direct_mcp_tools=True 时把 allowed_tools_override 声明的 MCP 工具直接装配为
+    可调用实体（不经 search→load），供已明确要用哪些工具的无人值守节点省掉发现轮次。
+    仅无人值守节点传 True；主对话/子助理保持默认的延迟加载口径。
     """
 
     runtime_skills = await skills_service.resolve_skills(db, agent.skills)
@@ -62,14 +67,20 @@ async def build_agent_tool_bundle(
     from app.services.mcp.tool_search_index import warm_vector_cache_from_db
 
     await warm_vector_cache_from_db(db)
-    extra_tools: list[Any] = list(
-        await mcp_service.build_searchable_mcp_toolsets(
-            db,
-            mcp_servers,
-            # 白名单是唯一口径：没勾选的工具不进检索目录，勾选的也仍需 search/load
-            allowed_tools=allowed_tools,
+    if direct_mcp_tools and allowed_tools_override:
+        # 无人值守节点已知要用哪些工具：直接按名挂实体，跳过 search→load。
+        extra_tools: list[Any] = list(
+            await mcp_service.build_direct_mcp_toolsets(db, mcp_servers, allowed_tools)
         )
-    )
+    else:
+        extra_tools = list(
+            await mcp_service.build_searchable_mcp_toolsets(
+                db,
+                mcp_servers,
+                # 白名单是唯一口径：没勾选的工具不进检索目录，勾选的也仍需 search/load
+                allowed_tools=allowed_tools,
+            )
+        )
     confirm_tool_names = mcp_service.confirm_tool_names_for_servers(mcp_servers)
     # 助理级禁用名单：命中的工具直接拒绝执行
     disallowed_tool_names = agent_service.agent_disallowed_tool_names(agent)

@@ -88,6 +88,7 @@ async def assemble_agent(
             db,
             resolved_agent,
             allowed_tools_override=mcp_focus if mcp_focus else None,
+            direct_mcp_tools=bool(mcp_focus),
         )
         runtime_cfg = await app_settings_service.get_agent_runtime(db)
         scope = (

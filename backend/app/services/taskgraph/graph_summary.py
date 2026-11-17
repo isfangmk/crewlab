@@ -33,6 +33,10 @@ SUMMARY_PERSONA = (
     "回答要给出用户要的完整结论：具体数据、节点情况、必要的对比说明，不只是笼统一句话。\n"
     "需要图表展示对比时，用 run_python 的 chart() 助手产出图表产出物；"
     "正文只写文字结论，禁止把 ECharts 配置或图表数据 JSON 写进正文。\n"
+    "图表位置：每产出一张图，就在正文讨论到该项对比的那一段末尾单独写一行锚点 "
+    "[[图:标题关键词]]（标题关键词取该图表 chart() 的 title 里的几个字，便于对上）；"
+    "锚点必须放在与图表内容最相关的段落，不要全部堆到回答最后。"
+    "若某段没有对应图表就不写锚点。\n"
     "证据不足时如实标注缺口，不要编造数据。\n"
     "严格约束：你的回复的第一个字就是给用户看的最终答案正文。"
     "禁止输出任何自我分析、推理、思考过程、自问自答、"
@@ -50,7 +54,8 @@ def build_summary_prompt(*, question: str, nodes: list[dict[str, Any]]) -> str:
         [
             "",
             "请基于以上证据写出最终回答正文：完整结论 + 具体数据 + 节点情况；"
-            "需要对比展示时用 run_python 的 chart() 画图。直接输出正文即可。",
+            "需要对比展示时用 run_python 的 chart() 画图，并在讨论该项的段落末尾写 [[图:标题关键词]] 锚点，"
+            "把图表定位到正文相关处而非全部堆在最后。直接输出正文即可。",
         ]
     )
     return "\n".join(parts) + "\n"
@@ -66,9 +71,14 @@ async def run_graph_summary(
     nodes: list[dict[str, Any]],
     budget: WorkerBudget,
     assemble_agent_fn: Callable[..., Awaitable[Any]],
+    graph_stats: dict[str, int] | None = None,
     publish: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> str | None:
-    """跑收尾回合并写回汇总消息；返回消息 id（失败降级，不阻塞收口）。"""
+    """跑收尾回合并写回汇总消息；返回消息 id（失败降级，不阻塞收口）。
+
+    graph_stats 是全图口径（各节点 token 之和 + 墙钟耗时），用于汇总消息的
+    stats：用户看到的用量/耗时应覆盖整张图，而非只有收尾汇总这一次 LLM 调用。
+    """
 
     message_id = f"auto-summary-taskgraph-{graph_uid}"
     started = time.monotonic()
@@ -174,13 +184,13 @@ async def run_graph_summary(
             else None
         )
 
-        stats: dict[str, int] = {}
-        if isinstance(turn.duration_ms, int) and turn.duration_ms > 0:
-            stats["duration_ms"] = turn.duration_ms
+        # 汇总消息的 stats 用全图口径：节点 token/墙钟耗时 + 收尾汇总自身的 token。
+        # 否则用户只看到收尾这一次调用的 3.xk token / 几十秒，误以为整图就这点用量。
+        stats: dict[str, int] = dict(graph_stats or {})
         for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
             value = turn.usage.get(key)
             if isinstance(value, int):
-                stats[key] = value
+                stats[key] = stats.get(key, 0) + value
 
         await chat_service.append_assistant_message(
             db,

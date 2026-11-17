@@ -6,13 +6,14 @@
 import type { TaskGraphNode } from '@/api/taskGraph';
 import { NODE_STATUS_META } from '@/lib/taskGraphStatus';
 
-// 与 MermaidGraph TOKENS 一致（fill 用半透明让深色底透气，stroke 用实色）。
+// 与 MermaidGraph 主题无关：用较深的实色填充 + 白字，明暗主题下都清晰可读。
+// color 必须显式指定，否则浅色主题下继承浅色文字会看不清；stroke-width 加粗强化轮廓。
 const TONE_STYLE: Record<string, string> = {
-  ok: 'fill:#10b98133,stroke:#10b981,color:#e4e4e7',
-  info: 'fill:#30a6d033,stroke:#30a6d0,color:#e4e4e7',
-  warn: 'fill:#f59e0b33,stroke:#f59e0b,color:#e4e4e7',
-  danger: 'fill:#ef444433,stroke:#ef4444,color:#e4e4e7',
-  neutral: 'fill:#3f3f4666,stroke:#71717a,color:#e4e4e7',
+  ok: 'fill:#0f7a5a,stroke:#0b5c43,color:#ffffff,stroke-width:1.5px',
+  info: 'fill:#15698a,stroke:#0f506a,color:#ffffff,stroke-width:1.5px',
+  warn: 'fill:#9a6708,stroke:#754d06,color:#ffffff,stroke-width:1.5px',
+  danger: 'fill:#b3261e,stroke:#8a1d17,color:#ffffff,stroke-width:1.5px',
+  neutral: 'fill:#4b5563,stroke:#374151,color:#ffffff,stroke-width:1.5px',
 };
 
 /** mermaid 节点 id 只保留字母数字下划线，非法字符替换并去重。 */

@@ -58,10 +58,10 @@ describe('buildMermaidGraph', () => {
       node('C', 'failed'),
       node('D', 'pending'),
     ]);
-    expect(text).toContain('style A fill:#10b981'); // ok 绿
-    expect(text).toContain('style B fill:#30a6d0'); // info 蓝
-    expect(text).toContain('style C fill:#ef4444'); // danger 红
-    expect(text).toContain('style D fill:#3f3f46'); // neutral 灰
+    expect(text).toContain('style A fill:#0f7a5a'); // ok 绿
+    expect(text).toContain('style B fill:#15698a'); // info 蓝
+    expect(text).toContain('style C fill:#b3261e'); // danger 红
+    expect(text).toContain('style D fill:#4b5563'); // neutral 灰
   });
 
   it('转义特殊字符并避免非法 id', () => {

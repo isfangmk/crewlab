@@ -26,6 +26,7 @@ import { cn } from '@/lib/cn';
 import { requestChatRefetch } from '@/lib/chatLiveBus';
 import { isConfigDraftConfirmationMessage } from '@/lib/configDraftConfirmation';
 import { parseFollowups } from '@/lib/followups';
+import { segmentBodyWithCharts } from '@/lib/chartAnchors';
 import { useI18n } from '@/i18n/locale';
 import { useTimeout } from '@/lib/useTimeout';
 import { Button, Chip, ChoiceChip, CodeBlock, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, Label, RowActionIcon, StatusPill, Textarea } from '@/components/ui';
@@ -400,6 +401,42 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
   const { body: rawBody, questions } = useMemo(() => parseFollowups(message.content ?? ''), [message.content]);
   // 汇总引用角标：会话有排查发现时把正文里的独立 [n] 变成可点角标（定位右栏发现）
   const body = useMemo(() => decorateCitations(rawBody, findingCount), [rawBody, findingCount]);
+  // 自动汇总是后端补写的 assistant 消息：按普通正文渲染，只用一条细顶线标识收口
+  const isSummary = message.id.startsWith('auto-summary-');
+  // 汇总的内联图表：按正文 [[图:关键词]] 锚点插到对应段落，未命中的兜底末尾。
+  const summaryArtifacts = useMemo(
+    () => (isSummary && !message.tool_calls?.length && message.tool_call
+      ? interpreterArtifactsOf(fromSummary(message.tool_call))
+      : []),
+    [isSummary, message.tool_calls, message.tool_call],
+  );
+  const summarySegments = useMemo(
+    () => segmentBodyWithCharts(body, summaryArtifacts),
+    [body, summaryArtifacts],
+  );
+  const mdComponents = useMemo(() => ({
+    a({ href, children }: { href?: string; children?: React.ReactNode }) {
+      // 引用角标：点开定位右栏工作台对应发现
+      if (href?.startsWith('#cite-')) {
+        const n = Number(href.slice(6));
+        return (
+          <button
+            type="button"
+            onClick={() => onLocate?.({ kind: 'finding', n })}
+            className="mx-0.5 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded bg-info/15 px-[3px] align-[2px] text-[9px] font-semibold text-info hover:bg-info/25"
+            aria-label={tr(`引用发现 ${n}`, `Cite finding ${n}`)}
+          >
+            {children}
+          </button>
+        );
+      }
+      return (
+        <a href={href} target="_blank" rel="noreferrer">
+          {children}
+        </a>
+      );
+    },
+  }), [onLocate, tr]);
   // 记住被点的那条并高亮「已提问」；点一次即发问，整组随即失效
   const [usedQuestion, setUsedQuestion] = useState<string | null>(null);
   // 本回答用到的检索结果统一收口到气泡底部一块，工具卡内与卡下都不重复列
@@ -409,50 +446,35 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
   const followupsDisabled =
     usedQuestion !== null || followupsActive === false || onUseSuggestion === undefined || message.pending === true;
   const fmtTokens = (n: number) => n.toLocaleString('en-US');
-  // 自动汇总是后端补写的 assistant 消息：按普通正文渲染，只用一条细顶线标识收口
-  const isSummary = message.id.startsWith('auto-summary-');
   return (
     <div className="flex flex-col items-stretch gap-2">
-      {body !== '' && (
+      {(body !== '' || (isSummary && summaryArtifacts.length > 0)) && (
         <div
           className={cn('md-body text-zinc-100', isSummary && 'border-t-2 border-accent/70 pt-2.5')}
         >
-          {/* 图表由 run_python 的 chart() 产出物渲染，正文只承载文字 */}
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              a({ href, children }) {
-                // 引用角标：点开定位右栏工作台对应发现
-                if (href?.startsWith('#cite-')) {
-                  const n = Number(href.slice(6));
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => onLocate?.({ kind: 'finding', n })}
-                      className="mx-0.5 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded bg-info/15 px-[3px] align-[2px] text-[9px] font-semibold text-info hover:bg-info/25"
-                      aria-label={tr(`引用发现 ${n}`, `Cite finding ${n}`)}
-                    >
-                      {children}
-                    </button>
-                  );
-                }
-                return (
-                  <a href={href} target="_blank" rel="noreferrer">
-                    {children}
-                  </a>
-                );
-              },
-            }}
-          >
-            {body}
-          </ReactMarkdown>
+          {isSummary && summaryArtifacts.length > 0 ? (
+            // 汇总：正文按 [[图:关键词]] 锚点把图表插到对应段落，未命中的兜底末尾
+            summarySegments.map((seg, i) =>
+              seg.type === 'text' ? (
+                seg.text.trim() !== '' && (
+                  <ReactMarkdown key={`t-${i}`} remarkPlugins={[remarkGfm]} components={mdComponents}>
+                    {seg.text}
+                  </ReactMarkdown>
+                )
+              ) : (
+                <div key={`c-${i}`} className="my-2">
+                  <InterpreterArtifacts artifacts={[seg.artifact]} />
+                </div>
+              ),
+            )
+          ) : (
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+              {body}
+            </ReactMarkdown>
+          )}
         </div>
       )}
-      {/* 收尾汇总的内联图表：合成 run_python 卡以单个 tool_call 挂在汇总正文消息上 */}
-      {isSummary && !message.tool_calls?.length && message.tool_call && (() => {
-        const artifacts = interpreterArtifactsOf(fromSummary(message.tool_call));
-        return artifacts.length > 0 ? <InterpreterArtifacts artifacts={artifacts} /> : null;
-      })()}
+
       {message.tool_calls?.map((tc, i) => (
         <ToolCallBlock
           key={`${tc.name}-${i}`}

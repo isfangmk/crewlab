@@ -331,7 +331,7 @@ async def _refresh_graph_state(
 
         if not running:
             graph.finished_at = datetime.now(timezone.utc)
-            graph.duration_ms = sum(n.duration_ms for n in nodes)
+            graph.duration_ms = _wall_clock_ms(graph, finished=graph.finished_at)
         await db.commit()
 
         stats = _stats_of(nodes)
@@ -348,6 +348,17 @@ async def _refresh_graph_state(
     if should_finish:
         await _finish_graph(db, graph, nodes, status=graph.status, publish=publish)
     return {"status": graph.status, "stats": stats}
+
+
+def _wall_clock_ms(graph: TaskGraphRun, *, finished: datetime) -> int:
+    """图的墙钟耗时：started_at → finished，而非各节点耗时相加。
+
+    并行节点同时起跑，相加会把并发时长重复计算（3 个并行节点各 30s，
+    实际只用 30s，相加却是 90s）。墙钟口径才是用户感知的总耗时。
+    """
+    if graph.started_at is None:
+        return 0
+    return max(0, int((finished - graph.started_at).total_seconds() * 1000))
 
 
 def _stats_of(nodes: list[TaskGraphNode]) -> dict[str, int]:
@@ -386,7 +397,7 @@ async def _finish_graph(
                 node.status = "stopped" if status == "stopped" else node.status
         graph.status = status
         graph.finished_at = datetime.now(timezone.utc)
-        graph.duration_ms = sum(n.duration_ms for n in nodes)
+        graph.duration_ms = _wall_clock_ms(graph, finished=graph.finished_at)
         await db.commit()
 
     await publish(
@@ -407,6 +418,19 @@ async def _finish_graph(
     ]
     budget = _budget_of(graph)
     header = f"任务图执行已全部完成 · {len(nodes)} 个节点收口"
+    # 全图口径 stats：各节点 token 之和 + 墙钟耗时，写进汇总消息让用户看到整张图的用量。
+    node_tokens = node_prompt = node_completion = 0
+    for n in nodes:
+        usage = json.loads(n.usage_json or "{}")
+        node_tokens += int(usage.get("total_tokens") or 0)
+        node_prompt += int(usage.get("prompt_tokens") or 0)
+        node_completion += int(usage.get("completion_tokens") or 0)
+    graph_stats = {
+        "total_tokens": node_tokens,
+        "prompt_tokens": node_prompt,
+        "completion_tokens": node_completion,
+        "duration_ms": graph.duration_ms,
+    }
     summary_message_id = await run_graph_summary(
         db,
         session_id=graph.session_id,
@@ -416,6 +440,7 @@ async def _finish_graph(
         nodes=summary_nodes,
         budget=budget,
         assemble_agent_fn=assemble_agent,
+        graph_stats=graph_stats,
         publish=publish,
     )
     await publish(

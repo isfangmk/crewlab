@@ -167,6 +167,30 @@ class CachedMcpCatalogToolset(BaseToolset):
             )
 
 
+class McpDirectToolset(BaseToolset):
+    """按 wire 名直接暴露指定工具实体：已知要用哪些工具的无人值守节点用。
+
+    与 SearchableToolset 相反，这里不做 search→load 发现：get_tools 直接返回
+    声明名对应的 McpTool 实体，模型初始就拿到可调用工具，省掉无谓的检索轮次。
+    namespace 保留 <server> 名，供上游按命名空间收口；close 透传释放 session。
+    """
+
+    def __init__(self, source: BaseToolset, *, namespace: str, visible: set[str]) -> None:
+        super().__init__()
+        self._source = source
+        self.namespace = namespace
+        self._visible = set(visible)
+
+    async def get_tools(
+        self, readonly_context: Optional[ReadonlyContext] = None
+    ) -> list[BaseTool]:
+        tools = await self._source.get_tools(readonly_context)
+        return [tool for tool in tools if tool.name in self._visible]
+
+    async def close(self) -> None:
+        await self._source.close()
+
+
 class McpToolsView(BaseToolset):
     """按 wire 名裁剪一份 MCP 目录视图，生命周期仍归底层 toolset。
 
