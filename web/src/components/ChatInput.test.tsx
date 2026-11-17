@@ -60,7 +60,7 @@ describe('ChatInput image attachments', () => {
         <ChatInput value="" onSubmit={vi.fn()} allowAttachments />
       </MemoryRouter>,
     );
-    expect(screen.getByLabelText('Choose images')).toHaveAttribute('accept', '.png,.jpg,.jpeg,.webp');
+    expect(screen.getByLabelText('Choose images')).toHaveAttribute('accept', '.png,.jpg,.jpeg,.webp,.zip');
   });
 
   it('previews and submits a selected image', async () => {
@@ -141,4 +141,60 @@ it('toggles web search directly from the globe button', () => {
   rerender(view(false));
   fireEvent.click(screen.getByRole('switch', { name: 'Enable web search' }));
   expect(onToggle).toHaveBeenLastCalledWith(true);
+});
+
+describe('ChatInput three-state send button', () => {
+  it('queues instead of sending while busy, and shows a disabled interject placeholder', () => {
+    const onSubmit = vi.fn();
+    const onQueue = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatInput value="follow up" busy onQueue={onQueue} onSubmit={onSubmit} />
+      </MemoryRouter>,
+    );
+    // 输入框在回答中仍可编辑，不整体禁用。
+    expect(screen.getByRole('textbox', { name: /message input/i })).not.toBeDisabled();
+
+    const queueBtn = screen.getByRole('button', { name: 'Queue message' });
+    expect(queueBtn).not.toBeDisabled();
+    fireEvent.click(queueBtn);
+    expect(onQueue).toHaveBeenCalledWith({ text: 'follow up', mentions: [], attachments: [] });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    // 插话按钮出现但本阶段禁用（能力即将上线）。
+    const interject = screen.getByRole('button', { name: 'Interject, coming soon' });
+    expect(interject).toBeDisabled();
+  });
+
+  it('falls back to idle send when not busy', () => {
+    const onSubmit = vi.fn();
+    const onQueue = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatInput value="hello" onQueue={onQueue} onSubmit={onSubmit} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onQueue).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChatInput ZIP attachment', () => {
+  it('shows a filename chip (no image preview) and submits the zip as an attachment', async () => {
+    const onSubmit = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatInput value="see archive" onSubmit={onSubmit} allowAttachments />
+      </MemoryRouter>,
+    );
+    const file = new File([new Uint8Array([0x50, 0x4b])], 'logs.zip', { type: 'application/zip' });
+    fireEvent.change(screen.getByLabelText('Choose images'), { target: { files: [file] } });
+
+    // zip 不进图片预览区：没有 <img alt="logs.zip">。
+    expect(screen.queryByAltText('logs.zip')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0].attachments).toEqual([file]);
+  });
 });

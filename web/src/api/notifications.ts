@@ -15,7 +15,8 @@ export type NotificationKind =
   | 'graph_created'
   | 'graph_finished'
   | 'knowledge_sync_done'
-  | 'eval_run_done';
+  | 'eval_run_done'
+  | 'queue_changed';
 
 export type NotificationHandler = (kind: NotificationKind, payload: Record<string, unknown>) => void;
 

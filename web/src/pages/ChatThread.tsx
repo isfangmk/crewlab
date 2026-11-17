@@ -8,6 +8,8 @@ import { clearAllPending, clearPendingExcept } from '@/lib/messagePending';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { ChatInput, type ModelSelection, type SubmitPayload } from '@/components/ChatInput';
+import { MessageQueue } from '@/components/MessageQueue';
+import { CHAT_QUEUE_CHANGED_EVENT } from '@/lib/useNotifications';
 
 import {
 
@@ -26,7 +28,7 @@ import { TaskGraphWorkbench, type TaskGraphLocateTarget } from '@/components/tas
 import { Download, GitBranch, PanelRight, Share2 } from 'lucide-react';
 
 import {
-  ErrorBanner, PageHeader, RowAction } from '@/components/ui';
+  ErrorBanner, PageHeader, RowAction, flash } from '@/components/ui';
 
 import { ShareSessionDialog } from '@/components/ShareSessionDialog';
 
@@ -56,6 +58,12 @@ import {
 
   uploadChatAttachment,
 
+  addQueueItem,
+
+  getQueue,
+
+  deleteQueueItem,
+
   type ChatMessage,
 
   type ChatSession,
@@ -69,6 +77,8 @@ import {
   type MessageStats,
 
   type PostMessageResponse,
+
+  type QueueItem,
 
   type StreamCallbacks,
 
@@ -206,6 +216,18 @@ export default function ChatThreadPage() {
 
   // 执行态（计划/排查）独立于聊天回合：带外启动，单独锁输入框直到收口
   const [execBusy, setExecBusy] = useState(false);
+
+  // 当前会话的排队消息（回答中入队、回合结束后由后端依次消费）。
+  const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
+  const [removingQueueId, setRemovingQueueId] = useState<string | null>(null);
+
+  // 拉队列：本标签入队/删除后主动刷新，也供全局 queue_changed 通知触发。
+  const refreshQueue = useCallback(() => {
+    if (!sessionId) { setQueueItems([]); return; }
+    void getQueue(sessionId)
+      .then((r) => setQueueItems(r.items ?? []))
+      .catch(() => {});
+  }, [sessionId]);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -916,6 +938,19 @@ export default function ChatThreadPage() {
 
   }, [sessionId]);
 
+  // 队列刷新：切到本会话时拉取一次；全局 queue_changed 通知（经 useNotifications
+  // 翻译成 window 事件）只刷新当前会话，避免被别的会话变更误导。
+  useEffect(() => {
+    refreshQueue();
+    const onQueueChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ session_id?: string }>).detail;
+      if (detail && detail.session_id && detail.session_id !== sessionId) return;
+      refreshQueue();
+    };
+    window.addEventListener(CHAT_QUEUE_CHANGED_EVENT, onQueueChanged);
+    return () => window.removeEventListener(CHAT_QUEUE_CHANGED_EVENT, onQueueChanged);
+  }, [refreshQueue, sessionId]);
+
   // 多标签页续流：打开/切到本会话时，若 Redis 登记有进行中回合且不是本标签发起的，
   // attach 该回合事件流，补发已产出帧并续推后续帧（走 onLive 复用同一套渲染）。
   useEffect(() => {
@@ -1170,6 +1205,46 @@ export default function ChatThreadPage() {
   }, []);
 
 
+
+  // 回答中排队：上传附件后调 queue API，不打断当前回合；入队后主动刷新并清草稿。
+  async function enqueue(payload: SubmitPayload) {
+    if (!sessionId) return;
+    setError(null);
+    let attachmentIds: string[] = [];
+    try {
+      attachmentIds = await Promise.all(
+        (payload.attachments ?? []).map((file) => uploadChatAttachment(sessionId, file)),
+      ).then((items) => items.map((item) => item.id));
+      await addQueueItem(sessionId, {
+        content: payload.text,
+        provider: selectedModel?.provider,
+        model: selectedModel?.model,
+        thinking_enabled: thinkingEnabledRef.current,
+        web_search_enabled: webSearchEnabledRef.current,
+        attachment_ids: attachmentIds,
+        mentions: payload.mentions,
+      });
+      refreshQueue();
+      flash('ok', tr('已加入队列', 'Added to queue'));
+    } catch (err) {
+      setError((err as Error).message || tr('入队失败', 'Failed to queue message'));
+      flash('err', tr('入队失败', 'Failed to queue message'));
+    }
+  }
+
+  // 删除排队消息：调 DELETE API 后主动刷新（同时全局通知会让其他标签页同步）。
+  async function removeQueueItem(itemId: string) {
+    if (!sessionId) return;
+    setRemovingQueueId(itemId);
+    try {
+      await deleteQueueItem(sessionId, itemId);
+      refreshQueue();
+    } catch (err) {
+      flash('err', (err as Error).message || tr('删除排队消息失败', 'Failed to remove queued message'));
+    } finally {
+      setRemovingQueueId(null);
+    }
+  }
 
   async function send(
 
@@ -2382,6 +2457,8 @@ export default function ChatThreadPage() {
 
             )}
 
+            <MessageQueue items={queueItems} onRemove={(id) => void removeQueueItem(id)} removingId={removingQueueId} />
+
             <ChatInput
 
               value={draft}
@@ -2396,9 +2473,21 @@ export default function ChatThreadPage() {
 
               }}
 
+              // 回答中保持输入框/工具栏可编辑，仅发送按钮切到排队三态。
+              // execBusy（计划/排查执行锁）仍沿用只读禁用，不被新三态影响。
+              busy={submitting}
+
+              onQueue={(p: SubmitPayload) => {
+
+                setDraft('');
+
+                void enqueue(p);
+
+              }}
+
               allowAttachments
 
-              disabled={submitting || execBusy}
+              disabled={execBusy}
 
               autoFocus
 

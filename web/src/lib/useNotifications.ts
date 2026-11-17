@@ -14,6 +14,8 @@ import { emitChatLive, requestChatRefetch } from '@/lib/chatLiveBus';
 
 export const KNOWLEDGE_SYNC_EVENT = 'ongrid:knowledge-sync-done';
 export const EVAL_RUN_EVENT = 'ongrid:eval-run-done';
+/** 会话队列变更：payload { session_id, action, total }，ChatThread 据此刷新队列条。 */
+export const CHAT_QUEUE_CHANGED_EVENT = 'chat_queue_changed';
 
 export function useNotifications(): void {
   const token = useAuth((s) => s.token);
@@ -44,6 +46,9 @@ export function useNotifications(): void {
           break;
         case 'eval_run_done':
           window.dispatchEvent(new Event(EVAL_RUN_EVENT));
+          break;
+        case 'queue_changed':
+          window.dispatchEvent(new CustomEvent(CHAT_QUEUE_CHANGED_EVENT, { detail: payload }));
           break;
       }
     });

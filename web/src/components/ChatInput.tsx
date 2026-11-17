@@ -16,6 +16,8 @@ import {
 import { createPortal } from 'react-dom';
 import {
   Send,
+  Plus,
+  Zap,
   Mail,
   Github,
   Slack,
@@ -46,7 +48,7 @@ export type SubmitPayload = {
   attachments: File[];
 };
 
-type PendingAttachment = { file: File; previewURL: string };
+type PendingAttachment = { file: File; previewURL: string; isZip: boolean };
 
 export type { ModelSelection } from '@/api/chat';
 
@@ -54,7 +56,15 @@ type Props = {
   value?: string;
   onChange?(v: string): void;
   onSubmit(payload: SubmitPayload): void;
+  /**
+   * 回答中把消息排进队列（不打断当前回合）。传入后发送按钮进入三态：
+   * 空闲走 onSubmit，busy 时主按钮走 onQueue，旁边显示插话占位按钮。
+   */
+  onQueue?(payload: SubmitPayload): void;
+  /** 当前会话是否正在回答。只影响发送按钮形态，不锁输入框/工具栏。 */
+  busy?: boolean;
   placeholder?: string;
+  /** 真正的只读态（如需要整体禁用的复用场景）。回答中不要传这个，传 busy。 */
   disabled?: boolean;
   autoFocus?: boolean;
   showSkillsRow?: boolean;
@@ -84,12 +94,17 @@ const LINE_HEIGHT = 22;
 const MAX_IMAGES = 4;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_ZIP_BYTES = 32 * 1024 * 1024;
 const ACCEPTED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const ZIP_MIME = 'application/zip';
+const ACCEPT_FILE_ATTR = '.png,.jpg,.jpeg,.webp,.zip';
 
 export function ChatInput({
   value: controlled,
   onChange,
   onSubmit,
+  onQueue,
+  busy = false,
   placeholder,
   disabled,
   autoFocus,
@@ -270,42 +285,78 @@ export function ChatInput({
   async function addImageFiles(files: FileList | File[]) {
     const incoming = Array.from(files);
     setAttachmentError('');
-    if (attachments.length + incoming.length > MAX_IMAGES) {
-      setAttachmentError(tr(`每条消息最多添加 ${MAX_IMAGES} 张图片`, `Up to ${MAX_IMAGES} images per message`));
-      return;
-    }
-    const next: PendingAttachment[] = [];
+    const accepted: PendingAttachment[] = [];
+    // 图片与 zip 分开计额：zip 不算图片张数、不计入图片 20 MiB 总额，但单包上限 32 MiB。
+    let imageCount = attachments.filter((item) => !item.isZip).length;
+    let imageBytes = attachments.filter((item) => !item.isZip).reduce((sum, item) => sum + item.file.size, 0);
+    const fail = (msg: string) => {
+      accepted.forEach((item) => { if (!item.isZip && item.previewURL) URL.revokeObjectURL(item.previewURL); });
+      setAttachmentError(msg);
+    };
+
     for (const file of incoming) {
+      if (isZipFile(file)) {
+        if (file.size > MAX_ZIP_BYTES) {
+          fail(tr('压缩包不能超过 32 MiB', 'ZIP archive must be 32 MiB or smaller'));
+          return;
+        }
+        // zip 不做图片预览，只显示文件名 chip。
+        accepted.push({ file, previewURL: '', isZip: true });
+        continue;
+      }
       if (!ACCEPTED_IMAGE_TYPES.has(file.type)) {
-        setAttachmentError(tr('仅支持 PNG、JPEG 和 WebP 图片', 'Only PNG, JPEG, and WebP images are supported'));
+        fail(tr('仅支持 PNG、JPEG、WebP 图片或 ZIP 压缩包', 'Only PNG/JPEG/WebP images or ZIP archives are supported'));
         return;
       }
       if (file.size > MAX_IMAGE_BYTES) {
-        setAttachmentError(tr('单张图片不能超过 5 MiB', 'Each image must be 5 MiB or smaller'));
+        fail(tr('单张图片不能超过 5 MiB', 'Each image must be 5 MiB or smaller'));
         return;
       }
-      next.push({ file, previewURL: URL.createObjectURL(file) });
+      if (imageCount >= MAX_IMAGES) {
+        fail(tr(`每条消息最多添加 ${MAX_IMAGES} 张图片`, `Up to ${MAX_IMAGES} images per message`));
+        return;
+      }
+      if (imageBytes + file.size > MAX_TOTAL_IMAGE_BYTES) {
+        fail(tr('图片合计不能超过 20 MiB', 'Images must total 20 MiB or less'));
+        return;
+      }
+      imageCount += 1;
+      imageBytes += file.size;
+      accepted.push({ file, previewURL: URL.createObjectURL(file), isZip: false });
     }
-    const total = [...attachments, ...next].reduce((sum, item) => sum + item.file.size, 0);
-    if (total > MAX_TOTAL_IMAGE_BYTES) {
-      next.forEach((item) => URL.revokeObjectURL(item.previewURL));
-      setAttachmentError(tr('图片合计不能超过 20 MiB', 'Images must total 20 MiB or less'));
-      return;
-    }
-    setAttachments((prev) => [...prev, ...next]);
+    setAttachments((prev) => [...prev, ...accepted]);
   }
 
-  const submit = () => {
-    const trimmed = value.trim();
-    if ((!trimmed && attachments.length === 0) || disabled) return;
-    onSubmit({ text: trimmed, mentions: chips, attachments: attachments.map((item) => item.file) });
+  const buildPayload = (): SubmitPayload => ({
+    text: value.trim(),
+    mentions: chips,
+    attachments: attachments.map((item) => item.file),
+  });
+
+  const clearComposer = () => {
     if (controlled === undefined) setInternal('');
     setChips([]);
     setPreviewAttachment(null);
-    attachments.forEach((item) => URL.revokeObjectURL(item.previewURL));
+    attachments.forEach((item) => { if (item.previewURL) URL.revokeObjectURL(item.previewURL); });
     setAttachments([]);
     setAttachmentError('');
     setPopoverOpen(false);
+  };
+
+  // 空闲：起新回合（行为保持原样）。
+  const submit = () => {
+    const trimmed = value.trim();
+    if ((!trimmed && attachments.length === 0) || disabled) return;
+    onSubmit(buildPayload());
+    clearComposer();
+  };
+
+  // 回答中：排进队列，不打断当前回合。
+  const queueSubmit = () => {
+    const trimmed = value.trim();
+    if ((!trimmed && attachments.length === 0) || disabled || !onQueue) return;
+    onQueue(buildPayload());
+    clearComposer();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -359,7 +410,8 @@ export function ChatInput({
       }
       if (e.shiftKey) return; // shift+enter newline (native)
       e.preventDefault();
-      submit();
+      if (busy && onQueue) queueSubmit();
+      else submit();
     }
   };
 
@@ -407,22 +459,36 @@ export function ChatInput({
         }}
       >
         {allowAttachments && (
-          <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.webp" multiple className="sr-only" aria-label={tr('选择图片', 'Choose images')} onChange={(event) => { if (event.target.files) void addImageFiles(event.target.files); event.target.value = ''; }} />
+          <input ref={fileInputRef} type="file" accept={ACCEPT_FILE_ATTR} multiple className="sr-only" aria-label={tr('选择图片', 'Choose images')} onChange={(event) => { if (event.target.files) void addImageFiles(event.target.files); event.target.value = ''; }} />
         )}
         {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-4 pt-4" aria-label={tr('待发送图片', 'Images to send')}>
+          <div className="flex flex-wrap gap-2 px-4 pt-4" aria-label={tr('待发送附件', 'Attachments to send')}>
             {attachments.map((attachment, index) => (
-              <div
-                key={`${attachment.file.name}-${index}`}
-                className="relative h-16 w-16 cursor-zoom-in overflow-hidden rounded-xl border border-zinc-700/80 bg-zinc-950 shadow-sm"
-                title={tr('点击预览图片', 'Click to preview')}
-                onClick={() => setPreviewAttachment(attachment)}
-              >
-                <img src={attachment.previewURL} alt={attachment.file.name} className="h-full w-full object-cover" />
-                <Button variant="dangerGhost" size="sm" type="button" aria-label={tr(`移除图片 ${attachment.file.name}`, `Remove image ${attachment.file.name}`)} className="absolute right-1 top-1 h-5 w-5 rounded-full bg-zinc-950/85 p-0 opacity-80 shadow-sm hover:opacity-100" onClick={(event) => { event.stopPropagation(); setAttachments((prev) => { URL.revokeObjectURL(prev[index].previewURL); return prev.filter((_, i) => i !== index); }); setAttachmentError(''); }}>
-                  <XIcon size={11} />
-                </Button>
-              </div>
+              attachment.isZip ? (
+                <div
+                  key={`${attachment.file.name}-${index}`}
+                  className="inline-flex h-16 max-w-[12rem] items-center gap-2 rounded-xl border border-zinc-700/80 bg-zinc-950 px-3 shadow-sm"
+                  title={attachment.file.name}
+                >
+                  <FileText size={18} className="shrink-0 text-zinc-400" aria-hidden />
+                  <span className="truncate text-[12px] text-zinc-200">{attachment.file.name}</span>
+                  <Button variant="dangerGhost" size="sm" type="button" aria-label={tr(`移除附件 ${attachment.file.name}`, `Remove attachment ${attachment.file.name}`)} className="-mr-1 ml-auto h-5 w-5 shrink-0 rounded-full p-0 opacity-80 shadow-sm hover:opacity-100" onClick={() => { setAttachments((prev) => prev.filter((_, i) => i !== index)); setAttachmentError(''); }}>
+                    <XIcon size={11} />
+                  </Button>
+                </div>
+              ) : (
+                <div
+                  key={`${attachment.file.name}-${index}`}
+                  className="relative h-16 w-16 cursor-zoom-in overflow-hidden rounded-xl border border-zinc-700/80 bg-zinc-950 shadow-sm"
+                  title={tr('点击预览图片', 'Click to preview')}
+                  onClick={() => setPreviewAttachment(attachment)}
+                >
+                  <img src={attachment.previewURL} alt={attachment.file.name} className="h-full w-full object-cover" />
+                  <Button variant="dangerGhost" size="sm" type="button" aria-label={tr(`移除图片 ${attachment.file.name}`, `Remove image ${attachment.file.name}`)} className="absolute right-1 top-1 h-5 w-5 rounded-full bg-zinc-950/85 p-0 opacity-80 shadow-sm hover:opacity-100" onClick={(event) => { event.stopPropagation(); setAttachments((prev) => { URL.revokeObjectURL(prev[index].previewURL); return prev.filter((_, i) => i !== index); }); setAttachmentError(''); }}>
+                    <XIcon size={11} />
+                  </Button>
+                </div>
+              )
             ))}
           </div>
         )}
@@ -512,9 +578,9 @@ export function ChatInput({
                 variant="subtle"
                 size="sm"
                 type="button"
-                disabled={disabled || attachments.length >= MAX_IMAGES}
+                disabled={disabled}
                 aria-label={tr('添加图片', 'Add images')}
-                title={tr('添加图片', 'Add images')}
+                title={tr('添加图片或 ZIP 压缩包', 'Add images or a ZIP archive')}
                 className="w-7 p-0"
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -522,17 +588,37 @@ export function ChatInput({
               </Button>
             )}
           </div>
-          <Button
-            variant={empty || disabled ? 'subtle' : 'primary'}
-            size="sm"
-            type="button"
-            onClick={submit}
-            disabled={disabled || empty}
-            aria-label={tr('发送消息', 'Send message')}
-            className="inline-flex w-7 items-center justify-center rounded-full"
-          >
-            <Send size={13} />
-          </Button>
+
+          <div className="flex items-center gap-1.5">
+            {busy && (
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                disabled
+                aria-label={tr('插话，即将上线', 'Interject, coming soon')}
+                title={tr('插话能力即将上线，当前回答结束后再发送', 'Interject is coming soon; your message will be queued')}
+                className="inline-flex items-center gap-1 opacity-60"
+              >
+                <Zap size={13} />
+                <span className="text-[12px]">{tr('插话 · 即将上线', 'Interject · soon')}</span>
+              </Button>
+            )}
+            <Button
+              // busy 时主按钮仍为 primary（可点），只走排队分支，不再变灰禁用。
+              variant={disabled || empty || (busy && !onQueue) ? 'subtle' : 'primary'}
+              size="sm"
+              type="button"
+              onClick={busy && onQueue ? queueSubmit : submit}
+              disabled={disabled || empty || (busy && !onQueue)}
+              aria-label={busy ? tr('排队发送', 'Queue message') : tr('发送消息', 'Send message')}
+              title={busy && onQueue ? tr('排进队列，不打断当前回答', 'Queue it without interrupting the current reply') : undefined}
+              className="inline-flex items-center gap-1 rounded-full px-3"
+            >
+              {busy ? <Plus size={13} /> : <Send size={13} />}
+              <span className="text-[12px]">{busy ? tr('排队发送', 'Queue') : tr('发送', 'Send')}</span>
+            </Button>
+          </div>
         </div>
       </div>
       {showSkillsRow && (
@@ -564,6 +650,11 @@ export function ChatInput({
       </Modal>
     </div>
   );
+}
+
+// zip 识别：mime 优先，其次按扩展名兜底（某些系统上传时 type 为空）。
+function isZipFile(file: File): boolean {
+  return file.type === ZIP_MIME || /\.zip$/i.test(file.name);
 }
 
 // isScrollbarMouseEvent detects clicks on the browser's native

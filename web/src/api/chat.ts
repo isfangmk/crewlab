@@ -329,6 +329,56 @@ export function getMessages(sessionId: string | number, signal?: AbortSignal) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 排队消息（插话/消息队列）
+// ---------------------------------------------------------------------------
+
+/** 会话队列中的一条待发消息（摘要展示用，正文可能已被后端截断）。 */
+export type QueueItem = {
+  item_id: string;
+  content: string;
+  position: number;
+  created_at?: string;
+};
+
+/** 入队载荷：正文必填，其余为当前回合的模型/开关/附件配置。 */
+export type QueueAddInput = {
+  content: string;
+  provider?: string;
+  model?: string;
+  thinking_enabled?: boolean;
+  web_search_enabled?: boolean;
+  attachment_ids?: string[];
+  mentions?: Mention[];
+};
+
+/** 回答中把一条消息排进会话队列，不打断当前回合。 */
+export function addQueueItem(sessionId: string | number, input: QueueAddInput) {
+  return request<{ session_id: string; item_id: string; position: number }>(
+    'POST',
+    `/chat/sessions/${encodeURIComponent(String(sessionId))}/queue`,
+    input,
+  );
+}
+
+/** 拉取会话当前队列。 */
+export function getQueue(sessionId: string | number, signal?: AbortSignal) {
+  return request<{ items: QueueItem[]; total: number }>(
+    'GET',
+    `/chat/sessions/${encodeURIComponent(String(sessionId))}/queue`,
+    undefined,
+    { signal },
+  );
+}
+
+/** 删除队列中的一条消息。 */
+export function deleteQueueItem(sessionId: string | number, itemId: string) {
+  return request<{ deleted: string }>(
+    'DELETE',
+    `/chat/sessions/${encodeURIComponent(String(sessionId))}/queue/${encodeURIComponent(itemId)}`,
+  );
+}
+
 export async function uploadChatAttachment(sessionId: string | number, file: File): Promise<ImageAttachment> {
   const form = new FormData();
   form.append('file', file);
