@@ -541,3 +541,132 @@ async def _nodes_of(db: AsyncSession, graph_id: int) -> list[TaskGraphNode]:
             )
         ).all()
     )
+
+
+# ---------------------------------------------------------------------------
+# 快照 / wire（供工具与 API 共用）
+# ---------------------------------------------------------------------------
+
+
+def node_to_wire(row: TaskGraphNode) -> dict[str, Any]:
+    """单节点 wire：状态、结论、证据、轨迹、用量、时间。"""
+
+    return {
+        "node_uid": row.node_uid,
+        "local_id": row.local_id,
+        "depends_on": json.loads(row.depends_on_json or "[]"),
+        "order_index": row.order_index,
+        "name": row.name,
+        "target": row.target,
+        "instruction": row.instruction,
+        "tools": json.loads(row.tools_json or "[]"),
+        "status": row.status,
+        "attempt": row.attempt,
+        "summary": row.summary,
+        "findings": json.loads(row.findings_json or "[]"),
+        "tool_trace": json.loads(row.tool_trace_json or "[]"),
+        "log_text": row.log_text,
+        "usage": json.loads(row.usage_json or "{}"),
+        "error": row.error,
+        "duration_ms": row.duration_ms,
+        "started_at": row.started_at.isoformat() if row.started_at else None,
+        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+    }
+
+
+async def graph_to_wire(db: AsyncSession, graph: TaskGraphRun) -> dict[str, Any]:
+    """完整图 wire：节点列表 + 聚合统计 + 全局发现。"""
+
+    nodes = await _nodes_of(db, graph.id)
+    used_tokens = sum(
+        int(json.loads(n.usage_json or "{}").get("total_tokens") or 0) for n in nodes
+    )
+    return {
+        "id": graph.id,
+        "graph_uid": graph.graph_uid,
+        "session_id": graph.session_id,
+        "card_message_id": graph.card_message_id,
+        "title": graph.title,
+        "question": graph.question,
+        "status": graph.status,
+        "config": json.loads(graph.config_json or "{}"),
+        "stats": _stats_of(nodes),
+        "used_tokens": used_tokens,
+        "nodes": [node_to_wire(n) for n in nodes],
+        "findings": json.loads(graph.findings_json or "[]"),
+        "error": graph.error,
+        "duration_ms": graph.duration_ms,
+        "created_by": graph.created_by,
+        "created_at": graph.created_at.isoformat() if graph.created_at else None,
+        "started_at": graph.started_at.isoformat() if graph.started_at else None,
+        "finished_at": graph.finished_at.isoformat() if graph.finished_at else None,
+    }
+
+
+async def get_graph_row(db: AsyncSession, graph_uid: str) -> TaskGraphRun | None:
+    return await _get_graph(db, graph_uid)
+
+
+async def get_graph_wire(db: AsyncSession, graph_uid: str) -> dict[str, Any] | None:
+    graph = await _get_graph(db, graph_uid)
+    if graph is None:
+        return None
+    return await graph_to_wire(db, graph)
+
+
+async def list_graphs(
+    db: AsyncSession,
+    *,
+    session_id: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    """按 id 倒序列图，可按会话过滤。"""
+
+    from sqlalchemy import func
+
+    where = []
+    if session_id is not None:
+        where.append(TaskGraphRun.session_id == session_id)
+    total = (
+        await db.scalars(
+            select(func.count(TaskGraphRun.id)).where(*where)
+        )
+    ).one()
+    rows = (
+        await db.scalars(
+            select(TaskGraphRun)
+            .where(*where)
+            .order_by(TaskGraphRun.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    return [await graph_to_wire(db, r) for r in rows], int(total)
+
+
+async def tool_result_wire(db: AsyncSession, graph_uid: str) -> dict[str, Any]:
+    """工具返回句柄：图标识、标题、状态、节点摘要、统计；不含结论正文。"""
+
+    graph = await _get_graph(db, graph_uid)
+    if graph is None:
+        raise LookupError(f"任务图不存在: {graph_uid}")
+    nodes = await _nodes_of(db, graph.id)
+    return {
+        "graph_uid": graph.graph_uid,
+        "title": graph.title,
+        "status": graph.status,
+        "nodes": [
+            {
+                "node_uid": n.node_uid,
+                "local_id": n.local_id,
+                "name": n.name,
+                "depends_on": json.loads(n.depends_on_json or "[]"),
+                "status": n.status,
+                "summary": n.summary,
+                "error": n.error,
+            }
+            for n in nodes
+        ],
+        "stats": _stats_of(nodes),
+    }

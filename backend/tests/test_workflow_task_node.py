@@ -1,7 +1,9 @@
-"""画布任务节点：缺省执行器自足跑通（worker 装配缝打桩，编排/落库全真）。
+"""画布任务节点：缺省执行器自足跑通（真依赖，无打桩）。
 
 从画布发起的运行没有服务注入的执行上下文，任务节点走缺省执行器——
-按节点声明（target/instruction/tools）用默认模型装配只读 worker。
+按节点声明（target/instruction/tools）用平台默认模型装配只读 agent。
+默认 provider 未配置或不可用时 skip（不打桩、不伪造模型输出）。
+测试数据在 finally 中全清理，不污染用户数据。
 """
 
 from __future__ import annotations
@@ -23,31 +25,26 @@ from app.schemas.workflow import (
     WorkflowNode,
     WorkflowVariable,
 )
-from app.services.investigation.worker_runner import WorkerResult
 from app.services.workflow import workflow_service
 
 
 @pytest.mark.asyncio
-async def test_canvas_task_node_runs_with_default_runner(monkeypatch) -> None:
-    """画布直接运行含任务节点的工作流：缺省执行器装配并跑完，产出进状态。"""
+async def test_canvas_task_node_runs_with_default_runner() -> None:
+    """画布直接运行含任务节点的工作流：缺省执行器真装配并跑完，产出进状态。"""
 
-    from app.services.investigation import worker_runner
+    # 真依赖前置：默认 provider 必须配置，否则 skip（禁止打桩冒充）。
+    async with async_sessionmaker(
+        create_db_engine(get_settings().database_url), expire_on_commit=False
+    )() as probe:
+        from app.services.platform import llm_config
 
-    async def fake_build_worker_agent(**_kwargs):
-        return object()
-
-    async def fake_run_worker(*, worker_uid, name, **_kwargs):
-        return WorkerResult(
-            worker_uid=worker_uid,
-            status="succeeded",
-            conclusion=f"{name}的结论",
-            findings=[],
-            usage={"total_tokens": 10},
-            duration_ms=5,
-        )
-
-    monkeypatch.setattr(worker_runner, "build_worker_agent", fake_build_worker_agent)
-    monkeypatch.setattr(worker_runner, "run_worker", fake_run_worker)
+        try:
+            provider_id, model_name = await llm_config.get_default_selection(probe)
+            provider = await llm_config.get_provider(probe, provider_id)
+        except Exception:  # noqa: BLE001 - 未配默认 provider 时跳过真 LLM 测试
+            pytest.skip("未配置可用的默认 provider，跳过画布任务节点真依赖测试")
+        if not provider.api_key or not model_name:
+            pytest.skip("默认 provider 缺少 api_key/model，跳过")
 
     definition = WorkflowDefinition(
         nodes=[
@@ -66,7 +63,9 @@ async def test_canvas_task_node_runs_with_default_runner(monkeypatch) -> None:
                 x=300,
                 y=0,
                 output_key="task_1_result",
-                task=TaskSpec(target="盘点平台能力", instruction="", tools=[]),
+                task=TaskSpec(
+                    target="用一句话说明你的角色", instruction="简短作答", tools=["__none__"]
+                ),
             ),
             WorkflowNode(id="end", kind="end", label="结束", x=560, y=0),
         ],
@@ -110,14 +109,15 @@ async def test_canvas_task_node_runs_with_default_runner(monkeypatch) -> None:
             assert {r.node_kind for r in node_runs} == {"start", "task", "end"}
             task_run = next(r for r in node_runs if r.node_kind == "task")
             assert task_run.status == "succeeded"
-            # 任务产出写进共享状态：运行输出带上结论
-            assert "盘点员的结论" in (run.output_json or "")
+            # 真模型产出写入共享状态：运行输出非空。
+            assert (run.output_json or "").strip() not in ("", "{}")
     finally:
         await _cleanup(workflow_id)
+        await engine.dispose()
 
 
 async def _cleanup(workflow_id: int | None) -> None:
-    """插桩数据全清理：节点执行记录、运行记录、工作流行。"""
+    """测试数据全清理：节点执行记录、运行记录、工作流行。"""
 
     engine = create_db_engine(get_settings().database_url)
     try:

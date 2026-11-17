@@ -51,15 +51,11 @@ RUN_STOPPED = "stopped"
 # investigation / plan 是系统编排（会话内执行模式的运行都落到运行记录里）
 RUN_TRIGGER_MANUAL = "manual"
 RUN_TRIGGER_DEBUG = "debug"
-RUN_TRIGGER_INVESTIGATION = "investigation"
-RUN_TRIGGER_PLAN = "plan"
 
 # 系统编排的壳工作流：承载归属与命名，画布同步最近一次运行的编排定义（不参与执行）
-SYSTEM_WORKFLOW_INVESTIGATION = "系统 · 并行排查"
-SYSTEM_WORKFLOW_PLAN = "系统 · 执行计划"
 SYSTEM_WORKFLOW_NOTE = (
     "系统编排模板：运行由会话内的执行模式动态生成并执行，画布只展示模板形态"
-    "（任务节点按派发/计划动态展开），具体实例见运行记录；画布不参与执行。"
+    "（任务节点按提交的任务图动态展开），具体实例见运行记录；画布不参与执行。"
 )
 
 

@@ -28,7 +28,6 @@ from app.api import (
     evals,
     health,
     integrations_llm,
-    investigations,
     knowledge,
     knowledge_sources,
     mcp,
@@ -36,13 +35,13 @@ from app.api import (
     mentions,
     models,
     observability,
-    plans,
     publish,
     sandbox,
     secrets,
     shares,
     skills,
     system_settings,
+    task_graph,
     tools,
     triggers,
     usage,
@@ -256,8 +255,7 @@ def create_app() -> FastAPI:
     app.include_router(mentions.router, prefix="/api/v1")
     app.include_router(secrets.router, prefix="/api/v1")
     app.include_router(shares.router, prefix="/api/v1")
-    app.include_router(investigations.router, prefix="/api/v1")
-    app.include_router(plans.router, prefix="/api/v1")
+    app.include_router(task_graph.router, prefix="/api/v1")
     app.include_router(system_settings.router, prefix="/api/v1")
     app.include_router(integrations_llm.router, prefix="/api/v1")
     app.include_router(observability.router, prefix="/api/v1")

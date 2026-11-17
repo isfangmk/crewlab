@@ -11,10 +11,9 @@ import re
 from typing import Any
 
 from app.tools.code_interpreter import run_python
-from app.tools.investigation import dispatch_investigation, get_investigation
 from app.tools.knowledge import query_knowledge
 from app.tools.memory import recall_memory, remember_memory
-from app.tools.plan import create_plan, get_plan, update_plan_steps
+from app.tools.task_graph import get_task_graph, submit_task_graph, update_task_graph
 from app.tools.user_input import ASK_USER_TOOL_NAME, ask_user
 from app.tools.workflow import (
     get_workflow,
@@ -106,37 +105,23 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
         "mount": "always",
     },
     {
-        "name": "dispatch_investigation",
-        "group": "investigation",
-        "description": "把问题拆给 N 路只读子代理并行排查，返回带证据的结构化发现；软截止先出初步汇总，未完的路后台继续",
+        "name": "submit_task_graph",
+        "group": "taskgraph",
+        "description": "提交一张任务图：节点按 depends_on 表达并行/串行/汇合拓扑；用户确认后按拓扑执行，收尾自动汇总进对话",
         "risk": "safe",
         "mount": "always",
     },
     {
-        "name": "get_investigation",
-        "group": "investigation",
-        "description": "按排查标识取并行排查的最新快照：各路状态、发现与预算",
+        "name": "get_task_graph",
+        "group": "taskgraph",
+        "description": "按图标识取执行进度快照：各节点状态、结论、证据与用量",
         "risk": "safe",
         "mount": "always",
     },
     {
-        "name": "create_plan",
-        "group": "planning",
-        "description": "把任务拆成可编辑的执行计划，用户确认后逐步执行；每步结论回写计划",
-        "risk": "safe",
-        "mount": "always",
-    },
-    {
-        "name": "get_plan",
-        "group": "planning",
-        "description": "按计划标识取执行进度快照：步骤状态、结论与用量",
-        "risk": "safe",
-        "mount": "always",
-    },
-    {
-        "name": "update_plan_steps",
-        "group": "planning",
-        "description": "按用户意见调整计划步骤（排序/增删/改文案）；仅待确认状态可改",
+        "name": "update_task_graph",
+        "group": "taskgraph",
+        "description": "按用户意见调整任务图节点与依赖（整图替换）；仅草稿态可改",
         "risk": "safe",
         "mount": "always",
     },
@@ -166,11 +151,9 @@ _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
     "run_workflow": run_workflow,
     "list_workflow_runs": list_workflow_runs,
     "get_workflow_run": get_workflow_run,
-    "dispatch_investigation": dispatch_investigation,
-    "get_investigation": get_investigation,
-    "create_plan": create_plan,
-    "get_plan": get_plan,
-    "update_plan_steps": update_plan_steps,
+    "submit_task_graph": submit_task_graph,
+    "get_task_graph": get_task_graph,
+    "update_task_graph": update_task_graph,
 }
 
 
@@ -254,8 +237,7 @@ BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
     "memory": {"title": "记忆", "title_en": "Memory"},
     "workflow": {"title": "工作流", "title_en": "Workflow"},
     "interaction": {"title": "澄清交互", "title_en": "User input"},
-    "investigation": {"title": "并行排查", "title_en": "Investigation"},
-    "planning": {"title": "规划执行", "title_en": "Planning"},
+    "taskgraph": {"title": "任务图执行", "title_en": "Task graph"},
 }
 
 
