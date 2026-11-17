@@ -33,6 +33,7 @@ from app.models.sandbox import SandboxExecution
 from app.models.secret import SecretCredential
 from app.models.share import ShareToken
 from app.models.skill import UserSkill
+from app.models.task_graph import TaskGraphNode, TaskGraphRun
 from app.models.trigger import TriggerRule, TriggerRun
 from app.models.user import ApiToken, User
 from app.models.workflow import Workflow, WorkflowNodeRun, WorkflowRun
@@ -78,6 +79,8 @@ __all__ = [
     "PlanStep",
     "SandboxExecution",
     "TriggerRule",
+    "TaskGraphRun",
+    "TaskGraphNode",
     "MemoryItem",
     "TriggerRun",
     "UserSkill",
