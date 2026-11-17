@@ -15,7 +15,7 @@ import {
 } from '@/api/plan';
 import { PLAN_STATUS_META, STEP_STATUS_META } from '@/lib/planStatus';
 import { fmtAgo, fmtDuration, isStale, useTicker } from '@/lib/runTimer';
-import { requestChatRefetch } from '@/lib/chatLiveBus';
+import { relaySummaryDelta, requestChatRefetch } from '@/lib/chatLiveBus';
 import { useExecLock } from '@/lib/useExecLock';
 import { errorText } from '@/lib/errors';
 import { flash } from '@/components/ui';
@@ -96,6 +96,10 @@ export function PlanBlock({
     void subscribePlanEvents(
       planUid,
       (ev) => {
+        if (ev.event === 'summary_delta') {
+          relaySummaryDelta(ev.message_id, ev.delta, ev.partial);
+          return;
+        }
         if (ev.event === 'step_log') {
           setBeat({ at: Date.now(), tool: ev.tool });
           return;

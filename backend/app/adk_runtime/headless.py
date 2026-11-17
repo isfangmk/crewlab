@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from google.adk.agents import LlmAgent
+from google.adk.agents._streaming_mode import StreamingMode
 from google.adk.agents.run_config import RunConfig
 from google.adk.runners import InMemoryRunner
 from google.genai import types
@@ -154,6 +155,7 @@ async def run_headless_turn(
     closing: str,
     session_state: dict[str, Any] | None = None,
     on_tool_response: Callable[[str, str, Any], Awaitable[None]] | None = None,
+    on_text_delta: Callable[[str, bool], Awaitable[None]] | None = None,
 ) -> HeadlessResult:
     """跑完一个无人值守回合；超时/超限/停止/异常都转成结构化结果。
 
@@ -163,6 +165,8 @@ async def run_headless_turn(
     是独立临时会话，工具（如 run_python）借它回传真实会话等上下文。
     on_tool_response 在收到工具返回时按 (call_id, name, response) 触发，
     供调用方落产出物等副作用；不传则无额外行为。
+    on_text_delta 传入即开启 SSE 流式模式，按 (delta, partial) 逐段推文本；
+    不传则保持非流式的整段收集（排查/step 默认口径不变）。
     """
 
     started = time.monotonic()
@@ -205,6 +209,7 @@ async def run_headless_turn(
                     tool_trace_partial=tool_trace_partial,
                     session_state=session_state,
                     on_tool_response=on_tool_response,
+                    on_text_delta=on_text_delta,
                 ),
                 timeout=budget.timeout_seconds if budget.timeout_seconds > 0 else None,
             )
@@ -260,6 +265,7 @@ async def _run_turn(
     tool_trace_partial: list[dict[str, Any]],
     session_state: dict[str, Any] | None = None,
     on_tool_response: Callable[[str, str, Any], Awaitable[None]] | None = None,
+    on_text_delta: Callable[[str, bool], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     """headless 跑一个回合，收集文本 / call_id / usage / 工具轨迹。
 
@@ -267,12 +273,16 @@ async def _run_turn(
     调用方仍能报出已消耗的 tokens。
     tool_trace_partial 实时同步工具轨迹：先记 call 的入参，response 到达时补齐。
     on_tool_response 在返回到达时触发，供调用方落产出物等副作用。
+    on_text_delta 传入即开 SSE 流式：逐段推 (delta, partial)，并跳过终包回放。
     """
 
     session = await runner.session_service.create_session(
         app_name=runner.app_name, user_id=runner.app_name, state=session_state
     )
     run_config = RunConfig()
+    if on_text_delta is not None:
+        # 流式汇总：开 SSE 模式拿逐段增量；普通 worker/step 保持非流式整段收集
+        run_config.streaming_mode = StreamingMode.SSE
     if budget.max_steps > 0:
         run_config.max_llm_calls = budget.max_steps
 
@@ -280,6 +290,10 @@ async def _run_turn(
     call_ids: set[str] = set()
     # call_id -> 轨迹条目占位；function_call 记入参，function_response 回填 response
     trace_by_call: dict[str, dict[str, Any]] = {}
+    # 流式去重：推过 partial 后跳过 ADK 终包对整段的回放
+    final_partial_seen = False
+    text_delta_count = 0
+    replay_skipped = 0
     usage_prompt: int | None = None
     usage_completion: int | None = None
     usage_total: int | None = None
@@ -347,10 +361,33 @@ async def _run_turn(
                     await on_tool_response(cid, fname, response)
                 continue
             if part.text:
-                answer_parts.append(part.text)
+                text = part.text
+                is_partial = bool(getattr(event, "partial", False)) and on_text_delta is not None
+                # 流式终包会回放整段：推过 partial 后跳过，避免正文翻倍
+                if not is_partial and final_partial_seen and on_text_delta is not None:
+                    replay_skipped += 1
+                    continue
+                if is_partial:
+                    final_partial_seen = True
+                answer_parts.append(text)
+                if on_text_delta is not None and text:
+                    text_delta_count += 1
+                    await on_text_delta(text, is_partial)
 
     answer = "".join(answer_parts)
     conclusion, findings = parse_findings(answer, call_ids)
+    logger.info(
+        "无人值守回合收集完成 app=%s stream=%s text_deltas=%s replay_skipped=%s "
+        "text_len=%s tools=%s stopped=%s total_tokens=%s",
+        runner.app_name,
+        on_text_delta is not None,
+        text_delta_count,
+        replay_skipped,
+        len(answer),
+        len(call_ids),
+        stopped,
+        usage_total,
+    )
     return {
         "stopped": stopped,
         "conclusion": conclusion,

@@ -69,4 +69,4 @@ def test_build_summary_prompt_feeds_all_evidence() -> None:
     assert "[绘图展示]" in prompt
     assert "22 节点 15 连线" in prompt
     assert "chart()" in prompt
-    assert "findings" in prompt
+    assert "最终回答正文" in prompt

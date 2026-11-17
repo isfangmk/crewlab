@@ -22,7 +22,7 @@ from app.models.chat import ChatMessage, ChatSession
 from app.models.plan import PlanExecution, PlanStep
 from app.models.workflow import WorkflowNodeRun, WorkflowRun
 from app.services.investigation.investigation_events import InvestigationEventBus
-from app.services.plan import plan_service, plan_summary
+from app.services.plan import plan_service
 
 
 async def _cleanup(session_ids: list[str], plan_uids: list[str]) -> None:
@@ -81,7 +81,7 @@ async def _cleanup(session_ids: list[str], plan_uids: list[str]) -> None:
         await engine.dispose()
 
 
-async def _insert_session(tag: str) -> list[str]:
+async def _insert_session(tag: str, *, agent_id: str | None = None) -> list[str]:
     engine = create_db_engine(get_settings().database_url)
     session_id = f"{tag}-s"
     try:
@@ -92,6 +92,7 @@ async def _insert_session(tag: str) -> list[str]:
                     title=f"plan-{tag}",
                     provider="deepseek",
                     model="deepseek-flash",
+                    agent_id=agent_id,
                     adk_user_id="user-1",
                 )
             )
@@ -182,16 +183,6 @@ def _ok(name: str) -> HeadlessResult:
         duration_ms=10,
         log_text="调用工具 query_knowledge\n",
     )
-
-
-def _stub_summary_llm(monkeypatch) -> None:
-    """收尾汇总的执行缝打桩：返回含步骤结论的正文，落库/幂等仍走真实实现。"""
-
-    async def fake_headless(*, prompt, **_kwargs):
-        body = "\n".join(line for line in prompt.splitlines() if "结论" in line)
-        return HeadlessResult(status="succeeded", conclusion=body or "汇总结论")
-
-    monkeypatch.setattr(plan_summary, "run_headless_turn", fake_headless)
 
 
 def test_parse_steps_json_validates() -> None:
@@ -291,7 +282,6 @@ async def test_plan_runs_steps_in_order_with_prior_context(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
-    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(
@@ -354,7 +344,6 @@ async def test_step_failure_pauses_and_retry_resumes(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
-    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(
@@ -413,7 +402,6 @@ async def test_skip_step_continues_with_placeholder(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
-    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(
@@ -469,7 +457,6 @@ async def test_stop_plan_marks_pending_stopped(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
-    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(tag, session_ids[0], [{"name": "步骤一"}, {"name": "步骤二"}])
@@ -520,7 +507,6 @@ async def test_pause_then_resume_reexecutes_step(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
-    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(tag, session_ids[0], [{"name": "步骤一"}, {"name": "步骤二"}])
@@ -600,7 +586,6 @@ async def test_step_tools_focus_passed_to_assemble(monkeypatch) -> None:
 
     monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
-    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(
@@ -628,24 +613,21 @@ async def test_step_tools_focus_passed_to_assemble(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_auto_summary_written_and_idempotent(monkeypatch) -> None:
-    """跑完自动汇总：终态后对话流里有汇总消息；同一次运行重复触发不重复写。"""
+    """跑完汇总：终态后汇总消息落库（真实 LLM）；重复收口不新增消息。"""
 
     from app.models.chat import ChatMessage
-    from app.services.chat.auto_summary import run_auto_summary
+    from app.services.plan.plan_summary import run_plan_summary
 
     tag = f"pl-{uuid.uuid4().hex[:8]}"
-    session_ids = await _insert_session(tag)
+    # 真实汇总装配需要会话绑定 agent_id
+    session_ids = await _insert_session(tag, agent_id="default")
     plan_uids: list[str] = []
-
-    async def fake_assemble(**_kwargs):
-        return object()
 
     async def fake_run_step(*, name, **_kwargs):
         return _ok(name)
 
-    monkeypatch.setattr(plan_service, "_assemble_step", fake_assemble)
+    # 步骤执行打桩提供结论输入；汇总本身走真实装配 + 真实 LLM（不做执行缝打桩）
     monkeypatch.setattr(plan_service, "run_plan_step", fake_run_step)
-    _stub_summary_llm(monkeypatch)
 
     try:
         plan = await _create_plan(tag, session_ids[0], [{"name": "步骤一"}, {"name": "步骤二"}])
@@ -660,27 +642,43 @@ async def test_auto_summary_written_and_idempotent(monkeypatch) -> None:
 
         assert await _wait_plan_status(plan.plan_uid, {"succeeded", "paused", "stopped"}) == "succeeded"
 
-        # 汇总消息已落库：头部 + 各步结论（LLM 桩走拼接降级文本）
         message_id = f"auto-summary-plan-{plan.plan_uid}"
+        # 汇总在 plan 状态落库之后异步生成：轮询等消息出现（真实 LLM 需要时间）
+        async def _wait_summary() -> ChatMessage | None:
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 90.0
+            while loop.time() < deadline:
+                engine = create_db_engine(get_settings().database_url)
+                try:
+                    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+                        found = await db.get(ChatMessage, message_id)
+                        if found is not None:
+                            return found
+                finally:
+                    await engine.dispose()
+                await asyncio.sleep(0.2)
+            return None
+
+        msg = await _wait_summary()
         engine = create_db_engine(get_settings().database_url)
         try:
             async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-                msg = await db.get(ChatMessage, message_id)
                 assert msg is not None
                 assert msg.role == "assistant"
                 assert "计划执行已全部完成" in (msg.content or "")
-                assert "结论步骤一" in (msg.content or "")
+                body = (msg.content or "").split("\n\n", 1)[-1].strip()
+                assert body and body != "（汇总未产出结论）"
 
-                # 幂等：同一次运行再触发不重复写
-                again = await run_auto_summary(
+                # 幂等：同一次运行再调汇总不新增消息（真实函数，靠 db 里已存在的 id 短路）
+                again = await run_plan_summary(
                     db,
                     session_id=session_ids[0],
-                    kind="plan",
-                    run_uid=plan.plan_uid,
+                    plan_uid=plan.plan_uid,
                     header="计划执行已全部完成 · 2 步收口",
                     question="总目标",
-                    items=[{"label": "1 · 步骤一", "status": "succeeded", "conclusion": "结论步骤一"}],
-                    gaps=[],
+                    steps=[],
+                    budget=WorkerBudget(max_steps=2, timeout_seconds=30, token_budget=5000),
+                    assemble_step=plan_service._assemble_step,
                 )
                 assert again == message_id
                 rows = (

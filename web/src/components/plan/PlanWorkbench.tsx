@@ -28,6 +28,7 @@ import { PLAN_STATUS_META, STEP_STATUS_META } from '@/lib/planStatus';
 import { fmtAgo, fmtDuration, isStale, useTicker } from '@/lib/runTimer';
 import {
   CHAT_LIVE_EVENT,
+  relaySummaryDelta,
   requestChatRefetch,
   type ChatLiveDetail,
 } from '@/lib/chatLiveBus';
@@ -141,6 +142,10 @@ export function PlanWorkbench({
     void subscribePlanEvents(
       selectedUid,
       (ev) => {
+        if (ev.event === 'summary_delta') {
+          relaySummaryDelta(ev.message_id, ev.delta, ev.partial);
+          return;
+        }
         if (ev.event === 'step_log') {
           setLiveLogs((prev) => ({
             ...prev,

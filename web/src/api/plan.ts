@@ -85,6 +85,14 @@ export type PlanStreamEvent =
     }
   | { event: 'plan_updated'; plan_uid: string; status: PlanStatus }
   | {
+      /** 收尾汇总正文增量：转发进对话流逐字显示，落库后由 plan_finished 对账 */
+      event: 'summary_delta';
+      plan_uid: string;
+      message_id: string;
+      delta: string;
+      partial: boolean;
+    }
+  | {
       event: 'plan_finished';
       plan_uid: string;
       status: PlanStatus;

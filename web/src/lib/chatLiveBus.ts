@@ -26,6 +26,14 @@ export function emitChatLive(detail: ChatLiveDetail): void {
   window.dispatchEvent(new CustomEvent<ChatLiveDetail>(CHAT_LIVE_EVENT, { detail }));
 }
 
+/** 计划收尾汇总的正文增量：把 plan 事件流的 delta 转发进对话流逐字显示。 */
+export function relaySummaryDelta(messageId: string, delta: string, partial: boolean): void {
+  emitChatLive({
+    type: 'assistant_delta',
+    event: { message_id: messageId, delta, partial },
+  });
+}
+
 // 执行锁：按 uid 计数，只要还有任一执行在跑就锁住输入框。
 // 由执行卡按自身状态 acquire/release，不依赖终态事件时序（事件可能在订阅重建时错过）。
 const execLocks = new Set<string>();

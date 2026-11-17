@@ -621,6 +621,7 @@ async def _finish_plan(
         steps=steps,
         budget=budget,
         assemble_step=_assemble_step,
+        publish=publish,
     )
     await publish(
         {
