@@ -109,8 +109,7 @@ def test_groups_use_subject_keys_not_catch_all() -> None:
         "workflow",
         "memory",
         "interaction",
-        "investigation",
-        "planning",
+        "taskgraph",
     }
 
 

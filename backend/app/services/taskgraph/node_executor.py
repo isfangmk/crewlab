@@ -146,11 +146,7 @@ async def execute_node(
     runtime.stop.begin(node_uid)
 
     def _stop_check(uid: str = node_uid) -> bool:
-        return (
-            runtime.stop.is_stopped(uid)
-            or runtime.stop_requested
-            or runtime.pause_requested
-        )
+        return runtime.stop.is_stopped(uid) or runtime.stop_requested
 
     turn_error = ""
     turn = None

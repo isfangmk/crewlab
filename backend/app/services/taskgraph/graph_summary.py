@@ -89,6 +89,7 @@ async def run_graph_summary(
         agent = await assemble_agent_fn(
             session_id=session_id,
             name="收尾汇总",
+            target=question,
             instruction="",
             budget=budget,
             tools=("run_python",),
