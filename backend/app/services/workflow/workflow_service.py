@@ -58,7 +58,8 @@ RUN_TRIGGER_PLAN = "plan"
 SYSTEM_WORKFLOW_INVESTIGATION = "系统 · 并行排查"
 SYSTEM_WORKFLOW_PLAN = "系统 · 执行计划"
 SYSTEM_WORKFLOW_NOTE = (
-    "系统编排模板：运行由会话内的执行模式自动创建，画布随最近一次运行的定义同步，不参与执行。"
+    "系统编排模板：运行由会话内的执行模式动态生成并执行，画布只展示模板形态"
+    "（任务节点按派发/计划动态展开），具体实例见运行记录；画布不参与执行。"
 )
 
 
@@ -224,38 +225,36 @@ async def create_system_run(
     *,
     workflow_name: str,
     definition: WorkflowDefinition,
+    template: WorkflowDefinition,
     trigger: str,
     triggered_by: str,
     payload: dict[str, Any],
 ) -> WorkflowRun:
-    """系统编排运行：按需建壳工作流，快照本次生成的定义，建运行记录。
+    """系统编排运行：按需建壳工作流（画布=模板形态），建运行记录。
 
     会话内的执行模式（并行排查 / 计划执行）都落工作流运行记录，trigger 区分
-    来源。壳工作流的画布同步最近一次生成的编排定义——工作流页里能直接看到
-    两种模式的图形状；执行只用运行自己的定义快照，壳画布不参与执行。
+    来源。壳工作流的画布只放模板形态——任务节点是动态占位，运行时由任务
+    分发按派发/计划动态展开；具体实例（每路/每步的名字与工具）只存在于
+    运行自己的定义快照里，壳画布不参与执行、也不随运行改写。
     """
 
     row = (
         await db.scalars(select(WorkflowRow).where(WorkflowRow.name == workflow_name))
     ).first()
-    definition_json = definition.model_dump_json()
     if row is None:
         row = WorkflowRow(
             name=workflow_name,
             description=SYSTEM_WORKFLOW_NOTE,
-            definition_json=definition_json,
+            definition_json=template.model_dump_json(),
             status="draft",
         )
         db.add(row)
         await db.flush()
-    elif row.definition_json != definition_json:
-        row.definition_json = definition_json
-        await db.commit()
     run_uid = f"run_{uuid4().hex[:12]}"
     run = WorkflowRun(
         workflow_id=row.id,
         run_uid=run_uid,
-        definition_json=definition_json,
+        definition_json=definition.model_dump_json(),
         workflow_version=row.version,
         workflow_status="draft",
         status=RUN_RUNNING,

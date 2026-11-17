@@ -323,7 +323,7 @@ async def _run_plan_graph(plan_uid: str) -> None:
     await publish({"event": "plan_started", "plan_uid": plan_uid})
     try:
         from app.services.workflow import workflow_service
-        from app.services.workflow.system_templates import plan_definition
+        from app.services.workflow.system_templates import plan_definition, plan_template
 
         async with SessionLocal() as db:
             plan = await _get_plan(db, plan_uid)
@@ -360,6 +360,7 @@ async def _run_plan_graph(plan_uid: str) -> None:
                 db,
                 workflow_name=workflow_service.SYSTEM_WORKFLOW_PLAN,
                 definition=definition,
+                template=plan_template(),
                 trigger=workflow_service.RUN_TRIGGER_PLAN,
                 triggered_by=f"session:{plan.session_id}",
                 payload={"plan_uid": plan_uid},

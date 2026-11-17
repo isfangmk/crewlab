@@ -106,3 +106,85 @@ def plan_definition(steps: list[dict[str, Any]]) -> WorkflowDefinition:
     for i in range(len(chain) - 1):
         edges.append(WorkflowEdge(id=f"e_chain_{i}", source=chain[i], target=chain[i + 1]))
     return WorkflowDefinition(nodes=nodes, edges=edges)
+
+
+def investigation_template() -> WorkflowDefinition:
+    """并行排查的模板形态（画布展示用，不直接执行）。
+
+    任务节点是动态占位：运行时由任务分发展开为 N 路并行分支，join 等全部
+    收口；具体实例（每路的名字/目标/工具）只存在于运行的定义快照里。
+    """
+
+    return WorkflowDefinition(
+        nodes=[
+            WorkflowNode(
+                id="start",
+                kind="start",
+                label="排查问题",
+                x=40,
+                y=0,
+                variables=[
+                    WorkflowVariable(name="question", type="string", description="要排查的总问题")
+                ],
+            ),
+            WorkflowNode(
+                id="dynamic_workers",
+                kind="task",
+                label="任务 · 按派发动态展开",
+                x=300,
+                y=0,
+                task=TaskSpec(
+                    target="运行时由任务分发动态展开：按派发生成 N 路并行分支，join 等全部路终态后放行",
+                    instruction="模板占位节点：画布展示动态扇出形态，实际执行由每次派发生成的定义承载",
+                    tools=[],
+                ),
+            ),
+            WorkflowNode(id="join", kind="join", label="等全部收口", x=580, y=0),
+            WorkflowNode(id="end", kind="end", label="收口", x=780, y=0),
+        ],
+        edges=[
+            WorkflowEdge(id="e1", source="start", target="dynamic_workers"),
+            WorkflowEdge(id="e2", source="dynamic_workers", target="join"),
+            WorkflowEdge(id="e3", source="join", target="end"),
+        ],
+    )
+
+
+def plan_template() -> WorkflowDefinition:
+    """计划执行的模板形态（画布展示用，不直接执行）。
+
+    任务节点是动态占位：运行时由任务分发按计划步骤展开为顺序链，
+    单步失败即暂停；具体实例只存在于运行的定义快照里。
+    """
+
+    return WorkflowDefinition(
+        nodes=[
+            WorkflowNode(
+                id="start",
+                kind="start",
+                label="计划执行",
+                x=40,
+                y=0,
+                variables=[
+                    WorkflowVariable(name="plan_uid", type="string", description="计划标识")
+                ],
+            ),
+            WorkflowNode(
+                id="dynamic_steps",
+                kind="task",
+                label="步骤 · 按计划动态展开",
+                x=300,
+                y=0,
+                task=TaskSpec(
+                    target="运行时由任务分发动态展开：按计划步骤生成顺序链，单步失败即暂停等用户决定",
+                    instruction="模板占位节点：画布展示动态链形态，实际执行由每次执行生成的定义承载",
+                    tools=[],
+                ),
+            ),
+            WorkflowNode(id="end", kind="end", label="段收口", x=560, y=0),
+        ],
+        edges=[
+            WorkflowEdge(id="e1", source="start", target="dynamic_steps"),
+            WorkflowEdge(id="e2", source="dynamic_steps", target="end"),
+        ],
+    )

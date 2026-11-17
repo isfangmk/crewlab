@@ -175,13 +175,17 @@ async def start_dispatch(
 
     # 编排收敛到工作流：扇出 + join 等全部收口，运行记录落在工作流运行里
     from app.services.workflow import workflow_service
-    from app.services.workflow.system_templates import investigation_definition
+    from app.services.workflow.system_templates import (
+        investigation_definition,
+        investigation_template,
+    )
 
     definition = investigation_definition(workers)
     run = await workflow_service.create_system_run(
         db,
         workflow_name=workflow_service.SYSTEM_WORKFLOW_INVESTIGATION,
         definition=definition,
+        template=investigation_template(),
         trigger=workflow_service.RUN_TRIGGER_INVESTIGATION,
         triggered_by=f"session:{session_id}",
         payload={"question": question},
