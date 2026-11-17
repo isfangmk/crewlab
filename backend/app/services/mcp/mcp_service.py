@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -23,6 +24,43 @@ logger = logging.getLogger(__name__)
 
 
 _APPROVAL_POLICIES = frozenset({"never", "non_readonly", "always"})
+
+# 探活失败的 server 每次装配都会重复刷同样的 WARNING（一轮对话装配 4+ 次）。
+# 记录上次告警过的 (status, last_error)，仅首次与状态变化时 WARNING，其余降 DEBUG。
+_unhealthy_warn_lock = threading.Lock()
+_unhealthy_warned: dict[int, tuple[str, str]] = {}
+
+
+def clear_unhealthy_warn(server_id: int) -> None:
+    """server 恢复正常后清除告警记忆，便于下次故障时重新告警。"""
+
+    with _unhealthy_warn_lock:
+        _unhealthy_warned.pop(server_id, None)
+
+
+def warn_unhealthy_server(server: McpServer, *, site: str) -> None:
+    """同一 server 的同一故障只告警一次；恢复后再次故障重新告警。"""
+
+    current = (server.status, server.last_error or "")
+    with _unhealthy_warn_lock:
+        changed = _unhealthy_warned.get(server.id) != current
+        _unhealthy_warned[server.id] = current
+    if changed:
+        logger.warning(
+            "跳过未探测成功的 MCP Server id=%s name=%s status=%s last_error=%s site=%s",
+            server.id,
+            server.name,
+            server.status,
+            server.last_error,
+            site,
+        )
+    else:
+        logger.debug(
+            "跳过未探测成功的 MCP Server（重复） id=%s name=%s site=%s",
+            server.id,
+            server.name,
+            site,
+        )
 
 
 def effective_approval_policy(server: McpServer) -> str:
@@ -321,12 +359,7 @@ def confirm_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
         if policy == "never":
             continue
         if server.status != "ok":
-            logger.warning(
-                "审批名单跳过未探测成功的 MCP Server id=%s name=%s status=%s",
-                server.id,
-                server.name,
-                server.status,
-            )
+            warn_unhealthy_server(server, site="approval_list")
             continue
         cached = parse_cached_tools(
             server.tools_cache_json, server_name=server.name, require_schema=False
@@ -350,12 +383,7 @@ def all_business_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
     names: set[str] = set()
     for server in servers:
         if server.status != "ok":
-            logger.warning(
-                "工具名单跳过未探测成功的 MCP Server id=%s name=%s status=%s",
-                server.id,
-                server.name,
-                server.status,
-            )
+            warn_unhealthy_server(server, site="tool_list")
             continue
         cached = parse_cached_tools(
             server.tools_cache_json, server_name=server.name, require_schema=False
@@ -396,13 +424,7 @@ async def build_searchable_mcp_toolsets(
         # 不能让整个对话装配失败（其余 server 与内置工具仍可用）
         if server.status != "ok":
             skipped.append(server.name)
-            logger.warning(
-                "跳过未探测成功的 MCP Server id=%s name=%s status=%s last_error=%s",
-                server.id,
-                server.name,
-                server.status,
-                server.last_error,
-            )
+            warn_unhealthy_server(server, site="build_toolset")
             continue
         # 业务工具 wire 名在 source 上；SearchableToolset 不再叠前缀
         source = await CachedMcpCatalogToolset.create(db, server)

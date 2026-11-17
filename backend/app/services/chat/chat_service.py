@@ -304,10 +304,11 @@ async def create_session(
     await db.commit()
     await db.refresh(session)
     logger.info(
-        "创建会话 session_id=%s provider=%s model=%s agent_id=%s has_page_context=%s",
+        "创建会话（初值，生效值见首条消息的『会话生效模型』） "
+        "session_id=%s provider=%s model=%s agent_id=%s has_page_context=%s",
         session.id,
-        provider,
-        model,
+        session.provider,
+        session.model,
         agent_id,
         page_context is not None,
     )
@@ -1633,10 +1634,20 @@ async def stream_session_message(
     use_model = model if model is not None else session.model
     sync_target = session_model_sync_target(session, provider, model)
     if sync_target is not None:
-        # 用户显式选模：校验后写回会话，下游（计划步骤/排查 worker）读同一份
+        # 用户显式选模：校验后写回会话，下游（计划步骤/排查 worker）读同一份。
+        # 建会话时记的是请求初值，这里才是本回合真正生效的模型，单独留痕。
+        previous = (session.provider, session.model)
         await resolve_model(db, *sync_target)
         session.provider, session.model = sync_target
         await db.commit()
+        logger.info(
+            "会话生效模型 session_id=%s from=%s/%s to=%s/%s",
+            session_id,
+            previous[0],
+            previous[1],
+            sync_target[0],
+            sync_target[1],
+        )
     user_message_id = client_message_id if client_message_id else str(uuid4())
     if client_message_id is not None and client_message_id == "":
         raise ValueError("client_message_id 不能为空字符串")

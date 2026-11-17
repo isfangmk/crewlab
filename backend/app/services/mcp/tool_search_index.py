@@ -250,6 +250,9 @@ async def warm_vector_cache_from_db(db: AsyncSession) -> int:
 
     缓存键是工具 wire 名（与运行时索引一致），
     不是 search_text 的哈希。向量存储未启用时没有向量可灌，返回 0。
+
+    幂等：进程缓存（_VECTOR_CACHE）已覆盖全部已同步工具名时直接返回，
+    避免计划每一步 / 收尾汇总装配时重复查库 + 查向量存储。
     """
 
     vs = get_vector_store()
@@ -258,6 +261,9 @@ async def warm_vector_cache_from_db(db: AsyncSession) -> int:
     names: list[str] = list(
         (await db.scalars(select(McpToolEmbedding.tool_name))).all()
     )
+    if names and all(name in _VECTOR_CACHE for name in names):
+        logger.debug("工具向量缓存已热，跳过预热 tools=%s", len(names))
+        return len(names)
     vec_map = await vs.fetch_vectors(MCP_TOOL_NAMESPACE, names)
     for name, vec in vec_map.items():
         remember_vector(name, vec)

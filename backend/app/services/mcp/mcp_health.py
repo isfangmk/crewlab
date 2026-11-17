@@ -13,7 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mcp import McpServer
-from app.services.mcp.mcp_service import probe_server_health
+from app.services.mcp.mcp_service import (
+    clear_unhealthy_warn,
+    probe_server_health,
+    warn_unhealthy_server,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +36,10 @@ async def probe_enabled_servers_once(db: AsyncSession) -> int:
         try:
             if await probe_server_health(db, row):
                 alive += 1
+                # 恢复后清掉告警记忆，便于下次故障重新 WARNING
+                clear_unhealthy_warn(row.id)
             else:
-                logger.warning(
-                    "MCP 探活失败 id=%s name=%s error=%s", row.id, row.name, row.last_error
-                )
+                warn_unhealthy_server(row, site="health_loop")
         except Exception:  # noqa: BLE001 — 单台异常不断整轮
             logger.exception("MCP 探活异常 id=%s name=%s", row.id, row.name)
     return alive

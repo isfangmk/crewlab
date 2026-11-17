@@ -15,6 +15,7 @@ from pathlib import Path
 
 from app.db import SessionLocal
 from app.models.mcp import McpServer
+from app.services.mcp import mcp_service
 from app.services.mcp.mcp_health import probe_enabled_servers_once
 from app.services.mcp.mcp_service import probe_server_health
 
@@ -64,6 +65,39 @@ async def _drop_server(server_id: int) -> None:
         if row is not None:
             await db.delete(row)
             await db.commit()
+
+
+def test_unhealthy_warn_dedups_per_state(caplog) -> None:
+    """同一 server 同一故障只告警一次；错误串变化或恢复后重新告警。"""
+
+    import logging
+
+    tag = uuid.uuid4().hex[:8]
+    server = McpServer(
+        name=f"warn-dedup-{tag}",
+        transport="sse",
+        endpoint="http://127.0.0.1:9/mcp",
+        status="error",
+        last_error="ConnectionError: down",
+        enabled=True,
+    )
+    server.id = abs(hash(tag)) % 1000000
+    mcp_service.clear_unhealthy_warn(server.id)
+    try:
+        with caplog.at_level(logging.WARNING, logger=mcp_service.logger.name):
+            mcp_service.warn_unhealthy_server(server, site="test")
+            mcp_service.warn_unhealthy_server(server, site="test")
+            assert len([r for r in caplog.records if "跳过未探测成功" in r.message]) == 1
+
+            server.last_error = "ConnectionError: changed"
+            mcp_service.warn_unhealthy_server(server, site="test")
+            assert len([r for r in caplog.records if "跳过未探测成功" in r.message]) == 2
+
+            mcp_service.clear_unhealthy_warn(server.id)
+            mcp_service.warn_unhealthy_server(server, site="test")
+            assert len([r for r in caplog.records if "跳过未探测成功" in r.message]) == 3
+    finally:
+        mcp_service.clear_unhealthy_warn(server.id)
 
 
 async def test_probe_unreachable_marks_error() -> None:
