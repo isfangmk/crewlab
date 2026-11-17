@@ -864,7 +864,9 @@ export default function ChatThreadPage() {
 
     });
 
-    const intervalID = window.setInterval(tick, 5000);
+    // 轮询降级为兜底：正常由全局通知（chat_refetch/graph_finished）经 onChatRefetch
+    // 即时拉齐；这里仅 30s 兜底一次，防止偶发通知丢失导致画面长期不刷新。
+    const intervalID = window.setInterval(tick, 30_000);
 
     // 审批卡本地/跨页决策后立刻拉齐续跑消息
 

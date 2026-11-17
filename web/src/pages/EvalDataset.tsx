@@ -25,6 +25,7 @@ import { ShareEvalRunDialog } from '@/components/ShareEvalRunDialog';
 import { Modal } from '@/components/Modal';
 import { Hint } from '@/components/ui/Tooltip';
 import { errorText } from '@/lib/errors';
+import { EVAL_RUN_EVENT } from '@/lib/useNotifications';
 import { saveBlob } from '@/lib/download';
 import { fullDateTime } from '@/lib/format';
 import { CASE_STATUS_META, RUN_STATUS_META, caseStatusMeta } from '@/lib/evalStatus';
@@ -147,9 +148,18 @@ export default function EvalDatasetPage() {
     [dataset],
   );
 
+  // 评测跑完由全局通知即时刷新；running 期间保留慢兜底轮询。
+  useEffect(() => {
+    const onDone = () => {
+      void load(true);
+      if (activeRunUid !== null) void getEvalRun(activeRunUid).then(setActiveRun).catch(() => {});
+    };
+    window.addEventListener(EVAL_RUN_EVENT, onDone);
+    return () => window.removeEventListener(EVAL_RUN_EVENT, onDone);
+  }, [load, activeRunUid]);
   useEffect(() => {
     if (!hasRunningRun) return;
-    const timer = window.setInterval(() => void load(true), 2000);
+    const timer = window.setInterval(() => void load(true), 5000);
     return () => window.clearInterval(timer);
   }, [hasRunningRun, load]);
 

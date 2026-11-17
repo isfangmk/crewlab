@@ -18,6 +18,7 @@ import {
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { useI18n } from '@/i18n/locale';
 import { APPROVAL_STATUS_META } from '@/lib/approvalStatus';
+import { CHAT_LIVE_EVENT, type ChatLiveDetail } from '@/lib/chatLiveBus';
 import { fullDateTime } from '@/lib/format';
 import { useAuth } from '@/store/auth';
 
@@ -61,9 +62,19 @@ export default function ApprovalDetailPage() {
     void load();
     return invalidate;
   }, [load, role, invalidate]);
+  // 审批决定由全局通知即时刷新：只响应针对本条审批的 approval_decided 信号，
+  // 不被无关聊天活动触发；pending/approved 期间保留慢兜底轮询。
+  useEffect(() => {
+    const onLive = (e: Event) => {
+      const detail = (e as CustomEvent<ChatLiveDetail>).detail;
+      if (detail?.type === 'approval_decided' && detail.approvalId === id) void load();
+    };
+    window.addEventListener(CHAT_LIVE_EVENT, onLive);
+    return () => window.removeEventListener(CHAT_LIVE_EVENT, onLive);
+  }, [load, id]);
   useEffect(() => {
     if (!item || !['pending', 'approved'].includes(item.status) || busy) return;
-    const timer = window.setInterval(() => { void load(); }, 5000);
+    const timer = window.setInterval(() => { void load(); }, 30_000);
     return () => window.clearInterval(timer);
   }, [item, busy, load]);
 

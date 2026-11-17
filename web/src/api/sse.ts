@@ -8,6 +8,8 @@ import { ApiError } from '@/api/client';
 export type SseFrame = {
   event: string;
   data: string;
+  /** SSE id 行（用于 Last-Event-ID 断点续传）；无 id 帧为 undefined。 */
+  id?: string;
 };
 
 /** 响应不是成功状态时，按统一错误结构抛出 ApiError。 */
@@ -38,14 +40,16 @@ export async function assertSseOk(res: Response): Promise<void> {
 /** 解析一帧：返回事件名与数据文本；注释行与心跳帧跳过。 */
 export function parseSseFrame(raw: string): SseFrame | null {
   let event = 'message';
+  let id: string | undefined;
   const dataLines: string[] = [];
   for (const line of raw.split('\n')) {
     if (line === '' || line.startsWith(':')) continue;
     if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('id:')) id = line.slice(3).trim();
     else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
   }
   if (dataLines.length === 0) return null;
-  return { event, data: dataLines.join('\n') };
+  return id === undefined ? { event, data: dataLines.join('\n') } : { event, data: dataLines.join('\n'), id };
 }
 
 /**

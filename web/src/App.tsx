@@ -7,6 +7,7 @@ import { Layout } from '@/components/Layout';
 import { AppToaster } from '@/components/ui/Toast';
 import { ChatLayout } from '@/components/ChatLayout';
 import { useAuth } from '@/store/auth';
+import { useNotifications } from '@/lib/useNotifications';
 
 const LoginPage = lazy(() => import('@/pages/Login'));
 const HomePage = lazy(() => import('@/pages/Home'));
@@ -49,6 +50,8 @@ const SettingsSecrets = lazy(() => import('@/pages/settings/Secrets'));
 function RequireAuth({ children }: { children: ReactNode }) {
   const token = useAuth((s) => s.token);
   const location = useLocation();
+  // 全局通知连接：登录态下每标签页一条，收状态变更信号（替代各页轮询）。
+  useNotifications();
   if (!token) {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   }

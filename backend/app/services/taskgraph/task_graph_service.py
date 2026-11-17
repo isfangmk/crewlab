@@ -25,7 +25,7 @@ from app.adk_runtime.headless import WorkerBudget
 from app.db import SessionLocal
 from app.models.task_graph import TaskGraphNode, TaskGraphRun
 from app.schemas.task_graph import TaskGraphSpec
-from app.services.platform import redis_distributed
+from app.services.platform import notification_bus, redis_distributed
 from app.services.platform.task_control import StopSignal
 from app.services.taskgraph import graph_builder
 from app.services.taskgraph.node_executor import execute_node
@@ -181,6 +181,12 @@ async def submit_graph(
         )
     await db.commit()
     await db.refresh(graph)
+    # 任务图草稿已落库：通知工作台重拉列表并切到新图（此前由前端解析工具结果伪造）。
+    await notification_bus.publish(
+        created_by,
+        kind="graph_created",
+        payload={"graph_uid": graph_uid, "session_id": session_id},
+    )
     logger.info(
         "提交任务图草稿 graph_uid=%s session_id=%s title=%s nodes=%s",
         graph_uid,
@@ -498,6 +504,16 @@ async def _finish_graph(
             "summary_message_id": summary_message_id,
             "stats": _stats_of(nodes),
         }
+    )
+    # 任务图收尾汇总已落库：通知该用户所有标签页重拉消息/工作台（取代轮询）。
+    await notification_bus.publish(
+        graph.created_by,
+        kind="graph_finished",
+        payload={
+            "graph_uid": graph.graph_uid,
+            "status": status,
+            "summary_message_id": summary_message_id,
+        },
     )
     logger.info(
         "任务图收尾完成 graph_uid=%s status=%s nodes=%s summary=%s",

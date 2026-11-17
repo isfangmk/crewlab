@@ -25,6 +25,7 @@ from app.db import SessionLocal
 from app.models.knowledge import KnowledgeDoc
 from app.services.knowledge import knowledge_service, knowledge_source_service
 from app.services.observability.audit_service import write_audit
+from app.services.platform import notification_bus
 
 logger = logging.getLogger(__name__)
 
@@ -506,6 +507,11 @@ async def _sync_detached(source_id: str) -> None:
         await _write_finish_audit(
             snapshot, status="ok", stats=stats, duration_ms=duration_ms
         )
+        await notification_bus.publish(
+            snapshot.created_by,
+            kind="knowledge_sync_done",
+            payload={"source_id": source_id, "status": "ok"},
+        )
         logger.info(
             "外部源同步完成 source=%s kind=%s docs=%s changed=%s removed=%s",
             source_id,
@@ -530,6 +536,11 @@ async def _sync_detached(source_id: str) -> None:
                     stats=stats,
                     duration_ms=duration_ms,
                     error=error,
+                )
+                await notification_bus.publish(
+                    snapshot.created_by,
+                    kind="knowledge_sync_done",
+                    payload={"source_id": source_id, "status": "error"},
                 )
             except Exception:
                 logger.exception("记录外部源同步失败状态时出错 source=%s", source_id)

@@ -18,6 +18,7 @@ from app.models.chat import ChatSession
 from app.services.agent import agent_service
 from app.services.agent.agent_tool_service import build_agent_tool_bundle
 from app.services.chat import chat_service
+from app.services.platform import notification_bus
 from app.services.platform.llm_config import resolve_model
 from app.tools.user_input import (
     coerce_ask_display,
@@ -602,6 +603,12 @@ async def stream_decide(
         )
     await db.commit()
     await db.refresh(row)
+    # 通知所有标签页：审批已决，重拉审批列表/消息（取代轮询）。
+    await notification_bus.publish(
+        session.owner_user_id,
+        kind="approval_decided",
+        payload={"approval_id": row.id, "status": row.status, "session_id": session.id},
+    )
     logger.info(
         "审批决策完成 approval_id=%s status=%s confirmed=%s",
         row.id,

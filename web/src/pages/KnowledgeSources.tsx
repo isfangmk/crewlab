@@ -1,7 +1,8 @@
 // 外部知识源：URL / Git 接入、后台增量同步与文档归属。
 //
-// 同步在服务端后台执行，页面只负责触发与观察状态：有来源处于 syncing 时
-// 每 2 秒静默刷新一次，直到整张表稳定；同步出的文档在知识库页只读。
+// 同步在服务端后台执行，页面只负责触发与观察状态：同步完成由全局通知
+// （knowledge_sync_done）即时刷新；syncing 期间保留 5 秒兜底轮询直至稳定，
+// 防止偶发通知丢失导致状态卡住；同步出的文档在知识库页只读。
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FileText,
@@ -17,6 +18,7 @@ import { flash, Button, Chip, COL, EmptyStateCard, ErrorBanner, FilterBar, Filte
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { errorText } from '@/lib/errors';
+import { KNOWLEDGE_SYNC_EVENT } from '@/lib/useNotifications';
 import { fullDateTime } from '@/lib/format';
 import { compareNullableTime } from '@/lib/sort';
 import { useI18n } from '@/i18n/locale';
@@ -87,12 +89,18 @@ export default function KnowledgeSourcesPage() {
     void load();
   }, [load]);
 
+  // 同步完成由全局通知即时刷新（不依赖轮询）；syncing 期间保留慢兜底。
   const anySyncing = (items ?? []).some((row) => row.sync_status === 'syncing');
+  useEffect(() => {
+    const onDone = () => void load(true);
+    window.addEventListener(KNOWLEDGE_SYNC_EVENT, onDone);
+    return () => window.removeEventListener(KNOWLEDGE_SYNC_EVENT, onDone);
+  }, [load]);
   useEffect(() => {
     if (!anySyncing) return;
     const timer = window.setInterval(() => {
       void load(true);
-    }, 2000);
+    }, 5000);
     return () => window.clearInterval(timer);
   }, [anySyncing, load]);
 

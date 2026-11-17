@@ -591,7 +591,7 @@ async def stream_message(
     """
     set_session_id(session_id)
     try:
-        await chat_service.get_session(db, session_id)
+        session = await chat_service.get_session(db, session_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -606,6 +606,7 @@ async def stream_message(
         attachment_ids=body.attachment_ids,
         locale=body.locale,
         mentions=[m.model_dump() for m in body.mentions],
+        owner_uid=session.owner_user_id,
     )
     return {"session_id": session_id, "turn_id": turn_id}
 
@@ -686,6 +687,7 @@ async def edit_and_resend(
     """编辑用户消息并截断后续后重发：登记回合 + 后台生产，返回 turn_id。"""
 
     set_session_id(session_id)
+    session = await chat_service.get_session(db, session_id)
 
     async def prepare(db: AsyncSession) -> None:
         await chat_service.prepare_resend_from_user_message(
@@ -711,6 +713,7 @@ async def edit_and_resend(
         attachment_ids=body.attachment_ids,
         locale=None,
         mentions=None,
+        owner_uid=session.owner_user_id,
         before_produce=prepare,
     )
     return {"session_id": session_id, "turn_id": turn_id}

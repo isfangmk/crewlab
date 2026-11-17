@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import SessionLocal
 from app.request_context import set_session_id
 from app.services.chat import chat_service, chat_stream_bus
+from app.services.platform import notification_bus
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ async def begin_streamed_turn(
     attachment_ids: list[str],
     locale: str | None,
     mentions: list[dict[str, Any]] | None,
+    owner_uid: int | None = None,
     before_produce: Callable[[AsyncSession], Awaitable[None]] | None = None,
 ) -> str:
     """登记回合 + 启动后台生产，返回 turn_id（HTTP 立即响应）。
@@ -68,6 +70,7 @@ async def begin_streamed_turn(
             attachment_ids=attachment_ids,
             locale=locale,
             mentions=mentions,
+            owner_uid=owner_uid,
             before_produce=before_produce,
         )
     )
@@ -87,6 +90,7 @@ async def _produce(
     attachment_ids: list[str],
     locale: str | None,
     mentions: list[dict[str, Any]] | None,
+    owner_uid: int | None = None,
     before_produce: Callable[[AsyncSession], Awaitable[None]] | None = None,
 ) -> None:
     """后台消费 stream_session_message，逐帧 publish；异常也发 error 终态帧。"""
@@ -132,6 +136,13 @@ async def _produce(
             logger.exception("发布错误终态帧失败 session_id=%s", session_id)
     finally:
         await chat_stream_bus.finish_turn(session_id, status=terminal)
+        # 回合落库完成：通知该用户所有标签页重拉消息列表（取代 5s 轮询）。
+        # 发起标签页自己也在读本回合 SSE，但通知让它及其他标签页都能刷新侧栏/统计。
+        await notification_bus.publish(
+            owner_uid,
+            kind="chat_refetch",
+            payload={"reason": "turn_finished", "session_id": session_id, "terminal": terminal},
+        )
         logger.info(
             "对话回合后台生产结束 session_id=%s turn_id=%s terminal=%s",
             session_id,

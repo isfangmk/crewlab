@@ -26,6 +26,7 @@ from app.api import (
     auth,
     chat,
     evals,
+    events,
     health,
     integrations_llm,
     knowledge,
@@ -257,6 +258,7 @@ def create_app() -> FastAPI:
     app.include_router(memory.router, prefix="/api/v1")
     app.include_router(models.router, prefix="/api/v1")
     app.include_router(chat.router, prefix="/api/v1")
+    app.include_router(events.router, prefix="/api/v1")
     app.include_router(approvals.router, prefix="/api/v1")
     app.include_router(approval_rules.router, prefix="/api/v1")
     app.include_router(mcp.router, prefix="/api/v1")

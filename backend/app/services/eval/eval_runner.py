@@ -28,6 +28,7 @@ from app.request_context import set_request_id
 from app.services.chat import chat_service
 from app.services.eval import eval_judge_service, eval_service
 from app.services.observability import observation_service
+from app.services.platform import notification_bus
 from app.services.observability.audit_service import write_audit
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,11 @@ async def _run_detached(run_uid: str) -> None:
                 await db.commit()
             eval_service.finish_run_now(run, eval_service.RUN_COMPLETED)
             await db.commit()
+            await notification_bus.publish(
+                run.created_by,
+                kind="eval_run_done",
+                payload={"run_uid": run.run_uid, "status": eval_service.RUN_COMPLETED},
+            )
             await write_audit(
                 actor_user_id=run.created_by,
                 action="eval.run_finish",
@@ -116,6 +122,11 @@ async def _fail_run(run_uid: str, error: str) -> None:
         run = await eval_service.get_run(db, run_uid)
         eval_service.finish_run_now(run, eval_service.RUN_FAILED, error)
         await db.commit()
+        await notification_bus.publish(
+            run.created_by,
+            kind="eval_run_done",
+            payload={"run_uid": run.run_uid, "status": eval_service.RUN_FAILED},
+        )
         await write_audit(
             actor_user_id=run.created_by,
             action="eval.run_finish",
