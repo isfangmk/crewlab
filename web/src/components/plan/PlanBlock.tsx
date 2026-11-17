@@ -42,6 +42,7 @@ export function PlanBlock({
 }: {
   call: {
     name: string;
+    status?: string;
     arguments?: unknown;
     result?: unknown;
     duration_ms?: number;
@@ -279,7 +280,7 @@ export function PlanBlock({
         ) : (
           <ChevronRight size={12} className="shrink-0 text-zinc-500" />
         )}
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-teal-400/15 text-teal-300">
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-accent/12 text-accent">
           <ListChecks size={12} />
         </span>
         <span className="text-[12px] font-semibold text-zinc-100">
@@ -292,7 +293,7 @@ export function PlanBlock({
               <span
                 className={cn(
                   'block text-[11px] font-semibold tabular-nums',
-                  active ? 'text-teal-300' : 'text-zinc-300',
+                  active ? 'text-accent' : 'text-zinc-300',
                 )}
               >
                 {fmtDuration(totalMs)}
@@ -316,13 +317,13 @@ export function PlanBlock({
                   s.status === 'succeeded' && 'bg-ok/20',
                   s.status === 'skipped' && 'bg-warn/20',
                   s.status === 'failed' && 'bg-danger/20',
-                  s.status === 'running' && 'bg-teal-400/15',
+                  s.status === 'running' && 'bg-accent/15',
                   (s.status === null || s.status === 'pending' || s.status === 'queued' || s.status === 'stopped') &&
                     'bg-zinc-800',
                 )}
               >
                 {s.status === 'running' && (
-                  <div className="absolute inset-y-0 left-0 w-[45%] animate-grow-strip rounded-full bg-teal-400" />
+                  <div className="absolute inset-0 rounded-full bg-accent/50" />
                 )}
               </div>
             ))}
@@ -342,7 +343,7 @@ export function PlanBlock({
                       'grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md text-[9px] font-bold',
                       s.status === 'succeeded' && 'bg-ok/15 text-ok',
                       s.status === 'skipped' && 'bg-warn/15 text-warn',
-                      isRunning && 'bg-teal-500 text-white',
+                      isRunning && 'bg-accent text-accent-fg',
                       s.status === 'failed' && 'bg-danger/15 text-danger',
                       (s.status === null || s.status === 'pending' || s.status === 'queued' || s.status === 'stopped') &&
                         'bg-zinc-800/60 text-zinc-500',
@@ -375,7 +376,7 @@ export function PlanBlock({
                   <span
                     className={cn(
                       'shrink-0 text-[10px] tabular-nums',
-                      isRunning ? 'font-semibold text-teal-300' : 'text-zinc-500',
+                      isRunning ? 'font-semibold text-accent' : 'text-zinc-500',
                     )}
                   >
                     {isRunning || s.duration_ms > 0
@@ -409,7 +410,7 @@ export function PlanBlock({
                 type="button"
                 disabled={busy}
                 onClick={() => void doStart()}
-                className="shrink-0 rounded-md bg-teal-500 px-2 py-1 text-[10.5px] font-medium text-white hover:bg-teal-400 disabled:opacity-50"
+                className="shrink-0 rounded-md bg-accent px-2 py-1 text-[10.5px] font-medium text-accent-fg hover:brightness-110 disabled:opacity-50"
               >
                 {busy
                   ? tr(isPaused ? '恢复中…' : '执行中…', isPaused ? 'Resuming…' : 'Starting…')
@@ -462,7 +463,7 @@ export function PlanBlock({
                     setEditSteps((prev) => prev!.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))
                   }
                   placeholder={tr('步骤名称', 'Step name')}
-                  className="w-full rounded-md border border-zinc-800 bg-zinc-900/60 px-1.5 py-1 text-[11px] text-zinc-200 outline-none focus:border-teal-500/60"
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-900/60 px-1.5 py-1 text-[11px] text-zinc-200 outline-none focus:border-accent/60"
                 />
                 <input
                   value={s.instruction}
@@ -470,7 +471,7 @@ export function PlanBlock({
                     setEditSteps((prev) => prev!.map((x, j) => (j === i ? { ...x, instruction: e.target.value } : x)))
                   }
                   placeholder={tr('本步要求（可选）', 'Instruction (optional)')}
-                  className="w-full rounded-md border border-zinc-800 bg-zinc-900/60 px-1.5 py-1 text-[10.5px] text-zinc-300 outline-none focus:border-teal-500/60"
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-900/60 px-1.5 py-1 text-[10.5px] text-zinc-300 outline-none focus:border-accent/60"
                 />
                 <input
                   value={s.tools}
@@ -478,7 +479,7 @@ export function PlanBlock({
                     setEditSteps((prev) => prev!.map((x, j) => (j === i ? { ...x, tools: e.target.value } : x)))
                   }
                   placeholder={tr('所需工具，逗号分隔（可选）', 'Tools, comma separated (optional)')}
-                  className="w-full rounded-md border border-zinc-800 bg-zinc-900/60 px-1.5 py-1 text-[10px] text-zinc-400 outline-none focus:border-teal-500/60"
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-900/60 px-1.5 py-1 text-[10px] text-zinc-400 outline-none focus:border-accent/60"
                 />
               </span>
               <button
@@ -521,7 +522,7 @@ export function PlanBlock({
               type="button"
               disabled={busy}
               onClick={() => void saveEdit(true)}
-              className="shrink-0 rounded-md bg-teal-500 px-2 py-1 text-[10.5px] font-medium text-white hover:bg-teal-400 disabled:opacity-50"
+              className="shrink-0 rounded-md bg-accent px-2 py-1 text-[10.5px] font-medium text-accent-fg hover:brightness-110 disabled:opacity-50"
             >
               {busy ? tr('保存中…', 'Saving…') : tr('保存并执行', 'Save & run')}
             </button>

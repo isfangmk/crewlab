@@ -216,7 +216,7 @@ export function DispatchBlock({
         ) : (
           <ChevronRight size={12} className="shrink-0 text-zinc-500" />
         )}
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-sky-400/15 text-sky-300">
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-accent/12 text-accent">
           <Waypoints size={12} />
         </span>
         <span className="text-[12px] font-semibold text-zinc-100">
@@ -229,7 +229,7 @@ export function DispatchBlock({
               <span
                 className={cn(
                   'block text-[11px] font-semibold tabular-nums',
-                  active ? 'text-sky-300' : 'text-zinc-300',
+                  active ? 'text-accent' : 'text-zinc-300',
                 )}
               >
                 {fmtDuration(totalMs)}
@@ -252,12 +252,12 @@ export function DispatchBlock({
                   'relative h-[5px] flex-1 overflow-hidden rounded-full',
                   w.status === 'succeeded' && 'bg-ok/20',
                   w.status === 'failed' && 'bg-danger/20',
-                  w.status === 'running' && 'bg-sky-400/15',
+                  w.status === 'running' && 'bg-accent/15',
                   (w.status === null || w.status === 'queued' || w.status === 'stopped') && 'bg-zinc-800',
                 )}
               >
                 {w.status === 'running' && (
-                  <div className="absolute inset-y-0 left-0 w-[45%] animate-grow-strip rounded-full bg-sky-400" />
+                  <div className="absolute inset-0 rounded-full bg-accent/50" />
                 )}
               </div>
             ))}
@@ -279,7 +279,7 @@ export function DispatchBlock({
                     className={cn(
                       'grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md text-[9px] font-bold',
                       w.status === 'succeeded' && 'bg-ok/15 text-ok',
-                      isRunning && 'bg-sky-400 text-white',
+                      isRunning && 'bg-accent text-accent-fg',
                       w.status === 'failed' && 'bg-danger/15 text-danger',
                       (w.status === null || w.status === 'queued' || w.status === 'stopped') &&
                         'bg-zinc-800/60 text-zinc-500',
@@ -315,7 +315,7 @@ export function DispatchBlock({
                   <span
                     className={cn(
                       'shrink-0 text-[10px] tabular-nums',
-                      isRunning ? 'font-semibold text-sky-300' : 'text-zinc-500',
+                      isRunning ? 'font-semibold text-accent' : 'text-zinc-500',
                     )}
                   >
                     {isRunning || w.duration_ms > 0 ? fmtDuration(elapsedMs) : ''}

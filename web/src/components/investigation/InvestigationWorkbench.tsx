@@ -230,8 +230,8 @@ export function InvestigationWorkbench({
       {/* 面板头：kicker + 问题 + 开始时刻/全程计时 + 多轨 motif */}
       <div className="border-b border-zinc-800/60 px-4 pb-3.5 pt-3.5">
         <div className="flex items-center gap-2">
-          <Activity size={13} className="shrink-0 text-sky-400" />
-          <span className="text-[11px] font-bold tracking-[0.2em] text-sky-400">
+          <Activity size={13} className="shrink-0 text-accent" />
+          <span className="text-[11px] font-bold tracking-[0.08em] text-accent">
             {tr('并行排查 · 跑道', 'Investigation · lanes')}
           </span>
           {wire && <span className="text-[10px] tabular-nums text-zinc-600">#{wire.id}</span>}
@@ -259,7 +259,7 @@ export function InvestigationWorkbench({
                 <span>{tr(`开始于 ${fullDateTime(wire.created_at)}`, `Started ${fullDateTime(wire.created_at)}`)}</span>
               )}
               {totalMs > 0 && (
-                <span className={cn('font-semibold tabular-nums', active ? 'text-sky-300' : 'text-zinc-300')}>
+                <span className={cn('font-semibold tabular-nums', active ? 'text-accent' : 'text-zinc-300')}>
                   · {tr('全程已运行 ', 'elapsed ')}
                   {fmtDuration(totalMs)}
                 </span>
@@ -353,7 +353,7 @@ export function InvestigationWorkbench({
                     className={cn(
                       'relative overflow-hidden rounded-[11px] border',
                       isRunning
-                        ? 'border-sky-400/35 bg-sky-400/[0.06]'
+                        ? 'border-accent/35 bg-accent/[0.06]'
                         : w.status === 'failed'
                           ? 'border-danger/30 bg-danger/[0.06]'
                           : 'border-zinc-800/60 bg-zinc-950/60',
@@ -370,7 +370,7 @@ export function InvestigationWorkbench({
                         className={cn(
                           'grid h-[26px] w-[26px] shrink-0 place-items-center rounded-lg text-[12px] font-semibold',
                           w.status === 'succeeded' && 'bg-ok/15 text-ok',
-                          isRunning && 'bg-sky-400/15 text-sky-300',
+                          isRunning && 'bg-accent/15 text-accent',
                           w.status === 'failed' && 'bg-danger/15 text-danger',
                           (w.status === 'queued' || w.status === 'stopped') && 'bg-zinc-800/60 text-zinc-500',
                         )}
@@ -391,7 +391,7 @@ export function InvestigationWorkbench({
                           <span
                             className={cn(
                               'shrink-0 rounded px-1.5 py-px text-[9px] font-semibold',
-                              isRunning && 'bg-sky-400/15 text-sky-300',
+                              isRunning && 'bg-accent/15 text-accent',
                               w.status === 'succeeded' && 'bg-ok/15 text-ok',
                               w.status === 'failed' && 'bg-danger/15 text-danger',
                               (w.status === 'queued' || w.status === 'stopped') && 'bg-zinc-800/60 text-zinc-500',
@@ -417,7 +417,7 @@ export function InvestigationWorkbench({
                             <span
                               className={cn(
                                 'inline-block h-[5px] w-[5px] rounded-full',
-                                stale ? 'bg-warn' : 'animate-pulse-dot bg-sky-400',
+                                stale ? 'bg-warn' : 'animate-pulse-dot bg-accent',
                               )}
                             />
                             {stale
@@ -449,7 +449,7 @@ export function InvestigationWorkbench({
                         <span
                           className={cn(
                             'block text-[13px] font-semibold tabular-nums',
-                            isRunning ? 'text-sky-300' : w.status === 'failed' ? 'text-danger' : 'text-zinc-300',
+                            isRunning ? 'text-accent' : w.status === 'failed' ? 'text-danger' : 'text-zinc-300',
                           )}
                         >
                           {elapsedMs > 0 ? fmtDuration(elapsedMs) : '—'}
@@ -467,7 +467,7 @@ export function InvestigationWorkbench({
                     {/* 运行中跑道底部进度带 */}
                     {isRunning && (
                       <div className="absolute inset-x-0 bottom-0 h-[2px] bg-zinc-800/80">
-                        <div className="h-full w-full animate-grow rounded-r bg-sky-400" />
+                        <div className="h-full w-full rounded-r bg-accent/70" />
                       </div>
                     )}
                     {open && (
@@ -545,8 +545,7 @@ function MotifTrack({ status }: { status: WorkerStatus }) {
       {status === 'succeeded' && <div className="absolute inset-0 bg-ok/20" />}
       {status === 'running' && (
         <>
-          <div className="absolute inset-y-0 left-0 w-[62%] bg-sky-400/15" />
-          <div className="absolute inset-y-0 left-0 w-1/3 animate-sweep bg-gradient-to-r from-transparent via-sky-400/50 to-transparent" />
+          <div className="absolute inset-y-0 left-0 w-[62%] bg-accent/20" />
         </>
       )}
       {status === 'failed' && <div className="absolute inset-0 bg-danger/20" />}
