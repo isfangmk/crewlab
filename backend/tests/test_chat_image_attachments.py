@@ -84,7 +84,8 @@ async def test_upload_image_persists_on_user_message() -> None:
             attachment_id = up.json()["id"]
             assert isinstance(attachment_id, str) and attachment_id != ""
 
-            # 只跑到用户消息落库即可：用短超时打断长推理也可，但这里正常跑完一轮
+            # POST 现在立即返回 turn_id，帧走 GET .../events 订阅，落库在后台异步完成。
+            # 必须订阅事件流等 done 帧，再读消息历史——直接 GET 会撞上落库竞态。
             async with client.stream(
                 "POST",
                 f"/api/v1/chat/sessions/{session_id}/messages/stream",
@@ -98,8 +99,23 @@ async def test_upload_image_persists_on_user_message() -> None:
                 },
             ) as r:
                 r.raise_for_status()
-                async for _line in r.aiter_lines():
-                    pass
+                await r.aread()
+            payload = r.json()
+            turn_id = payload["turn_id"]
+
+            async with client.stream(
+                "GET",
+                f"/api/v1/chat/sessions/{session_id}/events",
+                headers=headers,
+                params={"turn_id": turn_id},
+            ) as events:
+                events.raise_for_status()
+                reached_done = False
+                async for line in events.aiter_lines():
+                    if line.startswith("event: done"):
+                        reached_done = True
+                        break
+            assert reached_done, "未等到 done 帧，回合未正常结束"
 
             hist = await client.get(
                 f"/api/v1/chat/sessions/{session_id}/messages",
