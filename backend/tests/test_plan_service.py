@@ -668,6 +668,10 @@ async def test_auto_summary_written_and_idempotent(monkeypatch) -> None:
                 assert "计划执行已全部完成" in (msg.content or "")
                 body = (msg.content or "").split("\n\n", 1)[-1].strip()
                 assert body and body != "（汇总未产出结论）"
+                # 右下角耗时/token：汇总消息必须带 stats（与普通回答同口径）
+                stats = json.loads(msg.stats_json or "{}")
+                assert isinstance(stats.get("duration_ms"), int) and stats["duration_ms"] > 0
+                assert isinstance(stats.get("total_tokens"), int) and stats["total_tokens"] > 0
 
                 # 幂等：同一次运行再调汇总不新增消息（真实函数，靠 db 里已存在的 id 短路）
                 again = await run_plan_summary(

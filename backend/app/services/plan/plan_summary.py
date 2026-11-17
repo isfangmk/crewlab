@@ -180,12 +180,23 @@ async def run_plan_summary(
         tool_call = None
         if display_rows:
             tool_call = plan_artifacts.synthetic_tool_call(plan_uid, display_rows)
+
+        # 右下角运行统计：与普通回答同口径（缺键不写，禁止假 0）
+        stats: dict[str, int] = {}
+        if isinstance(turn.duration_ms, int) and turn.duration_ms > 0:
+            stats["duration_ms"] = turn.duration_ms
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            value = turn.usage.get(key)
+            if isinstance(value, int):
+                stats[key] = value
+
         await chat_service.append_assistant_message(
             db,
             session_id=session_id,
             message_id=message_id,
             content=content,
             tool_call=tool_call,
+            stats=stats or None,
         )
         logger.info(
             "收尾汇总完成 plan_uid=%s status=%s duration_ms=%s body_len=%s "
