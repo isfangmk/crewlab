@@ -1,4 +1,5 @@
 import { useAssistantPage } from '@/lib/assistantPage';
+import { toolResultHasArtifacts } from '@/lib/artifactResult';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { errorText } from '@/lib/errors';
@@ -1106,10 +1107,10 @@ export default function ChatThreadPage() {
               : m,
           ),
         );
-        // 代码解释器执行完成：刷新 Artifacts 侧栏并自动展开
+        // 代码解释器执行完成：刷新 Artifacts 侧栏；只有真产出物才自动展开
         if (t.name === 'run_python') {
           setArtifactTick((v) => v + 1);
-          setShowArtifacts(true);
+          if (toolResultHasArtifacts(t.result)) setShowArtifacts(true);
         }
         // submit_task_graph 落库（后台回合路径）：通知右栏工作台切到新图
         if (t.name === 'submit_task_graph' && t.status === 'success') {
@@ -1683,15 +1684,11 @@ export default function ChatThreadPage() {
             );
 
             // 正常流式回合的 run_python 完成时也要刷新 Artifacts 面板，
-
             // 不能只依赖全局 CHAT_LIVE_EVENT 通道（后台回合才走那里）。
-
+            // 无产出物（只 print）时只刷新、不自动展开。
             if (t.name === 'run_python') {
-
               setArtifactTick((v) => v + 1);
-
-              setShowArtifacts(true);
-
+              if (toolResultHasArtifacts(t.result)) setShowArtifacts(true);
             }
 
             // submit_task_graph 落库：通知右栏工作台重拉列表并切到新图
