@@ -223,6 +223,8 @@ describe('SkillsPage', () => {
     renderPage();
     // 行内操作是带文字的 RowAction：与全站列表行一致
     await userEvent.click(await screen.findByRole('button', { name: '编辑' }));
+    // 正文落在「指令正文」tab，非激活面板的 role 查询取不到，先切过去
+    await userEvent.click(await screen.findByRole('tab', { name: '指令正文' }));
 
     // 回填：正文来自详情接口
     expect(await screen.findByDisplayValue(/# 写 runbook/)).toBeInTheDocument();
@@ -268,12 +270,18 @@ describe('SkillsPage', () => {
       screen.getByPlaceholderText('一句话说明何时该加载这个技能'),
       '解释慢查询',
     );
+    // 正文在「指令正文」tab
+    await userEvent.click(screen.getByRole('tab', { name: '指令正文' }));
     await userEvent.type(
       screen.getByPlaceholderText(/# 什么时候用/),
       '# 慢查询\n\n先读 references/slow.md',
     );
+    // 分组在「基本信息」tab
+    await userEvent.click(screen.getByRole('tab', { name: '基本信息' }));
     await userEvent.click(screen.getByRole('combobox', { name: '分组' }));
     await userEvent.click(await screen.findByRole('option', { name: '知识' }));
+    // 工具勾选在「可调用工具」tab
+    await userEvent.click(screen.getByRole('tab', { name: '可调用工具' }));
     await userEvent.click(screen.getByRole('checkbox', { name: '声明工具 query_knowledge' }));
     await userEvent.click(screen.getByRole('button', { name: '保存' }));
 
@@ -298,11 +306,16 @@ describe('SkillsPage', () => {
 
     await userEvent.type(screen.getByPlaceholderText('knowledge-search / my-runbook'), 'mcp-skill');
     await userEvent.type(screen.getByPlaceholderText('一句话说明何时该加载这个技能'), '查主机负载');
+    // 正文在「指令正文」tab
+    await userEvent.click(screen.getByRole('tab', { name: '指令正文' }));
     await userEvent.type(screen.getByPlaceholderText(/# 什么时候用/), '# 负载\n\n调用 MCP 工具');
+    // 分组在「基本信息」tab
+    await userEvent.click(screen.getByRole('tab', { name: '基本信息' }));
     await userEvent.click(screen.getByRole('combobox', { name: '分组' }));
     await userEvent.click(await screen.findByRole('option', { name: '设备管理' }));
 
-    // MCP 工具按 Server 分组出现，勾选后以 wire 名进 tools
+    // MCP 工具按 Server 分组出现，勾选后以 wire 名进 tools（「可调用工具」tab）
+    await userEvent.click(screen.getByRole('tab', { name: '可调用工具' }));
     expect(await screen.findByText('mcp · ai-engine')).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole('checkbox', { name: '声明工具 mcp__ai-engine__get_host_load' }),
@@ -311,6 +324,36 @@ describe('SkillsPage', () => {
 
     await waitFor(() => expect(captured.body).toBeDefined());
     expect(captured.body?.tools).toEqual(['mcp__ai-engine__get_host_load']);
+  });
+
+  it('编辑器用四个并列 tab：必填缺失时保存禁用，切换 tab 不丢草稿', async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /新建技能/ }));
+
+    // 恰好 4 个并列 tab，没有嵌套（嵌套会产生更多 tab / tablist）
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getAllByRole('tablist')).toHaveLength(1);
+    for (const name of ['基本信息', '指令正文', '可调用工具', '资源文件']) {
+      expect(screen.getByRole('tab', { name })).toBeInTheDocument();
+    }
+
+    // 必填缺失：保存禁用，底部给出可定位提示
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+    expect(screen.getByText(/还需填写：/)).toBeInTheDocument();
+
+    await userEvent.type(screen.getByPlaceholderText('knowledge-search / my-runbook'), 'draft-skill');
+    await userEvent.type(
+      screen.getByPlaceholderText('一句话说明何时该加载这个技能'),
+      '草稿保留测试',
+    );
+    await userEvent.click(screen.getByRole('tab', { name: '指令正文' }));
+    await userEvent.type(screen.getByPlaceholderText(/# 什么时候用/), '# 草稿正文');
+    // 切到别的 tab 再切回，未提交输入仍在（keepMounted）
+    await userEvent.click(screen.getByRole('tab', { name: '可调用工具' }));
+    await userEvent.click(screen.getByRole('tab', { name: '指令正文' }));
+    expect(screen.getByPlaceholderText(/# 什么时候用/)).toHaveValue('# 草稿正文');
+    // 必填补齐后保存可用
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
   });
 
   it('详情把 MCP 工具标出来源，不可用时给出告警', async () => {

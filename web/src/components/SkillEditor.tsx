@@ -15,6 +15,10 @@ import {
   Input,
   Label,
   Select,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   Textarea,
 } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
@@ -42,6 +46,16 @@ import { cn } from '@/lib/cn';
 
 /** 资源目录类型：三类目录的语义不同，编辑器要分开呈现。 */
 type ResourceKind = 'references' | 'assets' | 'scripts';
+
+/** 编辑器的并列配置分区：基本信息 / 指令正文 / 可调用工具 / 资源文件。 */
+type EditorSection = 'basic' | 'instructions' | 'tools' | 'resources';
+
+const EDITOR_SECTIONS: { key: EditorSection; label: { zh: string; en: string } }[] = [
+  { key: 'basic', label: { zh: '基本信息', en: 'Basics' } },
+  { key: 'instructions', label: { zh: '指令正文', en: 'Instructions' } },
+  { key: 'tools', label: { zh: '可调用工具', en: 'Tools' } },
+  { key: 'resources', label: { zh: '资源文件', en: 'Resources' } },
+];
 
 type FileDraft = {
   path: string;
@@ -133,6 +147,7 @@ export function SkillEditor({
   onSaved: (skill: SkillSummary, mode: 'create' | 'edit') => void;
 }) {
   const { tr } = useI18n();
+  const [activeTab, setActiveTab] = useState<EditorSection>('basic');
   const [key, setKey] = useState('');
   const [description, setDescription] = useState('');
   const [risk, setRisk] = useState<SkillClass>('safe');
@@ -331,6 +346,33 @@ export function SkillEditor({
     return groups;
   }, [knownTools, tools, toolQuery, tr]);
 
+  // 必填项分散在多个分区：缺失时给 tab 标状态点，底部给可定位提示，并禁用保存。
+  const missingRequired: string[] = [];
+  if (mode === 'create' && key.trim() === '') missingRequired.push(tr('技能名 key', 'Skill key'));
+  if (description.trim() === '') missingRequired.push(tr('描述 description', 'Description'));
+  if (instructions.trim() === '') missingRequired.push(tr('指令正文', 'Instructions'));
+  const saveBlockedHint =
+    missingRequired.length > 0
+      ? tr(`还需填写：${missingRequired.join('、')}`, `Still required: ${missingRequired.join(', ')}`)
+      : '';
+  const basicIncomplete =
+    (mode === 'create' && key.trim() === '') || description.trim() === '';
+  const instructionsIncomplete = instructions.trim() === '';
+  const saveDisabled = submitting || loading || missingRequired.length > 0;
+
+  const tabLabel = (label: string, incomplete: boolean) => (
+    <>
+      {label}
+      {incomplete && (
+        <span
+          aria-hidden
+          title={tr('有必填项未完成', 'Required fields incomplete')}
+          className="h-1.5 w-1.5 rounded-full bg-warn"
+        />
+      )}
+    </>
+  );
+
   return (
     <Modal
       open
@@ -341,12 +383,14 @@ export function SkillEditor({
       footer={
         <>
           <span className="mr-auto text-[11px] text-zinc-500">
-            {tr('技能包 = SKILL.md + references/ + assets/ + scripts/', 'A skill pack = SKILL.md + references/ + assets/ + scripts/')}
+            {saveBlockedHint !== ''
+              ? saveBlockedHint
+              : tr('技能包 = SKILL.md + references/ + assets/ + scripts/', 'A skill pack = SKILL.md + references/ + assets/ + scripts/')}
           </span>
           <Button variant="ghost" onClick={onClose} disabled={submitting}>
             {tr('取消', 'Cancel')}
           </Button>
-          <Button onClick={() => void submit()} disabled={submitting || loading}>
+          <Button onClick={() => void submit()} disabled={saveDisabled}>
             {submitting ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
           </Button>
         </>
@@ -357,242 +401,266 @@ export function SkillEditor({
         {loading ? (
           <div className="py-10 text-center text-[12px] text-zinc-500">{tr('加载中…', 'Loading…')}</div>
         ) : (
-          <>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field label={tr('技能名 key', 'Skill key')} required>
-                <Input
-                  type="text"
-                  value={key}
-                  disabled={mode === 'edit'}
-                  onChange={(e) => setKey(e.target.value)}
-                  placeholder="knowledge-search / my-runbook"
-                  className="w-full font-sans"
-                  maxLength={64}
-                />
-                <div className="mt-1 text-[11px] text-zinc-500">
-                  {tr('等于 SKILL.md 的 name，必须与目录名一致；创建后不能改。', 'Equals SKILL.md name and its directory name; cannot change later.')}
-                </div>
-              </Field>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as EditorSection)}
+            className="space-y-3"
+          >
+            <TabsList aria-label={tr('技能配置分区', 'Skill configuration sections')}>
+              {EDITOR_SECTIONS.map((item) => (
+                <TabsTrigger key={item.key} value={item.key}>
+                  {tabLabel(
+                    tr(item.label.zh, item.label.en),
+                    (item.key === 'basic' && basicIncomplete) ||
+                      (item.key === 'instructions' && instructionsIncomplete),
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
 
-              <Field label={tr('描述 description', 'Description')} required>
-                <Input
-                  type="text"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder={tr('一句话说明何时该加载这个技能', 'One sentence on when this skill should be loaded')}
-                  className="w-full"
-                  maxLength={1024}
-                />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-              <Field label={tr('风险等级', 'Risk')} required>
-                <Select
-                  label={tr('风险等级', 'Risk')}
-                  value={risk}
-                  onValueChange={(v) => setRisk(v as SkillClass)}
-                  className="w-full"
-                >
-                  {SKILL_CLASSES.map((item) => (
-                    <option key={item} value={item}>
-                      {tr(RISK_LABELS[item].zh, RISK_LABELS[item].en)}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label={tr('分组', 'Group')} required>
-                <Select
-                  label={tr('分组', 'Group')}
-                  value={group}
-                  onValueChange={(v) => setGroup(v as SkillGroup)}
-                  className="w-full"
-                >
-                  {groupOptions.map((g) => (
-                    <option key={g.key} value={g.key}>
-                      {tr(g.title, g.title_en)}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-
-            <DetailSection title={tr('可调用工具 metadata.adk_additional_tools', 'Declared tools (metadata.adk_additional_tools)')}>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
+            <TabsContent value="basic" keepMounted className="min-h-[16rem] space-y-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Field label={tr('技能名 key', 'Skill key')} required>
                   <Input
                     type="text"
-                    value={toolQuery}
-                    onChange={(e) => setToolQuery(e.target.value)}
-                    placeholder={tr('搜索工具名或说明（内置 + MCP）', 'Search tool name or description (built-in + MCP)')}
-                    className="h-7 w-full text-[11px]"
-                    aria-label={tr('搜索可声明工具', 'Search declarable tools')}
+                    value={key}
+                    disabled={mode === 'edit'}
+                    onChange={(e) => setKey(e.target.value)}
+                    placeholder="knowledge-search / my-runbook"
+                    className="w-full font-sans"
+                    maxLength={64}
                   />
-                  <span className="shrink-0 text-[10px] text-zinc-500">
-                    {tr(`已选 ${tools.length}`, `${tools.length} selected`)}
-                  </span>
+                  <div className="mt-1 text-[11px] text-zinc-500">
+                    {tr('等于 SKILL.md 的 name，必须与目录名一致；创建后不能改。', 'Equals SKILL.md name and its directory name; cannot change later.')}
+                  </div>
+                </Field>
+
+                <Field label={tr('描述 description', 'Description')} required>
+                  <Input
+                    type="text"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder={tr('一句话说明何时该加载这个技能', 'One sentence on when this skill should be loaded')}
+                    className="w-full"
+                    maxLength={1024}
+                  />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                <Field label={tr('风险等级', 'Risk')} required>
+                  <Select
+                    label={tr('风险等级', 'Risk')}
+                    value={risk}
+                    onValueChange={(v) => setRisk(v as SkillClass)}
+                    className="w-full"
+                  >
+                    {SKILL_CLASSES.map((item) => (
+                      <option key={item} value={item}>
+                        {tr(RISK_LABELS[item].zh, RISK_LABELS[item].en)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label={tr('分组', 'Group')} required>
+                  <Select
+                    label={tr('分组', 'Group')}
+                    value={group}
+                    onValueChange={(v) => setGroup(v as SkillGroup)}
+                    className="w-full"
+                  >
+                    {groupOptions.map((g) => (
+                      <option key={g.key} value={g.key}>
+                        {tr(g.title, g.title_en)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+
+              <Label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={injectState}
+                  onChange={(e) => setInjectState(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-indigo-500"
+                  aria-label={tr('在正文里注入会话状态变量', 'Inject session state variables into the body')}
+                />
+                <span className="text-[12px] text-zinc-300">metadata.adk_inject_state</span>
+                <span className="text-[11px] text-zinc-500">
+                  {tr('开启后正文里的 {变量} 会被会话状态替换', 'When on, {vars} in the body are replaced from session state')}
+                </span>
+              </Label>
+            </TabsContent>
+
+            <TabsContent value="instructions" keepMounted className="min-h-[16rem] space-y-4">
+              <Field label={tr('SKILL.md 正文（指令）', 'SKILL.md body (instructions)')} required>
+                <Textarea
+                  value={instructions}
+                  onChange={(e) => setInstructions(e.target.value)}
+                  placeholder={tr('# 什么时候用\n\n1. 先读 references/guide.md\n2. 按步骤执行', '# When to use\n\n1. Read references/guide.md\n2. Follow the steps')}
+                  className="h-80 w-full resize-y font-sans text-[12px]"
+                />
+                <div className="mt-1 text-[11px] text-zinc-500">
+                  {tr('frontmatter 由「基本信息」分区的字段生成，这里只写 Markdown 正文。', 'Frontmatter is generated from the Basics section; write only the Markdown body here.')}
                 </div>
-                {knownTools.length === 0 ? (
-                  <div className="text-[11px] text-zinc-500">{tr('加载工具目录中…', 'Loading tool catalog…')}</div>
-                ) : toolGroups.length === 0 ? (
-                  <div className="text-[11px] text-zinc-500">{tr('没有匹配的工具', 'No matching tool')}</div>
-                ) : (
-                  toolGroups.map((group) => (
-                    <div key={group.key} className="overflow-hidden rounded-md border border-zinc-800/60">
-                      <div className="flex items-center gap-1.5 border-b border-zinc-800/60 bg-zinc-950/40 px-1.5 py-1">
-                        <span className="truncate font-sans text-[10px] text-zinc-400">{group.label}</span>
-                        <span className="shrink-0 text-[10px] text-zinc-600">{group.items.length}</span>
-                        <span className="ml-auto shrink-0 text-[10px] text-zinc-500">
-                          {tr(
-                            `已选 ${group.items.filter((item) => tools.includes(item.name)).length}`,
-                            `${group.items.filter((item) => tools.includes(item.name)).length} selected`,
-                          )}
-                        </span>
+              </Field>
+            </TabsContent>
+
+            <TabsContent value="tools" keepMounted className="min-h-[16rem] space-y-4">
+              <DetailSection title={tr('可调用工具 metadata.adk_additional_tools', 'Declared tools (metadata.adk_additional_tools)')}>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="text"
+                      value={toolQuery}
+                      onChange={(e) => setToolQuery(e.target.value)}
+                      placeholder={tr('搜索工具名或说明（内置 + MCP）', 'Search tool name or description (built-in + MCP)')}
+                      className="h-7 w-full text-[11px]"
+                      aria-label={tr('搜索可声明工具', 'Search declarable tools')}
+                    />
+                    <span className="shrink-0 text-[10px] text-zinc-500">
+                      {tr(`已选 ${tools.length}`, `${tools.length} selected`)}
+                    </span>
+                  </div>
+                  {knownTools.length === 0 ? (
+                    <div className="text-[11px] text-zinc-500">{tr('加载工具目录中…', 'Loading tool catalog…')}</div>
+                  ) : toolGroups.length === 0 ? (
+                    <div className="text-[11px] text-zinc-500">{tr('没有匹配的工具', 'No matching tool')}</div>
+                  ) : (
+                    toolGroups.map((group) => (
+                      <div key={group.key} className="overflow-hidden rounded-md border border-zinc-800/60">
+                        <div className="flex items-center gap-1.5 border-b border-zinc-800/60 bg-zinc-950/40 px-1.5 py-1">
+                          <span className="truncate font-sans text-[10px] text-zinc-400">{group.label}</span>
+                          <span className="shrink-0 text-[10px] text-zinc-600">{group.items.length}</span>
+                          <span className="ml-auto shrink-0 text-[10px] text-zinc-500">
+                            {tr(
+                              `已选 ${group.items.filter((item) => tools.includes(item.name)).length}`,
+                              `${group.items.filter((item) => tools.includes(item.name)).length} selected`,
+                            )}
+                          </span>
+                        </div>
+                        <div className="max-h-44 space-y-0.5 overflow-y-auto px-1 py-1">
+                          {group.items.map((tool) => {
+                            const checked = tools.includes(tool.name);
+                            return (
+                              <Label
+                                key={tool.name}
+                                className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-zinc-900/60"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleTool(tool.name)}
+                                  className="h-3.5 w-3.5 shrink-0 accent-indigo-500"
+                                  aria-label={tr(`声明工具 ${tool.name}`, `Declare tool ${tool.name}`)}
+                                />
+                                <span className="shrink-0 font-sans text-[11px] text-zinc-200">{tool.name}</span>
+                                {!tool.available && (
+                                  <Chip dense tone="warning">
+                                    {tr('不可用', 'unavailable')}
+                                  </Chip>
+                                )}
+                                <span className="truncate text-[10px] text-zinc-500">{tool.description}</span>
+                              </Label>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div className="max-h-44 space-y-0.5 overflow-y-auto px-1 py-1">
-                        {group.items.map((tool) => {
-                          const checked = tools.includes(tool.name);
-                          return (
-                            <Label
-                              key={tool.name}
-                              className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-zinc-900/60"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleTool(tool.name)}
-                                className="h-3.5 w-3.5 shrink-0 accent-indigo-500"
-                                aria-label={tr(`声明工具 ${tool.name}`, `Declare tool ${tool.name}`)}
-                              />
-                              <span className="shrink-0 font-sans text-[11px] text-zinc-200">{tool.name}</span>
-                              {!tool.available && (
-                                <Chip dense tone="warning">
-                                  {tr('不可用', 'unavailable')}
-                                </Chip>
-                              )}
-                              <span className="truncate text-[10px] text-zinc-500">{tool.description}</span>
-                            </Label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))
-                )}
-                <div className="px-1.5 text-[11px] text-zinc-500">
-                  {tr(
-                    '勾选的工具会随技能一起可用，并在助理里自动勾选、不可屏蔽；MCP 工具进检索目录，模型按需 search/load 调用，同 Server 中未勾选的工具搜不到也调不了。不勾选 = 纯说明型技能。',
-                    'Checked tools open with the skill, are auto-selected in assistants and cannot be blocked; MCP tools join the search index and are loaded on demand, while unchecked tools of the same server stay unsearchable. None = an instruction-only skill.',
+                    ))
                   )}
+                  <div className="px-1.5 text-[11px] text-zinc-500">
+                    {tr(
+                      '勾选的工具会随技能一起可用，并在助理里自动勾选、不可屏蔽；MCP 工具进检索目录，模型按需 search/load 调用，同 Server 中未勾选的工具搜不到也调不了。不勾选 = 纯说明型技能。',
+                      'Checked tools open with the skill, are auto-selected in assistants and cannot be blocked; MCP tools join the search index and are loaded on demand, while unchecked tools of the same server stay unsearchable. None = an instruction-only skill.',
+                    )}
+                  </div>
                 </div>
-              </div>
-            </DetailSection>
+              </DetailSection>
+            </TabsContent>
 
-            <Field label={tr('SKILL.md 正文（指令）', 'SKILL.md body (instructions)')} required>
-              <Textarea
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-                placeholder={tr('# 什么时候用\n\n1. 先读 references/guide.md\n2. 按步骤执行', '# When to use\n\n1. Read references/guide.md\n2. Follow the steps')}
-                className="h-48 w-full resize-y font-sans text-[12px]"
-              />
-              <div className="mt-1 text-[11px] text-zinc-500">
-                {tr('frontmatter 由上方字段生成，这里只写 Markdown 正文。', 'Frontmatter is generated from the fields above; write only the Markdown body here.')}
-              </div>
-            </Field>
-
-            <Label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={injectState}
-                onChange={(e) => setInjectState(e.target.checked)}
-                className="h-3.5 w-3.5 accent-indigo-500"
-                aria-label={tr('在正文里注入会话状态变量', 'Inject session state variables into the body')}
-              />
-              <span className="text-[12px] text-zinc-300">metadata.adk_inject_state</span>
-              <span className="text-[11px] text-zinc-500">
-                {tr('开启后正文里的 {变量} 会被会话状态替换', 'When on, {vars} in the body are replaced from session state')}
-              </span>
-            </Label>
-
-            {RESOURCE_SECTIONS.map((section) => (
-              <DetailSection key={section.kind} title={tr(section.title.zh, section.title.en)}>
-                <div className="mb-2 flex items-center gap-2">
-                  <Hint content={tr(section.hint.zh, section.hint.en)}>
-                    <Chip dense>{files[section.kind].length}</Chip>
-                  </Hint>
-                  <span className="text-[11px] text-zinc-500">{tr(section.hint.zh, section.hint.en)}</span>
-                  <span className="ml-auto flex gap-1">
-                    {section.binary ? (
+            <TabsContent value="resources" keepMounted className="min-h-[16rem] space-y-4">
+              {RESOURCE_SECTIONS.map((resource) => (
+                <DetailSection key={resource.kind} title={tr(resource.title.zh, resource.title.en)}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <Hint content={tr(resource.hint.zh, resource.hint.en)}>
+                      <Chip dense>{files[resource.kind].length}</Chip>
+                    </Hint>
+                    <span className="text-[11px] text-zinc-500">{tr(resource.hint.zh, resource.hint.en)}</span>
+                    <span className="ml-auto flex gap-1">
+                      {resource.binary ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          type="button"
+                          className="px-2 py-0.5 text-[11px]"
+                          onClick={() => {
+                            assetTarget.current = resource.kind;
+                            assetInputRef.current?.click();
+                          }}
+                        >
+                          <FileUp size={11} />
+                          {tr('上传文件', 'Upload')}
+                        </Button>
+                      ) : null}
                       <Button
                         variant="ghost"
                         size="sm"
                         type="button"
                         className="px-2 py-0.5 text-[11px]"
-                        onClick={() => {
-                          assetTarget.current = section.kind;
-                          assetInputRef.current?.click();
-                        }}
+                        onClick={() => addFile(resource.kind)}
                       >
-                        <FileUp size={11} />
-                        {tr('上传文件', 'Upload')}
+                        <Plus size={11} />
+                        {tr('添加文本', 'Add text')}
                       </Button>
-                    ) : null}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      type="button"
-                      className="px-2 py-0.5 text-[11px]"
-                      onClick={() => addFile(section.kind)}
-                    >
-                      <Plus size={11} />
-                      {tr('添加文本', 'Add text')}
-                    </Button>
-                  </span>
-                </div>
-                {files[section.kind].length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-[11px] text-zinc-500">
-                    {tr('还没有文件（可选）', 'No files yet (optional)')}
+                    </span>
                   </div>
-                ) : (
-                  <div className="space-y-2">
-                    {files[section.kind].map((file, index) => (
-                      <div key={`${section.kind}-${index}`} className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 p-2">
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="text"
-                            value={file.path}
-                            onChange={(e) => updateFile(section.kind, index, { path: e.target.value })}
-                            placeholder={tr('相对路径，例如 guide.md', 'Relative path, e.g. guide.md')}
-                            className="w-full font-sans text-[11px]"
-                          />
-                          <Button
-                            variant="dangerGhost"
-                            size="sm"
-                            type="button"
-                            className="shrink-0 px-1.5 py-0"
-                            aria-label={tr('删除文件', 'Remove file')}
-                            onClick={() => removeFile(section.kind, index)}
-                          >
-                            <Trash2 size={11} />
-                          </Button>
-                        </div>
-                        {file.base64 !== '' ? (
-                          <div className="mt-1 text-[11px] text-zinc-500">
-                            {tr(`二进制文件，已内嵌（${file.base64.length} 字符 base64）`, `Binary file embedded (${file.base64.length} base64 chars)`)}
+                  {files[resource.kind].length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-[11px] text-zinc-500">
+                      {tr('还没有文件（可选）', 'No files yet (optional)')}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {files[resource.kind].map((file, index) => (
+                        <div key={`${resource.kind}-${index}`} className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 p-2">
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="text"
+                              value={file.path}
+                              onChange={(e) => updateFile(resource.kind, index, { path: e.target.value })}
+                              placeholder={tr('相对路径，例如 guide.md', 'Relative path, e.g. guide.md')}
+                              className="w-full font-sans text-[11px]"
+                            />
+                            <Button
+                              variant="dangerGhost"
+                              size="sm"
+                              type="button"
+                              className="shrink-0 px-1.5 py-0"
+                              aria-label={tr('删除文件', 'Remove file')}
+                              onClick={() => removeFile(resource.kind, index)}
+                            >
+                              <Trash2 size={11} />
+                            </Button>
                           </div>
-                        ) : (
-                          <Textarea
-                            value={file.text}
-                            onChange={(e) => updateFile(section.kind, index, { text: e.target.value })}
-                            placeholder={tr('文件内容', 'File content')}
-                            className={cn('mt-1 w-full resize-y font-sans text-[11px]', section.kind === 'scripts' ? 'h-24' : 'h-20')}
-                          />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </DetailSection>
-            ))}
+                          {file.base64 !== '' ? (
+                            <div className="mt-1 text-[11px] text-zinc-500">
+                              {tr(`二进制文件，已内嵌（${file.base64.length} 字符 base64）`, `Binary file embedded (${file.base64.length} base64 chars)`)}
+                            </div>
+                          ) : (
+                            <Textarea
+                              value={file.text}
+                              onChange={(e) => updateFile(resource.kind, index, { text: e.target.value })}
+                              placeholder={tr('文件内容', 'File content')}
+                              className={cn('mt-1 w-full resize-y font-sans text-[11px]', resource.kind === 'scripts' ? 'h-24' : 'h-20')}
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </DetailSection>
+              ))}
+            </TabsContent>
 
             <input
               ref={assetInputRef}
@@ -604,7 +672,7 @@ export function SkillEditor({
                 e.target.value = '';
               }}
             />
-          </>
+          </Tabs>
         )}
       </div>
     </Modal>
