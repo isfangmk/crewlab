@@ -29,6 +29,7 @@ import { Clock } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { APPROVAL_STATUSES, APPROVAL_STATUS_META, approvalStatusLabel } from '@/lib/approvalStatus';
 import { useRequestSeq } from '@/lib/requestSeq';
+import { APPROVAL_CREATED_EVENT, APPROVAL_DECIDED_EVENT } from '@/lib/useNotifications';
 import { RejectApprovalDialog } from '@/components/RejectApprovalDialog';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -179,6 +180,17 @@ export default function ApprovalsPage() {
       void load();
     }, 250);
     return () => window.clearTimeout(timer);
+  }, [load]);
+
+  // 别处（聊天页 / 其它标签页）新建或决定了审批：本页重拉权威列表。
+  useEffect(() => {
+    const onChange = () => { void load(); };
+    window.addEventListener(APPROVAL_CREATED_EVENT, onChange);
+    window.addEventListener(APPROVAL_DECIDED_EVENT, onChange);
+    return () => {
+      window.removeEventListener(APPROVAL_CREATED_EVENT, onChange);
+      window.removeEventListener(APPROVAL_DECIDED_EVENT, onChange);
+    };
   }, [load]);
 
   // 数据页变化后清空勾选，避免跨页混淆批量对象。

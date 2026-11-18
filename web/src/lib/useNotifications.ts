@@ -14,6 +14,10 @@ import { emitChatLive, requestChatRefetch } from '@/lib/chatLiveBus';
 
 export const KNOWLEDGE_SYNC_EVENT = 'ongrid:knowledge-sync-done';
 export const EVAL_RUN_EVENT = 'ongrid:eval-run-done';
+/** 新审批单待办：payload { approval_id, session_id }，侧栏 badge 与审批页据此刷新。 */
+export const APPROVAL_CREATED_EVENT = 'ongrid:approval-created';
+/** 审批已决：侧栏 badge 据此重拉（待办 -1）。 */
+export const APPROVAL_DECIDED_EVENT = 'ongrid:approval-decided';
 /** 会话队列变更：payload { session_id, action, total }，ChatThread 据此刷新队列条。 */
 export const CHAT_QUEUE_CHANGED_EVENT = 'chat_queue_changed';
 
@@ -34,7 +38,14 @@ export function useNotifications(): void {
           if (typeof payload.approval_id === 'string') {
             emitChatLive({ type: 'approval_decided', approvalId: payload.approval_id });
           }
+          // 审批已决也要刷 badge（待办 -1），与新建审批共用一个重拉入口。
+          window.dispatchEvent(new Event(APPROVAL_DECIDED_EVENT));
           requestChatRefetch();
+          break;
+        case 'approval_created':
+          // 审批专属事件，不复用 CHAT_REFETCH_EVENT（避免语义泛化）：
+          // 侧栏 badge 与审批页各自订阅此事件重拉权威数据。
+          window.dispatchEvent(new CustomEvent(APPROVAL_CREATED_EVENT, { detail: payload }));
           break;
         case 'graph_created':
           if (typeof payload.graph_uid === 'string') {

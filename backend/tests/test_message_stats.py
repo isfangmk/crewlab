@@ -152,6 +152,33 @@ def test_message_to_wire_exposes_stats() -> None:
     assert message_to_wire(without_stats)["stats"] is None
 
 
+def test_message_to_wire_exposes_interrupted() -> None:
+    """插话打断标记必须下发到 wire，前端才能标注「已打断」；非打断为 False。"""
+
+    now = datetime.now(timezone.utc)
+    interrupted = ChatMessage(
+        id="m-int",
+        session_id="session-1",
+        role="assistant",
+        kind="message",
+        content="被打断的半句",
+        interrupted=True,
+        seq=1,
+        created_at=now,
+    )
+    normal = ChatMessage(
+        id="m-norm",
+        session_id="session-1",
+        role="assistant",
+        kind="message",
+        content="完整回复",
+        seq=2,
+        created_at=now,
+    )
+    assert message_to_wire(interrupted)["interrupted"] is True
+    assert message_to_wire(normal)["interrupted"] is False
+
+
 def _think(message_id: str, text: str) -> SseFrame:
     return SseFrame(
         event="thinking_delta",

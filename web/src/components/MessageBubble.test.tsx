@@ -607,6 +607,39 @@ function pendingAskApproval(payloadExtra?: Record<string, unknown>): Approval {
   };
 }
 
+describe('MessageBubble 已打断标记', () => {
+  it('assistant 消息 interrupted=true 时显示「已打断」，且不误读为空回复', () => {
+    render(
+      <MessageBubble
+        message={{
+          id: 'assistant-interrupted',
+          role: 'assistant',
+          content: '这是被打断的半句',
+          interrupted: true,
+        }}
+      />,
+    );
+    expect(screen.getByText('已打断')).toBeInTheDocument();
+    expect(screen.getByText('这是被打断的半句')).toBeInTheDocument();
+  });
+
+  it('普通 assistant 消息不显示「已打断」', () => {
+    render(
+      <MessageBubble message={{ id: 'assistant-ok', role: 'assistant', content: '正常回复' }} />,
+    );
+    expect(screen.queryByText('已打断')).not.toBeInTheDocument();
+  });
+
+  it('interrupted=true 但无 stats 时同样显示标记', () => {
+    render(
+      <MessageBubble
+        message={{ id: 'assistant-interrupted-nostats', role: 'assistant', content: '半句', interrupted: true }}
+      />,
+    );
+    expect(screen.getByText('已打断')).toBeInTheDocument();
+  });
+});
+
 describe('MessageBubble 用户澄清卡', () => {
   it('渲染提问与候选，提交时把回答交给审批续跑', async () => {
     vi.mocked(getApproval).mockResolvedValue(pendingAskApproval());

@@ -54,6 +54,8 @@ import type { IconType } from '@/lib/icon';
 import { useAuth } from '@/store/auth';
 import { useUi } from '@/store/ui';
 import { useMe, usePermissions } from '@/store/me';
+import { approvalsPendingCount } from '@/api/approvals';
+import { APPROVAL_CREATED_EVENT, APPROVAL_DECIDED_EVENT } from '@/lib/useNotifications';
 
 type SidebarSectionItem = {
   key: string;
@@ -73,6 +75,7 @@ export function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useUi();
   const setPaletteOpen = useUi((s) => s.setPaletteOpen);
   const { email, role, logout } = useAuth();
+  const token = useAuth((s) => s.token);
   const { tr, toggleLocale, locale } = useI18n();
   // Prefer display_name when present — Bootstrap 时设的"admin"或后续
   // /v1/users/{id} 改的，比 email 在 sidebar / user menu 里更友好。
@@ -94,6 +97,30 @@ export function Sidebar() {
   const toggleNavigation = () => narrow ? setMobileExpanded(value => !value) : toggleSidebar();
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  // 审批待办 badge：首屏拉一次，新审批单/审批已决事件到达时重拉（取代轮询）。
+  const [approvalPending, setApprovalPending] = useState<number>(0);
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const { pending } = await approvalsPendingCount();
+        if (!cancelled) setApprovalPending(pending);
+      } catch {
+        // 网络失败保留上次计数，下次事件/挂载再拉。
+      }
+    };
+    void refresh();
+    const onApprovalChanged = () => { void refresh(); };
+    window.addEventListener(APPROVAL_CREATED_EVENT, onApprovalChanged);
+    window.addEventListener(APPROVAL_DECIDED_EVENT, onApprovalChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(APPROVAL_CREATED_EVENT, onApprovalChanged);
+      window.removeEventListener(APPROVAL_DECIDED_EVENT, onApprovalChanged);
+    };
+  }, [token]);
 
   const handleLogout = () => {
     setUserMenuOpen(false);
@@ -408,7 +435,7 @@ export function Sidebar() {
           title={tr('治理', 'Governance')}
           defaultOpen
           items={[
-            { key: 'approvals', to: '/approvals', icon: ShieldCheck, label: tr('审批', 'Approvals') },
+            { key: 'approvals', to: '/approvals', icon: ShieldCheck, label: tr('审批', 'Approvals'), badge: approvalPending },
             // 审批规则是 admin 策略配置：入口只给 admin，避免普通用户误点后被 403 兜底
             ...(isAdmin
               ? [{ key: 'approval-rules', to: '/approval-rules', icon: ShieldCheck, label: tr('审批规则', 'Approval rules') }]

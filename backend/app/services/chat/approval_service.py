@@ -162,6 +162,16 @@ async def create_pending_approval(
         session_id,
         tool_name,
     )
+    # 通知会话所属用户的所有标签页：新审批单待办 +1，实时刷新 badge/审批列表。
+    # 只在真正新建（未命中去重早退）时发，避免同一次工具确认重复提醒。
+    owner_user_id = await db.scalar(
+        select(ChatSession.owner_user_id).where(ChatSession.id == session_id)
+    )
+    await notification_bus.publish(
+        owner_user_id,
+        kind="approval_created",
+        payload={"approval_id": row.id, "session_id": session_id},
+    )
     return row
 
 

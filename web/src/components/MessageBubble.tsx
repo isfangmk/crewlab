@@ -573,6 +573,11 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
           ) : null}
         </div>
       ) : null}
+      {message.interrupted ? (
+        <div className="ml-auto mt-0.5">
+          <Chip dense tone="warning">{tr('已打断', 'Interrupted')}</Chip>
+        </div>
+      ) : null}
     </div>
   );
 }

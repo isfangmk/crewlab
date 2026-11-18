@@ -219,6 +219,10 @@ export default function ChatThreadPage() {
 
   const [submitting, setSubmitting] = useState(false);
 
+  // 对话帧流断线重连次数：>0 时思考指示器改显"连接中断，正在恢复…"，
+  // done/error 收口归零。仅 UI 提示，不参与回合状态。
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+
   // 执行态（计划/排查）独立于聊天回合：带外启动，单独锁输入框直到收口
   const [execBusy, setExecBusy] = useState(false);
 
@@ -1812,6 +1816,8 @@ export default function ChatThreadPage() {
 
             if (activeSessionRef.current !== turnSessionID) return;
 
+            setReconnectAttempt(0);
+
             const stats = statsFromDone(reply);
 
             setMessages((prev) => {
@@ -1848,6 +1854,11 @@ export default function ChatThreadPage() {
 
             throw err;
 
+          },
+
+          onReconnecting: (attempt) => {
+            if (activeSessionRef.current !== turnSessionID) return;
+            setReconnectAttempt(attempt);
           },
 
         };
@@ -2091,7 +2102,9 @@ export default function ChatThreadPage() {
 
         </span>
 
-        <span>{tr('正在分析…', 'Analyzing…')}</span>
+        <span>{reconnectAttempt > 0
+          ? tr('连接中断，正在恢复…', 'Connection lost, reconnecting…')
+          : tr('正在分析…', 'Analyzing…')}</span>
 
         <span className="text-zinc-700">·</span>
 

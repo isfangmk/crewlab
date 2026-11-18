@@ -21,6 +21,7 @@ describe('Sidebar workbench nav', () => {
     useUi.setState({ sidebarCollapsed: false, sessionsCollapsed: false, sessionsPreviewOpen: false, sessionsTriggerHovered: false });
     server.use(
       http.get('/api/v1/chat/sessions', () => HttpResponse.json({ items: [], total: 0 })),
+      http.get('/api/v1/approvals/count', () => HttpResponse.json({ pending: 3 })),
     );
   });
 
@@ -67,6 +68,28 @@ describe('Sidebar workbench nav', () => {
     expect(screen.queryByRole('link', { name: '仪表盘' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '设备' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: '设置' })).toHaveAttribute('href', '/settings/llm');
+  });
+
+  it('shows approval pending badge and refreshes on approval events', async () => {
+    useAuth.setState({ token: 'test-token', email: 'admin@local', role: 'admin' });
+    let pending = 2;
+    server.use(
+      http.get('/api/v1/approvals/count', () => HttpResponse.json({ pending })),
+    );
+    const view = render(
+      <MemoryRouter>
+        <Sidebar />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByLabelText('2 未确认')).toBeInTheDocument();
+
+    // 新审批单事件到达 → badge 重拉最新计数。
+    pending = 5;
+    act(() => {
+      window.dispatchEvent(new Event('ongrid:approval-created'));
+    });
+    expect(await screen.findByLabelText('5 未确认')).toBeInTheDocument();
+    view.unmount();
   });
 
   it('uses the icon rail on narrow screens without overwriting desktop preferences', () => {

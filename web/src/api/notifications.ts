@@ -12,6 +12,7 @@ import { readSseFrames } from '@/api/sse';
 export type NotificationKind =
   | 'chat_refetch'
   | 'approval_decided'
+  | 'approval_created'
   | 'graph_created'
   | 'graph_finished'
   | 'knowledge_sync_done'

@@ -1,6 +1,6 @@
 import type { AssistantPage } from '@/lib/assistantPage';
 import { ApiError, request } from './client';
-import { readSseFrames } from './sse';
+import { readSseFrames, type SseFrame } from './sse';
 import { getToken } from '@/store/auth';
 import { errorText } from '@/lib/errors';
 
@@ -52,6 +52,8 @@ export type ChatMessage = {
   tool_call?: ToolCallSummary;
   /** 运行结束的最后一条 assistant 气泡携带；历史回放走同一字段 */
   stats?: MessageStats | null;
+  /** 插话打断时写入的半句回复；前端据此标注「已打断」，避免误读为模型出错 */
+  interrupted?: boolean;
 };
 
 export type ChatSession = {
@@ -549,28 +551,37 @@ export type StreamCallbacks = {
   onDone?: (reply: PostMessageResponse) => void;
   onApprovalDone?: (payload: unknown) => void;
   onError?: (err: Error) => void;
+  /** 帧流断线、准备第 N 次重连时回调（N 从 1 起）；UI 可据此显示"连接中断，正在恢复…"。 */
+  onReconnecting?: (attempt: number) => void;
 };
+
+/** 单帧处理：打字机让出主线程 + 事件分发。 */
+async function handleStreamFrame(frame: SseFrame, cbs: StreamCallbacks): Promise<void> {
+  if (frame.event === 'assistant_delta' || frame.event === 'thinking_delta') {
+    // 打字机按帧渲染：让出一帧再收下一帧，避免高频 delta 把主线程占满。
+    // 隐藏/离屏页 rAF 不触发，必须用定时器兜底，否则读帧循环会饿死、流式永久卡住。
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      requestAnimationFrame(() => finish());
+      setTimeout(finish, 16);
+    });
+  }
+  dispatchFrame(frame.event, frame.data, cbs);
+}
 
 /** 读取 SSE 响应体并按帧回调；审批续跑与聊天流共用。 */
 export async function consumeSseResponse(res: Response, cbs: StreamCallbacks): Promise<void> {
-  await readSseFrames(res, async (frame) => {
-    if (frame.event === 'assistant_delta' || frame.event === 'thinking_delta') {
-      // 打字机按帧渲染：让出一帧再收下一帧，避免高频 delta 把主线程占满。
-      // 隐藏/离屏页 rAF 不触发，必须用定时器兜底，否则读帧循环会饿死、流式永久卡住。
-      await new Promise<void>((resolve) => {
-        let settled = false;
-        const finish = () => {
-          if (!settled) {
-            settled = true;
-            resolve();
-          }
-        };
-        requestAnimationFrame(() => finish());
-        setTimeout(finish, 16);
-      });
-    }
-    dispatchFrame(frame.event, frame.data, cbs);
-  });
+  await readSseFrames(res, async (frame) => handleStreamFrame(frame, cbs));
+}
+
+function isTerminalFrame(frame: SseFrame): boolean {
+  return frame.event === 'done' || frame.event === 'error';
 }
 
 // streamMessage opens an SSE connection to the agent loop and dispatches
@@ -654,7 +665,13 @@ export async function streamMessage(
   await consumeTurnEvents(base, started.turn_id, headers, cbs, signal);
 }
 
-/** GET events 帧流 + 复用 consumeSseResponse 的分发/打字机逻辑。 */
+/**
+ * GET events 帧流 + 断线续传。
+ *
+ * 服务端按 Redis Stream 存帧，支持 ?last_id 从断点补发；连接被中间设备掐断时
+ * 本函数按退避重连，带上已消费帧的 last_id，既不丢帧也不重复分发终态。
+ * 收到 done/error 立即停止，不再重连（终态是回合唯一收口）。
+ */
 async function consumeTurnEvents(
   base: string,
   turnId: string,
@@ -663,11 +680,56 @@ async function consumeTurnEvents(
   signal?: AbortSignal,
 ): Promise<void> {
   const sseHeaders = { ...headers, Accept: 'text/event-stream' };
-  const res = await fetch(
-    `${base}/events?turn_id=${encodeURIComponent(turnId)}`,
-    { headers: sseHeaders, signal },
-  );
-  await consumeSseResponse(res, cbs);
+  let lastId = '';
+  let attempt = 0;
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  for (;;) {
+    if (signal?.aborted) return;
+    const url = new URL(`${base}/events`, window.location.origin);
+    url.searchParams.set('turn_id', turnId);
+    if (lastId) url.searchParams.set('last_id', lastId);
+
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), { headers: sseHeaders, signal });
+    } catch (err) {
+      // fetch 本身失败（网络抖动 / ECONNRESET）：退避重连，不当作回合错误。
+      if (signal?.aborted) return;
+      attempt += 1;
+      cbs.onReconnecting?.(attempt);
+      await sleep(Math.min(1000 * 2 ** (attempt - 1), 30_000));
+      continue;
+    }
+    // 连上即重置退避：一次抖动后健康重连不应让后续退避一直翻倍。
+    attempt = 0;
+    let finished = false; // 收到 done/error：本回合唯一收口，停止重连
+
+    try {
+      await readSseFrames(res, async (frame) => {
+        if (frame.id) lastId = frame.id;
+        // 终态帧只分发一次：极端情况下断点重连可能重放上一轮的终态帧，
+        // 已在 finished 状态时跳过，避免 done/error 回调触发两次。
+        if (finished) return;
+        await handleStreamFrame(frame, cbs);
+        // 不改 readSseFrames 的返回值（false 会触发 reader.cancel，在某些运行环境下
+        // 会挂住收尾）；终态由本函数消费后、流自然结束时统一收口。
+        if (isTerminalFrame(frame)) finished = true;
+      });
+    } catch (err) {
+      // 拿到响应后的错误（非 2xx / SSE 解析失败）：重试只会重复同一坏状态/坏帧，
+      // 直接交给 onError 收口，不无限重连。
+      if (signal?.aborted || finished) return;
+      cbs.onError?.(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+    if (finished || signal?.aborted) return;
+
+    // 连接正常结束但回合未终态（服务端空闲断连 / 中间设备超时）：带 last_id 续传。
+    attempt += 1;
+    cbs.onReconnecting?.(attempt);
+    await sleep(Math.min(1000 * 2 ** (attempt - 1), 30_000));
+  }
 }
 
 /** 编辑用户消息并截断后续后重发。 */
