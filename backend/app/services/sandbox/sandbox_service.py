@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import (
@@ -70,11 +70,13 @@ MAX_LIBRARIES = 20
 # 这里再兜一层，是因为 Docker 守护进程卡住时执行线程根本不会返回。
 HARD_TIMEOUT_GRACE_SECONDS = 30
 
-# 沙盒支持的来源
+# 沙盒支持的来源（与前端 Sandbox.tsx 的 SOURCE_META 一一对应）
 SOURCE_SKILL = "skill"
 SOURCE_WORKFLOW = "workflow"
 SOURCE_MANUAL = "manual"
 SOURCE_CHAT = "chat"
+SandboxSource = Literal["skill", "workflow", "manual", "chat"]
+SOURCES: frozenset[str] = frozenset({SOURCE_SKILL, SOURCE_WORKFLOW, SOURCE_MANUAL, SOURCE_CHAT})
 
 # 执行结果状态
 STATUS_SUCCEEDED = "succeeded"
@@ -127,7 +129,7 @@ class SandboxResult:
 class SandboxContext:
     """一次执行的来源上下文；只用于记录，不影响执行行为。"""
 
-    source: str
+    source: SandboxSource
     source_ref: str = ""
     session_id: str = ""
     workflow_run_id: str = ""
@@ -293,6 +295,10 @@ async def run_code(
 
     if code.strip() == "":
         raise ValueError("沙盒代码不能为空")
+    # 来源必须在白名单内：前端按来源枚举渲染，未知值会白屏；在执行前显式拒绝，
+    # 避免脏记录落库（Literal 只是静态约束，运行时仍可传入任意字符串）。
+    if ctx.source not in SOURCES:
+        raise ValueError(f"沙盒来源非法: {ctx.source!r}（可选 {sorted(SOURCES)}）")
 
     settings = get_settings()
     executor = settings.sandbox_executor
