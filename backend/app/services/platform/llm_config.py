@@ -160,7 +160,18 @@ async def get_default_selection(db: AsyncSession) -> tuple[str, str]:
     if not providers:
         raise LookupError("配置-模型为空，无法提供默认模型")
     setting = await db.get(AppSetting, "default_provider")
-    if setting is None:
-        raise LookupError("缺少 default_provider 设置")
-    provider = await get_provider(db, setting.value)
-    return provider.provider_id, provider.default_model
+    if setting is not None:
+        try:
+            provider = await get_provider(db, setting.value)
+            return provider.provider_id, provider.default_model
+        except LookupError:
+            # default_provider 指向已禁用/已删除的 provider（如删除默认供应商时
+            # 清掉了设置项，或指向的行被禁用）。偏好失效不应让整个模型目录瘫痪：
+            # 回退到第一个启用的 provider。
+            logger.warning(
+                "default_provider=%s 已不可用，回退到首个启用 provider=%s",
+                setting.value,
+                providers[0].provider_id,
+            )
+    # 设置项缺失或失效：回退到第一个启用的 provider。
+    return providers[0].provider_id, providers[0].default_model
