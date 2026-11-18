@@ -1,0 +1,11 @@
+# 运行时易变数据：应用运行时持续写入，索引期间变化会导致 CBM 中止发布
+data/
+logs/
+backend/data/
+gui-test-screenshots/
+
+# 依赖与构建产物（.gitignore 已覆盖，这里显式声明供 CBM 使用）
+web/node_modules/
+web/dist/
+backend/.venv/
+**/__pycache__/

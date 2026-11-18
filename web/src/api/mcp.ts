@@ -3,12 +3,18 @@ import type { ToolRisk } from './tools';
 
 /** MCP Server 列表/详情响应字段。 */
 export type McpApprovalPolicy = 'never' | 'non_readonly' | 'always';
+export type McpTransport = 'http' | 'sse' | 'stdio';
 
 export interface McpServer {
   id: number;
   name: string;
-  transport: 'http' | 'sse';
+  transport: McpTransport;
   endpoint: string;
+  /** stdio 专用：命令 / 参数 / 工作目录 / 环境变量（JSON 字符串） */
+  command: string;
+  args_json: string;
+  cwd: string;
+  env_json: string;
   credential: string;
   header_template_json: string;
   approval_policy: McpApprovalPolicy;
@@ -52,12 +58,16 @@ export interface McpTool {
 /** 创建/更新 MCP Server 的请求体。 */
 export interface McpServerInput {
   name: string;
-  transport: 'http' | 'sse';
+  transport: McpTransport;
   endpoint: string;
   credential: string;
   header_template_json: string;
   approval_policy: McpApprovalPolicy;
   enabled: boolean;
+  command: string;
+  args_json: string;
+  cwd: string;
+  env_json: string;
 }
 
 export type McpServerListResp = {

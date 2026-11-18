@@ -83,6 +83,10 @@ function emptyInput(): McpServerInput {
     header_template_json: '{}',
     approval_policy: 'always',
     enabled: true,
+    command: '',
+    args_json: '[]',
+    cwd: '',
+    env_json: '{}',
   };
 }
 
@@ -347,6 +351,10 @@ function toInput(s: McpServer): McpServerInput {
     header_template_json: s.header_template_json,
     approval_policy: s.approval_policy ?? 'always',
     enabled: s.enabled,
+    command: s.command ?? '',
+    args_json: s.args_json ?? '[]',
+    cwd: s.cwd ?? '',
+    env_json: s.env_json ?? '{}',
   };
 }
 
@@ -1710,7 +1718,11 @@ function ServerEditor({
   onSave: () => void;
 }) {
   const { tr } = useI18n();
-  const canSave = input.name.trim().length > 0 && input.endpoint.trim().length > 0 && !saving;
+  const isStdio = input.transport === 'stdio';
+  const connectionReady = isStdio
+    ? input.command.trim().length > 0
+    : input.endpoint.trim().length > 0;
+  const canSave = input.name.trim().length > 0 && connectionReady && !saving;
 
   return (
     <Modal
@@ -1747,23 +1759,79 @@ function ServerEditor({
           />
         </Field>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_1fr]">
-          <Field label={tr('传输方式', 'Transport')} hint={tr('http 或 sse', 'http or sse')}>
-            <Select
-              label={tr('传输方式', 'Transport')}
-              value={input.transport}
-              onValueChange={(selectedValue) => {
-                if (selectedValue !== 'http' && selectedValue !== 'sse') {
-                  throw new Error(`不支持的 transport: ${selectedValue}`);
-                }
-                onChange({ transport: selectedValue });
-              }}
-              className="w-full"
+        <Field label={tr('传输方式', 'Transport')} hint={tr('http / sse / stdio', 'http / sse / stdio')}>
+          <Select
+            label={tr('传输方式', 'Transport')}
+            value={input.transport}
+            onValueChange={(selectedValue) => {
+              if (selectedValue !== 'http' && selectedValue !== 'sse' && selectedValue !== 'stdio') {
+                throw new Error(`不支持的 transport: ${selectedValue}`);
+              }
+              onChange({ transport: selectedValue });
+            }}
+            className="w-full"
+          >
+            <option value="http">http</option>
+            <option value="sse">sse</option>
+            <option value="stdio">stdio</option>
+          </Select>
+        </Field>
+
+        {isStdio ? (
+          <>
+            <div className="flex items-start gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[11.5px] leading-5 text-warn">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              <span>{tr(
+                'stdio 服务会以服务端进程权限运行本机命令，请只登记可信命令；仅管理员可配置。',
+                'stdio servers run local commands with the server process privileges. Only register trusted commands; admins only.',
+              )}</span>
+            </div>
+            <Field
+              label={tr('启动命令', 'Command')}
+              hint={tr('可执行文件绝对路径或 PATH 中的命令', 'Absolute path to the executable, or a command on PATH')}
             >
-              <option value="http">http</option>
-              <option value="sse">sse</option>
-            </Select>
-          </Field>
+              <Input
+                type="text"
+                value={input.command}
+                onChange={(e) => onChange({ command: e.target.value })}
+                placeholder="C:/path/to/codebase-memory-mcp.exe"
+                className={cn(inputClass, "font-sans")}
+              />
+            </Field>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label={tr('参数 JSON', 'Args JSON')} hint={tr('字符串数组，如 ["--flag"]', 'String array, e.g. ["--flag"]')}>
+                <Input
+                  type="text"
+                  value={input.args_json}
+                  onChange={(e) => onChange({ args_json: e.target.value })}
+                  placeholder="[]"
+                  className={cn(inputClass, "font-mono")}
+                />
+              </Field>
+              <Field label={tr('工作目录', 'Working directory')} hint={tr('可选', 'Optional')}>
+                <Input
+                  type="text"
+                  value={input.cwd}
+                  onChange={(e) => onChange({ cwd: e.target.value })}
+                  placeholder=""
+                  className={cn(inputClass, "font-sans")}
+                />
+              </Field>
+            </div>
+            <Field
+              label={tr('环境变量 JSON', 'Env JSON')}
+              hint={tr('字符串映射；值支持 {{字段}}，由下方凭证注入', 'String map; values support {{field}} from the credential below')}
+            >
+              <Textarea
+                value={input.env_json}
+                onChange={(e) => onChange({ env_json: e.target.value })}
+                placeholder={'{"CBM_CACHE_DIR":"D:/cbm-cache"}'}
+                rows={3}
+                className={cn(inputClass, "font-mono")}
+              />
+            </Field>
+          </>
+        ) : (
           <Field label={tr('端点 URL', 'Endpoint URL')} hint={tr('Streamable HTTP MCP 端点', 'Streamable HTTP MCP endpoint')}>
             <Input
               type="text"
@@ -1773,11 +1841,14 @@ function ServerEditor({
               className={cn(inputClass, "font-sans")}
             />
           </Field>
-        </div>
+        )}
 
         <Field
           label={tr('凭证', 'Credential')}
-          hint={tr('用于填充 header 模板里的 {{字段}}；选「（无）」表示不注入认证', 'Fills the {{field}} placeholders in the header template; pick "(none)" for no auth injection')}
+          hint={tr(
+            '用于填充 header / 环境变量模板里的 {{字段}}；选「（无）」表示不注入',
+            'Fills {{field}} placeholders in header / env templates; pick "(none)" for no injection',
+          )}
         >
           <Select label={tr('凭证', 'Credential')}
             value={input.credential || NONE}

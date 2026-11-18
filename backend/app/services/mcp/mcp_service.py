@@ -12,6 +12,8 @@ from typing import Any, cast
 from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import (
     SseConnectionParams,
+    StdioConnectionParams,
+    StdioServerParameters,
     StreamableHTTPConnectionParams,
 )
 from sqlalchemy import select
@@ -24,6 +26,11 @@ logger = logging.getLogger(__name__)
 
 
 _APPROVAL_POLICIES = frozenset({"never", "non_readonly", "always"})
+_TRANSPORTS = frozenset({"http", "sse", "stdio"})
+
+# stdio 首次拉起进程（尤其体积较大的原生二进制）比 HTTP 握手慢，
+# 默认 5s 偏紧。统一放宽，探活/探测的 wait_for 也用这个值。
+STDIO_CONNECT_TIMEOUT_SECONDS = 30
 
 # 探活失败的 server 每次装配都会重复刷同样的 WARNING（一轮对话装配 4+ 次）。
 # 记录上次告警过的 (status, last_error)，仅首次与状态变化时 WARNING，其余降 DEBUG。
@@ -94,6 +101,10 @@ def server_to_wire(s: McpServer, *, oauth_status: str = "none") -> dict:
         "name": s.name,
         "transport": s.transport,
         "endpoint": s.endpoint,
+        "command": s.command,
+        "args_json": s.args_json,
+        "cwd": s.cwd,
+        "env_json": s.env_json,
         "credential": s.credential,
         "header_template_json": s.header_template_json,
         "approval_policy": effective_approval_policy(s),
@@ -257,25 +268,77 @@ def has_header_placeholder(template_headers: dict[str, str]) -> bool:
     )
 
 
-async def connection_params_for_server(db: AsyncSession, server: McpServer):
-    """按 Server 配置构造 ADK MCP 连接参数。
+def _parse_args(raw: str) -> list[str]:
+    """解析 stdio args_json：必须是 JSON 字符串数组。"""
 
-    credential 列存的是「凭证库里的凭证名」，不是密钥本身：
-    这里按名取出凭证字段，把 header_template_json 里的 {{字段}}
-    占位符替换成真实值后再连远端。凭证缺失 / 字段缺失都显式失败。
+    data = json.loads(raw or "[]")
+    if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
+        raise TypeError("args_json 必须是 JSON 字符串数组")
+    return data
+
+
+def _parse_env(raw: str) -> dict[str, str]:
+    """解析 stdio env_json：必须是字符串到字符串的 JSON 映射。"""
+
+    data = json.loads(raw or "{}")
+    if not isinstance(data, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in data.items()
+    ):
+        raise TypeError("env_json 必须是 JSON 字符串映射（键值均为字符串）")
+    return data
+
+
+async def _credential_fields(db: AsyncSession, server: McpServer) -> dict[str, str]:
+    """按 server.credential 取凭证字段；未选凭证返回空映射。"""
+
+    if server.credential == "":
+        return {}
+    from app.services.platform.secrets_service import resolve_secret_fields
+
+    return await resolve_secret_fields(db, server.credential)
+
+
+async def connection_params_for_server(db: AsyncSession, server: McpServer):
+    """按 Server 配置构造 ADK MCP 连接参数（所有传输的统一收口）。
+
+    http/sse：credential 存「凭证库里的凭证名」，header_template_json 的
+    {{字段}} 占位符替换成真实值；OAuth/手动 Token 优先于模板同名键。
+    stdio：command/args/cwd/env 启动本机进程，env 值里的 {{字段}} 也按
+    同一套凭证机制替换。凭证缺失 / 字段缺失都显式失败。
     """
 
-    template_headers = _parse_headers(server.header_template_json)
-    credential_fields: dict[str, str] = {}
-    if server.credential != "":
-        from app.services.platform.secrets_service import resolve_secret_fields
+    credential_fields = await _credential_fields(db, server)
 
-        credential_fields = await resolve_secret_fields(db, server.credential)
-    elif has_header_placeholder(template_headers):
+    if server.transport == "stdio":
+        if server.command == "":
+            raise ValueError(f"MCP Server {server.name} 配置为 stdio 但 command 为空")
+        env_template = _parse_env(server.env_json)
+        # 复用 header 模板渲染逻辑：env 值支持 {{字段}}，缺失字段显式失败
+        env = render_header_template(env_template, credential_fields)
+        server_params = StdioServerParameters(
+            command=server.command,
+            args=_parse_args(server.args_json),
+            env=env or None,
+            cwd=server.cwd or None,
+        )
+        logger.info(
+            "构造 stdio MCP 连接参数 server=%s command=%s args=%s cwd=%s env_keys=%s",
+            server.name,
+            server.command,
+            server_params.args,
+            server.cwd,
+            sorted(env.keys()),
+        )
+        return StdioConnectionParams(
+            server_params=server_params, timeout=STDIO_CONNECT_TIMEOUT_SECONDS
+        )
+
+    # http/sse 分支：header 模板 + OAuth/手动 Token
+    template_headers = _parse_headers(server.header_template_json)
+    if server.credential == "" and has_header_placeholder(template_headers):
         raise ValueError(
             f"MCP Server {server.name} 的 header 模板含 {{字段}} 占位符，但未选择凭证"
         )
-
     headers = render_header_template(template_headers, credential_fields)
 
     # OAuth / 手动 Token 优先于模板同名键：授权态以 Token 为准
@@ -746,6 +809,34 @@ def tool_input_schema(server: McpServer, tool_name: str) -> dict[str, Any] | Non
     return None
 
 
+def validate_server_config(
+    *,
+    name: str,
+    transport: str,
+    endpoint: str,
+    command: str,
+    args_json: str,
+    env_json: str,
+    header_template_json: str,
+    approval_policy: str,
+) -> None:
+    """create/update 共用的配置校验（单一收口，避免两处规则漂移）。"""
+
+    if transport not in _TRANSPORTS:
+        raise ValueError(f"不支持的 transport: {transport}")
+    if approval_policy not in _APPROVAL_POLICIES:
+        raise ValueError(f"approval_policy 非法: {approval_policy}")
+    assert_mcp_server_name(name)
+    _parse_headers(header_template_json)
+    if transport == "stdio":
+        if command == "":
+            raise ValueError("stdio 服务的 command 不能为空")
+        _parse_args(args_json)
+        _parse_env(env_json)
+    elif endpoint == "":
+        raise ValueError("endpoint 不能为空")
+
+
 async def create_server(
     db: AsyncSession,
     *,
@@ -756,15 +847,21 @@ async def create_server(
     header_template_json: str,
     enabled: bool,
     approval_policy: str = "always",
+    command: str = "",
+    args_json: str = "[]",
+    cwd: str = "",
+    env_json: str = "{}",
 ) -> McpServer:
-    if transport not in ("http", "sse"):
-        raise ValueError(f"不支持的 transport: {transport}")
-    if endpoint == "":
-        raise ValueError("endpoint 不能为空")
-    if approval_policy not in _APPROVAL_POLICIES:
-        raise ValueError(f"approval_policy 非法: {approval_policy}")
-    assert_mcp_server_name(name)
-    _parse_headers(header_template_json)
+    validate_server_config(
+        name=name,
+        transport=transport,
+        endpoint=endpoint,
+        command=command,
+        args_json=args_json,
+        env_json=env_json,
+        header_template_json=header_template_json,
+        approval_policy=approval_policy,
+    )
     # 名称唯一：显式预检，避免 IntegrityError 变成 500
     existing = await db.scalar(select(McpServer).where(McpServer.name == name))
     if existing is not None:
@@ -773,6 +870,10 @@ async def create_server(
         name=name,
         transport=transport,
         endpoint=endpoint,
+        command=command,
+        args_json=args_json,
+        cwd=cwd,
+        env_json=env_json,
         credential=credential,
         header_template_json=header_template_json,
         approval_policy=approval_policy,
@@ -807,16 +908,22 @@ async def update_server(
     header_template_json: str,
     enabled: bool,
     approval_policy: str = "always",
+    command: str = "",
+    args_json: str = "[]",
+    cwd: str = "",
+    env_json: str = "{}",
 ) -> McpServer:
     row = await get_server(db, server_id)
-    if transport not in ("http", "sse"):
-        raise ValueError(f"不支持的 transport: {transport}")
-    if endpoint == "":
-        raise ValueError("endpoint 不能为空")
-    if approval_policy not in _APPROVAL_POLICIES:
-        raise ValueError(f"approval_policy 非法: {approval_policy}")
-    assert_mcp_server_name(name)
-    _parse_headers(header_template_json)
+    validate_server_config(
+        name=name,
+        transport=transport,
+        endpoint=endpoint,
+        command=command,
+        args_json=args_json,
+        env_json=env_json,
+        header_template_json=header_template_json,
+        approval_policy=approval_policy,
+    )
     # 改名时同样校验唯一性
     duplicate = await db.scalar(
         select(McpServer).where(McpServer.name == name, McpServer.id != server_id)
@@ -826,6 +933,10 @@ async def update_server(
     row.name = name
     row.transport = transport
     row.endpoint = endpoint
+    row.command = command
+    row.args_json = args_json
+    row.cwd = cwd
+    row.env_json = env_json
     row.credential = credential
     row.header_template_json = header_template_json
     row.approval_policy = approval_policy
@@ -1004,11 +1115,15 @@ async def _probe_mcp_extras(session: Any, row: McpServer) -> list[str]:
 async def _open_mcp_session(db: AsyncSession, server: McpServer):
     """打开一条管理页直连会话；返回 (manager, session)，调用方负责 close。"""
 
+    import asyncio
+
     from google.adk.tools.mcp_tool.mcp_session_manager import MCPSessionManager
 
     params = await connection_params_for_server(db, server)
     manager = MCPSessionManager(connection_params=params)
-    session = await manager.create_session()
+    # stdio 首次拉起本机进程（体积较大的原生二进制）可能超过 10s
+    timeout = STDIO_CONNECT_TIMEOUT_SECONDS if server.transport == "stdio" else 10
+    session = await asyncio.wait_for(manager.create_session(), timeout=timeout)
     return manager, session
 
 
@@ -1023,9 +1138,13 @@ async def probe_server_health(db: AsyncSession, server: McpServer) -> bool:
 
     ok = False
     manager = None
+    # stdio 每次探活都要拉起一个本机进程，握手比 HTTP 慢
+    probe_timeout = STDIO_CONNECT_TIMEOUT_SECONDS if server.transport == "stdio" else 10
     try:
-        manager, session = await asyncio.wait_for(_open_mcp_session(db, server), timeout=10)
-        await asyncio.wait_for(session.send_ping(), timeout=10)
+        manager, session = await asyncio.wait_for(
+            _open_mcp_session(db, server), timeout=probe_timeout
+        )
+        await asyncio.wait_for(session.send_ping(), timeout=probe_timeout)
         ok = True
         server.status = "ok"
         server.last_error = ""

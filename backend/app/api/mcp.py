@@ -31,12 +31,18 @@ def _detail_summary(value: object) -> str:
 class McpServerInput(BaseModel):
     name: str = Field(min_length=1)
     transport: str = Field(min_length=1)
-    endpoint: str = Field(min_length=1)
-    credential: str
-    header_template_json: str
-    enabled: bool
+    # http/sse 必填；stdio 可留空
+    endpoint: str = ""
+    credential: str = ""
+    header_template_json: str = "{}"
+    enabled: bool = True
     # never | non_readonly | always；缺省 always
     approval_policy: str = "always"
+    # stdio 专用（以服务端进程权限运行本机命令，仅管理员可配）
+    command: str = ""
+    args_json: str = "[]"
+    cwd: str = ""
+    env_json: str = "{}"
 
 
 @router.get("/mcp/servers")
@@ -71,6 +77,10 @@ async def create_server(
             header_template_json=body.header_template_json,
             enabled=body.enabled,
             approval_policy=body.approval_policy,
+            command=body.command,
+            args_json=body.args_json,
+            cwd=body.cwd,
+            env_json=body.env_json,
         )
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -87,6 +97,7 @@ async def create_server(
             "name": row.name,
             "transport": row.transport,
             "endpoint": row.endpoint,
+            "command": row.command,
             "enabled": row.enabled,
             "approval_policy": row.approval_policy,
         },
@@ -112,6 +123,10 @@ async def update_server(
             header_template_json=body.header_template_json,
             enabled=body.enabled,
             approval_policy=body.approval_policy,
+            command=body.command,
+            args_json=body.args_json,
+            cwd=body.cwd,
+            env_json=body.env_json,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -129,6 +144,7 @@ async def update_server(
             "name": row.name,
             "transport": row.transport,
             "endpoint": row.endpoint,
+            "command": row.command,
             "enabled": row.enabled,
             "approval_policy": row.approval_policy,
         },
