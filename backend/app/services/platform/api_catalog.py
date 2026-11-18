@@ -63,6 +63,37 @@ class PlatformApiEntry:
                 parts.extend(f"{k} {v.get('description', '')}".strip() for k, v in props.items())
         return " ".join(p for p in parts if p)
 
+    def parameter_specs(self) -> list[dict]:
+        """参数清单（给模型构造 arguments 用）：path/query/body 的名字、必填、描述。"""
+        specs: list[dict] = []
+        # path 参数：从 URL 占位符解析
+        for name in re.findall(r"\{(\w+)\}", self.path):
+            specs.append({"name": name, "in": "path", "required": True, "description": ""})
+        # query 参数：OpenAPI 已声明（内部头已剔除）
+        for p in self.parameters:
+            if p.get("in") == "query":
+                specs.append(
+                    {
+                        "name": p.get("name", ""),
+                        "in": "query",
+                        "required": bool(p.get("required", False)),
+                        "description": str(p.get("description", "") or ""),
+                    }
+                )
+        # body 字段
+        if self.body_schema is not None:
+            required = set(self.body_schema.get("required", []))
+            for name, prop in (self.body_schema.get("properties", {}) or {}).items():
+                specs.append(
+                    {
+                        "name": name,
+                        "in": "body",
+                        "required": name in required,
+                        "description": str(prop.get("description", "") or "") if isinstance(prop, dict) else "",
+                    }
+                )
+        return specs
+
 
 def _resolve_ref(schema: dict) -> dict:
     """解析 application/json 的顶层 $ref 到实际 schema（只解一层即可覆盖 body 模型）。"""

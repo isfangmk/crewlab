@@ -55,7 +55,8 @@ async def warm_platform_api_index() -> int:
 async def search_platform_apis(query: str, *, limit: int = 5) -> list[dict]:
     """语义检索平台接口。
 
-    返回 [{api_id, method, path, summary, description, risk, score}, ...]。
+    返回候选及其参数清单——模型必须看到正确参数名才能构造 arguments，
+    否则会凭猜测传错（如把 limit/offset 写成 page/page_size）。
     索引或查询向量失败时抛异常，由工具层转结构化错误，不 swallow。
     """
     if not isinstance(query, str) or query.strip() == "":
@@ -79,6 +80,7 @@ async def search_platform_apis(query: str, *, limit: int = 5) -> list[dict]:
             "description": _entries[i].description,
             "risk": _entries[i].risk,
             "score": round(score, 4),
+            "parameters": _entries[i].parameter_specs(),
         }
         for i, score in ranked[:limit]
     ]
