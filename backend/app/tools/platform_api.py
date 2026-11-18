@@ -60,7 +60,9 @@ async def _resolve_actor(tool_context: Any) -> int:
         return int(row.owner_user_id)
 
 
-def build_internal_request(entry: PlatformApiEntry, arguments: dict) -> tuple[str, dict, dict | None]:
+def build_internal_request(
+    entry: PlatformApiEntry, arguments: Any
+) -> tuple[str, dict, dict | None]:
     """按目录项把 arguments 拆成 path / query / body，并校验必填项。
 
     - path 占位符（{id}）必须由 arguments 提供，替换进 URL；
@@ -104,8 +106,6 @@ def build_internal_request(entry: PlatformApiEntry, arguments: dict) -> tuple[st
         else:
             body = {k: v for k, v in provided.items()}
             provided = {}
-        if not isinstance(body, dict):
-            raise ValueError("body 必须是对象")
         for field in required:
             if field not in body:
                 raise ValueError(f"缺少必填请求体字段: {field}")
@@ -174,7 +174,9 @@ async def _call_api(
     }
 
 
-async def search_platform_api(query: str, tool_context: Any = None) -> dict:
+async def search_platform_api(
+    query: str, tool_context: Any = None  # pyright: ignore[reportUnusedParameter]
+) -> dict:
     """按自然语言检索平台可操作的接口，返回候选 api_id 与参数说明。
 
     Args:
