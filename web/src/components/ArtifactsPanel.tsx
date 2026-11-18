@@ -2,10 +2,12 @@
 // 数据打真后端（listSessionArtifacts），refreshTick 变化即重新拉取
 // （代码解释器 tool_end 后由 ChatThread 递增）。
 import { useCallback, useEffect, useState } from 'react';
+import JSZip from 'jszip';
 import {
   Download,
   FileJson,
   FileText,
+  Image as ImageIcon,
   Loader2,
   Network,
   RefreshCw,
@@ -13,8 +15,9 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react';
-import { ChartCanvas } from './ChartCanvas';
+import { ChartCanvas, chartOptionToPngBlob } from './ChartCanvas';
 import { MermaidGraph } from './MermaidGraph';
+import { Checkbox } from '@/components/ui/Checkbox';
 import {
   downloadArtifact,
   listSessionArtifacts,
@@ -50,8 +53,10 @@ export function ArtifactsPanel({
   const [items, setItems] = useState<ArtifactItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [zipping, setZipping] = useState(false);
   const [kind, setKind] = useState<ArtifactKind | 'all'>('all');
 
   const load = useCallback(async () => {
@@ -72,11 +77,22 @@ export function ArtifactsPanel({
     void load();
   }, [load, refreshTick]);
 
+  const visibleKinds = Array.from(new Set((items ?? []).map((i) => i.kind)));
+  const filtered =
+    kind === 'all' ? (items ?? []) : (items ?? []).filter((i) => i.kind === kind);
+  // 过滤后原预览项可能不在列表里：仅渲染仍在列表中的预览，id 保留即可。
+  const preview = filtered.find((i) => i.id === previewId) ?? null;
+
+  /** 产物基名，重名追加 -2/-3 防 zip 内覆盖。 */
+  const baseName = (item: ArtifactItem) =>
+    (item.title || item.id).replace(/[\\/:*?"<>|]/g, '_');
+
+  /** 单条下载：非图表走后端原始字节（json/file），图表预览区走专用按钮。 */
   const save = async (item: ArtifactItem) => {
     setBusyId(item.id);
     try {
       const { blob, filename } = await downloadArtifact(item.id);
-      saveBlob(blob, filename || item.file_name || `${item.title || item.id}.json`);
+      saveBlob(blob, filename || item.file_name || `${baseName(item)}.json`);
     } catch (e) {
       setErr(errorText(e));
     } finally {
@@ -84,11 +100,83 @@ export function ArtifactsPanel({
     }
   };
 
-  const visibleKinds = Array.from(new Set((items ?? []).map((i) => i.kind)));
-  const filtered =
-    kind === 'all' ? (items ?? []) : (items ?? []).filter((i) => i.kind === kind);
-  // 过滤后原选中项可能不在列表里：仅渲染仍在列表中的预览，选中 id 保留即可
-  const selected = filtered.find((i) => i.id === selectedId) ?? null;
+  /** 单条图表导出 PNG（浏览器 canvas 渲染，后端无渲染器）。 */
+  const saveChartPng = async (item: ArtifactItem) => {
+    setBusyId(item.id);
+    try {
+      const option = item.payload as Record<string, unknown>;
+      const blob = await chartOptionToPngBlob(option);
+      saveBlob(blob, `${baseName(item)}.png`);
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allSelected =
+    filtered.length > 0 && filtered.every((i) => selected.has(i.id));
+  const toggleSelectAll = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) filtered.forEach((i) => next.delete(i.id));
+      else filtered.forEach((i) => next.add(i.id));
+      return next;
+    });
+  };
+
+  /** 选中项打包 ZIP：图表含 PNG+JSON，table/text/mermaid 为 JSON，file 为后端原始字节。 */
+  const downloadSelectedZip = async () => {
+    const chosen = (items ?? []).filter((i) => selected.has(i.id));
+    if (chosen.length === 0) return;
+    setZipping(true);
+    setErr(null);
+    try {
+      const zip = new JSZip();
+      const used = new Set<string>();
+      const uniqueName = (base: string, ext: string) => {
+        let name = `${base}.${ext}`;
+        let n = 2;
+        while (used.has(name)) name = `${base}-${n++}.${ext}`;
+        used.add(name);
+        return name;
+      };
+      for (const item of chosen) {
+        const base = baseName(item);
+        if (item.kind === 'chart' && item.payload !== null && typeof item.payload === 'object') {
+          zip.file(
+            uniqueName(base, 'png'),
+            await chartOptionToPngBlob(item.payload as Record<string, unknown>),
+          );
+          zip.file(
+            uniqueName(base, 'json'),
+            JSON.stringify(item.payload, null, 2),
+          );
+        } else if (item.kind === 'file') {
+          const { blob, filename } = await downloadArtifact(item.id);
+          const ext = (filename || item.file_name || '').split('.').pop() || 'bin';
+          zip.file(uniqueName(base, ext), blob);
+        } else {
+          zip.file(uniqueName(base, 'json'), JSON.stringify(item.payload ?? {}, null, 2));
+        }
+      }
+      const blob = await zip.generateAsync({ type: 'blob' });
+      saveBlob(blob, 'artifacts.zip');
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setZipping(false);
+    }
+  };
 
   return (
     <aside
@@ -173,69 +261,123 @@ export function ArtifactsPanel({
             </div>
           ) : (
             <>
+              <div className="flex items-center justify-between gap-2 border-b border-zinc-800/40 px-3 py-1.5">
+                <button
+                  type="button"
+                  onClick={toggleSelectAll}
+                  className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400 transition-colors hover:text-zinc-200"
+                >
+                  <Checkbox
+                    checked={allSelected}
+                    indeterminate={selected.size > 0 && !allSelected}
+                    aria-label={tr('全选本页产出物', 'Select all artifacts')}
+                  />
+                  {allSelected
+                    ? tr('取消全选', 'Deselect all')
+                    : tr('全选', 'Select all')}
+                </button>
+                {selected.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void downloadSelectedZip()}
+                    disabled={zipping}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-indigo-600/40 bg-indigo-600/15 px-2 py-1 text-[11px] text-indigo-200 transition-colors hover:bg-indigo-600/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {zipping ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Download size={12} />
+                    )}
+                    {tr(`下载选中 (${selected.size}) · ZIP`, `Download selected (${selected.size}) · ZIP`)}
+                  </button>
+                )}
+              </div>
               <ul className="divide-y divide-zinc-800/40 overflow-y-auto">
                 {filtered.map((item) => {
                   const meta = KIND_META[item.kind] ?? KIND_META.text;
                   const Icon = meta.icon;
                   return (
                     <li key={item.id}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedId(item.id === selectedId ? null : item.id)}
-                        className={cn(
-                          'flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-zinc-800/40',
-                          selectedId === item.id && 'bg-zinc-800/40',
-                        )}
-                      >
-                        <Icon size={13} className="shrink-0 text-indigo-300" />
-                        <span className="min-w-0 flex-1 truncate text-[11.5px] text-zinc-200">
-                          {item.title || item.id}
-                        </span>
-                        <span className="shrink-0 text-[10px] text-zinc-500">
-                          {tr(meta.label, meta.labelEn)}
-                        </span>
-                      </button>
+                      <div className="flex w-full items-center gap-2 px-3 py-2 transition-colors hover:bg-zinc-800/40">
+                        <Checkbox
+                          checked={selected.has(item.id)}
+                          onCheckedChange={() => toggleSelected(item.id)}
+                          aria-label={tr(`选择 ${item.title || item.id}`, `Select ${item.title || item.id}`)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPreviewId(item.id === previewId ? null : item.id)
+                          }
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        >
+                          <Icon size={13} className="shrink-0 text-indigo-300" />
+                          <span className="min-w-0 flex-1 truncate text-[11.5px] text-zinc-200">
+                            {item.title || item.id}
+                          </span>
+                          <span className="shrink-0 text-[10px] text-zinc-500">
+                            {tr(meta.label, meta.labelEn)}
+                          </span>
+                        </button>
+                      </div>
                     </li>
                   );
                 })}
               </ul>
-              {selected && (
+              {preview && (
                 <div className="max-h-[55%] overflow-auto border-t border-zinc-800/60 bg-zinc-950/40 p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="truncate text-[11.5px] font-medium text-zinc-200">
-                      {selected.title || selected.id}
+                      {preview.title || preview.id}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => void save(selected)}
-                      disabled={busyId === selected.id}
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/60 px-2 py-1 text-[11px] text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {busyId === selected.id ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <Download size={12} />
-                      )}
-                      {tr('下载', 'Download')}
-                    </button>
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {preview.kind === 'chart' &&
+                        typeof preview.payload === 'object' &&
+                        preview.payload !== null && (
+                          <button
+                            type="button"
+                            onClick={() => void saveChartPng(preview)}
+                            disabled={busyId === preview.id}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/60 px-2 py-1 text-[11px] text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <ImageIcon size={12} />
+                            {tr('PNG', 'PNG')}
+                          </button>
+                        )}
+                      <button
+                        type="button"
+                        onClick={() => void save(preview)}
+                        disabled={busyId === preview.id}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/60 px-2 py-1 text-[11px] text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {busyId === preview.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Download size={12} />
+                        )}
+                        {preview.kind === 'chart'
+                          ? tr('JSON', 'JSON')
+                          : tr('下载', 'Download')}
+                      </button>
+                    </span>
                   </div>
-                  {selected.kind === 'chart' &&
-                    typeof selected.payload === 'object' &&
-                    selected.payload !== null && (
-                      <ChartCanvas option={selected.payload as Record<string, unknown>} />
+                  {preview.kind === 'chart' &&
+                    typeof preview.payload === 'object' &&
+                    preview.payload !== null && (
+                      <ChartCanvas option={preview.payload as Record<string, unknown>} />
                     )}
-                  {selected.kind === 'mermaid' && (
-                    <MermaidGraph definition={String(selected.payload ?? '')} />
+                  {preview.kind === 'mermaid' && (
+                    <MermaidGraph definition={String(preview.payload ?? '')} />
                   )}
-                  {selected.kind === 'table' && <ArtifactTableLite payload={selected.payload} />}
-                  {selected.kind === 'text' && (
+                  {preview.kind === 'table' && <ArtifactTableLite payload={preview.payload} />}
+                  {preview.kind === 'text' && (
                     <p className="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-zinc-300">
-                      {String(selected.payload ?? '')}
+                      {String(preview.payload ?? '')}
                     </p>
                   )}
-                  {selected.kind === 'file' && (
+                  {preview.kind === 'file' && (
                     <p className="text-[11px] text-zinc-500">
-                      {selected.file_name} · {selected.size} bytes
+                      {preview.file_name} · {preview.size} bytes
                     </p>
                   )}
                 </div>

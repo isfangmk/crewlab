@@ -15,6 +15,11 @@ type EChartsInstance = {
   setOption: (option: Record<string, unknown>, notMerge?: boolean) => void;
   resize: () => void;
   dispose: () => void;
+  getDataURL: (opts: {
+    type: 'png';
+    pixelRatio: number;
+    backgroundColor: string;
+  }) => string;
 };
 
 type EChartsModule = {
@@ -36,6 +41,45 @@ function loadECharts(): Promise<EChartsModule> {
     });
   }
   return echartsPromise;
+}
+
+/**
+ * 把 ECharts option 导出为 PNG Blob（离屏渲染，用于产物下载与 ZIP 打包）。
+ *
+ * 复用与 ChartCanvas 相同的 loadECharts + 主题，保证导出图与预览一致；
+ * 离屏容器必须挂到 DOM 且有实际尺寸（echarts 依据容器宽高布局），
+ * 不能用 display:none。无论成功失败都 dispose 并移除容器。
+ */
+export async function chartOptionToPngBlob(
+  option: Record<string, unknown>,
+): Promise<Blob> {
+  const echarts = await loadECharts();
+  const host = document.createElement('div');
+  host.style.position = 'fixed';
+  host.style.left = '-10000px';
+  host.style.top = '0';
+  host.style.width = '800px';
+  host.style.height = '500px';
+  host.style.opacity = '0';
+  host.style.pointerEvents = 'none';
+  document.body.appendChild(host);
+  let chart: EChartsInstance | null = null;
+  try {
+    chart = echarts.init(host, CHART_THEME_NAME);
+    chart.setOption(option, true);
+    // 等一帧让 echarts 完成首屏绘制，getDataURL 才有内容。
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const dataUrl = chart.getDataURL({
+      type: 'png',
+      pixelRatio: 2,
+      backgroundColor: '#ffffff',
+    });
+    const resp = await fetch(dataUrl);
+    return await resp.blob();
+  } finally {
+    chart?.dispose();
+    host.remove();
+  }
 }
 
 export function ChartCanvas({
