@@ -20,6 +20,7 @@ from app.adk_runtime.naming import root_adk_name
 from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.stream_bridge import APP_NAME, SseFrame, stream_adk_turn
 from app.adk_runtime.sub_agents import build_sub_agents_for_agent
+from app.adk_runtime.tool_result_budget import resolve_max_tool_result_chars
 from app.models.approval import Approval
 from app.models.artifact import Artifact
 from app.models.attachment import ChatAttachment
@@ -1831,12 +1832,20 @@ async def stream_session_message(
         content,
     )
     runtime = await app_settings_service.get_agent_runtime(db)
+    # 工具结果上限：助理级覆盖 > 全局默认 > 内置默认（单一收口解析）
+    effective_max_tool_result_chars = resolve_max_tool_result_chars(
+        resolved_agent.max_tool_result_chars,
+        int(runtime["max_tool_result_chars"]),
+    )
     logger.info(
-        "助理运行参数 session_id=%s write_enabled=%s llm_timeout=%s output_locale=%s",
+        "助理运行参数 session_id=%s write_enabled=%s llm_timeout=%s output_locale=%s "
+        "max_tool_result_chars=%s (agent_override=%s)",
         session_id,
         runtime["write_enabled"],
         runtime["llm_timeout_seconds"],
         runtime["output_locale"],
+        effective_max_tool_result_chars,
+        resolved_agent.max_tool_result_chars,
     )
     persona = await agent_service.compose_persona(db, resolved_agent)
     # 本回合 locale 覆盖设置页 output_locale；前端传 en-US / zh-CN
@@ -1915,6 +1924,7 @@ async def stream_session_message(
             "model": use_model,
             "base_url": llm.base_url,
             "llm_timeout_seconds": int(runtime["llm_timeout_seconds"]),
+            "max_tool_result_chars": effective_max_tool_result_chars,
             "thinking_enabled": thinking_enabled,
             "web_search_enabled": web_search_enabled,
             "model_prefix": llm.model_prefix,
@@ -1971,6 +1981,7 @@ async def stream_session_message(
             disallowed_tool_names=disallowed_tool_names,
             rule_actions=rule_actions,
             max_turns=resolved_agent.max_turns,
+            max_tool_result_chars=effective_max_tool_result_chars,
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,
                 sub_agents=await build_sub_agents_for_agent(

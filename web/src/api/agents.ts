@@ -29,6 +29,8 @@ export type AgentSummary = {
   permission_mode: string;
   model: string;
   max_turns: number;
+  /** 工具结果回喂模型的字符上限；null = 继承全局默认 */
+  max_tool_result_chars: number | null;
   system_prompt: string;
   critical_reminder: string;
   output_format: OutputFormat;
@@ -57,6 +59,8 @@ export type UserAgentInput = {
   permission_mode: string;
   model: string;
   max_turns: number;
+  /** 工具结果上限；null/缺省 = 继承全局默认 */
+  max_tool_result_chars?: number | null;
   output_format: OutputFormat;
   examples: AgentExample[];
   knowledge_scope: KnowledgeScope;

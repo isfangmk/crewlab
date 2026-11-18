@@ -736,7 +736,11 @@ async function consumeTurnEvents(
       // 拿到响应后的错误（非 2xx / SSE 解析失败）：重试只会重复同一坏状态/坏帧，
       // 直接交给 onError 收口，不无限重连。
       if (signal?.aborted || finished) return;
-      cbs.onError?.(err instanceof Error ? err : new Error(String(err)));
+      if (cbs.onError) {
+        cbs.onError(err instanceof Error ? err : new Error(String(err)));
+      } else {
+        throw err;
+      }
       return;
     }
     if (finished || signal?.aborted) return;
@@ -823,7 +827,15 @@ function dispatchFrame(event: string, data: string, cbs: StreamCallbacks) {
         throw new Error('SSE error 帧缺少 error 字段');
       }
       const StreamError = obj.turn_rejected === true ? RejectedChatTurnError : ApiError;
-      cbs.onError?.(new StreamError(obj.error, 200, obj.code));
+      const err = new StreamError(obj.error, 200, obj.code);
+      // 错误必须可见：有 onError 交给调用方，没有则抛出，让 consumeSseResponse /
+      // consumeTurnEvents 的 catch 接住。绝不能可选调用后静默丢弃——审批续跑等
+      // 调用点未传 onError，曾把真实的 context-length 错误吞掉，页面只看到断开。
+      if (cbs.onError) {
+        cbs.onError(err);
+      } else {
+        throw err;
+      }
       break;
     }
     default:

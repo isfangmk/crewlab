@@ -443,6 +443,8 @@ async def stream_decide(
     model = turn_ctx["model"]
     base_url = turn_ctx["base_url"]
     llm_timeout_seconds = turn_ctx["llm_timeout_seconds"]
+    # 老审批行可能没有该键：回退内置默认，不因缺键阻断审批续跑。
+    max_tool_result_chars = turn_ctx.get("max_tool_result_chars")
     thinking_enabled = turn_ctx["thinking_enabled"]
     model_prefix = turn_ctx["model_prefix"]
     provider_extra_body = turn_ctx["provider_extra_body"]
@@ -535,6 +537,7 @@ async def stream_decide(
             disallowed_tool_names=disallowed_tool_names,
             rule_actions=rule_actions,
             max_turns=resolved_agent.max_turns,
+            max_tool_result_chars=max_tool_result_chars,
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,
             answer=answer,

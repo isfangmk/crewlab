@@ -853,6 +853,10 @@ function AgentEditor({
   const [permissionMode, setPermissionMode] = useState(base?.permission_mode ?? '');
   const [model, setModel] = useState(base?.model ?? '');
   const [maxTurns, setMaxTurns] = useState<number>(base?.max_turns ?? 0);
+  // null = 继承全局默认；字符串存输入框值便于空值表达
+  const [maxToolResultChars, setMaxToolResultChars] = useState<string>(
+    base?.max_tool_result_chars == null ? '' : String(base.max_tool_result_chars),
+  );
   const [catalog, setCatalog] = useState<CapabilityCatalog | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -1036,6 +1040,7 @@ function AgentEditor({
     permission_mode: permissionMode,
     model: model.trim(),
     max_turns: maxTurns,
+    max_tool_result_chars: maxToolResultChars.trim() === '' ? null : Number(maxToolResultChars),
     output_format: outputFormat,
     examples: examples.map((item) => ({ input: item.input, output: item.output })),
     knowledge_scope: scopeSelectionToWire(scope),
@@ -1419,6 +1424,29 @@ function AgentEditor({
                 />
               </Field>
             </div>
+
+            <FieldGroup label={tr('治理', 'Governance')}>
+              <p className="mb-2 text-[11px] leading-relaxed text-zinc-500">
+                {tr(
+                  '工具结果回喂模型的最大字符数，超出自动截断，防止超大结果撑爆上下文。留空则继承系统设置中的全局默认值。',
+                  'Max characters of a tool result fed back to the model; oversized results are truncated to prevent context overflow. Leave empty to inherit the global default from system settings.',
+                )}
+              </p>
+              <div className="max-w-xs">
+                <Field label={tr('工具结果上限（字符）', 'Tool result cap (chars)')}>
+                  <Input
+                    type="number"
+                    value={maxToolResultChars}
+                    onChange={(e) => setMaxToolResultChars(e.target.value)}
+                    placeholder={tr('留空 = 继承全局', 'Empty = inherit global')}
+                    min={1000}
+                    max={2000000}
+                    step={1000}
+                    className="w-full"
+                  />
+                </Field>
+              </div>
+            </FieldGroup>
           </TabsContent>
         </Tabs>
       </div>

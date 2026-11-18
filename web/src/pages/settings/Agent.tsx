@@ -3,7 +3,7 @@ import {
   ErrorBanner, Button, Input, Label, SectionCard } from '@/components/ui';
 import { Select } from '@/components/ui/Select';
 import { useCallback, useEffect, useState } from 'react';
-import { Clock3, Languages, Loader2, Save } from 'lucide-react';
+import { Clock3, Gauge, Languages, Loader2, Save } from 'lucide-react';
 import { listSettings, setSetting } from '@/api/settings';
 import { useI18n } from '@/i18n/locale';
 import { errorText } from '@/lib/errors';
@@ -12,17 +12,23 @@ import { errorText } from '@/lib/errors';
 const CATEGORY = 'agent';
 const LLM_TIMEOUT_KEY = 'llm_timeout_seconds';
 const OUTPUT_LOCALE_KEY = 'output_locale';
+const MAX_TOOL_RESULT_KEY = 'max_tool_result_chars';
 const DEFAULT_LLM_TIMEOUT_SECONDS = 120;
 const MIN_LLM_TIMEOUT_SECONDS = 30;
 const MAX_LLM_TIMEOUT_SECONDS = 900;
+const DEFAULT_MAX_TOOL_RESULT_CHARS = 100000;
+const MIN_MAX_TOOL_RESULT_CHARS = 1000;
+const MAX_MAX_TOOL_RESULT_CHARS = 2000000;
 
 export default function SettingsAgent() {
   const { tr } = useI18n();
   const [llmTimeoutSeconds, setLLMTimeoutSeconds] = useState(String(DEFAULT_LLM_TIMEOUT_SECONDS));
   const [outputLocale, setOutputLocale] = useState<'' | 'zh' | 'en'>('');
+  const [maxToolResultChars, setMaxToolResultChars] = useState(String(DEFAULT_MAX_TOOL_RESULT_CHARS));
   const [loading, setLoading] = useState(true);
   const [savingTimeout, setSavingTimeout] = useState(false);
   const [savingLocale, setSavingLocale] = useState(false);
+  const [savingToolResult, setSavingToolResult] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -30,6 +36,7 @@ export default function SettingsAgent() {
       const res = await listSettings(CATEGORY);
       const timeoutRow = res.items.find((i) => i.key === LLM_TIMEOUT_KEY);
       const localeRow = res.items.find((i) => i.key === OUTPUT_LOCALE_KEY);
+      const toolResultRow = res.items.find((i) => i.key === MAX_TOOL_RESULT_KEY);
       if (timeoutRow === undefined) {
         throw new Error(`缺少 ${CATEGORY}.${LLM_TIMEOUT_KEY}`);
       }
@@ -37,6 +44,8 @@ export default function SettingsAgent() {
         throw new Error(`缺少 ${CATEGORY}.${OUTPUT_LOCALE_KEY}`);
       }
       setLLMTimeoutSeconds(timeoutRow.value);
+      // 老库可能尚未种入该键：回退前端默认，不阻断整页加载。
+      setMaxToolResultChars(toolResultRow?.value ?? String(DEFAULT_MAX_TOOL_RESULT_CHARS));
       const localeValue = localeRow.value;
       if (localeValue !== '' && localeValue !== 'zh' && localeValue !== 'en') {
         throw new Error(`output_locale 非法: ${localeValue}`);
@@ -88,6 +97,28 @@ export default function SettingsAgent() {
       setSavingLocale(false);
     }
   }, [outputLocale]);
+
+  const onSaveToolResult = useCallback(async () => {
+    const chars = Number(maxToolResultChars);
+    if (!Number.isInteger(chars) || chars < MIN_MAX_TOOL_RESULT_CHARS || chars > MAX_MAX_TOOL_RESULT_CHARS) {
+      setErr(
+        tr(
+          `工具结果上限必须是 ${MIN_MAX_TOOL_RESULT_CHARS} 到 ${MAX_MAX_TOOL_RESULT_CHARS} 的整数。`,
+          `Tool result cap must be a whole number between ${MIN_MAX_TOOL_RESULT_CHARS} and ${MAX_MAX_TOOL_RESULT_CHARS}.`,
+        ),
+      );
+      return;
+    }
+    setSavingToolResult(true);
+    setErr(null);
+    try {
+      await setSetting(CATEGORY, MAX_TOOL_RESULT_KEY, String(chars), false);
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setSavingToolResult(false);
+    }
+  }, [maxToolResultChars, tr]);
 
   useAssistantPage('Agent 设置', 'Agent settings', {
     llm_timeout: llmTimeoutSeconds,
@@ -171,6 +202,51 @@ export default function SettingsAgent() {
               {tr(
                 `允许范围 ${MIN_LLM_TIMEOUT_SECONDS}–${MAX_LLM_TIMEOUT_SECONDS} 秒。`,
                 `Allowed range: ${MIN_LLM_TIMEOUT_SECONDS}–${MAX_LLM_TIMEOUT_SECONDS} seconds.`,
+              )}
+            </p>
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard
+        title={<span className="inline-flex items-center gap-2"><Gauge size={13} className="text-zinc-400" />{tr('工具结果大小上限', 'Tool result size cap')}</span>}
+        description={tr(
+          '单个工具结果回喂模型的最大字符数，超出自动截断。防止超大结果撑爆上下文导致对话中断。助理可单独覆盖此默认值。',
+          'Max characters of a single tool result fed back to the model; oversized results are truncated. Prevents huge results from overflowing the context and breaking the conversation. Agents can override this default.',
+        )}
+        footer={!loading ? (
+          <Button variant="primary" size="sm" disabled={savingToolResult} onClick={() => void onSaveToolResult()}>
+            <Save size={12} />
+            {savingToolResult ? tr('保存中…', 'Saving…') : tr('保存', 'Save')}
+          </Button>
+        ) : undefined}
+      >
+        {loading ? (
+          <div className="flex h-7 items-center text-[11px] text-zinc-500">
+            <Loader2 size={12} className="mr-2 animate-spin" /> {tr('加载中…', 'Loading…')}
+          </div>
+        ) : (
+          <div className="max-w-sm">
+            <Label className="mb-1 block text-[11px] text-zinc-400" htmlFor="agent-max-tool-result-chars">
+              {tr('最大字符数', 'Max characters')}
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="agent-max-tool-result-chars"
+                type="number"
+                min={MIN_MAX_TOOL_RESULT_CHARS}
+                max={MAX_MAX_TOOL_RESULT_CHARS}
+                step={1000}
+                value={maxToolResultChars}
+                onChange={(event) => setMaxToolResultChars(event.target.value)}
+                className="w-full font-sans"
+              />
+              <span className="shrink-0 text-[11px] text-zinc-500">{tr('字符', 'chars')}</span>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-zinc-600">
+              {tr(
+                `允许范围 ${MIN_MAX_TOOL_RESULT_CHARS}–${MAX_MAX_TOOL_RESULT_CHARS}；默认 100000。`,
+                `Allowed range: ${MIN_MAX_TOOL_RESULT_CHARS}–${MAX_MAX_TOOL_RESULT_CHARS}; default 100000.`,
               )}
             </p>
           </div>

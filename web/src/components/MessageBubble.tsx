@@ -38,7 +38,9 @@ import { TaskGraphCard } from '@/components/taskgraph/TaskGraphCard';
 import type { TaskGraphLocateTarget } from '@/components/taskgraph/TaskGraphWorkbench';
 import { SearchResults, collectToolSources, extractSources } from '@/components/SourcesBlock';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';import { InterpreterArtifacts, type InterpreterArtifact } from '@/components/InterpreterArtifacts';
+import remarkGfm from 'remark-gfm';
+import { MermaidGraph } from '@/components/MermaidGraph';
+import { InterpreterArtifacts, type InterpreterArtifact } from '@/components/InterpreterArtifacts';
 
 export type ConfigDraftResult = {
   kind: 'config_draft';
@@ -451,6 +453,26 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
         <a href={href} target="_blank" rel="noreferrer">
           {children}
         </a>
+      );
+    },
+    code({ className, children }: { className?: string; children?: React.ReactNode }) {
+      // ```mermaid 围栏：用共享 MermaidGraph 渲染流程图，主题跟随明暗、失败回退源码。
+      const match = /language-mermaid\b/.exec(className ?? '');
+      if (match) {
+        const definition = String(children ?? '').replace(/\n$/, '');
+        return (
+          <MermaidGraph
+            definition={definition}
+            className="my-2"
+            ariaLabel={tr('流程图', 'Flowchart')}
+          />
+        );
+      }
+      // 其余代码块交给默认样式（CodeBlock 由 md 全局 CSS 处理）。
+      return (
+        <code className={className}>
+          {children}
+        </code>
       );
     },
   }), [onLocate, tr]);

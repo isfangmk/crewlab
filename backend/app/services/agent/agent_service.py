@@ -65,6 +65,8 @@ class ResolvedAgent:
     model: str
     max_turns: int
     source: str
+    # 工具结果回喂模型的字符上限；None = 继承全局默认
+    max_tool_result_chars: int | None = None
     # 面向用户的显示名称；为空时前端回退到助理唯一标识
     display_name: str = ""
     output_format: str = "free"
@@ -212,6 +214,7 @@ def agent_to_wire(
         "permission_mode": agent.permission_mode,
         "model": agent.model,
         "max_turns": agent.max_turns,
+        "max_tool_result_chars": agent.max_tool_result_chars,
         "system_prompt": agent.system_prompt,
         "critical_reminder": agent.critical_reminder,
         "output_format": agent.output_format,
@@ -240,6 +243,7 @@ def agent_to_snapshot(agent: ResolvedAgent) -> dict:
         "permission_mode": agent.permission_mode,
         "model": agent.model,
         "max_turns": agent.max_turns,
+        "max_tool_result_chars": agent.max_tool_result_chars,
         "output_format": agent.output_format,
         "examples": [dict(item) for item in agent.examples],
         "knowledge_scope": {
@@ -283,6 +287,7 @@ def _row_to_resolved(row: UserAgent) -> ResolvedAgent:
         permission_mode=row.permission_mode,
         model=row.model,
         max_turns=row.max_turns,
+        max_tool_result_chars=row.max_tool_result_chars,
         source="user",
         output_format=row.output_format,
         examples=_parse_examples_json(row.examples_json),
@@ -301,6 +306,22 @@ def validate_agent_name(name: str) -> None:
         raise ValueError("name 须为小写字母开头的标识（字母/数字/_/-，最长 64）")
     if name == DEFAULT_AGENT_NAME:
         raise ValueError("name 不能为保留名 default")
+
+
+def validate_max_tool_result_chars(value: int | None) -> int | None:
+    """助理级工具结果上限：None = 继承全局；否则须落在合法范围。"""
+    if value is None:
+        return None
+    from app.services.platform.app_settings_service import (
+        MAX_TOOL_RESULT_CHARS_MAX,
+        MAX_TOOL_RESULT_CHARS_MIN,
+    )
+
+    if not (MAX_TOOL_RESULT_CHARS_MIN <= value <= MAX_TOOL_RESULT_CHARS_MAX):
+        raise ValueError(
+            f"max_tool_result_chars 范围 {MAX_TOOL_RESULT_CHARS_MIN}..{MAX_TOOL_RESULT_CHARS_MAX}"
+        )
+    return value
 
 
 def validate_display_name(display_name: str) -> str:
@@ -540,6 +561,7 @@ async def create_user_agent(
     permission_mode: str,
     model: str,
     max_turns: int,
+    max_tool_result_chars: int | None = None,
     output_format: str = "free",
     examples: tuple[dict[str, str], ...] = (),
     knowledge_scope: KnowledgeScope = empty_scope(),
@@ -557,6 +579,7 @@ async def create_user_agent(
         raise ValueError("system_prompt 不能为空")
     if max_turns < 0:
         raise ValueError("max_turns 不能为负数")
+    max_tool_result_chars = validate_max_tool_result_chars(max_tool_result_chars)
     validate_permission_mode(permission_mode)
     validate_output_format(output_format)
     scope = parse_scope(knowledge_scope)
@@ -575,6 +598,7 @@ async def create_user_agent(
         permission_mode=permission_mode,
         model=model,
         max_turns=max_turns,
+        max_tool_result_chars=max_tool_result_chars,
         output_format=output_format,
         examples_json=_dump_examples(examples),
         knowledge_scope_json=json.dumps(scope_to_wire(scope), ensure_ascii=False),
@@ -617,6 +641,7 @@ async def update_user_agent(
     permission_mode: str,
     model: str,
     max_turns: int,
+    max_tool_result_chars: int | None = None,
     output_format: str = "free",
     examples: tuple[dict[str, str], ...] = (),
     knowledge_scope: KnowledgeScope = empty_scope(),
@@ -637,6 +662,7 @@ async def update_user_agent(
         raise ValueError("system_prompt 不能为空")
     if max_turns < 0:
         raise ValueError("max_turns 不能为负数")
+    max_tool_result_chars = validate_max_tool_result_chars(max_tool_result_chars)
     validate_permission_mode(permission_mode)
     validate_output_format(output_format)
     scope = parse_scope(knowledge_scope)
@@ -650,6 +676,7 @@ async def update_user_agent(
     row.permission_mode = permission_mode
     row.model = model
     row.max_turns = max_turns
+    row.max_tool_result_chars = max_tool_result_chars
     row.output_format = output_format
     row.examples_json = _dump_examples(examples)
     row.knowledge_scope_json = json.dumps(scope_to_wire(scope), ensure_ascii=False)
@@ -700,6 +727,7 @@ async def rollback_user_agent(
         permission_mode=snapshot.get("permission_mode", ""),
         model=snapshot.get("model", ""),
         max_turns=int(snapshot.get("max_turns", 0)),
+        max_tool_result_chars=snapshot.get("max_tool_result_chars"),
         output_format=snapshot.get("output_format", "free"),
         examples=tuple(dict(item) for item in snapshot.get("examples", [])),
         knowledge_scope=parse_scope(snapshot.get("knowledge_scope", {})),
@@ -725,6 +753,7 @@ async def resolve_draft_agent(
     permission_mode: str,
     model: str,
     max_turns: int,
+    max_tool_result_chars: int | None = None,
     output_format: str = "free",
     examples: tuple[dict[str, str], ...] = (),
     knowledge_scope: KnowledgeScope = empty_scope(),
@@ -746,6 +775,7 @@ async def resolve_draft_agent(
         raise ValueError("system_prompt 不能为空")
     if max_turns < 0:
         raise ValueError("max_turns 不能为负数")
+    max_tool_result_chars = validate_max_tool_result_chars(max_tool_result_chars)
     validate_permission_mode(permission_mode)
     validate_output_format(output_format)
     scope = parse_scope(knowledge_scope)
@@ -761,6 +791,7 @@ async def resolve_draft_agent(
         permission_mode=permission_mode,
         model=model,
         max_turns=max_turns,
+        max_tool_result_chars=max_tool_result_chars,
         source="user",
         output_format=output_format,
         examples=examples,

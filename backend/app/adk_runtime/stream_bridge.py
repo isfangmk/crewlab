@@ -277,6 +277,11 @@ async def _iter_runner_events(
     usage_prompt: int | None = None
     usage_completion: int | None = None
     usage_total: int | None = None
+    # ADK 节点失败会先入队一个带 error_code/error_message 的 Event 再抛异常。
+    # 生产端两种报错都可能发生：异常由外层 try/except 转 error 帧，错误 Event
+    # 过去却被这里跳过（后续即便不抛也会误发 done）。统一在此收口：见过错误
+    # Event 就发 error 终态帧，并压掉末尾的 done，避免成功形状的静默失败。
+    error_frame_emitted = False
 
     def _absorb_usage(event: Any) -> None:
         nonlocal usage_prompt, usage_completion, usage_total
@@ -348,6 +353,27 @@ async def _iter_runner_events(
         abort_signal=abort_signal,
     ):
         adk_seq += 1
+        # ADK 错误 Event 收口：节点失败时先入队带 error_code 的事件再抛异常。
+        # 此前这里从不检查，错误事件被当普通事件跳过；若后续 ADK 只发事件不抛，
+        # 就会误发 done。这里显式转成 error 终态帧，并压掉末尾的 done。
+        event_error_code = getattr(event, "error_code", None)
+        event_error_message = getattr(event, "error_message", None)
+        if event_error_code and not error_frame_emitted:
+            readable = str(event_error_message or event_error_code)
+            logger.error(
+                "ADK 错误事件 session_id=%s code=%s message=%s",
+                session_id,
+                event_error_code,
+                readable,
+            )
+            error_frame = SseFrame(event="error", data={"error": readable})
+            _log_sse(error_frame)
+            error_frame_emitted = True
+            yield error_frame
+            continue
+        if error_frame_emitted:
+            # 已发 error 终态，后续事件（含异常前的收尾帧）不再分发。
+            continue
         _absorb_usage(event)
         calls = _function_calls(event.content)
         responses = _function_responses(event.content)
@@ -558,6 +584,11 @@ async def _iter_runner_events(
             _log_sse(answer_frame)
             yield answer_frame
 
+    if error_frame_emitted:
+        # 已由 ADK 错误 Event 发出 error 终态，不能再发 done：
+        # 否则订阅侧看到成功形状的终态，错误被掩盖。
+        logger.info("ADK 错误事件已收口，跳过 done 帧 session_id=%s", session_id)
+        return
     done_frame = SseFrame(
         event="done",
         data={
@@ -631,6 +662,7 @@ async def stream_adk_turn(
     sub_agents: list[Any] | None = None,
     include_followups: bool = True,
     abort_signal: asyncio.Event | None = None,
+    max_tool_result_chars: int | None = None,
 ) -> AsyncIterator[SseFrame]:
     """跑一轮用户对话；可附带图片多模态 parts；abort_signal 置位即中止本轮。"""
 
@@ -655,6 +687,7 @@ async def stream_adk_turn(
         skills=skills,
         sub_agents=sub_agents,
         include_followups=include_followups,
+        max_tool_result_chars=max_tool_result_chars,
     )
     runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
     existing = await session_service.get_session(
@@ -720,6 +753,7 @@ async def stream_adk_confirmation(
     sub_agents: list[Any] | None = None,
     answer: dict[str, Any] | None = None,
     trust_scope: str | None = None,
+    max_tool_result_chars: int | None = None,
 ) -> AsyncIterator[SseFrame]:
     """用 ADK FunctionResponse 恢复被确认闸门拦住的回合。
 
@@ -751,6 +785,7 @@ async def stream_adk_confirmation(
         knowledge_scope=knowledge_scope,
         skills=skills,
         sub_agents=sub_agents,
+        max_tool_result_chars=max_tool_result_chars,
     )
     runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
     existing = await session_service.get_session(

@@ -12,6 +12,7 @@ from google.adk.tools.tool_context import ToolContext
 
 from app.adk_runtime.naming import root_adk_name
 from app.adk_runtime.tool_approval import build_before_tool_callback
+from app.adk_runtime.tool_result_budget import build_after_tool_callback
 from app.adk_runtime.toolset import build_builtin_tools
 from app.models.llm import LlmProvider
 from app.services.knowledge.knowledge_scope import KnowledgeScope
@@ -56,6 +57,9 @@ CHAT_AGENT_INSTRUCTION = (
     "mcp__<服务>__load_tool 加载；仅匹配 skill 描述时才 load_skill。"
     "画图一律用 run_python 的 chart() 助手产出图表产出物，正文只写文字结论，"
     "禁止把 ECharts 配置或图表数据 JSON 写进正文。"
+    "展示流程图/架构图/时序图/状态图等结构关系时（而不是数据图表），用 mermaid 围栏写在正文里："
+    "以 ```mermaid 开头、``` 结尾，中间是符合 mermaid 语法的图定义（如 flowchart TD、sequenceDiagram），"
+    "界面会渲染成图；只在确实有助于理解结构关系时使用，简单关系用文字即可，不要每段都画图。"
     "动手前先对照可见工具清单确认能力，不要没看清单就向用户追问澄清。"
     "你还可以把目标拆成多个子目标、交给独立节点分别推进：submit_task_graph 一次性下发整张任务图，"
     "每个节点写明具体的任务动作与所需工具，depends_on 留空表示与其它起点同时开始、"
@@ -138,6 +142,8 @@ def build_chat_agent(
     include_followups: bool = True,
     # 自定义工具闸门（如 worker 只读拦截）；缺省走审批闸门
     before_tool_callback: Any = None,
+    # 工具结果回喂模型的字符上限；None = 内置默认。所有工具/路径统一收口。
+    max_tool_result_chars: int | None = None,
 ) -> LlmAgent:
     """按配置-模型与助理人设装配 LlmAgent；extra_tools 挂 MCP SearchableToolset 等。
 
@@ -174,7 +180,7 @@ def build_chat_agent(
     logger.info(
         "装配 LlmAgent agent=%s provider=%s model=%s litellm_model=%s base_url=%s "
         "extra_tools=%s extra_body_keys=%s thinking=%s timeout=%s max_turns=%s "
-        "persona_len=%s confirm_tools=%s",
+        "persona_len=%s confirm_tools=%s max_tool_result_chars=%s",
         agent_name,
         provider_id,
         model,
@@ -187,6 +193,7 @@ def build_chat_agent(
         max_turns,
         len(persona_instruction),
         len(confirm_names),
+        max_tool_result_chars,
     )
     llm = LiteLlm(
         model=litellm_model,
@@ -227,6 +234,9 @@ def build_chat_agent(
             )
         ),
         on_tool_error_callback=tool_error_as_result,
+        # 工具结果大小治理：所有工具结果在变成 FunctionResponse 回喂模型前
+        # 统一截断，防止超大结果撑爆上下文打断对话。
+        after_tool_callback=build_after_tool_callback(max_tool_result_chars),
         sub_agents=[a for a in (sub_agents or []) if a is not None],
     )
 

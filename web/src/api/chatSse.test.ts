@@ -45,4 +45,28 @@ describe('consumeSseResponse', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('error 帧无 onError 时抛出真实错误消息（不再静默吞掉）', async () => {
+    const realMessage = 'context length exceeded: requested 1571372 > 1048576';
+    const consume = consumeSseResponse(
+      sseResponse([
+        'event: assistant_delta\ndata: {"message_id":"m1","delta":"半句话","partial":true}\n\n',
+        `event: error\ndata: {"error":"${realMessage}"}\n\n`,
+      ]),
+      { onAssistantDelta: () => {} }, // 故意不传 onError（审批续跑就是这种消费者）
+    );
+    await expect(consume).rejects.toThrow(realMessage);
+  });
+
+  it('error 帧有 onError 时交给回调且不再抛出', async () => {
+    const realMessage = '模型调用失败';
+    const errors: string[] = [];
+    await expect(
+      consumeSseResponse(
+        sseResponse([`event: error\ndata: {"error":"${realMessage}"}\n\n`]),
+        { onError: (err) => errors.push(err.message) },
+      ),
+    ).resolves.toBeUndefined();
+    expect(errors).toEqual([realMessage]);
+  });
 });

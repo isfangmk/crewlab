@@ -19,8 +19,12 @@ _AGENT_KEYS = frozenset(
         "llm_timeout_seconds",
         "output_locale",
         "runtime_version",
+        "max_tool_result_chars",
     }
 )
+# 工具结果大小治理上限范围（字符）：与内置默认同类，下限保证有用，上限防误配撑爆。
+MAX_TOOL_RESULT_CHARS_MIN = 1_000
+MAX_TOOL_RESULT_CHARS_MAX = 2_000_000
 
 # 固定偏移，避免依赖系统 IANA 时区库；键名落在 observability.timezone
 SYSTEM_TIMEZONES: dict[str, timezone] = {
@@ -80,6 +84,7 @@ _AGENT_RUNTIME_SEEDS: dict[str, str] = {
     "write_enabled": "false",
     "llm_timeout_seconds": "120",
     "output_locale": "",
+    "max_tool_result_chars": "100000",
 }
 
 _KNOWLEDGE_SEEDS: dict[str, str] = {
@@ -146,10 +151,28 @@ async def get_agent_runtime(db: AsyncSession) -> dict[str, str | bool | int]:
     if locale not in ("", "zh", "en"):
         raise ValueError(f"output_locale 非法: {locale}")
 
+    # 老库可能尚未种入该键：缺省回退到内置默认，不因缺键让整个运行参数读取失败。
+    from app.adk_runtime.tool_result_budget import DEFAULT_MAX_TOOL_RESULT_CHARS
+
+    max_tool_result_chars_raw = items.get("max_tool_result_chars")
+    if max_tool_result_chars_raw is None or max_tool_result_chars_raw == "":
+        max_tool_result_chars = DEFAULT_MAX_TOOL_RESULT_CHARS
+    else:
+        max_tool_result_chars = int(max_tool_result_chars_raw)
+        if not (
+            MAX_TOOL_RESULT_CHARS_MIN
+            <= max_tool_result_chars
+            <= MAX_TOOL_RESULT_CHARS_MAX
+        ):
+            raise ValueError(
+                f"max_tool_result_chars 合法范围 {MAX_TOOL_RESULT_CHARS_MIN}..{MAX_TOOL_RESULT_CHARS_MAX}"
+            )
+
     return {
         "write_enabled": write_enabled,
         "llm_timeout_seconds": llm_timeout_seconds,
         "output_locale": locale,
+        "max_tool_result_chars": max_tool_result_chars,
     }
 
 
@@ -205,6 +228,14 @@ async def put_setting(
             raise ValueError("output_locale 只能是空串 / zh / en")
         if key == "runtime_version" and value == "":
             raise ValueError("runtime_version 不能为空")
+        if key == "max_tool_result_chars":
+            chars = int(value)
+            if not (
+                MAX_TOOL_RESULT_CHARS_MIN <= chars <= MAX_TOOL_RESULT_CHARS_MAX
+            ):
+                raise ValueError(
+                    f"max_tool_result_chars 范围 {MAX_TOOL_RESULT_CHARS_MIN}..{MAX_TOOL_RESULT_CHARS_MAX}"
+                )
     elif category == "observability":
         if key not in _OBSERVABILITY_KEYS:
             raise ValueError(f"不支持的 observability key: {key}")
