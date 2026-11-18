@@ -585,7 +585,7 @@ export async function getActiveTurn(
 ): Promise<{ turn_id: string | null }> {
   return request(
     'GET',
-    `/api/v1/chat/sessions/${encodeURIComponent(String(sessionId))}/active-turn`,
+    `/chat/sessions/${encodeURIComponent(String(sessionId))}/active-turn`,
   );
 }
 

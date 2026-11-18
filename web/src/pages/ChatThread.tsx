@@ -2037,12 +2037,9 @@ export default function ChatThreadPage() {
 
 
   // 编辑重发：截断该消息及其后的投影，用新正文重跑；后端会同步重建 ADK 历史。
-  // 建议问题：填入输入框并立即发送；文本未被改动则发送后清掉
+  // 建议问题：直接发送，不填入输入框（输入框不留问题文字）
   const useSuggestion = (text: string) => {
-    setDraft(text);
-    void send(text, [], {}).finally(() => {
-      setDraft((cur) => (cur === text ? '' : cur));
-    });
+    void send(text, [], {});
   };
 
   // 建议组只在最新一条回答上可点：会话推进后历史建议整组失效
