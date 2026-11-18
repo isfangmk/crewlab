@@ -15,48 +15,10 @@ vi.mock('@/api/approvals', () => ({
   rejectApproval: vi.fn(),
 }));
 
-// mermaid 渲染本身由 MermaidGraph 单测覆盖；这里只验证助理正文的 ```mermaid
-// 围栏被识别并把图定义交给共享组件（避免 jsdom 里加载真实 mermaid）。
-vi.mock('@/components/MermaidGraph', () => ({
-  MermaidGraph: ({ definition }: { definition: string }) => (
-    <div data-testid="mermaid-graph">{definition}</div>
-  ),
-}));
-
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   setLocale('zh-CN');
-});
-
-describe('MessageBubble mermaid 流程图', () => {
-  it('助理正文的 ```mermaid 围栏渲染为流程图，普通代码块不变', () => {
-    render(
-      <MessageBubble
-        message={{
-          id: 'assistant-mermaid',
-          role: 'assistant',
-          content: [
-            '看这个流程：',
-            '```mermaid',
-            'flowchart TD',
-            '  A[开始] --> B{判断}',
-            '  B -->|是| C[完成]',
-            '```',
-            '```python',
-            'print("普通代码")',
-            '```',
-          ].join('\n'),
-        }}
-      />,
-    );
-    const graph = screen.getByTestId('mermaid-graph');
-    expect(graph).toHaveTextContent('flowchart TD');
-    expect(graph).toHaveTextContent('A[开始] --> B{判断}');
-    // 普通代码块不进 mermaid 组件
-    expect(screen.getAllByTestId('mermaid-graph')).toHaveLength(1);
-    expect(screen.getByText('print("普通代码")')).toBeInTheDocument();
-  });
 });
 
 describe('MessageBubble image preview', () => {

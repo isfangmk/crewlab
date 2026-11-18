@@ -1,7 +1,7 @@
 // 会话 Artifact：列表 / 详情 / 下载。
 import { request, requestFile } from './client';
 
-export type ArtifactKind = 'chart' | 'table' | 'file' | 'text';
+export type ArtifactKind = 'chart' | 'table' | 'file' | 'text' | 'mermaid';
 
 export interface ArtifactItem {
   id: string;

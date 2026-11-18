@@ -7,12 +7,14 @@ import {
   FileJson,
   FileText,
   Loader2,
+  Network,
   RefreshCw,
   Table2,
   TrendingUp,
   X,
 } from 'lucide-react';
 import { ChartCanvas } from './ChartCanvas';
+import { MermaidGraph } from './MermaidGraph';
 import {
   downloadArtifact,
   listSessionArtifacts,
@@ -32,6 +34,7 @@ const KIND_META: Record<
   table: { icon: Table2, label: '表格', labelEn: 'Table' },
   file: { icon: FileText, label: '文件', labelEn: 'File' },
   text: { icon: FileJson, label: '文本', labelEn: 'Text' },
+  mermaid: { icon: Network, label: '关系图', labelEn: 'Diagram' },
 };
 
 export function ArtifactsPanel({
@@ -221,6 +224,9 @@ export function ArtifactsPanel({
                     selected.payload !== null && (
                       <ChartCanvas option={selected.payload as Record<string, unknown>} />
                     )}
+                  {selected.kind === 'mermaid' && (
+                    <MermaidGraph definition={String(selected.payload ?? '')} />
+                  )}
                   {selected.kind === 'table' && <ArtifactTableLite payload={selected.payload} />}
                   {selected.kind === 'text' && (
                     <p className="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-zinc-300">

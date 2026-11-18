@@ -25,7 +25,7 @@ def test_build_chat_script_contains_code_and_marker() -> None:
     assert "print('hi')" in script
     assert SANDBOX_RESULT_MARKER in script
     # emit 助手与图表结构构建器在脚本里预置
-    assert "emit_chart" in script and "emit_file" in script
+    assert "emit_chart" in script and "emit_file" in script and "emit_mermaid" in script
     assert "build_chart_option" in script and "def chart(" in script
 
 
@@ -56,6 +56,22 @@ async def test_run_python_executes_and_collects_chart() -> None:
     assert result["artifacts"][0]["kind"] == "chart"
     assert result["artifacts"][0]["payload"]["series"][0]["data"] == [1, 2]
     assert result["artifacts"][1]["kind"] == "table"
+
+
+async def test_run_python_emit_mermaid_artifact() -> None:
+    """emit_mermaid 产出 kind=mermaid 的图定义产出物，payload 是源码字符串。"""
+
+    code = (
+        "emit_mermaid('flowchart TD\\n  A[开始] --> B{判断}\\n  B -->|是| C[完成]', '审批流程')\n"
+    )
+    result = await run_python(code, purpose="mermaid 产出验证", tool_context=None)
+    assert result["status"] == "succeeded", result["error"]
+    artifact = result["artifacts"][0]
+    assert artifact["kind"] == "mermaid"
+    assert artifact["title"] == "审批流程"
+    assert artifact["mime"] == "text/plain"
+    assert "flowchart TD" in artifact["payload"]
+    assert "A[开始] --> B{判断}" in artifact["payload"]
 
 
 async def test_run_python_chart_helper_builds_structure() -> None:

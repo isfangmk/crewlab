@@ -4,6 +4,7 @@
 import { createContext, useContext, useState } from 'react';
 import { Download } from 'lucide-react';
 import { ChartCanvas } from './ChartCanvas';
+import { MermaidGraph } from './MermaidGraph';
 import { downloadArtifact } from '@/api/artifacts';
 import { saveBlob } from '@/lib/download';
 import { errorText } from '@/lib/errors';
@@ -129,6 +130,9 @@ function ArtifactCard({ artifact }: { artifact: InterpreterArtifact }) {
       <div className="p-2">
         {kind === 'chart' && asOption(artifact.payload) !== null && (
           <ChartCanvas option={asOption(artifact.payload) as Record<string, unknown>} />
+        )}
+        {kind === 'mermaid' && typeof artifact.payload === 'string' && (
+          <MermaidGraph definition={artifact.payload} />
         )}
         {kind === 'table' && <ArtifactTable payload={artifact.payload} />}
         {kind === 'file' && <ArtifactFileButton artifact={artifact} />}

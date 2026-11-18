@@ -17,7 +17,7 @@ from app.adk_runtime.workflow_node_impl import SANDBOX_RESULT_MARKER
 from app.services.sandbox import sandbox_service
 
 # 产出物上限：模型生成的代码不可信，base64 文件与图表 JSON 都可能在宿主内存里膨胀
-ARTIFACT_KINDS = ("chart", "table", "file", "text")
+ARTIFACT_KINDS = ("chart", "table", "file", "text", "mermaid")
 MAX_ARTIFACTS = 20
 MAX_ARTIFACT_BYTES = 5 * 1024 * 1024
 MAX_ARTIFACT_TOTAL_BYTES = 10 * 1024 * 1024
@@ -60,10 +60,20 @@ def emit_file(name, content_b64, mime="application/octet-stream"):
                        "payload": {"name": str(name), "data": str(content_b64)}})
 
 
+def emit_mermaid(source, title="关系图"):
+    """收集 Mermaid 结构图：source 为 mermaid 图定义文本（如 flowchart TD ...）。
+
+    流程图 / 架构图 / 时序图 / 状态图等结构关系用这个，不要画图表的 chart()。
+    """
+    _ARTIFACTS.append({"kind": "mermaid", "title": str(title), "mime": "text/plain",
+                       "payload": str(source)})
+
+
 _ERROR = ""
 try:
     _namespace = {"__name__": "__main__", "chart": chart, "emit_chart": emit_chart,
-                  "emit_table": emit_table, "emit_file": emit_file}
+                  "emit_table": emit_table, "emit_file": emit_file,
+                  "emit_mermaid": emit_mermaid}
     exec(compile(__CODE__, "<chat-interpreter>", "exec"), _namespace, _namespace)
 except BaseException as _exc:  # noqa: BLE001 — 用户代码任意异常都要带回宿主机
     _ERROR = _traceback.format_exc()
@@ -179,7 +189,9 @@ async def run_python(
     radar/gauge/funnel/heatmap/treemap/boxplot/waterfall。
     emit_table(rows, title)、emit_file(name, content_b64, mime) 收集表格与文件；
     emit_chart(option, title) 可直接提交现成 ECharts option（高级用法）。
-    产出物会保存到会话的 Artifacts 并在消息卡中渲染。
+    流程图 / 架构图 / 时序图 / 状态图等结构关系用 emit_mermaid(source, title)，
+    source 是 mermaid 图定义文本（如 "flowchart TD\\nA-->B"），由界面渲染成图；
+    这类结构关系不要用 chart()（那是数据图表）。产出物会保存到会话的 Artifacts 并在消息卡中渲染。
     code 是普通 Python 顶层代码（不需要定义 run 函数），print 输出会回传。
     purpose: 这段代码要做什么的一句话说明（会记录在执行与产出物元数据里）。
     """
