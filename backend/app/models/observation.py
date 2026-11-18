@@ -61,6 +61,9 @@ class ObservationToolCall(Base):
     # running | ok | error
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 工具调用占用的字符数：入参（start 时）+ 结果（end 时），用于排查上下文膨胀
+    input_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    result_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         AwareDateTime(), server_default=func.now(), nullable=False

@@ -10,6 +10,17 @@ import pytest
 from app.services.observability import observation_service
 
 
+def test_count_result_chars() -> None:
+    """结果字符数只累加字符串叶子，容器递归、标量忽略（与治理器同口径）。"""
+
+    f = observation_service.count_result_chars
+    assert f("hello") == 5
+    assert f({"a": "abc", "b": ["xy", 123, True, None]}) == 5  # abc + xy
+    assert f([{"deep": "abcd"}, "ef"]) == 6
+    assert f(12345) == 0
+    assert f({"n": 1, "flag": False}) == 0
+
+
 @pytest.mark.asyncio
 async def test_start_and_end_ok_persists_tokens() -> None:
     added: list[object] = []

@@ -1491,6 +1491,7 @@ class AdkFramePersister:
                 ),
                 duration_ms=duration_ms,
                 error=frame.data["error"],
+                result_chars=observation_service.count_result_chars(frame.data["result"]),
             )
             # 代码解释器等工具的产出物在 tool_end 时落库：
             # 完整 payload 走进程内暂存（工具侧 remember_pending），落库后把

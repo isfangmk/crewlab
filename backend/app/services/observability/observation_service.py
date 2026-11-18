@@ -29,6 +29,22 @@ _STATUS_STOPPED = "stopped"
 _SKILL_TOOL_NAMES = {"load_skill", "list_skills"}
 
 
+def count_result_chars(value: object) -> int:
+    """统计回喂模型的工具结果字符数：递归累加所有字符串叶子，与治理器同口径。
+
+    非字符串标量（数字/布尔/None）几乎不占 token，忽略；容器按结构递归。
+    这样 dict/list 结果不会因 str() 的括号与引号而被高估。
+    """
+
+    if isinstance(value, str):
+        return len(value)
+    if isinstance(value, dict):
+        return sum(count_result_chars(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return sum(count_result_chars(v) for v in value)
+    return 0
+
+
 def classify_tool(name: str) -> tuple[str, str]:
     """返回 (kind, detail)。
 
@@ -433,17 +449,19 @@ async def record_tool_start(
         kind=kind,
         detail=detail,
         status=_STATUS_RUNNING,
+        input_chars=len(arguments),
     )
     async with SessionLocal() as db:
         db.add(row)
         await db.commit()
     logger.info(
-        "观测工具调用开始 trace_id=%s tool_call_id=%s name=%s kind=%s detail=%s",
+        "观测工具调用开始 trace_id=%s tool_call_id=%s name=%s kind=%s detail=%s input_chars=%s",
         trace_id,
         tool_call_id,
         name,
         kind,
         detail,
+        len(arguments),
     )
     return row_id
 
@@ -456,6 +474,7 @@ async def record_tool_end(
     status: str,
     duration_ms: int,
     error: str | None,
+    result_chars: int = 0,
 ) -> None:
     """结束一次工具/技能调用，并把计数累加到所属回合。"""
 
@@ -491,6 +510,7 @@ async def record_tool_end(
         row.status = status
         row.duration_ms = duration_ms
         row.error = error
+        row.result_chars = result_chars
         turn = await db.get(ObservationTurn, trace_id)
         if turn is None:
             raise LookupError(f"观测记录不存在: {trace_id}")
@@ -500,11 +520,12 @@ async def record_tool_end(
             turn.tool_call_count = turn.tool_call_count + 1
         await db.commit()
     logger.info(
-        "观测工具调用结束 trace_id=%s name=%s status=%s duration_ms=%s",
+        "观测工具调用结束 trace_id=%s name=%s status=%s duration_ms=%s result_chars=%s",
         trace_id,
         name,
         status,
         duration_ms,
+        result_chars,
     )
 
 
@@ -527,6 +548,8 @@ def tool_call_to_wire(row: ObservationToolCall) -> dict:
         "detail": row.detail,
         "status": row.status,
         "duration_ms": row.duration_ms,
+        "input_chars": row.input_chars,
+        "result_chars": row.result_chars,
         "error": row.error,
         "started_at": row.started_at.isoformat() if row.started_at else None,
     }
