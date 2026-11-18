@@ -7,6 +7,8 @@ vector_items 是向量库自有表，与业务表分离；pgvector 扩展由应�
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
+from typing import cast
 
 from sqlalchemy import text
 
@@ -33,6 +35,18 @@ def to_pg_vector(vector: list[float]) -> str:
     """pgvector 文本字面量：'[1.0,2.0,…]'，SQL 侧 ::vector 转换。"""
 
     return "[" + ",".join(repr(float(x)) for x in vector) + "]"
+
+
+def from_pg_vector(embedding: object) -> list[float]:
+    """把 pgvector 列值还原成浮点数组。
+
+    psycopg 把 vector 列读成文本字面量 '[0.1,0.2,…]'（个别驱动返回 list/tuple），
+    两种形态都要能解析——不能按字符迭代逐个 float，否则第一个 '[' 就报错。
+    """
+
+    if isinstance(embedding, str):
+        return [float(x) for x in embedding.strip().strip("[]").split(",") if x.strip()]
+    return [float(x) for x in cast(Iterable[float | int | str], embedding)]
 
 
 class PgVectorStore(VectorStore):
@@ -141,7 +155,7 @@ class PgVectorStore(VectorStore):
                     {"ns": namespace, "refs": list(ref_ids)},
                 )
             ).all()
-        return {str(ref_id): [float(x) for x in embedding] for ref_id, embedding in rows}
+        return {str(ref_id): from_pg_vector(embedding) for ref_id, embedding in rows}
 
     async def list_vectors(self, namespace: str) -> dict[str, list[float]]:
         async with engine.connect() as conn:
@@ -154,4 +168,4 @@ class PgVectorStore(VectorStore):
                     {"ns": namespace},
                 )
             ).all()
-        return {str(ref_id): [float(x) for x in embedding] for ref_id, embedding in rows}
+        return {str(ref_id): from_pg_vector(embedding) for ref_id, embedding in rows}

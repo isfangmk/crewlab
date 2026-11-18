@@ -11,7 +11,7 @@ from app.vector_store import (
     cosine_similarity,
     raise_vector_store_unavailable,
 )
-from app.vector_store.pgvector_backend import to_pg_vector
+from app.vector_store.pgvector_backend import from_pg_vector, to_pg_vector
 from app.vector_store.sqlite_backend import (
     SqliteVectorStore,
     decode_vector,
@@ -40,6 +40,16 @@ def test_to_pg_vector_literal() -> None:
     """pgvector 文本字面量保持浮点精度标记。"""
 
     assert to_pg_vector([1.0, 0.5]) == "[1.0,0.5]"
+
+
+def test_from_pg_vector() -> None:
+    """pgvector 列值还原：文本字面量与 list/tuple 两种驱动形态都要支持。"""
+
+    expected = [-0.00010538101, 0.0546875, 1.0]
+    literal = to_pg_vector(expected)
+    assert from_pg_vector(literal) == pytest.approx(expected)
+    assert from_pg_vector(expected) == pytest.approx(expected)
+    assert from_pg_vector(tuple(expected)) == pytest.approx(expected)
 
 
 async def test_sqlite_store_full_protocol(tmp_path) -> None:

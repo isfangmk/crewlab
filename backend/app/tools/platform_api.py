@@ -122,7 +122,10 @@ async def _call_api(
 ) -> dict:
     entry = entry_by_id(api_id)
     if entry is None:
-        raise LookupError(f"接口不存在: {api_id}；请先用 search_platform_api 检索")
+        raise LookupError(
+            "api_id 与检索结果不匹配：请逐字照抄 search_platform_api 返回的 api_id"
+            "（保留其中的 {} 占位符，不要替换成具体值），路径参数放到 arguments 里。"
+        )
     path, query, body = build_internal_request(entry, arguments)
 
     transport = httpx.ASGITransport(app=fastapi_app)
@@ -196,13 +199,14 @@ async def call_platform_api(
 ) -> dict:
     """按 api_id 调用一个平台接口（写操作需人工审批）。
 
-    先用 search_platform_api 找到 api_id。arguments 是 JSON 对象字符串，
-    包含路径参数、查询参数或请求体字段（如 {"memory_id": "123"}）。
+    先用 search_platform_api 检索，拿到候选后**原样**传入它的 api_id——包括标识里的
+    ``{}`` 占位符，绝不能把具体值替换进去。api_id 只用来选中接口；接口所需的全部参数
+    （路径参数、查询参数、请求体字段）一律放进 arguments，路径参数用占位符名作键。
     查询不需要审批；新增/修改/删除会弹审批卡片让用户确认。
 
     Args:
-        api_id: search_platform_api 返回的接口标识，如 "GET /api/v1/memory"。
-        arguments: JSON 对象字符串，接口的路径/查询/请求体参数。
+        api_id: search_platform_api 返回的接口标识，逐字照抄，含 ``{}`` 占位符。
+        arguments: JSON 对象字符串，接口所需的路径/查询/请求体参数。
     """
     try:
         try:
