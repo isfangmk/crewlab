@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 from app.adk_runtime.stream_bridge import _user_content_with_images
+from app.services.chat.attachment_service import is_inline_image
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,6 +33,19 @@ def test_user_content_with_images_builds_inline_parts() -> None:
     assert content.parts[1].inline_data is not None
     assert content.parts[1].inline_data.mime_type == "image/png"
     assert content.parts[1].inline_data.data == raw
+
+
+def test_zip_attachment_not_inlined_to_model() -> None:
+    """zip 技能包不能作为 inline part 发给 LiteLlm（不支持其 MIME，会中断回合）。
+
+    工具按 attachment_id 从库里读字节，不依赖 inline，故 zip 只走工具引用通道。
+    """
+
+    assert is_inline_image("image/png") is True
+    assert is_inline_image("image/jpeg") is True
+    assert is_inline_image("image/webp") is True
+    assert is_inline_image("application/zip") is False
+    assert is_inline_image("application/x-zip-compressed") is False
 
 
 @pytest.mark.asyncio

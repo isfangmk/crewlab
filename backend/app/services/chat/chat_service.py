@@ -1801,12 +1801,21 @@ async def stream_session_message(
             "trace_id": obs.trace_id,
         },
     )
-    # 附件字节交给 ADK 多模态 parts；校验已在上方完成，这里再取内容
-    from app.services.chat.attachment_service import bytes_from_attachment, get_attachment
+    # 附件字节交给 ADK 多模态 parts：只有图片能作为 inline content 发给 LiteLlm。
+    # zip 技能包是给 install_skill_from_zip 工具用的（工具按 attachment_id 从库里取字节），
+    # 不能作为 inline part 发 Model——LiteLlm 不支持 application/x-zip-compressed，
+    # 会在 _content_to_message_param 阶段直接抛错，整个回合失败。
+    from app.services.chat.attachment_service import (
+        bytes_from_attachment,
+        get_attachment,
+        is_inline_image,
+    )
 
     image_parts: list[tuple[bytes, str]] = []
     for attachment_id in attachment_ids:
         row = await get_attachment(db, session_id, attachment_id)
+        if not is_inline_image(row.mime_type):
+            continue
         image_parts.append((bytes_from_attachment(row), row.mime_type))
     if len(image_parts) > 0:
         logger.info(

@@ -30,6 +30,16 @@ ZIP_MIME_TYPES: frozenset[str] = frozenset(
 )
 
 
+def is_inline_image(mime_type: str) -> bool:
+    """附件能否作为 inline 多模态 part 发给 Model。
+
+    只有图片可 inline；zip 技能包是工具按 attachment_id 取用的，发给 LiteLlm 会
+    因不支持其 MIME 直接报错，必须在组装 messages 前排除（单一判定入口）。
+    """
+
+    return mime_type not in ZIP_MIME_TYPES
+
+
 def max_bytes_for_mime(mime_type: str) -> int:
     """按 mime 取附件上限：图片仍 5MB，zip 技能包放宽到 32MB。"""
 
