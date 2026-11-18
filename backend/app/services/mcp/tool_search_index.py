@@ -432,6 +432,36 @@ class EmbeddingToolIndex:
         return results
 
 
+# 检索后自动激活的候选工具数：覆盖模型最可能用到的前几个，省掉逐次 load_tool
+# 往返；不宜过大，避免常驻工具撑大每轮上下文。
+AUTO_ACTIVATE_TOP_N = 3
+
+
+def _auto_activate_top_hits(
+    hits: list[dict[str, str | float]],
+    state: Any,
+    state_key: str,
+    max_loaded: int,
+    top_n: int = AUTO_ACTIVATE_TOP_N,
+) -> list[str]:
+    """把检索到的前 N 个候选工具写入已加载 state，供下一轮 LLM 直接调用。
+
+    只激活未加载且在上限内的工具；已满则跳过。返回本次新激活的工具名。
+    """
+
+    loaded = [n for n in state.get(state_key, []) if isinstance(n, str)]
+    activated: list[str] = []
+    for hit in hits[:top_n]:
+        name = str(hit.get("name", "") or "")
+        if not name or name in loaded or len(loaded) + len(activated) >= max_loaded:
+            continue
+        loaded.append(name)
+        activated.append(name)
+    if activated:
+        state[state_key] = loaded
+    return activated
+
+
 class PrefetchingEmbeddingToolset(SearchableToolset):
     """在同步检索前异步预取查询向量的可搜索工具集。
 
@@ -445,4 +475,15 @@ class PrefetchingEmbeddingToolset(SearchableToolset):
         self, query: str, tool_context: ToolContext
     ) -> list[dict[str, str | float]]:
         await prefetch_query_vector(query.strip())
-        return await super().search_tools(query, tool_context)
+        hits = await super().search_tools(query, tool_context)
+        # ADK 每次 LLM 请求前都会依据 state 重建工具列表，因此这里写入后
+        # 模型下一轮即可直接调用，省掉一次 load_tool 往返（工具密集任务里
+        # 这类往返占了近半 LLM 调用）。
+        activated = _auto_activate_top_hits(
+            hits, tool_context.state, self.state_key, self.max_loaded_tools
+        )
+        if activated:
+            logger.info(
+                "检索后自动激活工具 tools=%s state_key=%s", activated, self.state_key
+            )
+        return hits

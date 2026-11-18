@@ -279,3 +279,31 @@ async def test_single_tool_server_still_keeps_search_entry() -> None:
     finally:
         await toolset.close()
         tool_search_index._VECTOR_CACHE.pop(_WIRE, None)  # noqa: SLF001
+
+
+def test_auto_activate_top_hits() -> None:
+    """检索后自动激活 top-N：省掉 load_tool 往返；已加载/超上限/空候选跳过。"""
+
+    from app.services.mcp.tool_search_index import _auto_activate_top_hits
+
+    state: dict = {}
+    key = "adk_tool_search.loaded_tools.ns"
+    hits = [
+        {"name": "tool_a", "description": "d", "score": 0.9},
+        {"name": "tool_b", "description": "d", "score": 0.8},
+        {"name": "tool_c", "description": "d", "score": 0.7},
+        {"name": "tool_d", "description": "d", "score": 0.6},
+    ]
+
+    # 默认 top-N=3：激活前三，第四个不激活
+    assert _auto_activate_top_hits(hits, state, key, max_loaded=20) == [
+        "tool_a", "tool_b", "tool_c"
+    ]
+    assert state[key] == ["tool_a", "tool_b", "tool_c"]
+    # 已加载的不重复
+    assert _auto_activate_top_hits(hits, state, key, max_loaded=20) == []
+    # 上限只够再放一个
+    assert _auto_activate_top_hits(hits, {"k": []}, key, max_loaded=1) == ["tool_a"]
+    # 空结果 / 无名候选不改
+    assert _auto_activate_top_hits([], {}, key, max_loaded=20) == []
+    assert _auto_activate_top_hits([{"name": ""}], {}, key, max_loaded=20) == []
