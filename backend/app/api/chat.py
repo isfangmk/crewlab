@@ -160,6 +160,26 @@ async def list_sessions(
     }
 
 
+@router.get("/chat/messages/search")
+async def search_messages(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_auth),
+) -> dict:
+    """跨会话搜索消息正文：按会话聚合命中片段，供前端定位跳转。
+
+    属主过滤在 service 内按 user.id 收口（admin 放行），防止跨用户内容泄露。
+    """
+    try:
+        items = await chat_service.search_messages(
+            db, q=q, limit=limit, owner_user_id=user.id, is_admin=user.role == "admin"
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"items": items, "total": len(items)}
+
+
 @router.get("/chat/sessions/models")
 async def list_session_models(
     db: AsyncSession = Depends(get_db),

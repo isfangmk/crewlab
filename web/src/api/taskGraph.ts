@@ -148,6 +148,14 @@ export function getTaskGraphDetail(graphUid: string): Promise<TaskGraph> {
   return request('GET', `/task-graphs/${encodeURIComponent(graphUid)}`);
 }
 
+/** 从一条助理回答创建单节点任务图草稿（不执行）。 */
+export function createGraphFromMessage(input: {
+  message_id: string;
+  title?: string;
+}): Promise<{ graph_uid: string; title: string; session_id: string }> {
+  return request('POST', '/task-graphs/from-message', input);
+}
+
 export function updateGraphNodes(
   graphUid: string,
   nodesJson: string,

@@ -28,8 +28,10 @@ import {
   exportSession,
   listSessionModels,
   listSessions,
+  searchMessages,
   updateSessionFlags,
   type ChatSession,
+  type MessageSearchHit,
   type SessionSortBy,
   type SessionSortDir,
 } from '@/api/chat';
@@ -208,6 +210,8 @@ export default function SessionsPage() {
   const [items, setItems] = useState<ChatSession[]>([]);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
+  // 消息正文命中：只取前 5 条，作为标题/模型搜索的补充结果。
+  const [messageHits, setMessageHits] = useState<MessageSearchHit[]>([]);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [agentId, setAgentId] = useState('');
   const [agents, setAgents] = useState<AgentSummary[]>([]);
@@ -355,6 +359,22 @@ export default function SessionsPage() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  // 消息正文搜索：与列表共享 250ms 防抖；关键词为空时清空，避免空 q 打到后端。
+  useEffect(() => {
+    const q = query.trim();
+    if (q === '') {
+      setMessageHits([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void searchMessages(q, 5)
+        .then((r) => { if (!cancelled) setMessageHits(r.items); })
+        .catch(() => { if (!cancelled) setMessageHits([]); });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [query]);
 
   // 数据页变化后清空勾选，避免跨页误删
   useEffect(() => {
@@ -959,7 +979,7 @@ export default function SessionsPage() {
             resetFiltersToFirstPage();
             setQuery(v);
           }}
-          placeholder={tr('搜索标题或模型…', 'Search title or model…')}
+          placeholder={tr('搜索标题、模型或消息正文…', 'Search title, model, or message text…')}
           ariaLabel={tr('搜索', 'Search')}
         />
         <FilterPill
@@ -1051,6 +1071,29 @@ export default function SessionsPage() {
           <ErrorBanner>
             {err}
           </ErrorBanner>
+        )}
+        {messageHits.length > 0 && (
+          <div className="mb-3 shrink-0 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+            <div className="mb-1.5 text-[11px] font-medium text-zinc-400">
+              {tr('消息正文命中', 'Message matches')}
+            </div>
+            <div className="flex flex-col gap-1">
+              {messageHits.map((hit) => (
+                <button
+                  key={hit.message_id}
+                  type="button"
+                  className="flex items-start gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:bg-zinc-800/60"
+                  onClick={() => navigate(`/chat/${hit.session_id}`, { state: { focusMessageId: hit.message_id } })}
+                >
+                  <MessageSquare size={12} className="mt-0.5 shrink-0 text-zinc-500" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-zinc-300">{hit.snippet}</span>
+                    <span className="block truncate text-[10.5px] text-zinc-500">{hit.session_title}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {loading ? (

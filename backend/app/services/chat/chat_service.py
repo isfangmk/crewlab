@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from google.adk.events import Event
 from google.genai import types
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adk_runtime.naming import root_adk_name
@@ -669,6 +669,68 @@ async def list_sessions(
         len(items),
     )
     return items, total
+
+
+async def search_messages(
+    db: AsyncSession,
+    *,
+    q: str,
+    limit: int,
+    owner_user_id: int,
+    is_admin: bool = False,
+) -> list[dict]:
+    """跨会话搜索消息正文，按会话聚合命中片段；仅返回当前用户可见的会话。
+
+    SQLite/PG 跨方言用 ilike + 转义（复用 knowledge_service 的口径）；
+    属主过滤在 ChatSession 上做，避免跨用户内容泄露。admin 放行。
+    """
+
+    from app.services.knowledge.knowledge_service import _escape_like
+
+    if not q.strip():
+        raise ValueError("q 不能为空")
+    if limit < 1 or limit > 100:
+        raise ValueError("limit 范围是 1..100")
+
+    pattern = f"%{_escape_like(q.strip())}%"
+    # 仅正文消息，排除工具卡/思考段（搜索用户真正说过/助理真正答过的内容）
+    stmt = (
+        select(ChatMessage, ChatSession.title)
+        .join(ChatSession, ChatMessage.session_id == ChatSession.id)
+        .where(
+            ChatMessage.content.ilike(pattern, escape="\\"),
+            ChatMessage.role.in_(["user", "assistant"]),
+            ChatMessage.kind.in_(["message", None]),
+        )
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+        .limit(limit * 4)  # 多取一些以便按会话聚合后仍有足够条目
+    )
+    if not is_admin:
+        stmt = stmt.where(
+            or_(
+                ChatSession.owner_user_id == owner_user_id,
+                (ChatSession.owner_user_id.is_(None) & (ChatSession.adk_user_id == str(owner_user_id))),
+            )
+        )
+    rows = (await db.execute(stmt)).all()
+
+    # 按会话聚合：每个会话只保留最近的一条命中，避免一条会话刷屏。
+    by_session: dict[str, dict] = {}
+    for msg, session_title in rows:
+        if msg.session_id in by_session:
+            continue
+        content = (msg.content or "").replace("\n", " ").strip()
+        by_session[msg.session_id] = {
+            "session_id": msg.session_id,
+            "session_title": session_title,
+            "message_id": msg.id,
+            "role": msg.role,
+            "snippet": content[:200],
+        }
+        if len(by_session) >= limit:
+            break
+    logger.info("搜索消息 q=%s owner=%s hits=%s sessions=%s", q, owner_user_id, len(rows), len(by_session))
+    return list(by_session.values())
 
 
 async def list_session_models(db: AsyncSession) -> list[str]:
@@ -1591,8 +1653,11 @@ async def _hydrate_mentions(db: AsyncSession, mentions: list[dict]) -> str:
 
     if len(mentions) == 0:
         return ""
+    from app.models.agent import UserAgent
     from app.models.knowledge import KnowledgeDoc
     from app.models.mcp import McpServer
+    from app.models.skill import UserSkill
+    from app.models.workflow import Workflow
 
     lines: list[str] = []
     for mention in mentions:
@@ -1610,6 +1675,26 @@ async def _hydrate_mentions(db: AsyncSession, mentions: list[dict]) -> str:
             if server is None:
                 raise LookupError(f"提及的 MCP Server 不存在: {mention_id}")
             lines.append(f"- [MCP Server] {server.name}（{server.endpoint}）")
+        elif mention_type == "skill":
+            skill = await db.get(UserSkill, mention_id)
+            if skill is None:
+                raise LookupError(f"提及的技能不存在: {mention_id}")
+            lines.append(f"- [技能] {skill.key}（{skill.description[:100]}）")
+        elif mention_type == "workflow":
+            wf = await db.get(Workflow, int(mention_id))
+            if wf is None:
+                raise LookupError(f"提及的工作流不存在: {mention_id}")
+            lines.append(f"- [工作流] {wf.name}（{wf.description[:100]}）")
+        elif mention_type == "agent":
+            agent = await db.get(UserAgent, mention_id)
+            if agent is None:
+                raise LookupError(f"提及的助理不存在: {mention_id}")
+            lines.append(f"- [助理] {agent.display_name or agent.name}（{agent.description[:100]}）")
+        elif mention_type == "session":
+            sess = await db.get(ChatSession, mention_id)
+            if sess is None:
+                raise LookupError(f"提及的会话不存在: {mention_id}")
+            lines.append(f"- [会话] {sess.title}（id={sess.id}）")
         else:
             raise ValueError(f"不支持的提及类型: {mention_type}")
     logger.info("注入提及上下文 count=%s", len(lines))

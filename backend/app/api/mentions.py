@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_auth
 from app.db import get_db
 from app.services.chat.mention_service import search_mentions
+from app.services.platform.auth_service import AuthUser
 
 router = APIRouter(tags=["mentions"])
 
@@ -18,12 +19,19 @@ async def search(
     type: str | None = Query(None),
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    _user: str = Depends(require_auth),
+    user: AuthUser = Depends(require_auth),
 ) -> dict:
-    """按关键词检索可提及对象（知识库文档 / MCP Server）。"""
+    """按关键词检索可提及对象（文档 / MCP Server / 技能 / 工作流 / 助理 / 会话）。"""
 
     try:
-        items = await search_mentions(db, q=q, mention_type=type, limit=limit)
+        items = await search_mentions(
+            db,
+            q=q,
+            mention_type=type,
+            limit=limit,
+            owner_user_id=user.id,
+            is_admin=user.role == "admin",
+        )
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"items": items}

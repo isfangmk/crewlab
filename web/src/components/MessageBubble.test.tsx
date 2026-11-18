@@ -640,6 +640,62 @@ describe('MessageBubble 已打断标记', () => {
   });
 });
 
+describe('MessageBubble 助理回答一键复用', () => {
+  const message: ChatMessage = {
+    id: 'assistant-reuse',
+    role: 'assistant',
+    content: '助理的完整回答正文',
+  };
+
+  it('提供回调时显示 复制/存知识/转技能/转任务 操作栏', () => {
+    render(
+      <MessageBubble
+        message={message}
+        onSaveAsKnowledge={vi.fn()}
+        onSaveAsSkill={vi.fn()}
+        onSaveAsTask={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: '复制' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '存知识' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '转技能' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '转任务' })).toBeInTheDocument();
+  });
+
+  it('点击各操作回调携带该消息', () => {
+    const onSaveAsKnowledge = vi.fn();
+    const onSaveAsSkill = vi.fn();
+    const onSaveAsTask = vi.fn();
+    render(
+      <MessageBubble
+        message={message}
+        onSaveAsKnowledge={onSaveAsKnowledge}
+        onSaveAsSkill={onSaveAsSkill}
+        onSaveAsTask={onSaveAsTask}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '存知识' }));
+    fireEvent.click(screen.getByRole('button', { name: '转技能' }));
+    fireEvent.click(screen.getByRole('button', { name: '转任务' }));
+    expect(onSaveAsKnowledge).toHaveBeenCalledWith(message);
+    expect(onSaveAsSkill).toHaveBeenCalledWith(message);
+    expect(onSaveAsTask).toHaveBeenCalledWith(message);
+  });
+
+  it('无回调或空正文时不显示操作栏', () => {
+    const { unmount } = render(<MessageBubble message={message} />);
+    expect(screen.queryByRole('button', { name: '存知识' })).not.toBeInTheDocument();
+    unmount();
+    render(
+      <MessageBubble
+        message={{ ...message, content: '' }}
+        onSaveAsKnowledge={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: '存知识' })).not.toBeInTheDocument();
+  });
+});
+
 describe('MessageBubble 用户澄清卡', () => {
   it('渲染提问与候选，提交时把回答交给审批续跑', async () => {
     vi.mocked(getApproval).mockResolvedValue(pendingAskApproval());

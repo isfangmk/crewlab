@@ -26,6 +26,10 @@ import {
   Server as ServerIcon,
   FileText,
   Paperclip,
+  Sparkles,
+  Workflow as WorkflowIcon,
+  Bot as BotIcon,
+  MessageSquare as MessageSquareIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { isImeComposing } from '@/lib/keyboard';
@@ -728,11 +732,15 @@ function MentionPopover({
   const groups: Record<MentionType, MentionItem[]> = {
     file: [],
     server: [],
+    skill: [],
+    workflow: [],
+    agent: [],
+    session: [],
   };
   items.forEach((it) => groups[it.type]?.push(it));
   // Build a flat index map back to the activeIndex calculation
   // (popoverIndex is over `items`, not over groups).
-  const order: MentionType[] = ['file', 'server'];
+  const order: MentionType[] = ['file', 'server', 'skill', 'workflow', 'agent', 'session'];
 
   return createPortal(
     <div
@@ -808,6 +816,14 @@ function labelForType(t: MentionType): string {
       return trInline('知识库文档', 'Knowledge doc');
     case 'server':
       return trInline('MCP Server', 'MCP server');
+    case 'skill':
+      return trInline('技能', 'Skills');
+    case 'workflow':
+      return trInline('工作流', 'Workflows');
+    case 'agent':
+      return trInline('助理', 'Agents');
+    case 'session':
+      return trInline('会话', 'Sessions');
   }
 }
 
@@ -818,6 +834,14 @@ function MentionIcon({ type }: { type: MentionType }) {
       return <FileText size={12} className={cls} />;
     case 'server':
       return <ServerIcon size={12} className={cls} />;
+    case 'skill':
+      return <Sparkles size={12} className={cls} />;
+    case 'workflow':
+      return <WorkflowIcon size={12} className={cls} />;
+    case 'agent':
+      return <BotIcon size={12} className={cls} />;
+    case 'session':
+      return <MessageSquareIcon size={12} className={cls} />;
   }
 }
 

@@ -331,6 +331,22 @@ export function getMessages(sessionId: string | number, signal?: AbortSignal) {
   );
 }
 
+export type MessageSearchHit = {
+  session_id: string;
+  session_title: string;
+  message_id: string;
+  role: ChatRole;
+  snippet: string;
+};
+
+/** 跨会话搜索消息正文：返回按会话聚合的命中片段，供定位跳转。 */
+export function searchMessages(q: string, limit = 20) {
+  return request<{ items: MessageSearchHit[]; total: number }>(
+    'GET',
+    `/chat/messages/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 排队消息（插话/消息队列）
 // ---------------------------------------------------------------------------
@@ -430,7 +446,7 @@ export async function loadChatAttachment(sessionId: string | number, attachmentI
 
 // @ 提及：输入框选择后随消息提交，后端注入只读上下文（不调工具）。
 // 类型：知识库文档 file、MCP Server server。
-export type MentionType = 'file' | 'server';
+export type MentionType = 'file' | 'server' | 'skill' | 'workflow' | 'agent' | 'session';
 
 export type Mention = {
   type: MentionType;

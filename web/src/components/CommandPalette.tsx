@@ -7,8 +7,8 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/Dialog';
 import { Command } from 'cmdk';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, MessageSquare, Compass } from 'lucide-react';
-import { listSessions, type ChatSession } from '@/api/chat';
+import { Search, MessageSquare, Compass, MessageCircle } from 'lucide-react';
+import { listSessions, searchMessages, type ChatSession, type MessageSearchHit } from '@/api/chat';
 import { APP_ROUTES, type AppRoute } from '@/lib/routes';
 import { useI18n } from '@/i18n/locale';
 
@@ -27,6 +27,7 @@ export function CommandPalette({ open, onClose }: Props) {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [recent, setRecent] = useState<ChatSession[]>([]);
+  const [msgHits, setMsgHits] = useState<MessageSearchHit[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // 每次打开重置查询并拉最近会话。
@@ -49,6 +50,22 @@ export function CommandPalette({ open, onClose }: Props) {
       cancelled = true;
     };
   }, [open]);
+
+  // 查询变化时搜索消息正文（防抖 250ms，关键词为空则清空）。
+  useEffect(() => {
+    const q = query.trim();
+    if (q === '') {
+      setMsgHits([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void searchMessages(q, 5)
+        .then((r) => { if (!cancelled) setMsgHits(r.items); })
+        .catch(() => { if (!cancelled) setMsgHits([]); });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [query]);
 
   if (!open) return null;
 
@@ -127,6 +144,32 @@ export function CommandPalette({ open, onClose }: Props) {
                 </Command.Item>
               ))}
             </Command.Group>
+
+            {msgHits.length > 0 && (
+              <Command.Group
+                heading={
+                  <div className="flex items-center gap-1.5 px-3 pb-0.5 pt-1 text-[10px] uppercase tracking-wide text-zinc-500">
+                    <MessageCircle size={10} />
+                    <span>{tr('消息', 'Messages')}</span>
+                  </div>
+                }
+              >
+                {msgHits.map((hit) => (
+                  <Command.Item
+                    key={hit.message_id}
+                    value={`${hit.snippet} ${hit.session_title} ${hit.message_id}`}
+                    onSelect={() => {
+                      navigate(`/chat/${hit.session_id}`, { state: { focusMessageId: hit.message_id } });
+                      onClose();
+                    }}
+                    className={ITEM_CLASS}
+                  >
+                    <span className="truncate text-inherit">{hit.snippet}</span>
+                    <span className="ml-auto truncate text-[10px] text-zinc-600">{hit.session_title}</span>
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            )}
           </Command.List>
         </Command>
 

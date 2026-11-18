@@ -3,6 +3,7 @@ import { toolResultHasArtifacts } from '@/lib/artifactResult';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { errorText } from '@/lib/errors';
+import { cn } from '@/lib/cn';
 
 import { clearAllPending, clearPendingExcept } from '@/lib/messagePending';
 
@@ -23,6 +24,7 @@ import {
 } from '@/components/MessageBubble';
 
 import { AgentBadge } from '@/components/AgentBadge';
+import { SkillEditor } from '@/components/SkillEditor';
 import { ArtifactsPanel } from '@/components/ArtifactsPanel';
 import { TaskGraphWorkbench, type TaskGraphLocateTarget } from '@/components/taskgraph/TaskGraphWorkbench';
 
@@ -92,6 +94,9 @@ import {
 import { listAgents, type AgentSummary } from '@/api/agents';
 
 import { listApprovals, type Approval } from '@/api/approvals';
+import { createDoc } from '@/api/knowledge';
+import { createGraphFromMessage } from '@/api/taskGraph';
+import type { SkillSummary } from '@/api/skills';
 import { CHAT_LIVE_EVENT, emitChatLive, type ChatLiveDetail } from '@/lib/chatLiveBus';
 
 import { ApiError } from '@/api/client';
@@ -131,6 +136,8 @@ type LocationState = {
   initialAttachments?: File[];
   thinkingEnabled?: boolean;
   webSearchEnabled?: boolean;
+  /** 消息检索跳转：加载后滚动定位并高亮该消息 */
+  focusMessageId?: string;
 } | null;
 
 
@@ -173,6 +180,10 @@ export default function ChatThreadPage() {
   const initialPrompt = (location.state as LocationState)?.initialPrompt;
 
   const initialAttachments = (location.state as LocationState)?.initialAttachments;
+
+  const focusMessageId = (location.state as LocationState)?.focusMessageId;
+
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
 
 
@@ -222,6 +233,9 @@ export default function ChatThreadPage() {
   // 对话帧流断线重连次数：>0 时思考指示器改显"连接中断，正在恢复…"，
   // done/error 收口归零。仅 UI 提示，不参与回合状态。
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+
+  // 从回答一键转技能：用回答正文预填指令正文的 SkillEditor 草稿。
+  const [skillDraft, setSkillDraft] = useState<{ instructions: string } | null>(null);
 
   // 执行态（计划/排查）独立于聊天回合：带外启动，单独锁输入框直到收口
   const [execBusy, setExecBusy] = useState(false);
@@ -1181,13 +1195,38 @@ export default function ChatThreadPage() {
 
     if (!el) return;
 
+    // 消息检索跳转：由 focus effect 定位，不让自动滚动抢到底部。
+    if (focusMessageId && messages.some((m) => m.id === focusMessageId)) return;
+
     if (stickToBottomRef.current) {
 
       el.scrollTop = el.scrollHeight;
 
     }
 
-  }, [messages]);
+  }, [messages, focusMessageId]);
+
+
+  // 消息检索定位：目标消息加载后滚动居中并临时高亮，2.5s 后复位。
+  // 先展开折叠历史，确保目标消息一定在 DOM 中；下一帧再 scrollIntoView。
+  useEffect(() => {
+    if (!focusMessageId) return;
+    if (!messages.some((m) => m.id === focusMessageId)) return;
+    setShowAllHistory(true);
+    stickToBottomRef.current = false;
+    let timer = 0;
+    const raf = requestAnimationFrame(() => {
+      const el = document.getElementById(`msg-${focusMessageId}`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedId(focusMessageId);
+      timer = window.setTimeout(() => setHighlightedId(null), 2500);
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [focusMessageId, messages]);
 
 
 
@@ -2086,6 +2125,38 @@ export default function ChatThreadPage() {
       });
   }
 
+  // 一键复用：把助理回答存为知识文档（tags 轻量溯源）。
+  async function saveAsKnowledge(message: ChatMessage) {
+    try {
+      await createDoc({
+        title: (message.content ?? '').trim().slice(0, 60) || '会话回答',
+        content: message.content ?? '',
+        tags: ['来自会话'],
+      });
+      flash('ok', tr('已存为知识文档', 'Saved as knowledge doc'));
+    } catch (e) {
+      flash('err', errorText(e));
+    }
+  }
+
+  // 一键复用：用回答正文预填技能编辑器，剩余字段由用户补齐。
+  function saveAsSkill(message: ChatMessage) {
+    setSkillDraft({ instructions: message.content ?? '' });
+  }
+
+  // 一键复用：从回答创建单节点任务图草稿（不执行），在工作台确认。
+  async function saveAsTask(message: ChatMessage) {
+    try {
+      await createGraphFromMessage({
+        message_id: message.id,
+        title: (message.content ?? '').trim().slice(0, 60) || '从回答创建的任务',
+      });
+      flash('ok', tr('任务草稿已创建，请在工作台确认', 'Task draft created — confirm in workbench'));
+    } catch (e) {
+      flash('err', errorText(e));
+    }
+  }
+
   function ThinkingIndicator() {
 
     return (
@@ -2409,35 +2480,48 @@ export default function ChatThreadPage() {
 
               renderedMessages.map((m) => (
 
-                <MessageBubble
-
+                <div
                   key={m.id}
+                  id={`msg-${m.id}`}
+                  className={cn(
+                    'rounded-lg transition-shadow',
+                    highlightedId === m.id ? 'ring-2 ring-indigo-400/70 bg-indigo-400/5' : '',
+                  )}
+                >
+                  <MessageBubble
 
-                  message={m}
+                    message={m}
 
-                  sessionId={sessionId}
+                    sessionId={sessionId}
 
-                  actionsDisabled={submitting || execBusy}
+                    actionsDisabled={submitting || execBusy}
 
-                  followupsActive={!isViewer && m.id === latestAssistantId}
+                    followupsActive={!isViewer && m.id === latestAssistantId}
 
-                  onUseSuggestion={isViewer ? undefined : useSuggestion}
+                    onUseSuggestion={isViewer ? undefined : useSuggestion}
 
-                  onLocate={isViewer ? undefined : locateInGraphWorkbench}
+                    onLocate={isViewer ? undefined : locateInGraphWorkbench}
 
-                  onLocatePlan={isViewer ? undefined : locateInGraphWorkbench}
+                    onLocatePlan={isViewer ? undefined : locateInGraphWorkbench}
 
-                  findingCount={findingCount}
+                    findingCount={findingCount}
 
-                  onRegenerate={isViewer ? undefined : regenerate}
+                    onRegenerate={isViewer ? undefined : regenerate}
 
-                  onFork={isViewer ? undefined : forkFrom}
+                    onFork={isViewer ? undefined : forkFrom}
 
-                  onEditResend={isViewer ? undefined : editResend}
+                    onEditResend={isViewer ? undefined : editResend}
 
-                  onConfirmConfigDraft={isViewer ? undefined : confirmConfigDraft}
+                    onConfirmConfigDraft={isViewer ? undefined : confirmConfigDraft}
 
-                />
+                    onSaveAsKnowledge={isViewer ? undefined : saveAsKnowledge}
+
+                    onSaveAsSkill={isViewer ? undefined : saveAsSkill}
+
+                    onSaveAsTask={isViewer ? undefined : saveAsTask}
+
+                  />
+                </div>
 
               ))
             )}
@@ -2608,6 +2692,18 @@ export default function ChatThreadPage() {
         onClose={() => setShareOpen(false)}
 
       />
+
+      {skillDraft !== null && (
+        <SkillEditor
+          mode="create"
+          initialInstructions={skillDraft.instructions}
+          onClose={() => setSkillDraft(null)}
+          onSaved={(skill: SkillSummary) => {
+            setSkillDraft(null);
+            flash('ok', tr(`已创建技能 ${skill.key}`, `Created skill ${skill.key}`));
+          }}
+        />
+      )}
 
     </>
 

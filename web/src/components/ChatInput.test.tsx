@@ -1,8 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChatInput } from './ChatInput';
+import { server } from '@/test/msw-server';
 
 beforeEach(() => {
   localStorage.setItem('ongrid-locale', 'en-US');
@@ -207,5 +209,38 @@ describe('ChatInput ZIP attachment', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(onSubmit.mock.calls[0][0].attachments).toEqual([file]);
+  });
+});
+
+describe('ChatInput @ 提及扩展类型', () => {
+  it('@ 弹窗展示技能/工作流/助理/会话分组', async () => {
+    server.use(
+      http.get('/api/v1/aiops/mentions/search', () =>
+        HttpResponse.json({
+          items: [
+            { type: 'file', id: 'doc1', label: '知识文档', subtitle: '/a' },
+            { type: 'skill', id: 'my-skill', label: 'my-skill', subtitle: '技能说明' },
+            { type: 'workflow', id: '7', label: '日志排查', subtitle: '流程说明' },
+            { type: 'agent', id: 'ops', label: '运维助理', subtitle: '助理说明' },
+            { type: 'session', id: 's1', label: '昨天的会话', subtitle: 's1' },
+          ],
+        }),
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <ChatInput value="@" onSubmit={vi.fn()} />
+      </MemoryRouter>,
+    );
+    const textbox = screen.getByRole('textbox', { name: /message input/i }) as HTMLTextAreaElement;
+    fireEvent.focus(textbox);
+    textbox.setSelectionRange(1, 1);
+    fireEvent.click(textbox);
+    await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument());
+    // 英文 locale：分组标题为 Skills / Workflows / Agents / Sessions
+    expect(await screen.findByText('Skills')).toBeInTheDocument();
+    expect(screen.getByText('Workflows')).toBeInTheDocument();
+    expect(screen.getByText('Agents')).toBeInTheDocument();
+    expect(screen.getByText('Sessions')).toBeInTheDocument();
   });
 });
