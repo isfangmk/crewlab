@@ -20,11 +20,15 @@ _AGENT_KEYS = frozenset(
         "output_locale",
         "runtime_version",
         "max_tool_result_chars",
+        "context_compaction_threshold",
     }
 )
 # 工具结果大小治理上限范围（字符）：与内置默认同类，下限保证有用，上限防误配撑爆。
 MAX_TOOL_RESULT_CHARS_MIN = 1_000
 MAX_TOOL_RESULT_CHARS_MAX = 2_000_000
+# 上下文压缩触发阈值范围（token）：0 = 关闭；正数才启用 ADK 事件压缩。
+CONTEXT_COMPACTION_THRESHOLD_MIN = 0
+CONTEXT_COMPACTION_THRESHOLD_MAX = 2_000_000
 
 # 固定偏移，避免依赖系统 IANA 时区库；键名落在 observability.timezone
 SYSTEM_TIMEZONES: dict[str, timezone] = {
@@ -85,6 +89,9 @@ _AGENT_RUNTIME_SEEDS: dict[str, str] = {
     "llm_timeout_seconds": "120",
     "output_locale": "",
     "max_tool_result_chars": "100000",
+    # 上下文压缩：默认 400k token 触发（主流模型上下文上限之上留余量，防累计溢出）。
+    # 0 = 关闭；按部署模型上下文窗口自行调整。
+    "context_compaction_threshold": "400000",
 }
 
 _KNOWLEDGE_SEEDS: dict[str, str] = {
@@ -168,11 +175,32 @@ async def get_agent_runtime(db: AsyncSession) -> dict[str, str | bool | int]:
                 f"max_tool_result_chars 合法范围 {MAX_TOOL_RESULT_CHARS_MIN}..{MAX_TOOL_RESULT_CHARS_MAX}"
             )
 
+    # 老库可能尚未种入该键：缺键回退到内置默认（0 = 关闭，与启用前行为一致）。
+    from app.adk_runtime.context_compaction import (
+        DEFAULT_CONTEXT_COMPACTION_TOKEN_THRESHOLD,
+    )
+
+    compaction_raw = items.get("context_compaction_threshold")
+    if compaction_raw is None or compaction_raw == "":
+        context_compaction_threshold = DEFAULT_CONTEXT_COMPACTION_TOKEN_THRESHOLD
+    else:
+        context_compaction_threshold = int(compaction_raw)
+        if not (
+            CONTEXT_COMPACTION_THRESHOLD_MIN
+            <= context_compaction_threshold
+            <= CONTEXT_COMPACTION_THRESHOLD_MAX
+        ):
+            raise ValueError(
+                f"context_compaction_threshold 合法范围 "
+                f"{CONTEXT_COMPACTION_THRESHOLD_MIN}..{CONTEXT_COMPACTION_THRESHOLD_MAX}"
+            )
+
     return {
         "write_enabled": write_enabled,
         "llm_timeout_seconds": llm_timeout_seconds,
         "output_locale": locale,
         "max_tool_result_chars": max_tool_result_chars,
+        "context_compaction_threshold": context_compaction_threshold,
     }
 
 
@@ -235,6 +263,17 @@ async def put_setting(
             ):
                 raise ValueError(
                     f"max_tool_result_chars 范围 {MAX_TOOL_RESULT_CHARS_MIN}..{MAX_TOOL_RESULT_CHARS_MAX}"
+                )
+        if key == "context_compaction_threshold":
+            threshold = int(value)
+            if not (
+                CONTEXT_COMPACTION_THRESHOLD_MIN
+                <= threshold
+                <= CONTEXT_COMPACTION_THRESHOLD_MAX
+            ):
+                raise ValueError(
+                    f"context_compaction_threshold 范围 "
+                    f"{CONTEXT_COMPACTION_THRESHOLD_MIN}..{CONTEXT_COMPACTION_THRESHOLD_MAX}"
                 )
     elif category == "observability":
         if key not in _OBSERVABILITY_KEYS:

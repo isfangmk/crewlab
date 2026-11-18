@@ -16,18 +16,44 @@ from uuid import uuid4
 
 from google.adk.agents._streaming_mode import StreamingMode
 from google.adk.agents.run_config import RunConfig
+from google.adk.apps import App
 from google.adk.runners import Runner
 from google.adk.sessions import BaseSessionService
 from google.adk.utils._function_call_names import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.genai import types
 
 from app.adk_runtime.agent_factory import build_chat_agent
+from app.adk_runtime.context_compaction import build_events_compaction_config
 from app.services.knowledge.knowledge_scope import KnowledgeScope
 from app.tools.user_input import ASK_USER_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ai_workbench"
+
+
+def _build_runner(
+    agent: Any, session_service: BaseSessionService, context_compaction_threshold: int | None
+) -> Runner:
+    """构造 Runner，把上下文压缩配置挂到 App（ADK 唯一读取点）。
+
+    Runner(agent=...) 旧路径内部构造的 App 不带 events_compaction_config，
+    压缩不会生效。这里显式构造 App 并传 app=，root_agent 与 name 保持一致，
+    session 归属不变（app_name 即 APP_NAME）。
+    """
+    compaction = build_events_compaction_config(context_compaction_threshold)
+    app = App(
+        name=APP_NAME,
+        root_agent=agent,
+        events_compaction_config=compaction,
+    )
+    logger.info(
+        "装配 Runner app=%s agent=%s events_compaction=%s",
+        APP_NAME,
+        getattr(agent, "name", "?"),
+        "on" if compaction is not None else "off",
+    )
+    return Runner(app=app, session_service=session_service)
 
 
 @dataclass(frozen=True)
@@ -663,6 +689,7 @@ async def stream_adk_turn(
     include_followups: bool = True,
     abort_signal: asyncio.Event | None = None,
     max_tool_result_chars: int | None = None,
+    context_compaction_threshold: int | None = None,
 ) -> AsyncIterator[SseFrame]:
     """跑一轮用户对话；可附带图片多模态 parts；abort_signal 置位即中止本轮。"""
 
@@ -689,7 +716,7 @@ async def stream_adk_turn(
         include_followups=include_followups,
         max_tool_result_chars=max_tool_result_chars,
     )
-    runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
+    runner = _build_runner(agent, session_service, context_compaction_threshold)
     existing = await session_service.get_session(
         app_name=APP_NAME, user_id=user_id, session_id=session_id
     )
@@ -754,6 +781,7 @@ async def stream_adk_confirmation(
     answer: dict[str, Any] | None = None,
     trust_scope: str | None = None,
     max_tool_result_chars: int | None = None,
+    context_compaction_threshold: int | None = None,
 ) -> AsyncIterator[SseFrame]:
     """用 ADK FunctionResponse 恢复被确认闸门拦住的回合。
 
@@ -787,7 +815,7 @@ async def stream_adk_confirmation(
         sub_agents=sub_agents,
         max_tool_result_chars=max_tool_result_chars,
     )
-    runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
+    runner = _build_runner(agent, session_service, context_compaction_threshold)
     existing = await session_service.get_session(
         app_name=APP_NAME, user_id=user_id, session_id=session_id
     )

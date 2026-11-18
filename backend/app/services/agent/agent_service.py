@@ -67,6 +67,8 @@ class ResolvedAgent:
     source: str
     # 工具结果回喂模型的字符上限；None = 继承全局默认
     max_tool_result_chars: int | None = None
+    # 上下文压缩触发 token 阈值；None = 继承全局默认，0 = 关闭
+    context_compaction_threshold: int | None = None
     # 面向用户的显示名称；为空时前端回退到助理唯一标识
     display_name: str = ""
     output_format: str = "free"
@@ -215,6 +217,7 @@ def agent_to_wire(
         "model": agent.model,
         "max_turns": agent.max_turns,
         "max_tool_result_chars": agent.max_tool_result_chars,
+        "context_compaction_threshold": agent.context_compaction_threshold,
         "system_prompt": agent.system_prompt,
         "critical_reminder": agent.critical_reminder,
         "output_format": agent.output_format,
@@ -244,6 +247,7 @@ def agent_to_snapshot(agent: ResolvedAgent) -> dict:
         "model": agent.model,
         "max_turns": agent.max_turns,
         "max_tool_result_chars": agent.max_tool_result_chars,
+        "context_compaction_threshold": agent.context_compaction_threshold,
         "output_format": agent.output_format,
         "examples": [dict(item) for item in agent.examples],
         "knowledge_scope": {
@@ -288,6 +292,7 @@ def _row_to_resolved(row: UserAgent) -> ResolvedAgent:
         model=row.model,
         max_turns=row.max_turns,
         max_tool_result_chars=row.max_tool_result_chars,
+        context_compaction_threshold=row.context_compaction_threshold,
         source="user",
         output_format=row.output_format,
         examples=_parse_examples_json(row.examples_json),
@@ -320,6 +325,23 @@ def validate_max_tool_result_chars(value: int | None) -> int | None:
     if not (MAX_TOOL_RESULT_CHARS_MIN <= value <= MAX_TOOL_RESULT_CHARS_MAX):
         raise ValueError(
             f"max_tool_result_chars 范围 {MAX_TOOL_RESULT_CHARS_MIN}..{MAX_TOOL_RESULT_CHARS_MAX}"
+        )
+    return value
+
+
+def validate_context_compaction_threshold(value: int | None) -> int | None:
+    """助理级上下文压缩阈值：None = 继承全局，0 = 关闭；负数/超上限非法。"""
+    if value is None:
+        return None
+    from app.services.platform.app_settings_service import (
+        CONTEXT_COMPACTION_THRESHOLD_MAX,
+        CONTEXT_COMPACTION_THRESHOLD_MIN,
+    )
+
+    if not (CONTEXT_COMPACTION_THRESHOLD_MIN <= value <= CONTEXT_COMPACTION_THRESHOLD_MAX):
+        raise ValueError(
+            f"context_compaction_threshold 范围 "
+            f"{CONTEXT_COMPACTION_THRESHOLD_MIN}..{CONTEXT_COMPACTION_THRESHOLD_MAX}"
         )
     return value
 
@@ -562,6 +584,7 @@ async def create_user_agent(
     model: str,
     max_turns: int,
     max_tool_result_chars: int | None = None,
+    context_compaction_threshold: int | None = None,
     output_format: str = "free",
     examples: tuple[dict[str, str], ...] = (),
     knowledge_scope: KnowledgeScope = empty_scope(),
@@ -580,6 +603,9 @@ async def create_user_agent(
     if max_turns < 0:
         raise ValueError("max_turns 不能为负数")
     max_tool_result_chars = validate_max_tool_result_chars(max_tool_result_chars)
+    context_compaction_threshold = validate_context_compaction_threshold(
+        context_compaction_threshold
+    )
     validate_permission_mode(permission_mode)
     validate_output_format(output_format)
     scope = parse_scope(knowledge_scope)
@@ -599,6 +625,7 @@ async def create_user_agent(
         model=model,
         max_turns=max_turns,
         max_tool_result_chars=max_tool_result_chars,
+        context_compaction_threshold=context_compaction_threshold,
         output_format=output_format,
         examples_json=_dump_examples(examples),
         knowledge_scope_json=json.dumps(scope_to_wire(scope), ensure_ascii=False),
@@ -642,6 +669,7 @@ async def update_user_agent(
     model: str,
     max_turns: int,
     max_tool_result_chars: int | None = None,
+    context_compaction_threshold: int | None = None,
     output_format: str = "free",
     examples: tuple[dict[str, str], ...] = (),
     knowledge_scope: KnowledgeScope = empty_scope(),
@@ -663,6 +691,9 @@ async def update_user_agent(
     if max_turns < 0:
         raise ValueError("max_turns 不能为负数")
     max_tool_result_chars = validate_max_tool_result_chars(max_tool_result_chars)
+    context_compaction_threshold = validate_context_compaction_threshold(
+        context_compaction_threshold
+    )
     validate_permission_mode(permission_mode)
     validate_output_format(output_format)
     scope = parse_scope(knowledge_scope)
@@ -677,6 +708,7 @@ async def update_user_agent(
     row.model = model
     row.max_turns = max_turns
     row.max_tool_result_chars = max_tool_result_chars
+    row.context_compaction_threshold = context_compaction_threshold
     row.output_format = output_format
     row.examples_json = _dump_examples(examples)
     row.knowledge_scope_json = json.dumps(scope_to_wire(scope), ensure_ascii=False)
@@ -728,6 +760,7 @@ async def rollback_user_agent(
         model=snapshot.get("model", ""),
         max_turns=int(snapshot.get("max_turns", 0)),
         max_tool_result_chars=snapshot.get("max_tool_result_chars"),
+        context_compaction_threshold=snapshot.get("context_compaction_threshold"),
         output_format=snapshot.get("output_format", "free"),
         examples=tuple(dict(item) for item in snapshot.get("examples", [])),
         knowledge_scope=parse_scope(snapshot.get("knowledge_scope", {})),
@@ -754,6 +787,7 @@ async def resolve_draft_agent(
     model: str,
     max_turns: int,
     max_tool_result_chars: int | None = None,
+    context_compaction_threshold: int | None = None,
     output_format: str = "free",
     examples: tuple[dict[str, str], ...] = (),
     knowledge_scope: KnowledgeScope = empty_scope(),
@@ -776,6 +810,9 @@ async def resolve_draft_agent(
     if max_turns < 0:
         raise ValueError("max_turns 不能为负数")
     max_tool_result_chars = validate_max_tool_result_chars(max_tool_result_chars)
+    context_compaction_threshold = validate_context_compaction_threshold(
+        context_compaction_threshold
+    )
     validate_permission_mode(permission_mode)
     validate_output_format(output_format)
     scope = parse_scope(knowledge_scope)

@@ -16,6 +16,7 @@ from google.genai import types
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.adk_runtime.context_compaction import resolve_context_compaction_threshold
 from app.adk_runtime.naming import root_adk_name
 from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.stream_bridge import APP_NAME, SseFrame, stream_adk_turn
@@ -1837,15 +1838,23 @@ async def stream_session_message(
         resolved_agent.max_tool_result_chars,
         int(runtime["max_tool_result_chars"]),
     )
+    # 上下文压缩阈值：助理级覆盖（0 = 关闭）> 全局默认 > 内置默认（关闭）
+    effective_context_compaction_threshold = resolve_context_compaction_threshold(
+        resolved_agent.context_compaction_threshold,
+        int(runtime["context_compaction_threshold"]),
+    )
     logger.info(
         "助理运行参数 session_id=%s write_enabled=%s llm_timeout=%s output_locale=%s "
-        "max_tool_result_chars=%s (agent_override=%s)",
+        "max_tool_result_chars=%s (agent_override=%s) "
+        "context_compaction_threshold=%s (agent_override=%s)",
         session_id,
         runtime["write_enabled"],
         runtime["llm_timeout_seconds"],
         runtime["output_locale"],
         effective_max_tool_result_chars,
         resolved_agent.max_tool_result_chars,
+        effective_context_compaction_threshold,
+        resolved_agent.context_compaction_threshold,
     )
     persona = await agent_service.compose_persona(db, resolved_agent)
     # 本回合 locale 覆盖设置页 output_locale；前端传 en-US / zh-CN
@@ -1925,6 +1934,7 @@ async def stream_session_message(
             "base_url": llm.base_url,
             "llm_timeout_seconds": int(runtime["llm_timeout_seconds"]),
             "max_tool_result_chars": effective_max_tool_result_chars,
+            "context_compaction_threshold": effective_context_compaction_threshold,
             "thinking_enabled": thinking_enabled,
             "web_search_enabled": web_search_enabled,
             "model_prefix": llm.model_prefix,
@@ -1982,6 +1992,7 @@ async def stream_session_message(
             rule_actions=rule_actions,
             max_turns=resolved_agent.max_turns,
             max_tool_result_chars=effective_max_tool_result_chars,
+            context_compaction_threshold=effective_context_compaction_threshold,
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,
                 sub_agents=await build_sub_agents_for_agent(

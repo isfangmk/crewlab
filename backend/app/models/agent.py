@@ -31,6 +31,9 @@ class UserAgent(Base):
     max_turns: Mapped[int] = mapped_column(Integer, nullable=False)
     # 工具结果回喂模型的字符上限；NULL = 继承全局默认（治理：防超大结果撑爆上下文）
     max_tool_result_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 上下文压缩触发 token 阈值；NULL = 继承全局默认，0 = 关闭压缩
+    # （治理：长会话多轮工具结果累积撑爆上下文时由 ADK 事件压缩兜底）
+    context_compaction_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # 输出格式约束：free / json / checklist，运行时由服务端生成固定文案
     output_format: Mapped[str] = mapped_column(
         String(32), nullable=False, default="free", server_default="free"

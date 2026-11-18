@@ -857,6 +857,10 @@ function AgentEditor({
   const [maxToolResultChars, setMaxToolResultChars] = useState<string>(
     base?.max_tool_result_chars == null ? '' : String(base.max_tool_result_chars),
   );
+  // null = 继承全局默认；0 = 关闭压缩；字符串存输入框值便于空值表达
+  const [contextCompactionThreshold, setContextCompactionThreshold] = useState<string>(
+    base?.context_compaction_threshold == null ? '' : String(base.context_compaction_threshold),
+  );
   const [catalog, setCatalog] = useState<CapabilityCatalog | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -1041,6 +1045,7 @@ function AgentEditor({
     model: model.trim(),
     max_turns: maxTurns,
     max_tool_result_chars: maxToolResultChars.trim() === '' ? null : Number(maxToolResultChars),
+    context_compaction_threshold: contextCompactionThreshold.trim() === '' ? null : Number(contextCompactionThreshold),
     output_format: outputFormat,
     examples: examples.map((item) => ({ input: item.input, output: item.output })),
     knowledge_scope: scopeSelectionToWire(scope),
@@ -1432,7 +1437,7 @@ function AgentEditor({
                   'Max characters of a tool result fed back to the model; oversized results are truncated to prevent context overflow. Leave empty to inherit the global default from system settings.',
                 )}
               </p>
-              <div className="max-w-xs">
+              <div className="max-w-xs space-y-3">
                 <Field label={tr('工具结果上限（字符）', 'Tool result cap (chars)')}>
                   <Input
                     type="number"
@@ -1444,6 +1449,24 @@ function AgentEditor({
                     step={1000}
                     className="w-full"
                   />
+                </Field>
+                <Field label={tr('上下文压缩阈值（token）', 'Context compaction threshold (tokens)')}>
+                  <Input
+                    type="number"
+                    value={contextCompactionThreshold}
+                    onChange={(e) => setContextCompactionThreshold(e.target.value)}
+                    placeholder={tr('留空 = 继承全局，0 = 关闭', 'Empty = inherit global, 0 = off')}
+                    min={0}
+                    max={2000000}
+                    step={10000}
+                    className="w-full"
+                  />
+                  <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                    {tr(
+                      '历史消息累计达到该 token 数时自动压缩为摘要，防止长对话溢出；填 0 关闭，留空继承全局。',
+                      'Compress history into a summary once it reaches this token count, preventing long-chat overflow. 0 = off, empty = inherit global.',
+                    )}
+                  </p>
                 </Field>
               </div>
             </FieldGroup>

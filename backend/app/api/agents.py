@@ -54,6 +54,8 @@ class UserAgentInput(BaseModel):
     max_turns: int
     # 治理：工具结果回喂模型的字符上限；null/缺省 = 继承全局默认
     max_tool_result_chars: int | None = None
+    # 治理：上下文压缩触发 token 阈值；null = 继承全局默认，0 = 关闭
+    context_compaction_threshold: int | None = None
     output_format: str
     examples: list[AgentExampleInput]
     knowledge_scope: KnowledgeScopeInput
@@ -75,6 +77,7 @@ def _agent_audit_detail(agent: object) -> dict:
         "permission_mode": getattr(agent, "permission_mode"),
         "max_turns": getattr(agent, "max_turns"),
         "max_tool_result_chars": getattr(agent, "max_tool_result_chars", None),
+        "context_compaction_threshold": getattr(agent, "context_compaction_threshold", None),
         "tools": list(getattr(agent, "tools")),
         "disallowed_tools": list(getattr(agent, "disallowed_tools")),
         "system_prompt_chars": len(getattr(agent, "system_prompt")),
@@ -187,6 +190,7 @@ async def create_user_agent(
             model=body.model,
             max_turns=body.max_turns,
             max_tool_result_chars=body.max_tool_result_chars,
+            context_compaction_threshold=body.context_compaction_threshold,
             output_format=body.output_format,
             examples=tuple(item.model_dump() for item in body.examples),
             knowledge_scope=scope,
@@ -232,6 +236,7 @@ async def update_user_agent(
             model=body.model,
             max_turns=body.max_turns,
             max_tool_result_chars=body.max_tool_result_chars,
+            context_compaction_threshold=body.context_compaction_threshold,
             output_format=body.output_format,
             examples=tuple(item.model_dump() for item in body.examples),
             knowledge_scope=scope,
@@ -359,6 +364,7 @@ async def playground_stream(
             model=draft.model,
             max_turns=draft.max_turns,
             max_tool_result_chars=draft.max_tool_result_chars,
+            context_compaction_threshold=draft.context_compaction_threshold,
             output_format=draft.output_format,
             examples=tuple(item.model_dump() for item in draft.examples),
             knowledge_scope=scope,

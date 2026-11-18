@@ -31,6 +31,8 @@ export type AgentSummary = {
   max_turns: number;
   /** 工具结果回喂模型的字符上限；null = 继承全局默认 */
   max_tool_result_chars: number | null;
+  /** 上下文压缩触发 token 阈值；null = 继承全局默认，0 = 关闭 */
+  context_compaction_threshold: number | null;
   system_prompt: string;
   critical_reminder: string;
   output_format: OutputFormat;
@@ -61,6 +63,8 @@ export type UserAgentInput = {
   max_turns: number;
   /** 工具结果上限；null/缺省 = 继承全局默认 */
   max_tool_result_chars?: number | null;
+  /** 上下文压缩阈值；null/缺省 = 继承全局默认，0 = 关闭 */
+  context_compaction_threshold?: number | null;
   output_format: OutputFormat;
   examples: AgentExample[];
   knowledge_scope: KnowledgeScope;
