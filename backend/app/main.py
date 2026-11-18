@@ -216,12 +216,28 @@ async def lifespan(_app: FastAPI):
 
     warm_task = asyncio.create_task(_warm_litellm())
 
+    # 平台接口语义索引预热：把 OpenAPI 目录批量嵌入内存，供平台助手检索。
+    # 失败不阻断启动——检索工具会在调用点显式报「索引未就绪」。
+    async def _warm_platform_api_index() -> None:
+        try:
+            from app.services.platform.platform_api_index import warm_platform_api_index
+
+            await warm_platform_api_index()
+        except Exception:  # noqa: BLE001 — 预热失败只记日志，不阻断启动
+            logger.exception("平台接口语义索引预热失败（平台助手检索不可用）")
+
+    platform_index_task = asyncio.create_task(_warm_platform_api_index())
+
     yield
     warm_task.cancel()
-    try:
-        await warm_task
-    except asyncio.CancelledError:
-        pass
+    platform_index_task.cancel()
+    for task in (warm_task, platform_index_task):
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:  # noqa: BLE001 — 收尾异常不该阻止后续清理
+            logger.exception("预热任务收尾异常")
     await stop_mcp_health()
     await stop_vault_sync()
     await stop_scheduler()
