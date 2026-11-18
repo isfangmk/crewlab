@@ -13,9 +13,31 @@ from app.tools.catalog import (
     BUILTIN_TOOL_SPECS,
     WORKFLOW_NODE_TOOL_NAMES,
     _coerce_value,
+    builtin_tool_registry,
     coerce_tool_params,
+    tool_param_specs,
     workflow_builtin_tools,
 )
+
+
+def test_memory_update_delete_tools_registered_as_mutating() -> None:
+    """记忆改写/删除工具：归入 memory 组、走审批（mutating）、参数可反射。"""
+
+    specs = {spec["name"]: spec for spec in BUILTIN_TOOL_SPECS}
+    for name in ("update_memory", "delete_memory"):
+        assert specs[name]["group"] == "memory"
+        assert specs[name]["risk"] == "mutating"
+        assert specs[name]["mount"] == "always"
+        assert name in builtin_tool_registry()
+
+    update_params = {p["name"]: p for p in tool_param_specs(builtin_tool_registry()["update_memory"])}
+    assert update_params["memory_id"]["required"] is True
+    assert update_params["content"]["required"] is True
+    delete_params = {p["name"]: p for p in tool_param_specs(builtin_tool_registry()["delete_memory"])}
+    assert delete_params["memory_id"]["required"] is True
+    # tool_context 是内部注入参数，不对模型暴露
+    assert "tool_context" not in update_params
+    assert "tool_context" not in delete_params
 
 
 def test_every_tool_group_has_title() -> None:

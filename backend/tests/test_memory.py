@@ -116,6 +116,125 @@ async def test_memory_forget_removes_vector(monkeypatch, tmp_path) -> None:
         get_settings.cache_clear()
 
 
+async def test_memory_update_content_rewrites_and_reembeds(monkeypatch, tmp_path) -> None:
+    """改正文后：内容整体替换，旧文本不再召回、新文本可召回；空/超长显式失败。"""
+
+    monkeypatch.setenv("KNOWLEDGE_UPLOAD_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    created: list[str] = []
+    try:
+        async with SessionLocal() as db:
+            item = await memory_service.remember(
+                db,
+                content="部署端口是 8080 端口。",
+                agent_id=None,
+            )
+            created.append(item.id)
+
+        async with SessionLocal() as db:
+            updated = await memory_service.update_content(
+                db, item.id, "部署端口改为 9090 端口。"
+            )
+            assert updated.content == "部署端口改为 9090 端口。"
+
+        async with SessionLocal() as db:
+            new_hits = await memory_service.recall(db, query="9090", agent_id=None)
+            assert any(h["id"] == item.id and "9090" in h["content"] for h in new_hits)
+            # 旧向量已被覆盖，同一条不再以旧文本出现
+            old_hits = await memory_service.recall(db, query="8080", agent_id=None)
+            assert all(not (h["id"] == item.id and "8080" in h["content"]) for h in old_hits)
+
+        async with SessionLocal() as db:
+            with pytest.raises(ValueError, match="不能为空"):
+                await memory_service.update_content(db, item.id, "   ")
+            with pytest.raises(ValueError, match="过长"):
+                await memory_service.update_content(db, item.id, "x" * 2001)
+            with pytest.raises(LookupError, match="不存在"):
+                await memory_service.update_content(db, "no-such-memory", "内容")
+    finally:
+        await _cleanup(created)
+        get_settings.cache_clear()
+
+
+async def test_memory_tools_update_delete_with_scope(monkeypatch, tmp_path) -> None:
+    """新工具：改正文/删除生效，无上下文容错，跨助理记忆被拒绝。"""
+
+    from app.tools.memory import delete_memory, update_memory
+
+    monkeypatch.setenv("KNOWLEDGE_UPLOAD_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    created: list[str] = []
+    session_id = str(uuid.uuid4())
+    try:
+        async with SessionLocal() as db:
+            mine = await memory_service.remember(
+                db, content="工具测试：颜色偏好是蓝色。", agent_id="default"
+            )
+            created.append(mine.id)
+            # 直接插行造他助理记忆（绕过 scope 校验，不依赖该助理真实存在）
+            other_id = str(uuid.uuid4())
+            db.add(
+                MemoryItem(
+                    id=other_id,
+                    content="工具测试：他助理专有记忆。",
+                    scope_agent_id="other-agent",
+                )
+            )
+            await db.commit()
+            created.append(other_id)
+
+        # tool_context=None 时按全局处理；default 的私有记忆此时应被作用域拒绝
+        with pytest.raises(LookupError, match="不属于当前助理"):
+            await update_memory(mine.id, "改成别的", tool_context=None)
+
+        # 传一个带 session 的最小上下文（会话绑定 default），走正常改/删
+        from app.models.chat import ChatSession
+
+        async with SessionLocal() as db:
+            db.add(
+                ChatSession(
+                    id=session_id,
+                    title="memory-tool-test",
+                    agent_id="default",
+                    provider="p",
+                    model="m",
+                    adk_user_id="test-user",
+                    owner_user_id=1,
+                )
+            )
+            await db.commit()
+
+        class _Ctx:
+            session = type("S", (), {"id": session_id})()
+
+        ctx = _Ctx()
+        result = await update_memory(mine.id, "工具测试：颜色偏好改为绿色。", tool_context=ctx)
+        assert result["status"] == "updated"
+        assert "绿色" in result["content"]
+        async with SessionLocal() as db:
+            hits = await memory_service.recall(db, query="绿色", agent_id="default")
+            assert any(h["id"] == mine.id for h in hits)
+
+        # 他助理记忆不可被本助理改/删
+        with pytest.raises(LookupError, match="不属于当前助理"):
+            await delete_memory(other_id, tool_context=ctx)
+
+        deleted = await delete_memory(mine.id, tool_context=ctx)
+        assert deleted["status"] == "deleted"
+        created.remove(mine.id)
+        async with SessionLocal() as db:
+            hits = await memory_service.recall(db, query="绿色", agent_id="default")
+            assert all(h["id"] != mine.id for h in hits)
+    finally:
+        await _cleanup(created)
+        async with SessionLocal() as db:
+            session_row = await db.get(ChatSession, session_id)
+            if session_row is not None:
+                await db.delete(session_row)
+                await db.commit()
+        get_settings.cache_clear()
+
+
 async def test_memory_list_search_pagination_and_toggle(monkeypatch, tmp_path) -> None:
     """管理列表：关键字命中、服务端分页、启停状态可切换。"""
 

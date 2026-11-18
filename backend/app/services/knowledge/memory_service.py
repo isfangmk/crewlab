@@ -102,6 +102,45 @@ async def remember(
     return item
 
 
+async def update_content(db: AsyncSession, memory_id: str, content: str) -> MemoryItem:
+    """改写一条记忆的正文并重算向量。
+
+    与 remember 同口径：先算新向量，再改业务行，最后 upsert 覆盖旧向量并提交；
+    任一步失败回滚业务行，并尽力回滚向量，避免「正文已改、旧向量还在」的不一致。
+    """
+
+    if not isinstance(content, str) or content.strip() == "":
+        raise ValueError("记忆内容不能为空")
+    if len(content) > MEMORY_CONTENT_LIMIT:
+        raise ValueError(f"记忆内容过长（上限 {MEMORY_CONTENT_LIMIT} 字符）")
+    row = await db.get(MemoryItem, memory_id)
+    if row is None:
+        raise LookupError(f"记忆不存在: {memory_id}")
+
+    vs = get_vector_store()
+    if vs is None:
+        raise_vector_store_unavailable()
+
+    text = content.strip()
+    vector = await embed_text(text)
+    row.content = text
+    await db.flush()
+    try:
+        await vs.upsert_many(MEMORY_NAMESPACE, [(memory_id, vector)])
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        # 向量可能已覆盖为旧值或新值；尽力清掉，失败只留日志（业务行已回滚）
+        try:
+            await vs.delete_refs(MEMORY_NAMESPACE, [memory_id])
+        except Exception:  # noqa: BLE001 — 清理失败不掩盖原始异常
+            logger.exception("记忆向量回滚失败 id=%s", memory_id)
+        raise
+    await db.refresh(row)
+    logger.info("已更新记忆正文 id=%s len=%s", memory_id, len(row.content))
+    return row
+
+
 async def compose_memory_hint(
     db: AsyncSession,
     *,

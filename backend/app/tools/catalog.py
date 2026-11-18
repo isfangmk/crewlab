@@ -12,7 +12,12 @@ from typing import Any
 
 from app.tools.code_interpreter import run_python
 from app.tools.knowledge import query_knowledge
-from app.tools.memory import recall_memory, remember_memory
+from app.tools.memory import (
+    delete_memory,
+    recall_memory,
+    remember_memory,
+    update_memory,
+)
 from app.tools.task_graph import get_task_graph, submit_task_graph, update_task_graph
 from app.tools.user_input import ASK_USER_TOOL_NAME, ask_user
 from app.tools.workflow import (
@@ -44,6 +49,20 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
         "group": "memory",
         "description": "按语义回忆相关记忆（本助理记忆 ∪ 全局记忆）",
         "risk": "safe",
+        "mount": "always",
+    },
+    {
+        "name": "update_memory",
+        "group": "memory",
+        "description": "改写一条已有记忆的正文（需先 recall_memory 拿 id）；会重新向量化",
+        "risk": "mutating",
+        "mount": "always",
+    },
+    {
+        "name": "delete_memory",
+        "group": "memory",
+        "description": "删除一条记忆（需先 recall_memory 拿 id），不可恢复",
+        "risk": "mutating",
         "mount": "always",
     },
     {
@@ -198,6 +217,8 @@ _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
     "run_python": run_python,
     "remember_memory": remember_memory,
     "recall_memory": recall_memory,
+    "update_memory": update_memory,
+    "delete_memory": delete_memory,
     "query_knowledge": query_knowledge,
     "web_search": _web_search_signature,
     ASK_USER_TOOL_NAME: ask_user,

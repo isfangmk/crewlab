@@ -312,6 +312,9 @@ def test_followups_instruction_gating() -> None:
     root = build_chat_agent(include_followups=True, **common)
     assert "```suggestions" in root.instruction
     assert FOLLOWUPS_INSTRUCTION in root.instruction
+    # 建议问题必须以用户口吻出题、禁止模型口吻，防风格回退
+    assert "用户自己的口吻" in FOLLOWUPS_INSTRUCTION
+    assert "禁止用助理/模型的口吻" in FOLLOWUPS_INSTRUCTION
 
     no_followups = build_chat_agent(include_followups=False, **common)
     assert "```suggestions" not in no_followups.instruction
