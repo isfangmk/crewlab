@@ -7,7 +7,7 @@ import logging
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.platform.llm_config import get_provider
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,18 +21,19 @@ def _search_url(base_url: str) -> str:
     return f"{root}/v1/tools/search"
 
 
-async def resolve_deepseek_search_cred(db: AsyncSession) -> tuple[str, str]:
-    """联网搜索固定走配置中的 deepseek provider（与官方 Search API 同源密钥）。
+async def resolve_deepseek_search_cred(
+    db: AsyncSession,  # pyright: ignore[reportUnusedParameter] — 保留参数以兼容调用点；凭证已改从环境变量读取
+) -> tuple[str, str]:
+    """联网搜索凭证从环境变量读取（WEB_SEARCH_API_KEY / WEB_SEARCH_BASE_URL）。
 
-    provider id 写死为 deepseek 是有意的：DeepSeek Search API 与
-    DeepSeek 聊天接口同源，换 provider 就换不了搜索能力。
-    改名/删除 deepseek provider 时这里会显式失败，不静默降级。
+    与设置页的 LLM provider 完全解耦：删除/改名任何 provider（含 deepseek）
+    都不影响联网搜索，也不会再因 provider 缺失而在对话期抛 LookupError。
+    缺 WEB_SEARCH_API_KEY 时显式失败，让调用方按既有约定跳过挂载/退回内网取证。
     """
-
-    provider = await get_provider(db, "deepseek")
-    if provider.api_key == "":
-        raise LookupError("deepseek provider 的 api_key 为空，无法调用网页搜索")
-    return provider.base_url, provider.api_key
+    settings = get_settings()
+    if settings.web_search_api_key == "":
+        raise LookupError("WEB_SEARCH_API_KEY 未配置，无法调用网页搜索")
+    return settings.web_search_base_url, settings.web_search_api_key
 
 
 async def deepseek_web_search(

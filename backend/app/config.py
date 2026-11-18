@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     seed_llm_model_prefix: str = Field(alias="SEED_LLM_MODEL_PREFIX", default="")
     # 种子 provider 的厂商专属请求体（JSON 对象文本）
     seed_llm_extra_body_json: str = Field(alias="SEED_LLM_EXTRA_BODY_JSON", default="")
+    # 联网搜索（DeepSeek 官方 Search API）独立凭证：与设置页的 LLM provider 解耦，
+    # 从环境变量读取；删除/改名任意 provider 都不影响联网搜索。
+    web_search_api_key: str = Field(alias="WEB_SEARCH_API_KEY", default="")
+    web_search_base_url: str = Field(
+        alias="WEB_SEARCH_BASE_URL", default="https://api.deepseek.com"
+    )
     # LiteLLM 用本地价格表：置 True 不拉 GitHub（拉取超时会让进程首个回合白等 10+ 秒）。
     # 字段进 Settings（extra=forbid 要求 .env 的键都有归属）；litellm 本身从
     # os.environ 读，靠文件头的 load_dotenv 灌入。
