@@ -1,0 +1,198 @@
+{
+  "generated_at": "2026-11-18T09:37:48",
+  "host": "http://127.0.0.1:18080",
+  "read_endpoints": 21,
+  "write_endpoints": 2,
+  "endpoints": {
+    "GET /api/v1/users": {
+      "count": 60,
+      "min": 11.92,
+      "p50": 149.25,
+      "p95": 676.3,
+      "p99": 914.85,
+      "max": 914.85,
+      "avg": 191.62
+    },
+    "GET /api/v1/chat/sessions/{session_id}/messages": {
+      "count": 53,
+      "min": 8.5,
+      "p50": 38.52,
+      "p95": 772.57,
+      "p99": 1130.21,
+      "max": 1130.21,
+      "avg": 145.95
+    },
+    "GET /api/v1/workflows/runs/list": {
+      "count": 60,
+      "min": 22.27,
+      "p50": 150.33,
+      "p95": 764.34,
+      "p99": 1167.61,
+      "max": 1167.61,
+      "avg": 253.31
+    },
+    "GET /api/v1/chat/sessions/{session_id}/attachments": {
+      "count": 52,
+      "min": 9.85,
+      "p50": 54.77,
+      "p95": 764.03,
+      "p99": 941.16,
+      "max": 941.16,
+      "avg": 176.05
+    },
+    "GET /api/v1/audit": {
+      "count": 52,
+      "min": 17.08,
+      "p50": 188.21,
+      "p95": 807.86,
+      "p99": 1339.11,
+      "max": 1339.11,
+      "avg": 291.87
+    },
+    "GET /api/v1/shares": {
+      "count": 47,
+      "min": 12.86,
+      "p50": 68.66,
+      "p95": 468.34,
+      "p99": 838.35,
+      "max": 838.35,
+      "avg": 154.66
+    },
+    "GET /api/v1/memory": {
+      "count": 60,
+      "min": 8.05,
+      "p50": 54.74,
+      "p95": 609.7,
+      "p99": 876.1,
+      "max": 876.1,
+      "avg": 133.27
+    },
+    "GET /api/v1/aiops/mentions/search": {
+      "count": 43,
+      "min": 14.0,
+      "p50": 63.94,
+      "p95": 834.18,
+      "p99": 984.34,
+      "max": 984.34,
+      "avg": 212.92
+    },
+    "GET /api/v1/approvals": {
+      "count": 50,
+      "min": 11.64,
+      "p50": 148.34,
+      "p95": 957.07,
+      "p99": 1053.0,
+      "max": 1053.0,
+      "avg": 303.01
+    },
+    "GET /api/v1/knowledge/paths": {
+      "count": 51,
+      "min": 8.22,
+      "p50": 44.86,
+      "p95": 633.84,
+      "p99": 819.37,
+      "max": 819.37,
+      "avg": 131.91
+    },
+    "GET /api/v1/chat/sessions/{session_id}/artifacts": {
+      "count": 62,
+      "min": 7.9,
+      "p50": 61.2,
+      "p95": 739.67,
+      "p99": 943.03,
+      "max": 943.03,
+      "avg": 185.59
+    },
+    "GET /api/v1/workflows": {
+      "count": 54,
+      "min": 19.48,
+      "p50": 61.49,
+      "p95": 672.57,
+      "p99": 693.55,
+      "max": 693.55,
+      "avg": 150.99
+    },
+    "GET /api/v1/observability/overview": {
+      "count": 47,
+      "min": 14.61,
+      "p50": 83.29,
+      "p95": 548.98,
+      "p99": 1018.83,
+      "max": 1018.83,
+      "avg": 168.8
+    },
+    "GET /api/v1/task-graphs": {
+      "count": 51,
+      "min": 17.91,
+      "p50": 98.61,
+      "p95": 674.06,
+      "p99": 709.08,
+      "max": 709.08,
+      "avg": 203.83
+    },
+    "GET /api/v1/sandbox/executions": {
+      "count": 47,
+      "min": 33.95,
+      "p50": 136.29,
+      "p95": 633.4,
+      "p99": 828.15,
+      "max": 828.15,
+      "avg": 204.56
+    },
+    "GET /api/v1/audit/export": {
+      "count": 54,
+      "min": 156.6,
+      "p50": 691.58,
+      "p95": 1405.31,
+      "p99": 1920.52,
+      "max": 1920.52,
+      "avg": 698.91
+    },
+    "GET /api/v1/knowledge/sources": {
+      "count": 57,
+      "min": 11.89,
+      "p50": 41.71,
+      "p95": 663.76,
+      "p99": 771.3,
+      "max": 771.3,
+      "avg": 146.02
+    },
+    "GET /api/v1/knowledge/docs": {
+      "count": 39,
+      "min": 19.25,
+      "p50": 202.09,
+      "p95": 870.97,
+      "p99": 979.53,
+      "max": 979.53,
+      "avg": 249.69
+    },
+    "GET /api/v1/observability/turns": {
+      "count": 61,
+      "min": 10.34,
+      "p50": 80.51,
+      "p95": 670.47,
+      "p99": 934.42,
+      "max": 934.42,
+      "avg": 177.12
+    },
+    "GET /api/v1/chat/sessions": {
+      "count": 48,
+      "min": 54.97,
+      "p50": 482.08,
+      "p95": 1075.92,
+      "p99": 1312.83,
+      "max": 1312.83,
+      "avg": 499.05
+    },
+    "GET /api/v1/knowledge/search": {
+      "count": 43,
+      "min": 988.31,
+      "p50": 3035.51,
+      "p95": 8002.17,
+      "p99": 11716.9,
+      "max": 11716.9,
+      "avg": 3873.87
+    }
+  },
+  "failures": {}
+}

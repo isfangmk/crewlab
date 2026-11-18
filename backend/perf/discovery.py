@@ -58,6 +58,8 @@ _EXCLUDE_PATH_TOKENS = (
     "/approve/stream",
     "/fire",
     "/shares/{token}",  # 分享令牌是公开读、非压测目标
+    "/knowledge/search",  # 每次真调外部 embedding API（SiliconFlow），延迟属外部依赖，
+    # 且会独占事件循环拖垮同 worker 其他端点的并发计时，单独测不计入常规集合
 )
 
 
