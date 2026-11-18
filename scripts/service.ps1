@@ -1,15 +1,16 @@
-# AI workbench service manager: redis (:6379) + backend (uvicorn :18080) + frontend (Vite :5173) + mcp (obs-tools SSE :18099)
+﻿# AI workbench service manager: redis (:6379) + sandbox (WSL docker.sock tcp 转发) + backend (uvicorn :18080) + frontend (Vite :5173) + mcp (obs-tools SSE :18099)
 # Usage:
-#   scripts/service.ps1 start   [backend|frontend|mcp|redis|all]   (default all)
-#   scripts/service.ps1 stop    [backend|frontend|mcp|redis|all]
-#   scripts/service.ps1 restart [backend|frontend|mcp|redis|all]
+#   scripts/service.ps1 start   [backend|frontend|mcp|redis|sandbox|all]   (default all)
+#   scripts/service.ps1 stop    [backend|frontend|mcp|redis|sandbox|all]
+#   scripts/service.ps1 restart [backend|frontend|mcp|redis|sandbox|all]
+#   sandbox 仅在 SANDBOX_EXECUTOR=docker（默认）时启动转发；local 执行器自动跳过。
 param(
   [Parameter(Position = 0, Mandatory = $true)]
   [ValidateSet('start', 'stop', 'restart')]
   [string]$Action,
 
   [Parameter(Position = 1)]
-  [ValidateSet('backend', 'frontend', 'mcp', 'redis', 'all')]
+  [ValidateSet('backend', 'frontend', 'mcp', 'redis', 'sandbox', 'all')]
   [string]$Target = 'all'
 )
 
@@ -30,6 +31,43 @@ function Stop-Tree([int]$ProcessId) {
 
 function Get-PortOwner([int]$Port) {
   return Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+}
+
+# 读 .env 中 SANDBOX_EXECUTOR：未配置视为 docker（与 config.py 默认值一致）。
+function Get-SandboxExecutor() {
+  $EnvFile = Join-Path $Root "backend\.env"
+  if (Test-Path $EnvFile) {
+    $line = Get-Content $EnvFile | Where-Object { $_ -match '^\s*SANDBOX_EXECUTOR\s*=' } | Select-Object -Last 1
+    if ($line -and $line -match '^\s*SANDBOX_EXECUTOR\s*=\s*"?([^"\s]+)"?') {
+      return $matches[1].ToLowerInvariant()
+    }
+  }
+  return 'docker'
+}
+
+# 沙箱转发：socat 跑在 WSL 内把 docker.sock 转给 tcp 2375（供 SANDBOX_DOCKER_HOST 连接）。
+# 启停逻辑在 scripts/sandbox-proxy.sh（WSL 内执行），PowerShell 只调用脚本，规避 Windows→WSL 的引号/转义问题。
+function Get-SandboxProxyScript() {
+  # Windows 路径 D:\... → WSL 路径 /mnt/d/...
+  $drive = $Root.Substring(0, 1).ToLowerInvariant()
+  $rest = $Root.Substring(2).Replace('\', '/')
+  return "/mnt/$drive$rest/scripts/sandbox-proxy.sh"
+}
+
+function Start-Sandbox() {
+  $executor = Get-SandboxExecutor
+  if ($executor -ne 'docker') {
+    Write-Host "sandbox skipped: SANDBOX_EXECUTOR=$executor (仅 docker 执行器需要转发服务)"
+    return
+  }
+  $script = Get-SandboxProxyScript
+  $out = (& wsl.exe -e sh $script start 2>&1 | Out-String).Trim()
+  Write-Host $out
+  if ($LASTEXITCODE -ne 0 -or $out -match 'ERROR') {
+    Write-Error "sandbox start failed: $out"
+  }
+  # 兼容旧 pid 文件：新方案 pid 由 sh 脚本在 WSL 内维护，清理旧文件避免误导
+  Remove-Item (Join-Path $Logs "sandbox.pid") -Force -ErrorAction SilentlyContinue
 }
 
 function Stop-One([string]$Name, [int]$Port) {
@@ -140,10 +178,26 @@ function Start-One([string]$Name) {
   Write-Host "log=$Logs\$Name.log (logger overwrite)"
 }
 
-$ports = @{ backend = 18080; frontend = 5173; mcp = 18099; redis = 6379 }
-$names = if ($Target -eq 'all') { @('redis', 'backend', 'frontend', 'mcp') } else { @($Target) }
+function Stop-Sandbox() {
+  $script = Get-SandboxProxyScript
+  $out = (& wsl.exe -e sh $script stop 2>&1 | Out-String).Trim()
+  Write-Host $out
+  Remove-Item (Join-Path $Logs "sandbox.pid") -Force -ErrorAction SilentlyContinue
+}
+
+$ports = @{ backend = 18080; frontend = 5173; mcp = 18099; redis = 6379; sandbox = 0 }
+$names = if ($Target -eq 'all') { @('redis', 'sandbox', 'backend', 'frontend', 'mcp') } else { @($Target) }
 
 foreach ($name in $names) {
+  # sandbox 进程在 WSL 内、不按 Windows 端口管理，走专用启停并跳过通用端口检查
+  if ($name -eq 'sandbox') {
+    switch ($Action) {
+      'start' { Start-Sandbox }
+      'stop' { Stop-Sandbox }
+      'restart' { Stop-Sandbox; Start-Sleep -Seconds 1; Start-Sandbox }
+    }
+    continue
+  }
   switch ($Action) {
     'start' { Start-One $name }
     'stop' { Stop-One $name $ports[$name] }
