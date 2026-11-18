@@ -20,6 +20,7 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.models.chat import ChatMessage, ChatSession
 from app.models.memory import MemoryItem
+from app.services.platform.llm_config import get_default_selection
 from perf.env import load_manifest, save_manifest
 
 TAG = "__perf__"
@@ -39,6 +40,10 @@ async def seed() -> None:
         # 幂等：先清旧数据
         await clean_db(db)
 
+        # 用系统默认 LLM（列表/新建会话的同一选择），不写死 provider/model，
+        # 否则压测数据与真实环境模型不一致，模型筛选/统计等路径测不到真实值。
+        provider, model = await get_default_selection(db)
+
         sessions: list[ChatSession] = []
         big_ids: list[str] = []
         for i in range(TAG_SESSION_COUNT):
@@ -47,8 +52,8 @@ async def seed() -> None:
                 ChatSession(
                     id=sid,
                     title=f"{TAG} 会话 {i}",
-                    provider="perf-provider",
-                    model="perf-model",
+                    provider=provider,
+                    model=model,
                     agent_id="default",
                     adk_user_id="1",
                     owner_user_id=1,
@@ -106,8 +111,8 @@ async def seed() -> None:
             "session_ids": [s.id for s in sessions],
             "big_session_ids": big_ids,
             "memory_ids": [m.id for m in memories],
-            "provider": "perf-provider",
-            "model": "perf-model",
+            "provider": provider,
+            "model": model,
             "admin_uid": 1,
         }
         save_manifest(manifest)
