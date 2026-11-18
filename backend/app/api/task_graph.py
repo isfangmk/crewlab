@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,18 +15,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette import EventSourceResponse
 
-from app.adk_runtime.headless import WorkerBudget
 from app.api.deps import get_db, require_auth, require_not_viewer
-from app.models.chat import ChatMessage, ChatSession
 from app.models.task_graph import TaskGraphRun
-from app.schemas.task_graph import TaskGraphNodeSpec, TaskGraphSpec
 from app.services.observability.audit_service import write_audit
 from app.services.platform.auth_service import AuthUser
 from app.services.taskgraph import task_graph_service
 from app.services.taskgraph.task_graph_events import task_graph_events
 
 router = APIRouter(tags=["task graphs"])
-logger = logging.getLogger(__name__)
 
 
 class GraphNodesIn(BaseModel):
@@ -35,13 +30,6 @@ class GraphNodesIn(BaseModel):
 
     nodes_json: str
     edges_json: str = "[]"
-
-
-class GraphFromMessageIn(BaseModel):
-    """从一条助理回答创建单节点任务图草稿。"""
-
-    message_id: str
-    title: str = ""
 
 
 TERMINAL_EVENTS = {"graph_finished"}
@@ -82,72 +70,6 @@ async def list_task_graphs(
         db, session_id=session_id, limit=limit, offset=offset
     )
     return {"items": items, "total": total}
-
-
-@router.post("/task-graphs/from-message")
-async def create_graph_from_message(
-    body: GraphFromMessageIn,
-    db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_not_viewer),
-) -> dict:
-    """从一条助理回答创建单节点任务图草稿（不执行）。
-
-    把回答正文作为节点的 target/instruction 提示语，用户在工作台确认后再执行；
-    复用 submit_graph 落库（draft 状态），归属与审计与手工建图一致。
-    """
-    msg = await db.get(ChatMessage, body.message_id)
-    if msg is None:
-        raise HTTPException(status_code=404, detail=f"消息不存在: {body.message_id}")
-    if msg.role != "assistant" or msg.kind not in (None, "message"):
-        raise HTTPException(status_code=400, detail="只能从助理回答正文创建任务图")
-    session = await db.get(ChatSession, msg.session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"会话不存在: {msg.session_id}")
-    # 会话属主校验：防止拿别人的消息建图。
-    from app.api.chat import _require_session_owner
-
-    _require_session_owner(session, user)
-
-    answer = (msg.content or "").strip()
-    if answer == "":
-        raise HTTPException(status_code=400, detail="消息正文为空，无法生成任务图")
-    title = (body.title or "").strip()[:256] or "从回答创建的任务"
-    # 单节点：把回答要点作为排查/执行目标，边界写清"按此回答执行"。
-    spec = TaskGraphSpec(
-        title=title,
-        question=answer[:8000],
-        nodes=[
-            TaskGraphNodeSpec(
-                id="n1",
-                name=title[:128],
-                target=answer[:2000],
-                instruction=f"按以下回答内容执行并给出结果：\n{answer[:6000]}",
-                tools=["__none__"],
-            )
-        ],
-    )
-    graph = await task_graph_service.submit_graph(
-        db,
-        session_id=msg.session_id,
-        spec=spec,
-        budget=WorkerBudget(),
-        card_message_id=msg.id,
-        created_by=user.id,
-    )
-    await write_audit(
-        actor_user_id=user.id,
-        action="task_graph.create_from_message",
-        resource_type="task_graph_run",
-        resource_id=graph.graph_uid,
-        detail={"message_id": msg.id, "session_id": msg.session_id},
-    )
-    logger.info(
-        "从消息建任务图 graph_uid=%s message_id=%s session_id=%s",
-        graph.graph_uid,
-        msg.id,
-        msg.session_id,
-    )
-    return {"graph_uid": graph.graph_uid, "title": title, "session_id": msg.session_id}
 
 
 @router.get("/task-graphs/{graph_uid}")

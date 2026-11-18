@@ -24,7 +24,6 @@ import {
 } from '@/components/MessageBubble';
 
 import { AgentBadge } from '@/components/AgentBadge';
-import { SkillEditor } from '@/components/SkillEditor';
 import { ArtifactsPanel } from '@/components/ArtifactsPanel';
 import { TaskGraphWorkbench, type TaskGraphLocateTarget } from '@/components/taskgraph/TaskGraphWorkbench';
 
@@ -94,9 +93,6 @@ import {
 import { listAgents, type AgentSummary } from '@/api/agents';
 
 import { listApprovals, type Approval } from '@/api/approvals';
-import { createDoc } from '@/api/knowledge';
-import { createGraphFromMessage } from '@/api/taskGraph';
-import type { SkillSummary } from '@/api/skills';
 import { CHAT_LIVE_EVENT, emitChatLive, type ChatLiveDetail } from '@/lib/chatLiveBus';
 
 import { ApiError } from '@/api/client';
@@ -233,9 +229,6 @@ export default function ChatThreadPage() {
   // 对话帧流断线重连次数：>0 时思考指示器改显"连接中断，正在恢复…"，
   // done/error 收口归零。仅 UI 提示，不参与回合状态。
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
-
-  // 从回答一键转技能：用回答正文预填指令正文的 SkillEditor 草稿。
-  const [skillDraft, setSkillDraft] = useState<{ instructions: string } | null>(null);
 
   // 执行态（计划/排查）独立于聊天回合：带外启动，单独锁输入框直到收口
   const [execBusy, setExecBusy] = useState(false);
@@ -2125,38 +2118,6 @@ export default function ChatThreadPage() {
       });
   }
 
-  // 一键复用：把助理回答存为知识文档（tags 轻量溯源）。
-  async function saveAsKnowledge(message: ChatMessage) {
-    try {
-      await createDoc({
-        title: (message.content ?? '').trim().slice(0, 60) || '会话回答',
-        content: message.content ?? '',
-        tags: ['来自会话'],
-      });
-      flash('ok', tr('已存为知识文档', 'Saved as knowledge doc'));
-    } catch (e) {
-      flash('err', errorText(e));
-    }
-  }
-
-  // 一键复用：用回答正文预填技能编辑器，剩余字段由用户补齐。
-  function saveAsSkill(message: ChatMessage) {
-    setSkillDraft({ instructions: message.content ?? '' });
-  }
-
-  // 一键复用：从回答创建单节点任务图草稿（不执行），在工作台确认。
-  async function saveAsTask(message: ChatMessage) {
-    try {
-      await createGraphFromMessage({
-        message_id: message.id,
-        title: (message.content ?? '').trim().slice(0, 60) || '从回答创建的任务',
-      });
-      flash('ok', tr('任务草稿已创建，请在工作台确认', 'Task draft created — confirm in workbench'));
-    } catch (e) {
-      flash('err', errorText(e));
-    }
-  }
-
   function ThinkingIndicator() {
 
     return (
@@ -2514,12 +2475,6 @@ export default function ChatThreadPage() {
 
                     onConfirmConfigDraft={isViewer ? undefined : confirmConfigDraft}
 
-                    onSaveAsKnowledge={isViewer ? undefined : saveAsKnowledge}
-
-                    onSaveAsSkill={isViewer ? undefined : saveAsSkill}
-
-                    onSaveAsTask={isViewer ? undefined : saveAsTask}
-
                   />
                 </div>
 
@@ -2692,18 +2647,6 @@ export default function ChatThreadPage() {
         onClose={() => setShareOpen(false)}
 
       />
-
-      {skillDraft !== null && (
-        <SkillEditor
-          mode="create"
-          initialInstructions={skillDraft.instructions}
-          onClose={() => setSkillDraft(null)}
-          onSaved={(skill: SkillSummary) => {
-            setSkillDraft(null);
-            flash('ok', tr(`已创建技能 ${skill.key}`, `Created skill ${skill.key}`));
-          }}
-        />
-      )}
 
     </>
 

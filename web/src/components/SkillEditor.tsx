@@ -138,25 +138,22 @@ function readAsBase64(file: File): Promise<string> {
 export function SkillEditor({
   mode,
   existingKey,
-  initialInstructions = '',
   onClose,
   onSaved,
 }: {
   mode: 'create' | 'edit';
   existingKey?: string;
-  /** 新建时用回答正文预填指令正文（从会话一键转技能）。 */
-  initialInstructions?: string;
   onClose: () => void;
   onSaved: (skill: SkillSummary, mode: 'create' | 'edit') => void;
 }) {
   const { tr } = useI18n();
-  const [activeTab, setActiveTab] = useState<EditorSection>(initialInstructions ? 'instructions' : 'basic');
+  const [activeTab, setActiveTab] = useState<EditorSection>('basic');
   const [key, setKey] = useState('');
   const [description, setDescription] = useState('');
   const [risk, setRisk] = useState<SkillClass>('safe');
   const [group, setGroup] = useState<SkillGroup>('other');
   const [groupOptions, setGroupOptions] = useState<SkillGroupMeta[]>([]);
-  const [instructions, setInstructions] = useState(initialInstructions);
+  const [instructions, setInstructions] = useState('');
   const [tools, setTools] = useState<string[]>([]);
   const [injectState, setInjectState] = useState(false);
   const [files, setFiles] = useState<Record<ResourceKind, FileDraft[]>>({

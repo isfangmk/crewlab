@@ -3,7 +3,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { resolveToolStatus } from '@/lib/toolStatus';
 import {
   AlertCircle,
-  BookOpen,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -12,13 +11,11 @@ import {
   FileText,
   GitBranch,
   Lightbulb,
-  ListPlus,
   Loader2,
   MessageSquare,
   Pencil,
   RefreshCw,
   ShieldAlert,
-  Sparkles,
   Wrench,
   X,
   XCircle,
@@ -82,10 +79,6 @@ type Props = {
   onLocatePlan?(target: TaskGraphLocateTarget): void;
   /** 会话内任务图发现的最大编号：>0 时正文 [n] 渲染为引用角标 */
   findingCount?: number;
-  /** 助理回答一键复用（轻量版）；未提供则不显示操作栏。 */
-  onSaveAsKnowledge?(message: ChatMessage): void | Promise<void>;
-  onSaveAsSkill?(message: ChatMessage): void | Promise<void>;
-  onSaveAsTask?(message: ChatMessage): void | Promise<void>;
 };
 
 export function MessageBubble({
@@ -101,9 +94,6 @@ export function MessageBubble({
   onLocate,
   onLocatePlan,
   findingCount,
-  onSaveAsKnowledge,
-  onSaveAsSkill,
-  onSaveAsTask,
 }: Props) {
   if ((message.kind === 'tool_card' || message.role === 'tool') && message.tool_call) {
     return (
@@ -151,9 +141,6 @@ export function MessageBubble({
       onLocate={onLocate}
       onLocatePlan={onLocatePlan}
       findingCount={findingCount}
-      onSaveAsKnowledge={onSaveAsKnowledge}
-      onSaveAsSkill={onSaveAsSkill}
-      onSaveAsTask={onSaveAsTask}
     />
   );
 }
@@ -420,7 +407,7 @@ function compactUserContent(
   return tr('确认创建这条告警规则', 'Confirm creating this alert rule');
 }
 
-function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUseSuggestion, onLocate, onLocatePlan, findingCount = 0, onSaveAsKnowledge, onSaveAsSkill, onSaveAsTask }: Props) {
+function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUseSuggestion, onLocate, onLocatePlan, findingCount = 0 }: Props) {
   // Codex-style: no rounded card around assistant prose. Render markdown
   // flush against the column so headings/lists/code blocks read like a
   // document. Tool calls (when attached) appear as their own rows inside
@@ -589,35 +576,6 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
       {message.interrupted ? (
         <div className="ml-auto mt-0.5">
           <Chip dense tone="warning">{tr('已打断', 'Interrupted')}</Chip>
-        </div>
-      ) : null}
-      {(onSaveAsKnowledge || onSaveAsSkill || onSaveAsTask) && (message.content ?? '').trim() !== '' ? (
-        <div className="ml-auto mt-1 flex items-center gap-0.5 border-t border-zinc-800/60 pt-1">
-          <CopyButton text={message.content ?? ''} />
-          {onSaveAsKnowledge ? (
-            <RowActionIcon
-              className="h-6 w-6"
-              icon={BookOpen}
-              label={tr('存知识', 'Save to knowledge')}
-              onClick={() => void onSaveAsKnowledge(message)}
-            />
-          ) : null}
-          {onSaveAsSkill ? (
-            <RowActionIcon
-              className="h-6 w-6"
-              icon={Sparkles}
-              label={tr('转技能', 'To skill')}
-              onClick={() => void onSaveAsSkill(message)}
-            />
-          ) : null}
-          {onSaveAsTask ? (
-            <RowActionIcon
-              className="h-6 w-6"
-              icon={ListPlus}
-              label={tr('转任务', 'To task')}
-              onClick={() => void onSaveAsTask(message)}
-            />
-          ) : null}
         </div>
       ) : null}
     </div>
