@@ -132,6 +132,19 @@ async def build_agent_tool_bundle(
         session_id,
         owner_user_id,
     )
+    # 平台助手：挂两个元工具代替大量 CRUD 接口。写操作进审批闸门，
+    # GET 查询在审批回调里按目标 method 动态放行。
+    from app.adk_runtime.platform_api_tools import (
+        PLATFORM_AGENT_NAME,
+        PLATFORM_CONFIRM_TOOL,
+        build_platform_tools,
+    )
+
+    is_platform_agent = agent.name == PLATFORM_AGENT_NAME
+    if is_platform_agent:
+        extra_tools.extend(build_platform_tools())
+        confirm_tool_names.add(PLATFORM_CONFIRM_TOOL)
+        logger.info("已挂载平台助手元工具 agent=%s", agent.name)
     # 非 safe 的内置工具默认进闸（如 run_workflow）：默认要人工确认；
     # 审批规则 auto_approve 可以免审——风险定级与是否审批是两根轴
     from app.tools.catalog import BUILTIN_TOOL_SPECS
