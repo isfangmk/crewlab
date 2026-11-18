@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import uuid
 
 import httpx
@@ -10,7 +9,7 @@ import pytest
 
 from app.adk_runtime.naming import adk_identifier, root_adk_name
 from app.adk_runtime.sub_agents import _delegation_description
-from tests.conftest import default_llm, login_access_token
+from tests.conftest import collect_turn_events, default_llm, login_access_token
 
 
 def _agent_body(
@@ -300,34 +299,23 @@ async def test_delegation_round(env, api_base) -> None:
             assert session.status_code == 200, session.text
             session_id = session.json()["id"]
 
-            answer = ""
-            async with client.stream(
-                "POST",
-                f"/api/v1/chat/sessions/{session_id}/messages/stream",
-                headers=headers,
-                json={
+            frames = await collect_turn_events(
+                client,
+                session_id,
+                {
                     "content": "请委托数学专员计算 41+1，并告诉我结果。",
                     "thinking_enabled": False,
                     "web_search_enabled": False,
                     "attachment_ids": [],
                 },
-            ) as resp:
-                assert resp.status_code == 200, resp.status_code
-                buf = ""
-                event = ""
-                async for chunk in resp.aiter_text():
-                    lines = (buf + chunk).split("\n")
-                    buf = lines[-1]
-                    for line in lines[:-1]:
-                        if line.startswith("event: "):
-                            event = line[7:].strip()
-                        elif line.startswith("data: ") and event == "assistant_delta":
-                            try:
-                                d = json.loads(line[6:])
-                                answer += d.get("delta", "")
-                            except json.JSONDecodeError:
-                                pass
-            # 会话消息里的最终回答复核
+                headers=headers,
+            )
+            answer = "".join(
+                data.get("delta", "")
+                for event, data in frames
+                if event == "assistant_delta"
+            )
+            # 会话消息里的最终回答复核（collect_turn_events 已等 done，落库竞态消除）
             msgs = await client.get(
                 f"/api/v1/chat/sessions/{session_id}/messages", headers=headers
             )

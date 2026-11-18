@@ -11,6 +11,7 @@ import pytest
 
 from app.adk_runtime.agent_factory import apply_thinking_extra
 from app.db import create_db_engine
+from tests.conftest import collect_turn_events
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPT = (
@@ -46,37 +47,23 @@ async def _one_turn(
     cr.raise_for_status()
     session_id = cr.json()["id"]
 
-    thinking_n = 0
-    assistant_n = 0
-    async with client.stream(
-        "POST",
-        f"/api/v1/chat/sessions/{session_id}/messages/stream",
-        json={
+    # POST 只返回 turn_id，帧走 GET /events（collect_turn_events 按新契约两段式消费）
+    frames = await collect_turn_events(
+        client,
+        session_id,
+        {
             "content": PROMPT,
             "thinking_enabled": thinking_enabled,
             "web_search_enabled": False,
             "mentions": [],
             "attachment_ids": [],
         },
-    ) as r:
-        r.raise_for_status()
-        event_name = ""
-        async for line in r.aiter_lines():
-            if line.startswith("event:"):
-                event_name = line[6:].strip()
-                continue
-            if not line.startswith("data:"):
-                continue
-            raw = line[5:].strip()
-            if raw == "":
-                continue
-            data = json.loads(raw)
-            if event_name == "thinking_delta":
-                thinking_n += 1
-            elif event_name == "assistant_delta":
-                assistant_n += 1
-            elif event_name == "error":
-                raise RuntimeError(data)
+    )
+    thinking_n = sum(1 for event, _ in frames if event == "thinking_delta")
+    assistant_n = sum(1 for event, _ in frames if event == "assistant_delta")
+    for event, data in frames:
+        if event == "error":
+            raise RuntimeError(data)
 
     return {
         "session_id": session_id,

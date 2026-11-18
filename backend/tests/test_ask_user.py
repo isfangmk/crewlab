@@ -294,7 +294,7 @@ async def _collect_frames(
 
 @pytest.mark.asyncio
 async def test_ask_user_round_trip_in_live_chat() -> None:
-    from tests.conftest import load_env, login_access_token
+    from tests.conftest import collect_turn_events, load_env, login_access_token
 
     env = load_env()
     host = env.get("HOST", "127.0.0.1")
@@ -338,12 +338,12 @@ async def test_ask_user_round_trip_in_live_chat() -> None:
                 "必须调用 ask_user 工具，禁止用文字直接提问，不要调用其他工具。"
             )
             # 模型偶发不听话：最多重试 3 轮直到出现澄清卡
+            # POST /messages/stream 只返回 turn_id，帧走 GET /events（helper 按新契约消费）
             pending: dict | None = None
             for _ in range(3):
-                frames = await _collect_frames(
+                frames = await collect_turn_events(
                     client,
-                    "POST",
-                    f"/api/v1/chat/sessions/{session_id}/messages/stream",
+                    session_id,
                     {
                         "content": prompt,
                         "thinking_enabled": False,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -21,6 +22,52 @@ async def default_llm() -> tuple[str, str]:
 
     async with SessionLocal() as db:
         return await get_default_selection(db)
+
+
+async def collect_turn_events(
+    client: httpx.AsyncClient,
+    session_id: str,
+    body: dict,
+    headers: dict | None = None,
+) -> list[tuple[str, dict]]:
+    """发起流式回合并收集全部帧，返回 [(event, data), ...]。
+
+    POST /messages/stream 现在只登记回合、立即返回 turn_id，帧不随该响应返回；
+    所有订阅者统一走 GET /events?turn_id= 读 Redis 帧流（支持补发+续推）。
+    本 helper 按新契约两段式消费，等 done 帧再返回，避免读消息历史时撞落库竞态。
+    """
+
+    resp = await client.post(
+        f"/api/v1/chat/sessions/{session_id}/messages/stream",
+        json=body,
+        headers=headers,
+    )
+    resp.raise_for_status()
+    turn_id = resp.json()["turn_id"]
+
+    frames: list[tuple[str, dict]] = []
+    async with client.stream(
+        "GET",
+        f"/api/v1/chat/sessions/{session_id}/events",
+        params={"turn_id": turn_id},
+        headers=headers,
+    ) as events:
+        events.raise_for_status()
+        event_name = ""
+        async for line in events.aiter_lines():
+            if line.startswith("event:"):
+                event_name = line[6:].strip()
+                continue
+            if not line.startswith("data:"):
+                continue
+            raw = line[5:].strip()
+            if raw == "":
+                continue
+            data = json.loads(raw)
+            frames.append((event_name, data))
+            if event_name == "done":
+                break
+    return frames
 
 
 @pytest.fixture(autouse=True)
