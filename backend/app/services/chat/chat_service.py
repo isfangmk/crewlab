@@ -1616,6 +1616,31 @@ async def _hydrate_mentions(db: AsyncSession, mentions: list[dict]) -> str:
     return "\n".join(lines)
 
 
+async def _hydrate_attachment_hint(
+    db: AsyncSession, session_id: str, attachment_ids: list[str]
+) -> str:
+    """把本轮附件清单（含 id/类型）注入模型上下文，供工具按 id 取用。
+
+    zip 技能包不作为 inline part 发给 LiteLlm（其 MIME 不被支持，见
+    attachment_service.is_inline_image），模型必须拿到 attachment_id 才能调用
+    install_skill_from_zip。图片同样列出 id，便于需要时引用。
+    """
+
+    if len(attachment_ids) == 0:
+        return ""
+    from app.services.chat.attachment_service import ZIP_MIME_TYPES, get_attachment
+
+    lines: list[str] = []
+    for attachment_id in attachment_ids:
+        row = await get_attachment(db, session_id, attachment_id)
+        kind = "技能包(zip)" if row.mime_type in ZIP_MIME_TYPES else "图片"
+        lines.append(
+            f"- [{kind}] 文件名={row.name} attachment_id={row.id} mime={row.mime_type}"
+        )
+    logger.info("注入附件上下文 session_id=%s count=%s", session_id, len(lines))
+    return "\n".join(lines)
+
+
 async def _validate_attachment_ids(
     db: AsyncSession, session_id: str, attachment_ids: list[str]
 ) -> list[str]:
@@ -1675,6 +1700,8 @@ async def stream_session_message(
     attachment_ids = await _validate_attachment_ids(db, session_id, attachment_ids)
     # @ 提及必须反查到真实对象，才能注入上下文
     mention_context = await _hydrate_mentions(db, mentions or [])
+    # 附件清单（含 zip 的 id）注入上下文：模型据此调用 install_skill_from_zip 等工具
+    attachment_context = await _hydrate_attachment_hint(db, session_id, attachment_ids)
 
     await _add_message(
         db,
@@ -1743,6 +1770,15 @@ async def stream_session_message(
         mention_hint = "用户本轮提及了以下对象，可据此回答：\n" + mention_context
         persona = (
             mention_hint if persona == "" else f"{persona}\n\n{mention_hint}"
+        )
+    # 本轮上传的附件（含 zip id）注入人设：zip 需按 id 调 install_skill_from_zip
+    if attachment_context != "":
+        attachment_hint = (
+            "用户本轮上传了以下附件，可按 attachment_id 使用对应工具：\n"
+            + attachment_context
+        )
+        persona = (
+            attachment_hint if persona == "" else f"{persona}\n\n{attachment_hint}"
         )
     # 会话引用的页面快照注入人设：全局助理据此知道用户当时在看哪一页
     page_context = _deserialize_page_context(session.page_context_json)

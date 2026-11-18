@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  FileText,
   GitBranch,
   Lightbulb,
   Loader2,
@@ -259,9 +260,20 @@ function UserBubble({ message, sessionId, actionsDisabled, onEditResend, onRegen
     <div className="group flex flex-col items-end gap-1">
       <div className="max-w-[78%] space-y-2 rounded-2xl rounded-br-md bg-zinc-800/80 px-3.5 py-2 text-[14px] leading-relaxed text-zinc-100 ring-1 ring-zinc-700/60">
         {!!message.attachments?.length && (
-          <div className="grid max-w-md grid-cols-2 gap-2">
+          <div className="flex max-w-md flex-wrap gap-2">
             {message.attachments.map((attachment, index) => (
-              <ProtectedAttachmentImage key={`${attachment.id}-${index}`} sessionId={sessionId} attachment={attachment} />
+              isZipAttachment(attachment) ? (
+                <div
+                  key={`${attachment.id}-${index}`}
+                  className="inline-flex max-w-[14rem] items-center gap-2 rounded-lg border border-zinc-600/70 bg-zinc-900/70 px-2.5 py-1.5 text-[12px] text-zinc-200"
+                  title={attachment.name}
+                >
+                  <FileText size={14} className="shrink-0 text-zinc-400" aria-hidden />
+                  <span className="truncate">{attachment.name}</span>
+                </div>
+              ) : (
+                <ProtectedAttachmentImage key={`${attachment.id}-${index}`} sessionId={sessionId} attachment={attachment} />
+              )
             ))}
           </div>
         )}
@@ -338,6 +350,11 @@ function UserBubble({ message, sessionId, actionsDisabled, onEditResend, onRegen
       )}
     </div>
   );
+}
+
+const ZIP_MIME_TYPES = new Set(['application/zip', 'application/x-zip-compressed']);
+function isZipAttachment(attachment: ImageAttachment): boolean {
+  return ZIP_MIME_TYPES.has(attachment.mime_type);
 }
 
 function ProtectedAttachmentImage({ sessionId, attachment }: { sessionId?: string; attachment: ImageAttachment }) {

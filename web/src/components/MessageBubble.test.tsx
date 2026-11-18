@@ -36,6 +36,20 @@ describe('MessageBubble image preview', () => {
     fireEvent.click(thumbnail);
     expect(await screen.findByAltText('Preview diagram.png')).toBeInTheDocument();
   });
+
+  it('renders a zip attachment as a file chip, not a broken image', async () => {
+    const loadSpy = vi.spyOn(chatApi, 'loadChatAttachment');
+    render(<MessageBubble sessionId="session-1" message={{
+      id: 'message-zip',
+      role: 'user',
+      content: '安装这个 skill',
+      attachments: [{ id: 'att-zip', name: 'nmc-weather-skill-master.zip', mime_type: 'application/x-zip-compressed', size: 1234 }],
+    }} />);
+
+    expect(await screen.findByText('nmc-weather-skill-master.zip')).toBeInTheDocument();
+    expect(document.querySelector('img[alt="nmc-weather-skill-master.zip"]')).toBeNull();
+    expect(loadSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe('MessageBubble shared approval card', () => {
