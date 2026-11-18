@@ -10,7 +10,7 @@ import pytest
 
 from app.adk_runtime.naming import adk_identifier, root_adk_name
 from app.adk_runtime.sub_agents import _delegation_description
-from tests.conftest import login_access_token
+from tests.conftest import default_llm, login_access_token
 
 
 def _agent_body(
@@ -285,13 +285,15 @@ async def test_delegation_round(env, api_base) -> None:
         assert parent_resp.status_code == 200, parent_resp.text
 
         try:
+            # 真调 LLM：用系统默认模型，不写死（默认变更时测试自动跟随）
+            provider, model = await default_llm()
             session = await client.post(
                 "/api/v1/chat/sessions",
                 headers=headers,
                 json={
                     "title": "delegation-e2e",
-                    "provider": "deepseek",
-                    "model": "deepseek-flash",
+                    "provider": provider,
+                    "model": model,
                     "agent_id": parent,
                 },
             )

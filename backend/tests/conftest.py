@@ -10,6 +10,19 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+async def default_llm() -> tuple[str, str]:
+    """返回系统当前默认 (provider, model)，真调 LLM 的测试用它，禁止写死模型。
+
+    与新建会话/列表页的默认选择同源（get_default_selection），默认变更时测试自动跟随。
+    """
+
+    from app.db import SessionLocal
+    from app.services.platform.llm_config import get_default_selection
+
+    async with SessionLocal() as db:
+        return await get_default_selection(db)
+
+
 @pytest.fixture(autouse=True)
 async def _redis_connection() -> None:
     """直连服务的测试不经过 lifespan：这里显式连接真 Redis，结束关闭。
