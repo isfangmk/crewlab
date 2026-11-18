@@ -10,6 +10,7 @@ wheels/
 .venv
 
 # 压测中间产物（冒烟/临时报告）；基线 report_before* 与优化后 report_after* 保留为交付物
+perf/manifest.json
 perf/report_smoke.json
 perf/report_latest.json
 perf/report_*.csv
