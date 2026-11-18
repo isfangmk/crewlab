@@ -659,6 +659,7 @@ async def list_queue(
                 "content": it.content,
                 "position": it.position,
                 "created_at": it.created_at,
+                "interrupt": it.interrupt,
             }
             for it in items
         ],

@@ -339,6 +339,8 @@ export type QueueItem = {
   content: string;
   position: number;
   created_at?: string;
+  /** 是否已标记为插话（出队时优先执行）。 */
+  interrupt?: boolean;
 };
 
 /** 入队载荷：正文必填，其余为当前回合的模型/开关/附件配置。 */
@@ -376,6 +378,23 @@ export function deleteQueueItem(sessionId: string | number, itemId: string) {
   return request<{ deleted: string }>(
     'DELETE',
     `/chat/sessions/${encodeURIComponent(String(sessionId))}/queue/${encodeURIComponent(itemId)}`,
+  );
+}
+
+/** 原地修改队列项正文；位置不变，轮到它时按新正文执行。 */
+export function updateQueueItem(sessionId: string | number, itemId: string, content: string) {
+  return request<{ session_id: string; item_id: string; content: string }>(
+    'PATCH',
+    `/chat/sessions/${encodeURIComponent(String(sessionId))}/queue/${encodeURIComponent(itemId)}`,
+    { content },
+  );
+}
+
+/** 插话：标记该队列项优先，并打断当前回合让它立即执行。 */
+export function interjectQueueItem(sessionId: string | number, itemId: string) {
+  return request<{ session_id: string; item_id: string; interrupted: boolean }>(
+    'POST',
+    `/chat/sessions/${encodeURIComponent(String(sessionId))}/queue/${encodeURIComponent(itemId)}/interject`,
   );
 }
 

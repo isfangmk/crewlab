@@ -16,8 +16,8 @@ import {
 import { createPortal } from 'react-dom';
 import {
   Send,
+  Square,
   Plus,
-  Zap,
   Mail,
   Github,
   Slack,
@@ -57,10 +57,12 @@ type Props = {
   onChange?(v: string): void;
   onSubmit(payload: SubmitPayload): void;
   /**
-   * 回答中把消息排进队列（不打断当前回合）。传入后发送按钮进入三态：
-   * 空闲走 onSubmit，busy 时主按钮走 onQueue，旁边显示插话占位按钮。
+   * 回答中且有内容时，把消息排进队列（不打断当前回合）。传入后发送按钮进入三态：
+   * 空闲走 onSubmit；busy 且输入为空走 onStop（中断）；busy 且有内容走 onQueue。
    */
   onQueue?(payload: SubmitPayload): void;
+  /** 中断当前回答。busy 且输入为空时主按钮变中断按钮，点击触发。 */
+  onStop?(): void;
   /** 当前会话是否正在回答。只影响发送按钮形态，不锁输入框/工具栏。 */
   busy?: boolean;
   placeholder?: string;
@@ -104,6 +106,7 @@ export function ChatInput({
   onChange,
   onSubmit,
   onQueue,
+  onStop,
   busy = false,
   placeholder,
   disabled,
@@ -590,34 +593,42 @@ export function ChatInput({
           </div>
 
           <div className="flex items-center gap-1.5">
-            {busy && (
-              <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                disabled
-                aria-label={tr('插话，即将上线', 'Interject, coming soon')}
-                title={tr('插话能力即将上线，当前回答结束后再发送', 'Interject is coming soon; your message will be queued')}
-                className="inline-flex items-center gap-1 opacity-60"
-              >
-                <Zap size={13} />
-                <span className="text-[12px]">{tr('插话 · 即将上线', 'Interject · soon')}</span>
-              </Button>
-            )}
-            <Button
-              // busy 时主按钮仍为 primary（可点），只走排队分支，不再变灰禁用。
-              variant={disabled || empty || (busy && !onQueue) ? 'subtle' : 'primary'}
-              size="sm"
-              type="button"
-              onClick={busy && onQueue ? queueSubmit : submit}
-              disabled={disabled || empty || (busy && !onQueue)}
-              aria-label={busy ? tr('排队发送', 'Queue message') : tr('发送消息', 'Send message')}
-              title={busy && onQueue ? tr('排进队列，不打断当前回答', 'Queue it without interrupting the current reply') : undefined}
-              className="inline-flex items-center gap-1 rounded-full px-3"
-            >
-              {busy ? <Plus size={13} /> : <Send size={13} />}
-              <span className="text-[12px]">{busy ? tr('排队发送', 'Queue') : tr('发送', 'Send')}</span>
-            </Button>
+            {/* 单按钮三态：空闲=发送；busy+空=中断；busy+有内容=排队发送。 */}
+            {(() => {
+              if (busy && empty) {
+                return (
+                  <Button
+                    variant="dangerGhost"
+                    size="sm"
+                    type="button"
+                    disabled={disabled || !onStop}
+                    onClick={onStop}
+                    aria-label={tr('中断回答', 'Stop answering')}
+                    title={tr('中断当前回答', 'Interrupt the current reply')}
+                    className="inline-flex items-center gap-1 rounded-full px-3"
+                  >
+                    <Square size={12} fill="currentColor" />
+                    <span className="text-[12px]">{tr('中断', 'Stop')}</span>
+                  </Button>
+                );
+              }
+              const queuing = busy && !empty && !!onQueue;
+              return (
+                <Button
+                  variant={disabled || empty || (busy && !onQueue) ? 'subtle' : 'primary'}
+                  size="sm"
+                  type="button"
+                  onClick={queuing ? queueSubmit : submit}
+                  disabled={disabled || empty || (busy && !onQueue)}
+                  aria-label={queuing ? tr('排队发送', 'Queue message') : tr('发送消息', 'Send message')}
+                  title={queuing ? tr('排进队列，不打断当前回答', 'Queue it without interrupting the current reply') : undefined}
+                  className="inline-flex items-center gap-1 rounded-full px-3"
+                >
+                  {queuing ? <Plus size={13} /> : <Send size={13} />}
+                  <span className="text-[12px]">{queuing ? tr('排队发送', 'Queue') : tr('发送', 'Send')}</span>
+                </Button>
+              );
+            })()}
           </div>
         </div>
       </div>

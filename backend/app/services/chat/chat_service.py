@@ -1262,6 +1262,7 @@ class AdkFramePersister:
         *,
         trace_id: str,
         turn_context: dict | None = None,
+        abort_signal: asyncio.Event | None = None,
     ) -> None:
         self._db = db
         self._session_id = session_id
@@ -1280,8 +1281,10 @@ class AdkFramePersister:
         self._written_ids: set[str] = set()
         # 本回合实际使用的模型上下文；审批恢复必须沿用它
         self._turn_context: dict | None = turn_context
-        # 插话打断标记：done 帧带 interrupted=True 时，本回合落库的正文段打此标记
+        # 插话打断：done 帧带 interrupted 时打标记；同时持有 abort_signal 供段落提前
+        # flush 时实时判定（中断信号可能在 done 帧之前到达，缓冲已落库则 done 标记不到）。
         self._interrupted: bool = False
+        self._abort_signal = abort_signal
 
     def _buffer_delta(self, kind: str, message_id: str, delta: str) -> str:
         """缓冲正文/思考增量，返回本段实际行 id；首次到达记序保证跨类型落库顺序。"""
@@ -1321,6 +1324,11 @@ class AdkFramePersister:
             len(content),
         )
         self._written_ids.add(message_id)
+        # 中断标记取两处并集：done 帧显式带 interrupted，或 abort_signal 已置位。
+        # 后者覆盖「段落因段切换在 done 前提前 flush、done 时 buffer 已空」的情形。
+        interrupted = self._interrupted or (
+            self._abort_signal is not None and self._abort_signal.is_set()
+        )
         await _add_message(
             self._db,
             message_id=message_id,
@@ -1330,7 +1338,7 @@ class AdkFramePersister:
             content=content,
             tool_call=None,
             stats=stats,
-            interrupted=self._interrupted,
+            interrupted=interrupted,
         )
 
     async def _flush_all(
@@ -1779,6 +1787,7 @@ async def stream_session_message(
         db,
         session_id,
         trace_id=obs.trace_id,
+        abort_signal=abort_signal,
         # 记录本回合实际使用的模型上下文；审批恢复必须沿用同一模型与超时
         turn_context={
             "provider": llm.provider_id,

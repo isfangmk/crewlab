@@ -144,7 +144,7 @@ it('toggles web search directly from the globe button', () => {
 });
 
 describe('ChatInput three-state send button', () => {
-  it('queues instead of sending while busy, and shows a disabled interject placeholder', () => {
+  it('queues instead of sending while busy with content', () => {
     const onSubmit = vi.fn();
     const onQueue = vi.fn();
     render(
@@ -160,10 +160,21 @@ describe('ChatInput three-state send button', () => {
     fireEvent.click(queueBtn);
     expect(onQueue).toHaveBeenCalledWith({ text: 'follow up', mentions: [], attachments: [] });
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
+  });
 
-    // 插话按钮出现但本阶段禁用（能力即将上线）。
-    const interject = screen.getByRole('button', { name: 'Interject, coming soon' });
-    expect(interject).toBeDisabled();
+  it('shows a stop button while busy with empty input', () => {
+    const onStop = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatInput value="" busy onQueue={vi.fn()} onStop={onStop} onSubmit={vi.fn()} />
+      </MemoryRouter>,
+    );
+    const stopBtn = screen.getByRole('button', { name: 'Stop answering' });
+    expect(stopBtn).not.toBeDisabled();
+    fireEvent.click(stopBtn);
+    expect(onStop).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('button', { name: 'Queue message' })).not.toBeInTheDocument();
   });
 
   it('falls back to idle send when not busy', () => {

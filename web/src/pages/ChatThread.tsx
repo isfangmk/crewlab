@@ -64,6 +64,10 @@ import {
 
   deleteQueueItem,
 
+  updateQueueItem,
+
+  interjectQueueItem,
+
   type ChatMessage,
 
   type ChatSession,
@@ -1246,6 +1250,35 @@ export default function ChatThreadPage() {
     }
   }
 
+  // 插话：标记该条优先 + 打断当前回合并立即执行。busy 时才有意义。
+  async function interjectItem(itemId: string) {
+    if (!sessionId) return;
+    setRemovingQueueId(itemId);
+    try {
+      await interjectQueueItem(sessionId, itemId);
+      refreshQueue();
+      flash('ok', tr('已插话，将优先回答', 'Interjected — will reply first'));
+    } catch (err) {
+      flash('err', (err as Error).message || tr('插话失败', 'Failed to interject'));
+    } finally {
+      setRemovingQueueId(null);
+    }
+  }
+
+  // 原地修改排队项正文；位置不变，轮到它时按新正文执行。
+  async function updateItem(itemId: string, content: string) {
+    if (!sessionId) return;
+    setRemovingQueueId(itemId);
+    try {
+      await updateQueueItem(sessionId, itemId, content);
+      refreshQueue();
+    } catch (err) {
+      flash('err', (err as Error).message || tr('修改排队消息失败', 'Failed to update queued message'));
+    } finally {
+      setRemovingQueueId(null);
+    }
+  }
+
   async function send(
 
     content: string,
@@ -1946,6 +1979,13 @@ export default function ChatThreadPage() {
 
 
 
+  // 中断当前回合：显式通知服务端软停止 + abort 本地流，Esc 与中断按钮共用。
+  function stopTurn() {
+    if (!sessionId) return;
+    void stopSession(sessionId).catch(() => {});
+    abortRef.current?.abort();
+  }
+
   // Esc interrupts the in-flight turn. The turn is detached from the request
 
   // ctx server-side (so a refresh doesn't kill it), so we must explicitly tell
@@ -1964,9 +2004,7 @@ export default function ChatThreadPage() {
 
       if (e.key !== 'Escape' || !submittingRef.current || !sessionId) return;
 
-      void stopSession(sessionId).catch(() => {});
-
-      abortRef.current?.abort();
+      stopTurn();
 
     }
 
@@ -2457,7 +2495,14 @@ export default function ChatThreadPage() {
 
             )}
 
-            <MessageQueue items={queueItems} onRemove={(id) => void removeQueueItem(id)} removingId={removingQueueId} />
+            <MessageQueue
+              items={queueItems}
+              onRemove={(id) => void removeQueueItem(id)}
+              onInterject={(id) => void interjectItem(id)}
+              onUpdate={(id, content) => void updateItem(id, content)}
+              busyId={removingQueueId}
+              canInterject={submitting}
+            />
 
             <ChatInput
 
@@ -2484,6 +2529,8 @@ export default function ChatThreadPage() {
                 void enqueue(p);
 
               }}
+
+              onStop={stopTurn}
 
               allowAttachments
 
