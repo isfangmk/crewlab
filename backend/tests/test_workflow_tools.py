@@ -104,6 +104,7 @@ def test_groups_use_subject_keys_not_catch_all() -> None:
     # 新增能力组必须在此登记：key 要是具体能力域，不能是「内置」这类同义反复
     assert groups == {
         "code",
+        "config",
         "knowledge",
         "search",
         "workflow",
@@ -126,11 +127,17 @@ def test_workflow_tools_cover_listing_detail_running_and_results() -> None:
     ]
 
 
-def test_only_run_workflow_is_mutating() -> None:
-    """只有会真实执行画布的工具定级为变更，其余是只读查询。"""
+def test_execution_and_skill_writes_are_mutating() -> None:
+    """真实执行画布、创建/安装技能的工具定级为变更，其余只读查询是 safe。"""
 
     risky = [spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["risk"] != "safe"]
-    assert risky == ["run_workflow"]
+    # 新增会落盘/造数据的工具必须在此登记，防止误降级为 safe 被只读用户调用
+    assert set(risky) == {
+        "run_workflow",
+        "create_skill",
+        "install_skill_from_url",
+        "install_skill_from_zip",
+    }
     spec = next(s for s in BUILTIN_TOOL_SPECS if s["name"] == "run_workflow")
     assert spec["risk"] == "mutating"
 

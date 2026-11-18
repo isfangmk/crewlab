@@ -131,24 +131,25 @@ async def test_latest_run_snapshot_404_for_unknown_workflow(
         assert response.status_code == 404, response.text
 
 
-def test_run_control_stop_signal() -> None:
+@pytest.mark.asyncio
+async def test_run_control_stop_signal() -> None:
     """停止标记只对进行中的运行生效，结束/未开始的运行必须回 False。"""
 
     from app.services.workflow import run_control
 
-    run_control.begin_run("run_stop_case")
+    await run_control.begin_run("run_stop_case")
     try:
         assert run_control.is_stopped("run_stop_case") is False
-        assert run_control.request_stop("run_stop_case") is True
+        assert await run_control.request_stop("run_stop_case") is True
         assert run_control.is_stopped("run_stop_case") is True
     finally:
-        run_control.end_run("run_stop_case")
+        await run_control.end_run("run_stop_case")
 
     # 已经结束：标记清干净，同一 uid 再跑不会被上一次的停止请求误伤
     assert run_control.is_stopped("run_stop_case") is False
-    assert run_control.request_stop("run_stop_case") is False
+    assert await run_control.request_stop("run_stop_case") is False
 
     # 重新开始会清掉遗留标记
-    run_control.begin_run("run_stop_case")
+    await run_control.begin_run("run_stop_case")
     assert run_control.is_stopped("run_stop_case") is False
-    run_control.end_run("run_stop_case")
+    await run_control.end_run("run_stop_case")
