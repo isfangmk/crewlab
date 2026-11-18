@@ -117,6 +117,16 @@ def build_before_tool_callback(
             return None
         if tool_name not in confirm_tool_names:
             return None
+        # 平台助手：call_platform_api 按目标接口方法动态判定——GET 查询不审批。
+        # 仅在没有命中审批规则动作（上面已处理）时生效；写操作落入下方正常审批。
+        if tool_name == "call_platform_api" and action is None:
+            from app.services.platform.api_catalog import entry_by_id
+
+            api_id = args.get("api_id") if isinstance(args, dict) else None
+            entry = entry_by_id(api_id) if isinstance(api_id, str) else None
+            if entry is not None and entry.method == "GET":
+                logger.info("平台助手 GET 查询放行 api=%s", api_id)
+                return None
 
         # 会话级免审：本会话批准时选过「不再询问」（此工具 / 所有工具），对应范围放行
         trust = tool_context.state.get(SESSION_TRUST_KEY)
