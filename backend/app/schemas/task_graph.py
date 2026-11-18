@@ -32,12 +32,12 @@ _MAX_TOOLS_PER_NODE = 8
 class TaskGraphNodeSpec(BaseModel):
     """一个任务节点：局部 id 供依赖引用，node_uid 在落库时生成。"""
 
-    id: str = Field(min_length=1, max_length=64)
-    name: str = Field(default="", max_length=128)
-    target: str = Field(min_length=1, max_length=2000)
-    instruction: str = Field(default="", max_length=8000)
-    tools: list[str] = Field(default_factory=list)
-    depends_on: list[str] = Field(default_factory=list)
+    id: str = Field(min_length=1, max_length=64, description="节点局部 id，供依赖引用，须字母开头且最长 64，不能用编排器保留名")
+    name: str = Field(default="", max_length=128, description="节点展示名称，最长 128；留空时用默认名")
+    target: str = Field(min_length=1, max_length=2000, description="节点目标，描述本节点要处理的对象或任务目标，最长 2000")
+    instruction: str = Field(default="", max_length=8000, description="节点执行指令，告诉该节点具体做什么，最长 8000；留空用默认指令")
+    tools: list[str] = Field(default_factory=list, description="本节点可用工具名列表，最多 8 个；留空表示未声明（使用全量），填哨兵 __none__ 表示不挂任何工具")
+    depends_on: list[str] = Field(default_factory=list, description="依赖的前驱节点局部 id 列表；空表示起点并行执行，多依赖需全部完成才启动")
 
     @field_validator("id")
     @classmethod
@@ -71,17 +71,17 @@ class TaskGraphNodeSpec(BaseModel):
 class TaskGraphEdgeSpec(BaseModel):
     """显式依赖边：source 完成后 target 才可执行；与 depends_on 合并去重。"""
 
-    source: str = Field(min_length=1, max_length=64)
-    target: str = Field(min_length=1, max_length=64)
+    source: str = Field(min_length=1, max_length=64, description="依赖边起点节点 id；该节点完成后 target 才可执行")
+    target: str = Field(min_length=1, max_length=64, description="依赖边终点节点 id；须等待 source 完成")
 
 
 class TaskGraphSpec(BaseModel):
     """完整任务图：节点集合 + 依赖关系。校验通过后才能提交执行。"""
 
-    title: str = Field(default="", max_length=256)
-    question: str = Field(default="", max_length=8000)
-    nodes: list[TaskGraphNodeSpec] = Field(..., min_length=1, max_length=_MAX_NODES)
-    edges: list[TaskGraphEdgeSpec] = Field(default_factory=list)
+    title: str = Field(default="", max_length=256, description="任务图标题，最长 256；留空用默认标题")
+    question: str = Field(default="", max_length=8000, description="本次任务图要解答的问题或总目标，最长 8000；留空用默认")
+    nodes: list[TaskGraphNodeSpec] = Field(..., min_length=1, max_length=_MAX_NODES, description=f"任务节点列表，至少 1 个、最多 {_MAX_NODES} 个")
+    edges: list[TaskGraphEdgeSpec] = Field(default_factory=list, description="显式依赖边列表，与节点的 depends_on 合并去重")
 
     @field_validator("nodes")
     @classmethod

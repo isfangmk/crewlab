@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_auth, require_not_viewer
@@ -34,6 +34,8 @@ def _detail_summary(value: object) -> str:
 
 @router.get("/tools/builtin", response_model=BuiltinToolListOut)
 async def list_builtin_tools(_user: str = Depends(require_auth)) -> BuiltinToolListOut:
+    """列出全部内置 Tool 及其分组（侧边栏 /tools 使用）。"""
+
     items = [BuiltinToolOut(**row) for row in builtin_tool_service.list_builtin_tools()]
     groups = [
         BuiltinToolGroupOut(**row)
@@ -44,8 +46,8 @@ async def list_builtin_tools(_user: str = Depends(require_auth)) -> BuiltinToolL
 
 @router.post("/tools/builtin/{name}/run", response_model=BuiltinToolRunOut)
 async def run_builtin_tool(
-    name: str,
-    body: BuiltinToolRunIn,
+    name: str = Path(description="要运行的内置 Tool 名称"),
+    body: BuiltinToolRunIn = Body(description="运行参数"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> BuiltinToolRunOut:

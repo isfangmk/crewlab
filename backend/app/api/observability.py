@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -90,22 +90,24 @@ class ObservationOverviewOut(BaseModel):
 
 @router.get("/observability/turns", response_model=ObservationTurnListOut)
 async def list_observation_turns(
-    q: str | None = Query(None),
-    session_id: str | None = Query(None),
-    status: str | None = Query(None),
-    agent_id: str | None = Query(None),
-    model: str | None = Query(None),
-    channel: str | None = Query(None),
-    started_from: datetime | None = Query(None),
-    started_to: datetime | None = Query(None),
-    min_duration_ms: int | None = Query(None, ge=0),
-    sort_by: str = Query("started_at"),
-    sort_order: str = Query("desc"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    q: str | None = Query(default=None, description="按输入摘要关键字模糊筛选"),
+    session_id: str | None = Query(default=None, description="按会话 id 筛选；留空不过滤"),
+    status: str | None = Query(default=None, description="按回合状态筛选，如 running/success/error"),
+    agent_id: str | None = Query(default=None, description="按助理 id 筛选；留空不过滤"),
+    model: str | None = Query(default=None, description="按模型名筛选；留空不过滤"),
+    channel: str | None = Query(default=None, description="按渠道名筛选；留空不过滤"),
+    started_from: datetime | None = Query(default=None, description="只返回开始时间不早于此值的回合"),
+    started_to: datetime | None = Query(default=None, description="只返回开始时间不晚于此值的回合"),
+    min_duration_ms: int | None = Query(default=None, ge=0, description="只返回耗时不小于该值（毫秒）的回合"),
+    sort_by: str = Query(default="started_at", description="排序字段，如 started_at/duration_ms"),
+    sort_order: str = Query(default="desc", description="排序方向：desc 倒序，asc 正序"),
+    limit: int = Query(default=50, ge=1, le=200, description="每页条数，1-200"),
+    offset: int = Query(default=0, ge=0, description="分页偏移量，从 0 开始"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> ObservationTurnListOut:
+    """分页列出回合 Trace（含筛选与排序），total 为筛选后的总数。"""
+
     try:
         rows, total = await observation_service.list_turns(
             db,
@@ -133,18 +135,20 @@ async def list_observation_turns(
 
 @router.get("/observability/overview", response_model=ObservationOverviewOut)
 async def observation_overview(
-    q: str | None = Query(None),
-    session_id: str | None = Query(None),
-    status: str | None = Query(None),
-    agent_id: str | None = Query(None),
-    model: str | None = Query(None),
-    channel: str | None = Query(None),
-    started_from: datetime | None = Query(None),
-    started_to: datetime | None = Query(None),
-    min_duration_ms: int | None = Query(None, ge=0),
+    q: str | None = Query(default=None, description="按输入摘要关键字模糊筛选"),
+    session_id: str | None = Query(default=None, description="按会话 id 筛选；留空不过滤"),
+    status: str | None = Query(default=None, description="按回合状态筛选，如 running/success/error"),
+    agent_id: str | None = Query(default=None, description="按助理 id 筛选；留空不过滤"),
+    model: str | None = Query(default=None, description="按模型名筛选；留空不过滤"),
+    channel: str | None = Query(default=None, description="按渠道名筛选；留空不过滤"),
+    started_from: datetime | None = Query(default=None, description="只统计开始时间不早于此值的回合"),
+    started_to: datetime | None = Query(default=None, description="只统计开始时间不晚于此值的回合"),
+    min_duration_ms: int | None = Query(default=None, ge=0, description="只统计耗时不小于该值（毫秒）的回合"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> ObservationOverviewOut:
+    """按当前筛选条件汇总回合统计指标，并给出可用的助理/模型/渠道筛选项。"""
+
     try:
         stats = await observation_service.summarize_turns(
             db,
@@ -171,10 +175,12 @@ async def observation_overview(
 
 @router.get("/observability/turns/{trace_id}", response_model=ObservationTurnDetailOut)
 async def get_observation_turn(
-    trace_id: str,
+    trace_id: str = Path(description="要获取详情的回合 trace id"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> ObservationTurnDetailOut:
+    """按 trace id 获取单个回合详情，含其下的工具调用明细。"""
+
     try:
         row = await observation_service.get_turn(db, trace_id)
         tool_calls = await observation_service.list_tool_calls(db, trace_id)

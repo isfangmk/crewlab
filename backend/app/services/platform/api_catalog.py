@@ -64,32 +64,44 @@ class PlatformApiEntry:
         return " ".join(p for p in parts if p)
 
     def parameter_specs(self) -> list[dict]:
-        """参数清单（给模型构造 arguments 用）：path/query/body 的名字、必填、描述。"""
+        """从 OpenAPI 原生信息整理出参数清单，供模型构造 arguments。
+
+        名字、位置、是否必填、描述、默认值全部来自 FastAPI/Pydantic 生成的
+        OpenAPI（路由 docstring / Query/Path/Field(description=) / default），
+        这里只做格式整理，不自行维护任何描述或默认值。
+        """
         specs: list[dict] = []
-        # path 参数：从 URL 占位符解析
+        # path 参数：从 URL 占位符解析（required 恒为 true）
         for name in re.findall(r"\{(\w+)\}", self.path):
-            specs.append({"name": name, "in": "path", "required": True, "description": ""})
+            specs.append(
+                {"name": name, "in": "path", "required": True, "description": "", "default": None}
+            )
         # query 参数：OpenAPI 已声明（内部头已剔除）
         for p in self.parameters:
             if p.get("in") == "query":
+                schema = p.get("schema", {}) or {}
                 specs.append(
                     {
                         "name": p.get("name", ""),
                         "in": "query",
                         "required": bool(p.get("required", False)),
                         "description": str(p.get("description", "") or ""),
+                        "default": schema.get("default"),
                     }
                 )
-        # body 字段
+        # body 字段：required 来自 schema.required，default/description 来自字段 schema
         if self.body_schema is not None:
             required = set(self.body_schema.get("required", []))
             for name, prop in (self.body_schema.get("properties", {}) or {}).items():
+                if not isinstance(prop, dict):
+                    prop = {}
                 specs.append(
                     {
                         "name": name,
                         "in": "body",
                         "required": name in required,
-                        "description": str(prop.get("description", "") or "") if isinstance(prop, dict) else "",
+                        "description": str(prop.get("description", "") or ""),
+                        "default": prop.get("default"),
                     }
                 )
         return specs

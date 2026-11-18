@@ -30,7 +30,7 @@ async def stream_notifications(
     request: Request,
     user: AuthUser = Depends(require_auth),
 ) -> EventSourceResponse:
-    """订阅当前用户的全局通知流；断线由 EventSourceResponse 处理。"""
+    """订阅当前用户的全局通知 SSE 流，支持 Last-Event-ID 断线续传。"""
 
     uid = user.id
     header_id = request.headers.get("last-event-id", "")

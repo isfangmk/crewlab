@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,7 +42,7 @@ def _download_response(row: Artifact) -> Response:
 
 @router.get("/chat/sessions/{session_id}/artifacts")
 async def list_session_artifacts(
-    session_id: str,
+    session_id: str = Path(description="会话 id，列出该会话下的全部产出物"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
@@ -54,7 +54,7 @@ async def list_session_artifacts(
 
 @router.get("/artifacts/{artifact_id}/download")
 async def download_artifact(
-    artifact_id: str,
+    artifact_id: str = Path(description="要下载的产出物 id"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> Response:
@@ -69,8 +69,8 @@ async def download_artifact(
 
 @router.get("/chat/shares/{token}/artifacts/{artifact_id}/download")
 async def download_shared_artifact(
-    token: str,
-    artifact_id: str,
+    token: str = Path(description="只读分享令牌，令牌解析出的会话必须拥有该产出物"),
+    artifact_id: str = Path(description="要下载的产出物 id"),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """只读分享页的产出物下载：令牌解析出的会话必须拥有该 Artifact。"""
@@ -87,7 +87,7 @@ async def download_shared_artifact(
 
 @router.get("/artifacts/{artifact_id}")
 async def get_artifact(
-    artifact_id: str,
+    artifact_id: str = Path(description="要查看的产出物 id"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
@@ -102,7 +102,7 @@ async def get_artifact(
 
 @router.get("/artifacts/{artifact_id}/payload")
 async def get_artifact_payload(
-    artifact_id: str,
+    artifact_id: str = Path(description="要取 payload 原文的产出物 id"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> Response:

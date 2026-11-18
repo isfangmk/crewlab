@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,12 +19,16 @@ router = APIRouter(tags=["memory"])
 
 
 class MemoryCreateRequest(BaseModel):
-    content: str = Field(min_length=1, max_length=2000)
-    agent_id: str | None = None
+    """新增记忆的请求体。"""
+
+    content: str = Field(min_length=1, max_length=2000, description="要记住的事实或偏好，一句话一条，最长 2000 字")
+    agent_id: str | None = Field(default=None, description="记忆归属的助理 id；留空为全局记忆，所有助理可见")
 
 
 class MemoryUpdateRequest(BaseModel):
-    enabled: bool
+    """更新记忆的请求体。"""
+
+    enabled: bool = Field(description="是否启用；停用后不再参与语义回忆")
 
 
 def _memory_to_wire(row: MemoryItem) -> dict[str, Any]:
@@ -40,12 +44,12 @@ def _memory_to_wire(row: MemoryItem) -> dict[str, Any]:
 
 @router.get("/memory")
 async def list_memory(
-    q: str | None = None,
-    agent_id: str | None = None,
-    enabled: bool | None = None,
-    sort_dir: str = "desc",
-    limit: int = 20,
-    offset: int = 0,
+    q: str | None = Query(default=None, description="按记忆正文关键字模糊筛选"),
+    agent_id: str | None = Query(default=None, description="按归属助理 id 筛选；留空不过滤"),
+    enabled: bool | None = Query(default=None, description="按启用状态筛选：true 仅启用、false 仅停用、留空全部"),
+    sort_dir: str = Query(default="desc", description="排序方向：desc 最新在前，asc 最早在前"),
+    limit: int = Query(default=20, description="每页条数，服务端分页上限"),
+    offset: int = Query(default=0, description="分页偏移量，从 0 开始"),
     db: AsyncSession = Depends(get_db),
     _user: Any = Depends(require_not_viewer),
 ) -> dict:
@@ -98,8 +102,8 @@ async def create_memory(
 
 @router.patch("/memory/{memory_id}")
 async def update_memory(
-    memory_id: str,
-    body: MemoryUpdateRequest,
+    memory_id: str = Path(description="要更新的记忆 id（先通过列表获取）"),
+    body: MemoryUpdateRequest = Body(description="要更新的字段"),
     db: AsyncSession = Depends(get_db),
     user: Any = Depends(require_not_viewer),
 ) -> dict:
@@ -121,10 +125,11 @@ async def update_memory(
 
 @router.delete("/memory/{memory_id}")
 async def delete_memory(
-    memory_id: str,
+    memory_id: str = Path(description="要删除的记忆 id（先通过列表获取）"),
     db: AsyncSession = Depends(get_db),
     user: Any = Depends(require_not_viewer),
 ) -> dict:
+    """删除一条记忆，不可恢复。"""
     try:
         await memory_service.forget(db, memory_id)
     except LookupError as exc:

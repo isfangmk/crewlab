@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Path, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -54,13 +54,13 @@ class QueueMessageRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    content: str = Field(min_length=1)
-    provider: str | None = None
-    model: str | None = None
-    thinking_enabled: bool = False
-    web_search_enabled: bool = False
-    attachment_ids: list[str] = Field(default_factory=list)
-    mentions: list[dict[str, Any]] = Field(default_factory=list)
+    content: str = Field(min_length=1, description="要入队的消息正文，至少 1 个字符")
+    provider: str | None = Field(default=None, description="本条消息覆盖的大模型提供方；留空则用会话设置")
+    model: str | None = Field(default=None, description="本条消息覆盖的大模型名称；留空则用会话设置")
+    thinking_enabled: bool = Field(default=False, description="本条消息是否开启思考模式")
+    web_search_enabled: bool = Field(default=False, description="本条消息是否开启联网搜索")
+    attachment_ids: list[str] = Field(default_factory=list, description="本条消息携带的图片附件 id 列表")
+    mentions: list[dict[str, Any]] = Field(default_factory=list, description="本条消息 @ 提及的对象列表，后端按 id 反查并注入上下文")
 
 
 class UpdateQueueItemIn(BaseModel):
@@ -68,7 +68,7 @@ class UpdateQueueItemIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    content: str = Field(min_length=1)
+    content: str = Field(min_length=1, description="替换后的消息正文，至少 1 个字符")
 
 
 def _require_session_owner(session, user: AuthUser) -> None:
@@ -124,19 +124,21 @@ def _session_out(s, stats: chat_service.SessionStats | None = None) -> ChatSessi
 
 @router.get("/chat/sessions")
 async def list_sessions(
-    q: str | None = Query(None),
-    include_archived: bool = Query(False),
-    agent_id: str | None = Query(None),
-    model: str | None = Query(None),
-    updated_from: datetime | None = Query(None),
-    updated_to: datetime | None = Query(None),
-    sort_by: str | None = Query(None),
-    sort_dir: str = Query("desc"),
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    q: str | None = Query(default=None, description="按会话标题关键字模糊筛选；留空不过滤"),
+    include_archived: bool = Query(default=False, description="是否包含已归档会话；false 仅返回未归档"),
+    agent_id: str | None = Query(default=None, description="按绑定助理 id 精确筛选；留空不过滤"),
+    model: str | None = Query(default=None, description="按使用的大模型名精确筛选；留空不过滤"),
+    updated_from: datetime | None = Query(default=None, description="只返回更新时间不早于该时刻的会话；留空不限起点"),
+    updated_to: datetime | None = Query(default=None, description="只返回更新时间不晚于该时刻的会话；留空不限终点"),
+    sort_by: str | None = Query(default=None, description="排序字段：title/model/updated_at/last_message_at/agent_id/created_at；留空按最近消息时间"),
+    sort_dir: str = Query(default="desc", description="排序方向：desc 降序、asc 升序"),
+    limit: int = Query(default=20, ge=1, le=100, description="每页条数，范围 1~100"),
+    offset: int = Query(default=0, ge=0, description="分页偏移量，从 0 开始"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """分页列出当前用户的会话（含统计摘要）；支持关键字、助理、模型、时间与归档筛选。"""
+
     try:
         items, total = await chat_service.list_sessions(
             db,
@@ -162,8 +164,8 @@ async def list_sessions(
 
 @router.get("/chat/messages/search")
 async def search_messages(
-    q: str = Query(..., min_length=1),
-    limit: int = Query(20, ge=1, le=100),
+    q: str = Query(..., min_length=1, description="要搜索的消息正文关键字，至少 1 个字符"),
+    limit: int = Query(default=20, ge=1, le=100, description="每页条数，范围 1~100"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -196,6 +198,7 @@ async def batch_delete_sessions(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """批量硬删除多个会话；ids 必须全部存在，否则整批失败。"""
     try:
         deleted = await chat_service.batch_delete_sessions(db, body.ids)
     except LookupError as exc:
@@ -216,10 +219,11 @@ async def batch_delete_sessions(
 
 @router.get("/chat/sessions/{session_id}", response_model=ChatSessionOut)
 async def get_session(
-    session_id: str,
+    session_id: str = Path(description="要查看的会话 id"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> ChatSessionOut:
+    """按 id 获取单个会话详情（含统计摘要）；无权或不存在返回 403/404。"""
     try:
         session = await chat_service.get_session(db, session_id)
     except LookupError as exc:
@@ -234,6 +238,7 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> ChatSessionOut:
+    """新建一个对话会话，返回其摘要信息。"""
     try:
         session = await chat_service.create_session(
             db,
@@ -263,8 +268,8 @@ async def create_session(
 
 @router.patch("/chat/sessions/{session_id}")
 async def patch_session(
-    session_id: str,
-    body: UpdateSessionTitleRequest,
+    session_id: str = Path(description="要重命名的会话 id"),
+    body: UpdateSessionTitleRequest = Body(description="新的会话标题"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -286,11 +291,12 @@ async def patch_session(
 
 @router.patch("/chat/sessions/{session_id}/flags", response_model=ChatSessionOut)
 async def patch_session_flags(
-    session_id: str,
-    body: UpdateSessionFlagsRequest,
+    session_id: str = Path(description="要更新标记的会话 id"),
+    body: UpdateSessionFlagsRequest = Body(description="要更新的置顶/归档标记，只更新显式提供的字段"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> ChatSessionOut:
+    """更新会话的置顶/归档标记，返回更新后的会话摘要。"""
     try:
         session = await chat_service.update_session_flags(
             db, session_id, pinned=body.pinned, archived=body.archived
@@ -311,8 +317,8 @@ async def patch_session_flags(
 
 @router.patch("/chat/sessions/{session_id}/prefs", response_model=ChatSessionOut)
 async def patch_session_prefs(
-    session_id: str,
-    body: UpdateSessionPrefsRequest,
+    session_id: str = Path(description="要更新开关的会话 id"),
+    body: UpdateSessionPrefsRequest = Body(description="要更新的思考/联网搜索开关，至少提供一项"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> ChatSessionOut:
@@ -344,11 +350,12 @@ async def patch_session_prefs(
 
 @router.post("/chat/sessions/{session_id}/fork", response_model=ChatSessionOut)
 async def fork_session(
-    session_id: str,
-    body: ForkSessionRequest,
+    session_id: str = Path(description="要分叉的源会话 id"),
+    body: ForkSessionRequest = Body(description="分叉到的截止消息"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> ChatSessionOut:
+    """从源会话的某条消息分叉出新会话，消息复制到该消息（含）为止。"""
     try:
         session = await chat_service.fork_session(
             db,
@@ -375,8 +382,8 @@ async def fork_session(
 
 @router.get("/chat/sessions/{session_id}/export")
 async def export_session(
-    session_id: str,
-    format: str = Query(default="markdown", pattern="^(markdown|json)$"),
+    session_id: str = Path(description="要导出的会话 id"),
+    format: str = Query(default="markdown", pattern="^(markdown|json)$", description="导出格式：markdown 为文档，json 为结构化消息"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> Response:
@@ -400,11 +407,12 @@ async def export_session(
 
 @router.post("/chat/sessions/{session_id}/share")
 async def create_share(
-    session_id: str,
-    body: CreateShareRequest,
+    session_id: str = Path(description="要分享的会话 id"),
+    body: CreateShareRequest = Body(description="分享有效期"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """为会话创建只读分享链接，返回明文 token（仅此一次）、过期时间与会话 id。"""
     try:
         await chat_service.get_session(db, session_id)
         raw, row = await share_service.create_share(
@@ -433,7 +441,7 @@ async def create_share(
 
 @router.get("/chat/shares/{token}")
 async def read_share(
-    token: str,
+    token: str = Path(description="分享链接中的明文 token"),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """只读分享：无需登录。"""
@@ -454,8 +462,8 @@ async def read_share(
 
 @router.put("/chat/sessions/{session_id}/model")
 async def put_session_model(
-    session_id: str,
-    body: UpdateSessionModelRequest,
+    session_id: str = Path(description="要切换模型的会话 id"),
+    body: UpdateSessionModelRequest = Body(description="新的模型提供方与名称，须成对提供"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -480,11 +488,12 @@ async def put_session_model(
 
 @router.patch("/chat/sessions/{session_id}/agent")
 async def patch_session_agent(
-    session_id: str,
-    body: UpdateSessionAgentRequest,
+    session_id: str = Path(description="要切换助理的会话 id"),
+    body: UpdateSessionAgentRequest = Body(description="新的助理 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """切换会话绑定的智能体，改变该会话可见的工具/技能面。"""
     try:
         await chat_service.update_session_agent(db, session_id, body.agent_id)
     except LookupError as exc:
@@ -502,10 +511,11 @@ async def patch_session_agent(
 
 @router.delete("/chat/sessions/{session_id}")
 async def delete_session(
-    session_id: str,
+    session_id: str = Path(description="要删除的会话 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """删除单个会话（含其消息等关联数据），不可恢复。"""
     try:
         await chat_service.delete_session(db, session_id)
     except LookupError as exc:
@@ -521,8 +531,8 @@ async def delete_session(
 
 @router.post("/chat/sessions/{session_id}/attachments")
 async def upload_attachment(
-    session_id: str,
-    file: UploadFile = File(...),
+    session_id: str = Path(description="要上传附件的会话 id"),
+    file: UploadFile = File(..., description="要上传的图片文件（image/*），用于多模态消息"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -560,10 +570,11 @@ async def upload_attachment(
 
 @router.get("/chat/sessions/{session_id}/attachments")
 async def list_attachments(
-    session_id: str,
+    session_id: str = Path(description="要列出附件的会话 id"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    """列出会话下的全部图片附件元数据（不含图片内容）。"""
     try:
         await chat_service.get_session(db, session_id)
     except LookupError as exc:
@@ -575,8 +586,8 @@ async def list_attachments(
 
 @router.get("/chat/sessions/{session_id}/attachments/{attachment_id}")
 async def download_attachment(
-    session_id: str,
-    attachment_id: str,
+    session_id: str = Path(description="附件所属会话 id"),
+    attachment_id: str = Path(description="要下载的附件 id"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> Response:
@@ -599,10 +610,11 @@ async def download_attachment(
 
 @router.post("/chat/sessions/{session_id}/stop")
 async def stop_session(
-    session_id: str,
+    session_id: str = Path(description="要停止当前回合的会话 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """请求停止会话当前正在进行的回合。"""
     try:
         await chat_service.get_session(db, session_id)
     except LookupError as exc:
@@ -619,8 +631,8 @@ async def stop_session(
 
 @router.post("/chat/sessions/{session_id}/queue")
 async def enqueue_message(
-    session_id: str,
-    body: QueueMessageRequest,
+    session_id: str = Path(description="要入队消息的会话 id"),
+    body: QueueMessageRequest = Body(description="要入队的消息内容"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
@@ -661,7 +673,7 @@ async def enqueue_message(
 
 @router.get("/chat/sessions/{session_id}/queue")
 async def list_queue(
-    session_id: str,
+    session_id: str = Path(description="要列出排队消息的会话 id"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -689,8 +701,8 @@ async def list_queue(
 
 @router.delete("/chat/sessions/{session_id}/queue/{item_id}")
 async def delete_queued_message(
-    session_id: str,
-    item_id: str,
+    session_id: str = Path(description="队列消息所属会话 id"),
+    item_id: str = Path(description="要删除的队列消息 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
@@ -731,9 +743,9 @@ async def delete_queued_message(
 
 @router.patch("/chat/sessions/{session_id}/queue/{item_id}")
 async def update_queued_message(
-    session_id: str,
-    item_id: str,
-    body: UpdateQueueItemIn,
+    session_id: str = Path(description="队列消息所属会话 id"),
+    item_id: str = Path(description="要修改的队列消息 id"),
+    body: UpdateQueueItemIn = Body(description="替换后的消息正文"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
@@ -765,8 +777,8 @@ async def update_queued_message(
 
 @router.post("/chat/sessions/{session_id}/queue/{item_id}/interject")
 async def interject_queued_message(
-    session_id: str,
-    item_id: str,
+    session_id: str = Path(description="队列消息所属会话 id"),
+    item_id: str = Path(description="要插话的队列消息 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
@@ -805,7 +817,7 @@ async def interject_queued_message(
 
 @router.get("/chat/sessions/{session_id}/messages")
 async def get_messages(
-    session_id: str,
+    session_id: str = Path(description="要读取消息的会话 id"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
@@ -827,8 +839,8 @@ def _sse_from_stream(gen):
 
 @router.post("/chat/sessions/{session_id}/messages/stream")
 async def stream_message(
-    session_id: str,
-    body: StreamMessageRequest,
+    session_id: str = Path(description="要发送消息的会话 id"),
+    body: StreamMessageRequest = Body(description="本回合消息内容与覆盖配置"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_not_viewer),
 ):
@@ -861,7 +873,7 @@ async def stream_message(
 
 @router.get("/chat/sessions/{session_id}/active-turn")
 async def get_active_turn(
-    session_id: str,
+    session_id: str = Path(description="要查询的会话 id"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ):
@@ -881,7 +893,8 @@ async def get_active_turn(
 
 @router.get("/chat/sessions/{session_id}/events")
 async def stream_session_events(
-    session_id: str,
+    session_id: str = Path(description="要订阅帧流的会话 id"),
+    *,
     request: Request,
     turn_id: str = Query(..., description="要订阅的回合 id（POST /messages/stream 返回）"),
     db: AsyncSession = Depends(get_db),
@@ -927,8 +940,8 @@ async def stream_session_events(
 
 @router.post("/chat/sessions/{session_id}/messages/edit-resend")
 async def edit_and_resend(
-    session_id: str,
-    body: TruncateAndResendRequest,
+    session_id: str = Path(description="要编辑重发的会话 id"),
+    body: TruncateAndResendRequest = Body(description="要编辑的用户消息与替换正文"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,20 +29,22 @@ def _detail_summary(value: object) -> str:
 
 
 class McpServerInput(BaseModel):
-    name: str = Field(min_length=1)
-    transport: str = Field(min_length=1)
+    """新增或更新 MCP Server 的请求体。"""
+
+    name: str = Field(min_length=1, description="Server 名称，展示用，需唯一")
+    transport: str = Field(min_length=1, description="传输方式：http / sse / stdio")
     # http/sse 必填；stdio 可留空
-    endpoint: str = ""
-    credential: str = ""
-    header_template_json: str = "{}"
-    enabled: bool = True
+    endpoint: str = Field(default="", description="远端 Server 地址（URL）；http/sse 必填，stdio 留空")
+    credential: str = Field(default="", description="凭证库中的凭证名，用于调用该 Server 时取用密钥")
+    header_template_json: str = Field(default="{}", description="自定义请求头模板，JSON 对象字符串，键值均为字符串")
+    enabled: bool = Field(default=True, description="是否启用；停用后不参与工具发现与调用")
     # never | non_readonly | always；缺省 always
-    approval_policy: str = "always"
+    approval_policy: str = Field(default="always", description="工具审批策略：never 永不审批、non_readonly 仅非只读工具审批、always 所有工具审批")
     # stdio 专用（以服务端进程权限运行本机命令，仅管理员可配）
-    command: str = ""
-    args_json: str = "[]"
-    cwd: str = ""
-    env_json: str = "{}"
+    command: str = Field(default="", description="stdio 专用：启动本地服务端进程的命令（以服务端进程权限运行，仅管理员可配）")
+    args_json: str = Field(default="[]", description="stdio 专用：命令行参数，JSON 字符串数组，如 [\"--port\",\"8080\"]")
+    cwd: str = Field(default="", description="stdio 专用：服务端进程的工作目录，留空用默认目录")
+    env_json: str = Field(default="{}", description="stdio 专用：环境变量，JSON 对象字符串，键值均为字符串")
 
 
 @router.get("/mcp/servers")
@@ -50,6 +52,8 @@ async def list_servers(
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    """列出全部 MCP Server，附带每个 Server 的 OAuth 授权状态。"""
+
     items = await mcp_service.list_servers(db)
     oauth_map = await mcp_oauth_service.status_map(db, [s.id for s in items])
     return {
@@ -67,6 +71,8 @@ async def create_server(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """新增一个 MCP Server；连接不通则回滚并显式报 502。"""
+
     try:
         row = await mcp_service.create_server(
             db,
@@ -107,11 +113,13 @@ async def create_server(
 
 @router.put("/mcp/servers/{server_id}")
 async def update_server(
-    server_id: int,
-    body: McpServerInput,
+    server_id: int = Path(description="要更新的 MCP Server id"),
+    body: McpServerInput = Body(description="要更新的 MCP Server 配置"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """整体更新一个 MCP Server 的配置；连接不通则显式报 502。"""
+
     try:
         row = await mcp_service.update_server(
             db,
@@ -154,10 +162,12 @@ async def update_server(
 
 @router.delete("/mcp/servers/{server_id}")
 async def delete_server(
-    server_id: int,
+    server_id: int = Path(description="要删除的 MCP Server id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> None:
+    """删除一个 MCP Server；删除前取名称留痕用于审计。"""
+
     try:
         # 删除前取名称：提交后行已消失，审计只能靠这里留痕。
         existing = await mcp_service.get_server(db, server_id)
@@ -176,10 +186,12 @@ async def delete_server(
 
 @router.post("/mcp/servers/{server_id}/test")
 async def test_server(
-    server_id: int,
+    server_id: int = Path(description="要探测的 MCP Server id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """连通性探测并列出 Server 暴露的工具，附带每个工具的风险等级（仅展示，不影响审批）。"""
+
     try:
         tools = await mcp_service.test_server(db, server_id)
     except LookupError as exc:
@@ -201,17 +213,21 @@ async def test_server(
 
 
 class McpToolRunInput(BaseModel):
-    arguments: dict
+    """调用 MCP 工具的请求体。"""
+
+    arguments: dict = Field(description="传给工具的参数对象，键为参数名，值按该工具的 input_schema 填写")
 
 
 @router.post("/mcp/servers/{server_id}/tools/{tool_name}/run")
 async def run_tool(
-    server_id: int,
-    tool_name: str,
-    body: McpToolRunInput,
+    server_id: int = Path(description="提供该工具的 MCP Server id"),
+    tool_name: str = Path(description="要调用的工具名（先用探测接口获取）"),
+    body: McpToolRunInput = Body(description="工具调用参数"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """调用指定 MCP Server 上的一个工具，返回工具执行结果。"""
+
     try:
         result = await mcp_service.run_tool(
             db,
@@ -241,10 +257,12 @@ async def run_tool(
 
 @router.get("/mcp/servers/{server_id}/resources")
 async def list_resources(
-    server_id: int,
+    server_id: int = Path(description="要列举资源的 MCP Server id"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """列出指定 MCP Server 暴露的资源列表。"""
+
     try:
         items = await mcp_service.list_resources(db, server_id)
     except LookupError as exc:
@@ -256,11 +274,13 @@ async def list_resources(
 
 @router.get("/mcp/servers/{server_id}/resources/read")
 async def read_resource(
-    server_id: int,
-    uri: str,
+    server_id: int = Path(description="提供该资源的 MCP Server id"),
+    uri: str = Query(description="要读取的资源 URI（先用资源列表接口获取）"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """读取指定 MCP Server 上一个资源的内容。"""
+
     try:
         return await mcp_service.read_resource(db, server_id, uri)
     except LookupError as exc:
@@ -273,10 +293,12 @@ async def read_resource(
 
 @router.get("/mcp/servers/{server_id}/resource-templates")
 async def list_resource_templates(
-    server_id: int,
+    server_id: int = Path(description="要列举资源模板的 MCP Server id"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """列出指定 MCP Server 暴露的资源模板（含 URI 模板）。"""
+
     try:
         items = await mcp_service.list_resource_templates(db, server_id)
     except LookupError as exc:
@@ -288,10 +310,12 @@ async def list_resource_templates(
 
 @router.get("/mcp/servers/{server_id}/prompts")
 async def list_prompts(
-    server_id: int,
+    server_id: int = Path(description="要列举 prompt 的 MCP Server id"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """列出指定 MCP Server 暴露的 prompt 模板。"""
+
     try:
         items = await mcp_service.list_prompts(db, server_id)
     except LookupError as exc:
@@ -302,17 +326,21 @@ async def list_prompts(
 
 
 class McpPromptGetInput(BaseModel):
-    name: str = Field(min_length=1)
-    arguments: dict[str, str] = Field(default_factory=dict)
+    """获取 prompt 模板的请求体。"""
+
+    name: str = Field(min_length=1, description="prompt 模板名（先用 prompt 列表接口获取）")
+    arguments: dict[str, str] = Field(default_factory=dict, description="填充模板占位符的参数，键为参数名、值为字符串；无参数留空")
 
 
 @router.post("/mcp/servers/{server_id}/prompts/get")
 async def get_prompt(
-    server_id: int,
-    body: McpPromptGetInput,
+    server_id: int = Path(description="提供该 prompt 的 MCP Server id"),
+    body: McpPromptGetInput = Body(description="prompt 名称与模板参数"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """按名称与参数获取指定 MCP Server 上一个 prompt 的内容（纯读取，不写审计）。"""
+
     # 纯读取远端 prompt 模板，不进审计：没有状态变化
     try:
         return await mcp_service.get_prompt(
@@ -328,9 +356,9 @@ async def get_prompt(
 
 @router.get("/mcp/registry/servers")
 async def search_registry(
-    search: str = "",
-    limit: int = 20,
-    cursor: str = "",
+    search: str = Query(default="", description="搜索关键字；留空返回默认列表"),
+    limit: int = Query(default=20, description="每页条数，服务端分页上限"),
+    cursor: str = Query(default="", description="分页游标，来自上一页返回的 next_cursor；首页留空"),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
     """代理官方 MCP Registry 搜索；网络不可达显式报 502，前端给重试。"""
@@ -367,14 +395,16 @@ def _oauth_error_html(message: str) -> str:
 
 
 class McpOauthTokenInput(BaseModel):
-    access_token: str = Field(min_length=1)
-    refresh_token: str = ""
-    expires_in: float | None = Field(default=None, gt=0)
+    """手动粘贴 Token 的请求体（不支持动态注册的服务用）。"""
+
+    access_token: str = Field(min_length=1, description="OAuth 访问令牌 access_token")
+    refresh_token: str = Field(default="", description="刷新令牌 refresh_token；没有则留空")
+    expires_in: float | None = Field(default=None, gt=0, description="access_token 有效期秒数；留空表示未知，须大于 0")
 
 
 @router.post("/mcp/servers/{server_id}/oauth/start")
 async def oauth_start(
-    server_id: int,
+    server_id: int = Path(description="要发起授权的 MCP Server id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
@@ -401,8 +431,8 @@ async def oauth_start(
 
 @router.get("/mcp/oauth/callback", response_class=HTMLResponse)
 async def oauth_callback(
-    code: str = "",
-    state: str = "",
+    code: str = Query(default="", description="授权服务器回调带回的授权码 code；缺失返回 400 结果页"),
+    state: str = Query(default="", description="授权请求时的 state，用于校验并关联到具体 Server；缺失返回 400 结果页"),
     db: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
     """授权回调（免登录）：换 token 后返回结果页，不回显任何密钥。"""
@@ -422,8 +452,8 @@ async def oauth_callback(
 
 @router.post("/mcp/servers/{server_id}/oauth/token")
 async def oauth_save_token(
-    server_id: int,
-    body: McpOauthTokenInput,
+    server_id: int = Path(description="要保存 Token 的 MCP Server id"),
+    body: McpOauthTokenInput = Body(description="手动粘贴的 OAuth Token"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
@@ -454,10 +484,12 @@ async def oauth_save_token(
 
 @router.get("/mcp/servers/{server_id}/oauth/status")
 async def oauth_status(
-    server_id: int,
+    server_id: int = Path(description="要查询授权状态的 MCP Server id"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """查询指定 MCP Server 的 OAuth 授权状态（是否已授权、来源等）。"""
+
     try:
         await mcp_service.get_server(db, server_id)
     except LookupError as exc:
@@ -467,10 +499,12 @@ async def oauth_status(
 
 @router.delete("/mcp/servers/{server_id}/oauth")
 async def oauth_revoke(
-    server_id: int,
+    server_id: int = Path(description="要撤销授权的 MCP Server id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """撤销指定 MCP Server 的 OAuth 授权并清除已保存的 Token。"""
+
     try:
         existing = await mcp_service.get_server(db, server_id)
         name = existing.name

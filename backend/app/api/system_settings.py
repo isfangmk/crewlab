@@ -5,9 +5,9 @@ from __future__ import annotations
 import csv
 import io
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin, require_auth
@@ -24,13 +24,15 @@ _SNAPSHOT_CATEGORIES = ("agent", "observability", "knowledge", "usage")
 
 
 class SettingPutIn(BaseModel):
-    value: str
-    sensitive: bool | None = None
+    """写入一项设置的请求体。"""
+
+    value: str = Field(description="要写入的设置值，字符串形式")
+    sensitive: bool | None = Field(default=None, description="是否敏感项：当前设置不允许 sensitive=true（传 true 会报 400）；留空或 false 按普通项存储")
 
 
 @router.get("/system-settings")
 async def list_settings(
-    category: str | None = Query(None),
+    category: str | None = Query(None, description="设置分类：llm / agent / observability / knowledge / usage；必填，留空报 400"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -94,12 +96,13 @@ async def export_settings(
 
 @router.put("/system-settings/{category}/{key}")
 async def put_setting(
-    category: str,
-    key: str,
-    body: SettingPutIn,
+    category: str = Path(description="设置分类：agent / observability / knowledge / usage"),
+    key: str = Path(description="要写入的设置键名"),
+    body: SettingPutIn = Body(description="要写入的值及敏感标记"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """管理员写入一项设置（agent/observability/knowledge/usage 分类）；成功返回更新结果。"""
     try:
         result = await app_settings_service.put_setting(
             db,
@@ -122,11 +125,12 @@ async def put_setting(
 
 @router.get("/system-settings/{category}/{key}/reveal")
 async def reveal_setting(
-    category: str,
-    key: str,
+    category: str = Path(description="设置分类，仅支持 llm"),
+    key: str = Path(description="要揭示的设置键，仅支持以 _api_key 结尾，如 {provider_id}_api_key"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """管理员揭示一项 LLM API 密钥明文（仅 llm 分类的 *_api_key）；敏感操作会记审计。"""
     if category != "llm":
         raise HTTPException(status_code=501, detail=f"category={category} 未实现")
     if not key.endswith("_api_key"):

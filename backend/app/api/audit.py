@@ -84,18 +84,19 @@ def _build_filters(
 
 @router.get("/audit", response_model=AuditListOut)
 async def list_audit(
-    action: str | None = Query(None),
-    resource_type: str | None = Query(None),
-    resource_id: str | None = Query(None),
-    actor_user_id: int | None = Query(None),
-    created_from: datetime | None = Query(None),
-    created_to: datetime | None = Query(None),
-    sort_dir: str = Query("desc"),
-    limit: int = Query(20, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    action: str | None = Query(None, description="按操作动作精确筛选，如 auth.login、user.create；留空不过滤"),
+    resource_type: str | None = Query(None, description="按资源类型精确筛选，如 user、approval；留空不过滤"),
+    resource_id: str | None = Query(None, description="按资源 id 精确筛选；留空不过滤"),
+    actor_user_id: int | None = Query(None, description="按操作者用户 id 筛选；留空不过滤"),
+    created_from: datetime | None = Query(None, description="创建时间下限（含），ISO 8601 格式；留空不限"),
+    created_to: datetime | None = Query(None, description="创建时间上限（含），ISO 8601 格式；留空不限"),
+    sort_dir: str = Query("desc", description="排序方向：desc 最新在前，asc 最早在前"),
+    limit: int = Query(20, ge=1, le=200, description="每页条数，1~200"),
+    offset: int = Query(0, ge=0, description="分页偏移量，从 0 开始"),
     db: AsyncSession = Depends(get_db),
     _admin: AuthUser = Depends(require_admin),
 ) -> AuditListOut:
+    """审计日志列表：多条件筛选 + 服务端分页，并附可选的动作与资源类型枚举。"""
     if sort_dir not in ("asc", "desc"):
         raise HTTPException(status_code=400, detail="sort_dir 必须是 asc 或 desc")
 
@@ -156,14 +157,14 @@ async def list_audit(
 
 @router.get("/audit/export")
 async def export_audit(
-    action: str | None = Query(None),
-    resource_type: str | None = Query(None),
-    resource_id: str | None = Query(None),
-    actor_user_id: int | None = Query(None),
-    created_from: datetime | None = Query(None),
-    created_to: datetime | None = Query(None),
-    sort_dir: str = Query("desc"),
-    limit: int = Query(5000, ge=1, le=50000),
+    action: str | None = Query(None, description="按操作动作精确筛选，如 auth.login；留空不过滤"),
+    resource_type: str | None = Query(None, description="按资源类型精确筛选，如 user；留空不过滤"),
+    resource_id: str | None = Query(None, description="按资源 id 精确筛选；留空不过滤"),
+    actor_user_id: int | None = Query(None, description="按操作者用户 id 筛选；留空不过滤"),
+    created_from: datetime | None = Query(None, description="创建时间下限（含），ISO 8601 格式；留空不限"),
+    created_to: datetime | None = Query(None, description="创建时间上限（含），ISO 8601 格式；留空不限"),
+    sort_dir: str = Query("desc", description="排序方向：desc 最新在前，asc 最早在前"),
+    limit: int = Query(5000, ge=1, le=50000, description="最多导出条数，1~50000"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> Response:

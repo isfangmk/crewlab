@@ -21,22 +21,24 @@ router = APIRouter(tags=["integrations-llm"])
 
 
 class LLMConfigIn(BaseModel):
+    """LLM 接入配置入参，探测 / 保存 / 拉取模型三个端点共用。"""
+
     model_config = ConfigDict(extra="forbid")
 
-    provider: str = Field(min_length=1)
-    api_key: str
-    base_url: str
-    default_model: str
-    models: list[str]
+    provider: str = Field(min_length=1, description="供应商标识，如 openai")
+    api_key: str = Field(description="厂商 API Key；保存时留空表示沿用已保存的 Key")
+    base_url: str = Field(description="厂商 API 根地址")
+    default_model: str = Field(description="默认使用的模型名")
+    models: list[str] = Field(description="可用模型名列表")
     # 跳过 TLS 证书校验（自签证书场景）；必须真正作用到 HTTP 客户端
-    tls_insecure: bool = False
+    tls_insecure: bool = Field(default=False, description="是否跳过 TLS 证书校验，用于自签证书场景")
     # litellm 模型名前缀（如 openai/）；空串表示不加前缀
-    model_prefix: str = ""
+    model_prefix: str = Field(default="", description="litellm 模型名前缀（如 openai/）；空串表示不加前缀")
     # 厂商专属请求体（JSON 对象文本），如 DeepSeek 的 {"thinking":{"type":"enabled"}}
-    extra_body_json: str = ""
+    extra_body_json: str = Field(default="", description="厂商专属请求体，JSON 对象文本，如 DeepSeek 的思考开关")
     # 手动单价表（JSON 对象文本）：{"<模型名>": {"input_per_1m": x, "output_per_1m": y}}，
     # 每百万 token 单价；用量看板只认它，空 = 未定价
-    model_prices_json: str = ""
+    model_prices_json: str = Field(default="", description="手动单价表，JSON 对象文本，键为模型名、值为每百万 token 的 input_per_1m/output_per_1m；空表示未定价")
 
 
 @router.post("/integrations/llm/test")
@@ -45,6 +47,8 @@ async def test_llm(
     _db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """用给定配置探测厂商是否连通、模型是否可用（仅管理员，不落库）。"""
+
     try:
         result = await llm_admin.probe_configuration(
             provider=body.provider,
@@ -78,6 +82,8 @@ async def validate_and_save(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """校验并保存 LLM 接入配置（仅管理员，审计不记录 API Key）。"""
+
     try:
         result = await llm_admin.validate_and_save(
             db,
@@ -120,6 +126,8 @@ async def list_remote_models(
     body: LLMConfigIn,
     _admin: AuthUser = Depends(require_admin),
 ) -> dict:
+    """从厂商拉取远端可用模型清单（仅管理员，纯查询不落库、不审计）。"""
+
     # 纯查询类 POST（拉远端模型清单），不进审计：没有状态变化
     try:
         models = await llm_admin.fetch_remote_models(

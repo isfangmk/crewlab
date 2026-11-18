@@ -9,8 +9,8 @@ from __future__ import annotations
 import json
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette import EventSourceResponse
@@ -26,10 +26,10 @@ router = APIRouter(tags=["task graphs"])
 
 
 class GraphNodesIn(BaseModel):
-    """整体替换节点的请求体。"""
+    """整体替换节点与依赖边的请求体。"""
 
-    nodes_json: str
-    edges_json: str = "[]"
+    nodes_json: str = Field(description="节点 JSON 数组字符串，每项含 id/name/target/instruction/tools/depends_on，共 1-16 个节点")
+    edges_json: str = Field(default="[]", description="额外依赖边 JSON 数组字符串，形如 [{\"source\",\"target\"}]，与 depends_on 合并；一般留空")
 
 
 TERMINAL_EVENTS = {"graph_finished"}
@@ -60,12 +60,14 @@ def _sse_frame(item: dict[str, Any]) -> dict[str, str]:
 
 @router.get("/task-graphs")
 async def list_task_graphs(
-    session_id: str | None = Query(default=None),
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
+    session_id: str | None = Query(default=None, description="按所属会话 id 筛选；留空不过滤"),
+    limit: int = Query(default=20, ge=1, le=100, description="每页条数，1-100"),
+    offset: int = Query(default=0, ge=0, description="分页偏移量，从 0 开始"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """分页列出任务图（按创建时间倒序），可按会话筛选，total 为筛选后的总数。"""
+
     items, total = await task_graph_service.list_graphs(
         db, session_id=session_id, limit=limit, offset=offset
     )
@@ -74,10 +76,12 @@ async def list_task_graphs(
 
 @router.get("/task-graphs/{graph_uid}")
 async def get_task_graph(
-    graph_uid: str,
+    graph_uid: str = Path(description="要获取详情的任务图 uid"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """按 uid 获取一张任务图的详情，含各节点状态与依赖结构。"""
+
     wire = await task_graph_service.get_graph_wire(db, graph_uid)
     if wire is None:
         raise HTTPException(status_code=404, detail=f"任务图不存在: {graph_uid}")
@@ -86,10 +90,12 @@ async def get_task_graph(
 
 @router.get("/task-graphs/{graph_uid}/events")
 async def stream_graph_events(
-    graph_uid: str,
+    graph_uid: str = Path(description="要订阅事件流的任务图 uid"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> EventSourceResponse:
+    """订阅一张任务图的事件流（SSE）：先补发历史事件，再持续推送，结束或收到 graph_finished 收尾。"""
+
     await _get_graph_row(db, graph_uid)
 
     async def event_source() -> AsyncIterator[dict[str, str]]:
@@ -114,11 +120,13 @@ async def stream_graph_events(
 
 @router.patch("/task-graphs/{graph_uid}/nodes")
 async def update_graph_nodes(
-    graph_uid: str,
-    body: GraphNodesIn,
+    graph_uid: str = Path(description="要编辑的任务图 uid"),
+    body: GraphNodesIn = Body(description="替换后的节点与依赖边"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """整体替换任务图的节点与依赖边，仅创建者或管理员可操作；冲突返回 409。"""
+
     row = await _get_graph_row(db, graph_uid)
     _require_owner_or_admin(user, row.created_by)
 
@@ -138,10 +146,12 @@ async def update_graph_nodes(
 
 @router.post("/task-graphs/{graph_uid}/confirm")
 async def confirm_graph(
-    graph_uid: str,
+    graph_uid: str = Path(description="要确认并执行的任务图 uid"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """确认草稿态任务图并开始按依赖执行，仅创建者或管理员可操作；已开始则报 409。"""
+
     row = await _get_graph_row(db, graph_uid)
     _require_owner_or_admin(user, row.created_by)
     ok = await task_graph_service.confirm_and_run(db, graph_uid)
@@ -158,10 +168,12 @@ async def confirm_graph(
 
 @router.post("/task-graphs/{graph_uid}/stop")
 async def stop_graph(
-    graph_uid: str,
+    graph_uid: str = Path(description="要停止的任务图 uid"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """停止正在执行的任务图，仅创建者或管理员可操作；stopped 表示是否真正停止。"""
+
     row = await _get_graph_row(db, graph_uid)
     _require_owner_or_admin(user, row.created_by)
     stopped = await task_graph_service.stop_graph(db, graph_uid)
@@ -177,11 +189,13 @@ async def stop_graph(
 
 @router.post("/task-graphs/{graph_uid}/nodes/{node_uid}/retry")
 async def retry_graph_node(
-    graph_uid: str,
-    node_uid: str,
+    graph_uid: str = Path(description="节点所属任务图 uid"),
+    node_uid: str = Path(description="要重试的节点 uid"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """重试一个失败节点，仅创建者或管理员可操作；节点不存在或不可重试报 409。"""
+
     row = await _get_graph_row(db, graph_uid)
     _require_owner_or_admin(user, row.created_by)
     node = await task_graph_service.retry_node(db, graph_uid, node_uid)
@@ -199,11 +213,13 @@ async def retry_graph_node(
 
 @router.post("/task-graphs/{graph_uid}/nodes/{node_uid}/skip")
 async def skip_graph_node(
-    graph_uid: str,
-    node_uid: str,
+    graph_uid: str = Path(description="节点所属任务图 uid"),
+    node_uid: str = Path(description="要跳过的节点 uid"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """跳过一个节点并继续后续依赖，仅创建者或管理员可操作；节点不存在或不可跳过报 409。"""
+
     row = await _get_graph_row(db, graph_uid)
     _require_owner_or_admin(user, row.created_by)
     node = await task_graph_service.skip_node(db, graph_uid, node_uid)

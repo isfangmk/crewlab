@@ -10,7 +10,7 @@ import csv
 import io
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Path
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,25 +26,30 @@ router = APIRouter(tags=["secrets"])
 
 
 class SecretCreateIn(BaseModel):
+    """新建凭证的请求体。"""
+
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(min_length=1)
-    type: str = Field(min_length=1)
+    name: str = Field(min_length=1, description="凭证名称，供 MCP 配置引用，须唯一")
+    type: str = Field(min_length=1, description="凭证类型：custom / github / aws / tencentcloud")
     # 描述是必填：凭证没有说明就没法在列表里辨认用途。
     # 留默认值等于允许静默填空。
-    description: str
-    fields: dict[str, str]
+    description: str = Field(description="用途说明，必填，便于在列表中辨认凭证用途")
+    fields: dict[str, str] = Field(description="字段值字典，键为字段名、值为字段明文；必填字段由所选类型决定")
 
 
 class SecretRotateIn(BaseModel):
+    """轮换凭证的请求体。"""
+
     model_config = ConfigDict(extra="forbid")
 
     # 只提交要换的字段；未提交的字段沿用旧值（旧密文可解密时）。
-    fields: dict[str, str]
+    fields: dict[str, str] = Field(description="要更新的字段值字典，键为字段名、值为新明文；未提交的字段沿用旧值")
 
 
 @router.get("/credential-types")
 async def list_credential_types(_user: AuthUser = Depends(require_auth)) -> dict:
+    """列出可选的凭证类型及其所需字段定义。"""
     items = secrets_service.list_credential_types()
     return {"items": items}
 
@@ -154,6 +159,7 @@ async def create_secret(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """管理员新建凭证，字段值加密存储且不回显明文。"""
     try:
         row = await secrets_service.create_secret(
             db,
@@ -178,7 +184,7 @@ async def create_secret(
 
 @router.get("/secrets/{secret_id}/usage")
 async def secret_usage(
-    secret_id: int,
+    secret_id: int = Path(description="要查看影响面的凭证 id"),
     db: AsyncSession = Depends(get_db),
     _admin: AuthUser = Depends(require_admin),
 ) -> dict:
@@ -205,11 +211,12 @@ async def secret_usage(
 
 @router.post("/secrets/{secret_id}/rotate")
 async def rotate_secret(
-    secret_id: int,
-    body: SecretRotateIn,
+    secret_id: int = Path(description="要轮换的凭证 id"),
+    body: SecretRotateIn = Body(description="要更新的字段值；未提交字段沿用旧值"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """管理员轮换凭证：只更新提交的字段，未提交字段沿用旧值，不回显明文。"""
     try:
         row, rotated_fields = await secrets_service.rotate_secret(
             db, secret_id, new_fields=body.fields
@@ -234,7 +241,7 @@ async def rotate_secret(
 
 @router.post("/secrets/{secret_id}/usage/verify")
 async def verify_secret_usage(
-    secret_id: int,
+    secret_id: int = Path(description="要验证的凭证 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
@@ -299,10 +306,11 @@ async def verify_secret_usage(
 
 @router.delete("/secrets/{secret_id}")
 async def delete_secret(
-    secret_id: int,
+    secret_id: int = Path(description="要删除的凭证 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """管理员删除一条凭证，不可恢复。"""
     try:
         name, cred_type = await secrets_service.delete_secret(db, secret_id)
     except LookupError as exc:

@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,28 +43,30 @@ class WorkflowInput(BaseModel):
     状态与版本都不由调用方决定：画布保存永远是草稿，发布走单独接口。
     """
 
-    name: str = Field(min_length=1, max_length=128)
-    description: str = ""
-    definition: WorkflowDefinition
+    name: str = Field(min_length=1, max_length=128, description="工作流名称，同一账号下需唯一")
+    description: str = Field(default="", description="工作流说明，可留空")
+    definition: WorkflowDefinition = Field(description="画布定义：节点、连线与配置，按当前画布内容保存")
 
 
 class WorkflowDefinitionInput(BaseModel):
-    definition: WorkflowDefinition
+    """画布定义的请求体，用于纯校验等只需一张图的场景。"""
+
+    definition: WorkflowDefinition = Field(description="待校验的画布定义：节点、连线与配置")
 
 
 class RunInput(BaseModel):
     """运行输入：按开始节点声明的变量名传值。"""
 
-    values: dict[str, Any] = Field(default_factory=dict)
+    values: dict[str, Any] = Field(default_factory=dict, description="按开始节点声明的变量名传值，键为变量名、值为变量值")
     # published 跑已发布快照（列表页 / 再次运行），draft 跑当前草稿（编排页）
-    source: Literal["published", "draft"] = "published"
+    source: Literal["published", "draft"] = Field(default="published", description="运行哪份定义：published 已发布快照，draft 当前草稿")
 
 
 class ResumeInput(BaseModel):
     """人工节点恢复：approve 继续，reject 终止；input 节点用 values 提交。"""
 
-    decision: str = "approve"
-    values: dict[str, Any] = Field(default_factory=dict)
+    decision: str = Field(default="approve", description="人工节点的决定：approve 继续运行，reject 终止")
+    values: dict[str, Any] = Field(default_factory=dict, description="input 节点提交的表单值，键为变量名、值为变量值；approve/reject 时可留空")
 
 
 def _row_to_wire(
@@ -256,11 +258,11 @@ def _server_tools(server: Any) -> list[dict[str, Any]]:
 
 @router.get("/workflows")
 async def list_workflows(
-    q: str = "",
-    status: str = "",
-    sort: str = "desc",
-    limit: int = Query(default=20, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    q: str = Query(default="", description="按工作流名称或说明模糊筛选；留空不过滤"),
+    status: str = Query(default="", description="按状态筛选：draft 草稿、published 已发布；留空全部"),
+    sort: str = Query(default="desc", description="按更新时间排序方向：desc 最新在前，asc 最早在前"),
+    limit: int = Query(default=20, ge=1, le=200, description="每页条数，1-200"),
+    offset: int = Query(default=0, ge=0, description="分页偏移量，从 0 开始"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -318,6 +320,8 @@ async def create_workflow(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """新建一张工作流画布，初始为草稿；名称重复返回 400。"""
+
     existing = await db.scalar(select(WorkflowRow).where(WorkflowRow.name == body.name))
     if existing is not None:
         raise HTTPException(status_code=400, detail=f"工作流名称已存在: {body.name}")
@@ -362,12 +366,12 @@ async def validate_workflow(body: WorkflowDefinitionInput) -> dict:
 
 @router.get("/workflows/runs/list")
 async def list_runs(
-    workflow_id: int | None = None,
-    status: str = "",
-    q: str = "",
-    sort_dir: str = "desc",
-    limit: int = Query(default=20, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    workflow_id: int | None = Query(default=None, description="按工作流 id 筛选；留空不过滤"),
+    status: str = Query(default="", description="按运行状态筛选：running/waiting/succeeded/failed/stopped；留空全部"),
+    q: str = Query(default="", description="按工作流名、run_uid 或触发人模糊筛选；留空不过滤"),
+    sort_dir: str = Query(default="desc", description="按开始时间排序方向：desc 最新在前，asc 最早在前"),
+    limit: int = Query(default=20, ge=1, le=200, description="每页条数，1-200"),
+    offset: int = Query(default=0, ge=0, description="分页偏移量，从 0 开始"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -399,10 +403,12 @@ async def list_runs(
 
 @router.get("/workflows/runs/{run_uid}")
 async def get_run(
-    run_uid: str,
+    run_uid: str = Path(description="运行 uid（发起运行或运行列表接口获取）"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """按 run_uid 获取一次运行的详情，含各节点结果与运行时的画布定义。"""
+
     try:
         run = await workflow_service.get_run(db, run_uid)
     except LookupError as exc:
@@ -420,11 +426,13 @@ async def get_run(
 
 @router.post("/workflows/runs/{run_uid}/resume")
 async def resume_run(
-    run_uid: str,
-    body: ResumeInput,
+    run_uid: str = Path(description="停在人工节点、待恢复的运行 uid"),
+    body: ResumeInput = Body(description="人工节点的决定与提交值"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """恢复停在人工节点的运行：approve 继续，reject 终止；返回更新后的运行详情。"""
+
     try:
         run = await workflow_service.get_run(db, run_uid)
     except LookupError as exc:
@@ -466,7 +474,7 @@ async def resume_run(
 
 @router.post("/workflows/runs/{run_uid}/stop")
 async def stop_run(
-    run_uid: str,
+    run_uid: str = Path(description="要停止的运行 uid"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -489,9 +497,9 @@ async def stop_run(
 
 @router.post("/workflows/{workflow_id}/nodes/{node_id}/run")
 async def run_single_node(
-    workflow_id: int,
-    node_id: str,
-    body: RunInput,
+    workflow_id: int = Path(description="节点所属工作流 id"),
+    node_id: str = Path(description="要试跑的节点 id（画布定义中的节点标识）"),
+    body: RunInput = Body(description="试跑的输入变量与运行来源"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -528,7 +536,7 @@ async def run_single_node(
 
 @router.get("/workflows/{workflow_id}/runs/latest")
 async def latest_run_snapshot(
-    workflow_id: int,
+    workflow_id: int = Path(description="要查询最近一次运行的工作流 id"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -564,13 +572,15 @@ async def latest_run_snapshot(
 
 @router.get("/workflows/{workflow_id}")
 async def get_workflow(
-    workflow_id: int,
+    workflow_id: int = Path(description="要获取详情的工作流 id"),
     source: Literal["draft", "published"] = Query(
         default="draft", description="definition 取草稿还是已发布快照"
     ),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """按 id 获取工作流详情，可指定返回草稿或已发布快照的画布定义。"""
+
     row = await _get_row(db, workflow_id)
     try:
         return _row_to_wire(
@@ -585,8 +595,8 @@ async def get_workflow(
 
 @router.put("/workflows/{workflow_id}")
 async def update_workflow(
-    workflow_id: int,
-    body: WorkflowInput,
+    workflow_id: int = Path(description="要保存草稿的工作流 id"),
+    body: WorkflowInput = Body(description="要保存的工作流画布内容"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -625,7 +635,7 @@ async def update_workflow(
 
 @router.post("/workflows/{workflow_id}/publish")
 async def publish_workflow(
-    workflow_id: int,
+    workflow_id: int = Path(description="要发布的工作流 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -671,10 +681,12 @@ async def publish_workflow(
 
 @router.delete("/workflows/{workflow_id}")
 async def delete_workflow(
-    workflow_id: int,
+    workflow_id: int = Path(description="要删除的工作流 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """按 id 删除工作流，其运行记录级联删除，不可恢复。"""
+
     row = await _get_row(db, workflow_id)
     name = row.name
     await db.delete(row)
@@ -692,8 +704,8 @@ async def delete_workflow(
 
 @router.post("/workflows/{workflow_id}/runs/start")
 async def start_workflow_run(
-    workflow_id: int,
-    body: RunInput,
+    workflow_id: int = Path(description="要发起运行的工作流 id"),
+    body: RunInput = Body(description="运行的输入变量与运行来源"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -729,7 +741,7 @@ async def start_workflow_run(
 
 @router.get("/workflows/runs/{run_uid}/events")
 async def stream_run_events(
-    run_uid: str,
+    run_uid: str = Path(description="要订阅事件流的运行 uid"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> EventSourceResponse:

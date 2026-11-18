@@ -90,11 +90,11 @@ class WorkflowVariable(BaseModel):
     default 为 None 才是「没设默认值」，空字符串是合法的字符串默认值。
     """
 
-    name: str = Field(min_length=1, max_length=64)
-    type: Literal["string", "number", "boolean", "json"] = "string"
-    description: str = Field(default="", max_length=256)
-    required: bool = False
-    default: Any | None = None
+    name: str = Field(min_length=1, max_length=64, description="变量名，字母或下划线开头且只含字母数字下划线，最长 64")
+    type: Literal["string", "number", "boolean", "json"] = Field(default="string", description="变量类型：string 文本 / number 数字 / boolean 布尔 / json 对象")
+    description: str = Field(default="", max_length=256, description="变量用途说明，最长 256；留空表示无说明")
+    required: bool = Field(default=False, description="是否运行时必须由用户提供；为 true 时不能设置 default")
+    default: Any | None = Field(default=None, description="变量默认值，须与 type 一致；None 表示未设默认值（空字符串是合法默认值）")
 
     @field_validator("name")
     @classmethod
@@ -140,84 +140,84 @@ class TaskSpec(BaseModel):
     在装配时经 task_runner 注入，这里只描述「做什么」。
     """
 
-    target: str = Field(min_length=1, max_length=2000)
-    instruction: str = Field(default="", max_length=8000)
-    tools: list[str] = Field(default_factory=list)
+    target: str = Field(min_length=1, max_length=2000, description="任务目标，描述这一路/这一步要解决的对象，最长 2000")
+    instruction: str = Field(default="", max_length=8000, description="任务执行指令，说明具体做什么，最长 8000；留空用默认指令")
+    tools: list[str] = Field(default_factory=list, description="该任务可用的工具名列表；留空表示不额外限定工具")
 
 
 class WorkflowNode(BaseModel):
     """一个图节点。各 kind 只允许填自己那部分字段，其余必须为空。"""
 
-    id: str = Field(min_length=1, max_length=64)
-    kind: NodeKind
-    label: str = Field(default="", max_length=64)
-    x: float = 0
-    y: float = 0
+    id: str = Field(min_length=1, max_length=64, description="节点唯一 id，字母或下划线开头且只含字母数字下划线，最长 64，不能用保留名")
+    kind: NodeKind = Field(description="节点类型，可选 start/end/join/switch/loop/agent/task/knowledge/search/mcp/http/code/assign/approval/input")
+    label: str = Field(default="", max_length=64, description="节点在画布上的展示名称，最长 64；留空用默认名")
+    x: float = Field(default=0, description="节点在画布上的横坐标")
+    y: float = Field(default=0, description="节点在画布上的纵坐标")
 
     # 执行结果写回哪个状态变量；空串表示不写回（仅用副作用/中断的节点可以不写）
-    output_key: str = Field(default="", max_length=64)
+    output_key: str = Field(default="", max_length=64, description="执行结果写回的状态变量名；空串表示不写回")
 
     # start：声明运行输入
-    variables: list[WorkflowVariable] = Field(default_factory=list)
+    variables: list[WorkflowVariable] = Field(default_factory=list, description="开始节点的运行输入变量列表；仅 start 节点可填")
 
     # agent：节点所使用的模型（配置-模型里的 provider + 模型 id）
-    provider: str = Field(default="", max_length=64)
-    model: str = Field(default="", max_length=128)
+    provider: str = Field(default="", max_length=64, description="LLM 节点使用的模型提供方，与 model 成对指定；仅 agent 节点可填")
+    model: str = Field(default="", max_length=128, description="LLM 节点使用的模型 id，与 provider 成对指定；仅 agent 节点可填")
     # agent：节点级指令
-    instruction: str = Field(default="", max_length=8000)
+    instruction: str = Field(default="", max_length=8000, description="LLM 节点的节点级指令，最长 8000；仅 agent 节点可填")
 
     # task：任务节点的执行参数（系统编排模板专用）
-    task: TaskSpec | None = None
+    task: TaskSpec | None = Field(default=None, description="任务节点的执行参数；仅 task 节点必填，其余节点必须为 None")
 
     # knowledge / search / http 等节点的主参数，支持 {{变量}} 插值
-    query: str = Field(default="", max_length=2000)
-    limit: int = 5
+    query: str = Field(default="", max_length=2000, description="检索/搜索类节点的主查询参数，支持 {{变量}} 插值，最长 2000")
+    limit: int = Field(default=5, description="检索返回的最大条数，默认 5")
     # knowledge：限定检索目录（空 = 全库）
-    paths: list[str] = Field(default_factory=list)
+    paths: list[str] = Field(default_factory=list, description="知识检索限定目录路径列表；留空表示全库检索")
 
     # mcp（工具节点）：工具来源。builtin = 平台内置工具，mcp = 外部 MCP Server。
     # 老定义没有这个字段，缺省按 mcp 解释，保证已保存的画布照常运行。
-    tool_source: Literal["builtin", "mcp"] = "mcp"
+    tool_source: Literal["builtin", "mcp"] = Field(default="mcp", description="工具节点来源：builtin 平台内置工具 / mcp 外部 MCP Server；缺省按 mcp 解释")
     # mcp（工具节点）：内置工具名（tool_source=builtin 时必填）
-    tool_name: str = Field(default="", max_length=128)
+    tool_name: str = Field(default="", max_length=128, description="内置工具名，tool_source=builtin 时必填；其余情况留空")
     # mcp（工具节点）：MCP Server 名与工具原名（tool_source=mcp 时必填）
-    mcp_server: str = Field(default="", max_length=128)
-    mcp_tool: str = Field(default="", max_length=256)
+    mcp_server: str = Field(default="", max_length=128, description="MCP Server 名，tool_source=mcp 时必填")
+    mcp_tool: str = Field(default="", max_length=256, description="MCP 工具原名，tool_source=mcp 时必填")
     # 工具 / http：参数表，值支持 {{变量}} 插值
-    arguments: dict[str, str] = Field(default_factory=dict)
+    arguments: dict[str, str] = Field(default_factory=dict, description="工具/HTTP 节点的参数表，键为参数名、值为参数值，支持 {{变量}} 插值")
 
     # http
-    method: str = Field(default="GET", max_length=8)
-    url: str = Field(default="", max_length=2000)
-    headers: dict[str, str] = Field(default_factory=dict)
-    body: str = Field(default="", max_length=20000)
+    method: str = Field(default="GET", max_length=8, description="HTTP 请求方法，可选 GET/POST/PUT/PATCH/DELETE，默认 GET；自动转大写")
+    url: str = Field(default="", max_length=2000, description="HTTP 请求地址，支持 {{变量}} 插值，最长 2000；http 节点必填")
+    headers: dict[str, str] = Field(default_factory=dict, description="HTTP 请求头，键为头名、值为头值，支持 {{变量}} 插值")
+    body: str = Field(default="", max_length=20000, description="HTTP 请求体文本，支持 {{变量}} 插值，最长 20000")
 
     # code：Python 片段，必须定义 run(state) -> Any
-    code: str = Field(default="", max_length=20000)
+    code: str = Field(default="", max_length=20000, description="代码节点的 Python 代码，须定义 run(state) -> Any，最长 20000；code 节点必填")
     # code：执行模式。sandbox = 沙盒内执行（默认，可装第三方库、碰不到宿主机）；
     # restricted = 进程内受限命名空间（纯计算、无沙盒开销）
-    execution_mode: Literal["sandbox", "restricted"] = "sandbox"
+    execution_mode: Literal["sandbox", "restricted"] = Field(default="sandbox", description="代码执行模式：sandbox 沙盒内执行（默认，可装库、隔离宿主机）/ restricted 进程内受限命名空间（纯计算）")
     # code：沙盒执行前要装的第三方库（pip 包名）
-    libraries: list[str] = Field(default_factory=list)
+    libraries: list[str] = Field(default_factory=list, description="沙盒执行前要安装的第三方库（pip 包名，可用 == 固定版本），最多 20 个")
 
     # assign：按顺序写多个变量
-    assignments: dict[str, str] = Field(default_factory=dict)
+    assignments: dict[str, str] = Field(default_factory=dict, description="变量赋值表，键为变量名、值为赋值表达式，按顺序写入状态；assign 节点至少一项")
 
     # switch：分支名列表，出边的 route 必须落在其中
-    branches: list[str] = Field(default_factory=list)
+    branches: list[str] = Field(default_factory=list, description="条件分支的分支名列表，出边的 route 须在其中；switch 节点至少两个且互不重复")
     # switch：如何选分支。expr 支持 {{var}}，也可用 model 让 LLM 判断
-    expression: str = Field(default="", max_length=2000)
-    branch_mode: Literal["expr", "model"] = "expr"
+    expression: str = Field(default="", max_length=2000, description="分支选择表达式，expr 模式下支持 {{var}} 插值；最长 2000")
+    branch_mode: Literal["expr", "model"] = Field(default="expr", description="分支选择方式：expr 按表达式判断 / model 交给 LLM 判断，默认 expr")
 
     # loop：最大轮次（必须有出口条件，ADK 不允许无条件回边）
-    max_iterations: int = Field(default=5, ge=1, le=100)
+    max_iterations: int = Field(default=5, ge=1, le=100, description="循环最大轮次，范围 1~100，默认 5；必须有出口条件")
 
     # approval / input：给用户看的文案
-    prompt: str = Field(default="", max_length=2000)
+    prompt: str = Field(default="", max_length=2000, description="人工审批/输入节点展示给用户的提示文案，最长 2000；对应节点必填")
 
     # 节点级超时（秒）与重试次数
-    timeout_seconds: float | None = None
-    retry_count: int = 0
+    timeout_seconds: float | None = Field(default=None, description="节点级超时时间（秒），范围 (0, 3600]；留空表示不限制")
+    retry_count: int = Field(default=0, description="节点失败重试次数，范围 0~5，默认 0 表示不重试")
 
     @field_validator("id")
     @classmethod
@@ -405,10 +405,10 @@ class WorkflowNode(BaseModel):
 class WorkflowEdge(BaseModel):
     """一条连线；route 为空表示无条件边。"""
 
-    id: str = Field(min_length=1, max_length=128)
-    source: str = Field(min_length=1, max_length=64)
-    target: str = Field(min_length=1, max_length=64)
-    route: str = Field(default="", max_length=64)
+    id: str = Field(min_length=1, max_length=128, description="连线唯一 id，最长 128")
+    source: str = Field(min_length=1, max_length=64, description="连线起点节点 id")
+    target: str = Field(min_length=1, max_length=64, description="连线终点节点 id")
+    route: str = Field(default="", max_length=64, description="连线路由标识，条件分支出边用分支名；空串表示无条件边")
 
     @field_validator("route")
     @classmethod
@@ -421,8 +421,8 @@ class WorkflowEdge(BaseModel):
 class WorkflowDefinition(BaseModel):
     """整张画布。"""
 
-    nodes: list[WorkflowNode]
-    edges: list[WorkflowEdge]
+    nodes: list[WorkflowNode] = Field(description="画布节点列表，id 不重复，须有且仅有一个开始节点")
+    edges: list[WorkflowEdge] = Field(description="画布连线列表，端点须存在且从开始节点全部可达")
 
     @model_validator(mode="after")
     def _check_graph(self) -> WorkflowDefinition:

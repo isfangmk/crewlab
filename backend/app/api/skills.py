@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Path, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,9 +25,9 @@ router = APIRouter(tags=["skills"])
 class InstallFromUrlIn(BaseModel):
     """从网址安装技能；risk/group 在技能包未声明时必填。"""
 
-    url: str = Field(min_length=1)
-    risk: str | None = None
-    group: str | None = None
+    url: str = Field(min_length=1, description="技能包 zip 直链或 git 仓库地址，不能为空")
+    risk: str | None = Field(default=None, description="风险等级：safe / mutating / dangerous；技能包未声明时必填，留空则取包内值")
+    group: str | None = Field(default=None, description="技能分组 key（如 observe、device、cloud 等）；技能包未声明时必填，留空则取包内值")
 
 
 def _payload_from_in(body: SkillPayloadIn) -> SkillPayload:
@@ -74,6 +74,8 @@ async def list_skills(
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """列出全部技能摘要（内置 + 用户自定义），含分组、风险与资源统计。"""
+
     try:
         items = await skills_service.list_skill_summaries(db)
     except FileNotFoundError as exc:
@@ -94,10 +96,12 @@ async def list_skill_groups(
 
 @router.get("/skills/{key}")
 async def get_skill(
-    key: str,
+    key: str = Path(description="要查看的技能 key（先通过列表获取）"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> dict:
+    """按 key 获取单个技能详情，含完整指令与资源清单。"""
+
     try:
         return await skills_service.get_skill_summary(db, key)
     except LookupError as exc:
@@ -108,10 +112,12 @@ async def get_skill(
 
 @router.post("/skills")
 async def create_skill(
-    body: SkillPayloadIn,
+    body: SkillPayloadIn = Body(description="新技能定义：key、描述、指令、工具与资源等"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """新建用户自定义技能，并持久化到库。"""
+
     payload = _payload_from_in(body)
     try:
         row = await skills_service.create_user_skill(
@@ -140,11 +146,13 @@ async def create_skill(
 
 @router.patch("/skills/{key}")
 async def update_skill(
-    key: str,
-    body: SkillPayloadIn,
+    key: str = Path(description="要更新的技能 key"),
+    body: SkillPayloadIn = Body(description="技能的完整新定义"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """按 key 更新用户自定义技能，内置技能只读不可改。"""
+
     payload = _payload_from_in(body)
     try:
         row = await skills_service.update_user_skill(
@@ -173,10 +181,12 @@ async def update_skill(
 
 @router.delete("/skills/{key}")
 async def delete_skill(
-    key: str,
+    key: str = Path(description="要删除的技能 key"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """按 key 删除用户自定义技能，内置技能不可删。"""
+
     try:
         await skills_service.delete_user_skill(db, key)
     except LookupError as exc:
@@ -192,7 +202,7 @@ async def delete_skill(
 
 @router.post("/skills/install-from-url")
 async def install_skill_from_url(
-    body: InstallFromUrlIn,
+    body: InstallFromUrlIn = Body(description="技能包地址及可选的风险等级、分组"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
@@ -217,7 +227,7 @@ async def install_skill_from_url(
 
 @router.post("/skills/parse")
 async def parse_skill_zip(
-    file: UploadFile = File(...),
+    file: UploadFile = File(..., description="要解析的 .zip 技能包"),
     _user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
     """解析 zip 技能包并回预览；不写库。不进审计：导入（skill.import）才记。"""
@@ -242,9 +252,9 @@ async def parse_skill_zip(
 
 @router.post("/skills/import")
 async def import_skill_zip(
-    file: UploadFile = File(...),
-    risk: str | None = Form(None),
-    group: str | None = Form(None),
+    file: UploadFile = File(..., description="要导入的 .zip 技能包"),
+    risk: str | None = Form(default=None, description="风险等级：safe / mutating / dangerous；包内 metadata 未声明时必填"),
+    group: str | None = Form(default=None, description="技能分组 key（如 observe、device、cloud 等）；包内 metadata 未声明时必填"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
@@ -306,7 +316,7 @@ async def import_skill_zip(
 
 @router.get("/skills/{key}/export")
 async def export_skill(
-    key: str,
+    key: str = Path(description="要导出的技能 key"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> Response:

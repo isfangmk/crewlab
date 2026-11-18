@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,27 +55,31 @@ def run_to_wire(run: TriggerRun) -> dict[str, Any]:
 
 
 class TriggerCreateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=128)
-    kind: str
-    target_kind: str
-    cron_expr: str = ""
-    values_json: str = "{}"
-    workflow_id: int | None = None
-    agent_id: str | None = None
-    prompt: str = ""
-    enabled: bool = True
-    max_retries: int = Field(default=0, ge=0, le=5)
+    """创建触发器的请求体。"""
+
+    name: str = Field(min_length=1, max_length=128, description="触发器名称，1～128 字")
+    kind: str = Field(description="触发方式：cron 定时触发 / webhook 回调触发")
+    target_kind: str = Field(description="目标类型：workflow 工作流 / agent 助理会话")
+    cron_expr: str = Field(default="", description="五段 cron 表达式（分 时 日 月 周），仅 cron 型需要")
+    values_json: str = Field(default="{}", description="工作流型触发时的输入 JSON 对象，键为开始节点变量名")
+    workflow_id: int | None = Field(default=None, description="目标工作流 id，目标类型为 workflow 时必填且须已发布")
+    agent_id: str | None = Field(default=None, description="目标助理 id，目标类型为 agent 时必填")
+    prompt: str = Field(default="", description="助理型触发时发送的用户消息，目标类型为 agent 时必填")
+    enabled: bool = Field(default=True, description="是否启用；停用后不再按计划或回调触发")
+    max_retries: int = Field(default=0, ge=0, le=5, description="失败后的最大重试次数，范围 0～5")
 
 
 class TriggerUpdateRequest(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=128)
-    cron_expr: str | None = None
-    values_json: str | None = None
-    workflow_id: int | None = None
-    agent_id: str | None = None
-    prompt: str | None = None
-    enabled: bool | None = None
-    max_retries: int | None = Field(default=None, ge=0, le=5)
+    """更新触发器的请求体；仅传需要修改的字段，未传字段保持不变。"""
+
+    name: str | None = Field(default=None, min_length=1, max_length=128, description="触发器名称，1～128 字")
+    cron_expr: str | None = Field(default=None, description="五段 cron 表达式（分 时 日 月 周），仅 cron 型有效")
+    values_json: str | None = Field(default=None, description="工作流型触发时的输入 JSON 对象，键为开始节点变量名")
+    workflow_id: int | None = Field(default=None, description="目标工作流 id，目标类型为 workflow 时必填")
+    agent_id: str | None = Field(default=None, description="目标助理 id，目标类型为 agent 时必填")
+    prompt: str | None = Field(default=None, description="助理型触发时发送的用户消息")
+    enabled: bool | None = Field(default=None, description="是否启用；停用后不再按计划或回调触发")
+    max_retries: int | None = Field(default=None, ge=0, le=5, description="失败后的最大重试次数，范围 0～5")
 
 
 async def _validate_target(
@@ -110,6 +114,8 @@ async def list_triggers(
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    """列出全部触发器规则，按 id 倒序（最新创建的在前）。"""
+
     rules = await trigger_service.list_rules(db)
     return {"items": [rule_to_wire(r) for r in rules], "total": len(rules)}
 
@@ -120,6 +126,8 @@ async def create_trigger(
     db: AsyncSession = Depends(get_db),
     user: Any = Depends(require_not_viewer),
 ) -> dict:
+    """新建触发器；webhook 型的响应会一次性返回明文 webhook_url。"""
+
     await _validate_target(db, body.target_kind, body.workflow_id, body.agent_id)
     try:
         rule, raw_token = await trigger_service.create_rule(
@@ -153,11 +161,14 @@ async def create_trigger(
 
 @router.put("/triggers/{trigger_id}")
 async def update_trigger(
-    trigger_id: int,
+    trigger_id: int = Path(description="要更新的触发器 id"),
+    *,
     body: TriggerUpdateRequest,
     db: AsyncSession = Depends(get_db),
     user: Any = Depends(require_not_viewer),
 ) -> dict:
+    """更新触发器的可改字段；改 cron 或启停态会重算下次触发时间。"""
+
     try:
         rule = await trigger_service.get_rule(db, trigger_id)
     except LookupError as exc:
@@ -185,10 +196,12 @@ async def update_trigger(
 
 @router.delete("/triggers/{trigger_id}")
 async def delete_trigger(
-    trigger_id: int,
+    trigger_id: int = Path(description="要删除的触发器 id"),
     db: AsyncSession = Depends(get_db),
     user: Any = Depends(require_admin),
 ) -> dict:
+    """删除触发器（仅管理员），其历史执行记录一并级联删除。"""
+
     try:
         rule = await trigger_service.get_rule(db, trigger_id)
     except LookupError as exc:
@@ -206,10 +219,12 @@ async def delete_trigger(
 
 @router.get("/triggers/{trigger_id}")
 async def get_trigger(
-    trigger_id: int,
+    trigger_id: int = Path(description="要查看的触发器 id"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    """按 id 获取单个触发器的详细配置。"""
+
     try:
         rule = await trigger_service.get_rule(db, trigger_id)
     except LookupError as exc:
@@ -219,10 +234,12 @@ async def get_trigger(
 
 @router.get("/triggers/{trigger_id}/runs")
 async def list_trigger_runs(
-    trigger_id: int,
+    trigger_id: int = Path(description="要查询执行记录的触发器 id"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    """列出指定触发器最近的执行记录（最多 20 条，按 id 倒序）。"""
+
     try:
         await trigger_service.get_rule(db, trigger_id)
     except LookupError as exc:
@@ -233,7 +250,7 @@ async def list_trigger_runs(
 
 @router.post("/triggers/{trigger_id}/fire")
 async def fire_trigger(
-    trigger_id: int,
+    trigger_id: int = Path(description="要手动触发的触发器 id"),
     db: AsyncSession = Depends(get_db),
     user: Any = Depends(require_not_viewer),
 ) -> dict:
@@ -250,7 +267,7 @@ async def fire_trigger(
 
 @router.post("/triggers/webhook/{raw_token}/fire")
 async def fire_webhook(
-    raw_token: str,
+    raw_token: str = Path(description="创建 webhook 触发器时一次性返回的令牌原文，即鉴权凭据"),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """公开 Webhook 入口：路径 token 即鉴权（豁免与只读分享一致）。"""

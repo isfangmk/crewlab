@@ -8,10 +8,12 @@ from uuid import uuid4
 from fastapi import (
     APIRouter,
     BackgroundTasks,
+    Body,
     Depends,
     File,
     Form,
     HTTPException,
+    Path,
     Query,
     UploadFile,
 )
@@ -52,19 +54,19 @@ async def _record_search_hits_async(doc_ids: list[str]) -> None:
 
 @router.get("/knowledge/docs")
 async def list_docs(
-    source_type: str | None = None,
-    path: str | None = None,
-    path_prefix: str | None = None,
-    tag: str | None = None,
+    source_type: str | None = Query(default=None, description="按来源类型筛选：manual 手工、upload 上传、vault 内置、repo 仓库同步、url 网址、git 仓库；留空不过滤"),
+    path: str | None = Query(default=None, description="按文档所在目录精确筛选；留空不过滤"),
+    path_prefix: str | None = Query(default=None, description="按目录前缀筛选，含其子目录；留空不过滤"),
+    tag: str | None = Query(default=None, description="按标签精确筛选；留空不过滤"),
     # 来源组：与前端侧边栏分组一致，builtin=true 只取 vault，false 只取组织文档
-    builtin: bool | None = Query(None),
+    builtin: bool | None = Query(default=None, description="来源分组：true 仅内置文档，false 仅组织文档，留空全部"),
     # 标题关键字
-    q: str | None = Query(None, max_length=200),
-    sort_dir: str = Query("desc"),
-    limit: int | None = Query(None, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    q: str | None = Query(default=None, max_length=200, description="标题关键字模糊搜索，最长 200 字；留空不过滤"),
+    sort_dir: str = Query(default="desc", description="排序方向：desc 最新在前，asc 最早在前"),
+    limit: int | None = Query(default=None, ge=1, le=200, description="每页条数 1-200；留空返回全部（供目录树聚合，前端列表必须显式传）"),
+    offset: int = Query(default=0, ge=0, description="分页偏移量，从 0 开始"),
     # 外部源详情：只看某个来源同步出的文档
-    external_source_id: str | None = Query(None, max_length=36),
+    external_source_id: str | None = Query(default=None, max_length=36, description="只看指定外部来源同步出的文档 id，最长 36 字符；留空不过滤"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
@@ -110,7 +112,7 @@ async def list_docs(
 
 @router.get("/knowledge/docs/{doc_id}/source")
 async def download_doc_source(
-    doc_id: str,
+    doc_id: str = Path(description="要下载原件的文档 id（仅 upload 来源有原件）"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> FileResponse:
@@ -137,10 +139,12 @@ async def download_doc_source(
 
 @router.get("/knowledge/docs/{doc_id}")
 async def get_doc(
-    doc_id: str,
+    doc_id: str = Path(description="要获取的文档 id"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    """按 id 获取单篇文档，返回内容包含正文。"""
+
     try:
         doc = await knowledge_service.get_doc(db, doc_id)
     except LookupError as exc:
@@ -150,10 +154,12 @@ async def get_doc(
 
 @router.post("/knowledge/docs")
 async def create_doc(
-    body: DocCreateIn,
+    body: DocCreateIn = Body(description="新文档内容：标题、正文、路径、标签等"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """手工新建文档（source_type=manual），按当前配置切块并建索引。"""
+
     try:
         doc = await knowledge_service.create_doc(
             db,
@@ -181,11 +187,13 @@ async def create_doc(
 
 @router.patch("/knowledge/docs/{doc_id}")
 async def update_doc(
-    doc_id: str,
-    body: DocUpdateIn,
+    doc_id: str = Path(description="要更新的文档 id"),
+    body: DocUpdateIn = Body(description="要更新的字段，未传字段保持原值"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """按 id 更新文档字段并按新内容重建索引。"""
+
     try:
         doc = await knowledge_service.update_doc(
             db,
@@ -216,8 +224,8 @@ async def update_doc(
 
 @router.patch("/knowledge/docs/{doc_id}/enabled")
 async def set_doc_enabled(
-    doc_id: str,
-    body: DocEnabledIn,
+    doc_id: str = Path(description="要切换的文档 id"),
+    body: DocEnabledIn = Body(description="文档的启用状态"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
@@ -239,11 +247,13 @@ async def set_doc_enabled(
 
 @router.patch("/knowledge/docs/{doc_id}/move")
 async def move_doc(
-    doc_id: str,
-    body: DocMoveIn,
+    doc_id: str = Path(description="要移动的文档 id"),
+    body: DocMoveIn = Body(description="要移动到的目标知识库目录"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """将文档移动到指定知识库目录，只改路径不动正文。"""
+
     try:
         doc = await knowledge_service.move_doc(db, doc_id, body.path)
     except LookupError as exc:
@@ -264,10 +274,12 @@ async def move_doc(
 
 @router.delete("/knowledge/docs/{doc_id}")
 async def delete_doc(
-    doc_id: str,
+    doc_id: str = Path(description="要删除的文档 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> None:
+    """按 id 删除文档及其切块与索引，不可恢复。"""
+
     try:
         # 先取标题：删除后行已消失，审计需要能辨认被删了哪篇。
         existing = await knowledge_service.get_doc(db, doc_id)
@@ -288,10 +300,10 @@ async def delete_doc(
 
 @router.post("/knowledge/upload")
 async def upload_doc(
-    file: UploadFile = File(...),
-    title: str | None = Form(None),
-    path: str | None = Form(None),
-    tags: str | None = Form(None),
+    file: UploadFile = File(..., description="要上传的原件，支持 .md / .txt / .pdf / .docx"),
+    title: str | None = Form(default=None, description="文档标题；留空则用文件名"),
+    path: str | None = Form(default=None, description="归入的知识库目录；留空为根目录"),
+    tags: str | None = Form(default=None, description="标签列表，英文或中文逗号分隔；留空无标签"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
@@ -379,23 +391,25 @@ async def reindex_knowledge(
 @router.get("/knowledge/search")
 async def search_knowledge(
     background_tasks: BackgroundTasks,
-    q: str = Query(..., max_length=200),
+    q: str = Query(..., max_length=200, description="检索关键字，最长 200 字，不能为空"),
     # 上限避免 limit * 4 的向量候选池被放大成重型查询
-    limit: int = Query(10, ge=1, le=50),
-    path: str | None = None,
-    path_prefix: str | None = None,
-    tag: list[str] | None = Query(None),
-    scope_path: list[str] | None = Query(None),
-    scope_doc: list[str] | None = Query(None),
+    limit: int = Query(default=10, ge=1, le=50, description="返回命中条数，1-50"),
+    path: str | None = Query(default=None, description="限定检索的文档目录；留空不过滤"),
+    path_prefix: str | None = Query(default=None, description="限定检索的目录前缀，含子目录；留空不过滤"),
+    tag: list[str] | None = Query(default=None, description="按标签筛选，可重复传多个"),
+    scope_path: list[str] | None = Query(default=None, description="知识范围目录列表，可重复传多个；与 scope_doc 取并集"),
+    scope_doc: list[str] | None = Query(default=None, description="知识范围文档 id 列表，可重复传多个；与 scope_path 取并集"),
     # 来源组：前端按侧边栏分组检索，不传 = 全库
-    builtin: bool | None = Query(None),
+    builtin: bool | None = Query(default=None, description="来源分组：true 仅内置文档，false 仅组织文档，留空全库"),
     # 来源类型：组织文档里 manual / upload / repo 混排，前端按「来源」筛选收口
-    source_type: str | None = Query(None),
+    source_type: str | None = Query(default=None, description="按来源类型筛选：manual/upload/vault/repo/url/git；留空不过滤"),
     # RRF 阈值覆盖（知识库语义检索试调）；不传 = 全局 knowledge.rrf_min_score
-    min_score: float | None = Query(None, ge=0),
+    min_score: float | None = Query(default=None, ge=0, description="RRF 最低分阈值；留空则用全局配置"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    """语义与关键字混合检索，返回命中片段及相关得分；命中统计异步记录。"""
+
     query = q.strip()
     if query == "":
         raise HTTPException(status_code=400, detail="q 不能为空")
@@ -442,7 +456,7 @@ async def search_knowledge(
 
 @router.get("/knowledge/paths")
 async def list_paths(
-    builtin: bool | None = Query(None),
+    builtin: bool | None = Query(default=None, description="来源分组：true 仅内置文档，false 仅组织文档，留空全部"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
@@ -455,7 +469,7 @@ async def list_paths(
 
 @router.post("/knowledge/scope-preview")
 async def preview_scope(
-    body: ScopePreviewIn,
+    body: ScopePreviewIn = Body(description="要预览的知识范围：目录列表与文档 id 列表"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:

@@ -13,6 +13,8 @@ router = APIRouter(tags=["version"])
 
 @router.get("/version")
 async def get_version(_user: str = Depends(require_auth)) -> dict:
+    """读取后端包版本（manager_version）；打包元数据缺失时报 503。"""
+
     try:
         ver = version("ai-workbench")
     except PackageNotFoundError as exc:

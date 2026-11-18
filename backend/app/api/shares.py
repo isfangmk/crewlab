@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,13 +40,13 @@ def _iso(dt: datetime) -> str:
 
 @router.get("/shares")
 async def list_shares(
-    kind: str = Query(default="all", pattern="^(all|session|eval)$"),
-    status: str = Query(default="all", pattern="^(all|active|expired)$"),
-    q: str = Query(default=""),
-    sort_by: str = Query(default="created_at", pattern="^(created_at|expires_at)$"),
-    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
+    kind: str = Query(default="all", pattern="^(all|session|eval)$", description="分享类型：all 全部，session 会话分享，eval 评测分享"),
+    status: str = Query(default="all", pattern="^(all|active|expired)$", description="按有效期筛选：all 全部，active 未过期，expired 已过期"),
+    q: str = Query(default="", description="按会话标题或评测数据集名模糊筛选"),
+    sort_by: str = Query(default="created_at", pattern="^(created_at|expires_at)$", description="排序字段：created_at 创建时间，expires_at 过期时间"),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$", description="排序方向：desc 倒序，asc 正序"),
+    limit: int = Query(default=20, ge=1, le=100, description="每页条数，1-100"),
+    offset: int = Query(default=0, ge=0, description="分页偏移量，从 0 开始"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_auth),
 ) -> dict:
@@ -143,8 +143,8 @@ async def list_shares(
 
 @router.delete("/shares/{kind}/{share_id}")
 async def revoke_share(
-    kind: str,
-    share_id: int,
+    kind: str = Path(description="分享类型：session 会话分享，eval 评测分享"),
+    share_id: int = Path(description="要撤销的分享令牌 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:

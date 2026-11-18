@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,8 +67,8 @@ class SandboxRunInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    code: str = Field(min_length=1, max_length=20000)
-    libraries: list[str] = Field(default_factory=list)
+    code: str = Field(min_length=1, max_length=20000, description="要执行的代码，1-20000 字")
+    libraries: list[str] = Field(default_factory=list, description="执行前需要预装的第三方库列表")
 
 
 class SandboxRunOut(BaseModel):
@@ -85,20 +85,22 @@ class SandboxRunOut(BaseModel):
 
 @router.get("/sandbox/executions", response_model=SandboxExecutionListOut)
 async def list_sandbox_executions(
-    q: str | None = Query(None),
-    source: str | None = Query(None),
-    status: str | None = Query(None),
-    session_id: str | None = Query(None),
-    workflow_run_id: str | None = Query(None),
-    started_from: datetime | None = Query(None),
-    started_to: datetime | None = Query(None),
-    sort_by: str = Query("started_at"),
-    sort_order: str = Query("desc"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    q: str | None = Query(default=None, description="按代码或错误关键字模糊筛选"),
+    source: str | None = Query(default=None, description="按来源筛选，如 chat/workflow/manual"),
+    status: str | None = Query(default=None, description="按执行状态筛选，如 success/error"),
+    session_id: str | None = Query(default=None, description="按会话 id 筛选；留空不过滤"),
+    workflow_run_id: str | None = Query(default=None, description="按工作流运行 id 筛选；留空不过滤"),
+    started_from: datetime | None = Query(default=None, description="只返回开始时间不早于此值的记录"),
+    started_to: datetime | None = Query(default=None, description="只返回开始时间不晚于此值的记录"),
+    sort_by: str = Query(default="started_at", description="排序字段，如 started_at/duration_ms"),
+    sort_order: str = Query(default="desc", description="排序方向：desc 倒序，asc 正序"),
+    limit: int = Query(default=50, ge=1, le=200, description="每页条数，1-200"),
+    offset: int = Query(default=0, ge=0, description="分页偏移量，从 0 开始"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> SandboxExecutionListOut:
+    """分页列出沙盒执行记录（含筛选与排序），total 为筛选后的总数。"""
+
     try:
         rows, total = await sandbox_query_service.list_executions(
             db,
@@ -126,10 +128,12 @@ async def list_sandbox_executions(
 
 @router.get("/sandbox/executions/{execution_id}", response_model=SandboxExecutionOut)
 async def get_sandbox_execution(
-    execution_id: str,
+    execution_id: str = Path(description="要获取详情的沙盒执行记录 id"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> SandboxExecutionOut:
+    """按 id 获取单条沙盒执行记录详情（含代码与标准输出/错误）。"""
+
     try:
         row = await sandbox_query_service.get_execution(db, execution_id)
     except LookupError as exc:
@@ -142,6 +146,8 @@ async def sandbox_summary(
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> SandboxSummaryOut:
+    """汇总沙盒执行记录：总数、按来源/状态分布与平均耗时。"""
+
     return SandboxSummaryOut(**await sandbox_query_service.summarize(db))
 
 

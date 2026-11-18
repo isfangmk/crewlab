@@ -18,6 +18,8 @@ async def list_models(
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> ModelCatalogOut:
+    """列出已启用的模型提供商及其模型，并给出当前默认选择。"""
+
     providers = await llm_config.list_enabled_providers(db)
     try:
         default_provider, default_model = await llm_config.get_default_selection(db)

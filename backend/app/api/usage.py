@@ -70,14 +70,16 @@ class UsageSummaryOut(BaseModel):
 
 @router.get("/usage/summary")
 async def usage_summary(
-    started_from: datetime | None = Query(None),
-    started_to: datetime | None = Query(None),
-    agent_id: str | None = Query(None),
-    model: str | None = Query(None),
-    channel: str | None = Query(None),
+    started_from: datetime | None = Query(default=None, description="起始时间（含），按回合开始时间筛选；留空不限"),
+    started_to: datetime | None = Query(default=None, description="截止时间（含），按回合开始时间筛选；不得早于起始时间；留空不限"),
+    agent_id: str | None = Query(default=None, description="按助理 id 筛选；留空不过滤"),
+    model: str | None = Query(default=None, description="按模型名筛选；留空不过滤"),
+    channel: str | None = Query(default=None, description="按来源渠道筛选；留空不过滤"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_auth),
 ) -> UsageSummaryOut:
+    """用量与成本汇总：按日/模型/助理分组统计 token、时长与估算成本。"""
+
     try:
         result = await usage_service.usage_summary(
             db,

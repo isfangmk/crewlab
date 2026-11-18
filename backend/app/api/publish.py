@@ -13,7 +13,7 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Path
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,25 +32,27 @@ public_router = APIRouter(tags=["publish-openai"])
 
 
 class ChannelCreateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=128)
-    agent_id: str = Field(min_length=1, max_length=128)
+    """新建发布渠道的请求体。"""
+
+    name: str = Field(min_length=1, max_length=128, description="渠道名称，1-128 字")
+    agent_id: str = Field(min_length=1, max_length=128, description="渠道绑定的助理 id")
     # 留空 = 用全局默认模型
-    provider: str = ""
-    model: str = ""
+    provider: str = Field(default="", description="模型供应商；留空表示使用全局默认")
+    model: str = Field(default="", description="模型名；留空表示使用全局默认")
     # 0 = 永不过期
-    expires_in_hours: int = Field(default=0, ge=0)
+    expires_in_hours: int = Field(default=0, ge=0, description="有效期（小时），0 表示永不过期")
 
 
 class ChannelUpdateRequest(BaseModel):
     """渠道编辑：字段缺省表示不改；provider/model 留空表示回到全局默认。"""
 
-    name: str | None = Field(default=None, min_length=1, max_length=128)
-    agent_id: str | None = Field(default=None, min_length=1, max_length=128)
-    provider: str | None = None
-    model: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=128, description="新渠道名称，1-128 字；缺省不改")
+    agent_id: str | None = Field(default=None, min_length=1, max_length=128, description="新助理 id；缺省不改")
+    provider: str | None = Field(default=None, description="新模型供应商；须与 model 同时给，留空回到全局默认")
+    model: str | None = Field(default=None, description="新模型名；须与 provider 同时给，留空回到全局默认")
     # 0 = 永不过期；修改后从当前时间重新计算
-    expires_in_hours: int | None = Field(default=None, ge=0)
-    enabled: bool | None = None
+    expires_in_hours: int | None = Field(default=None, ge=0, description="新有效期（小时），0 为永不过期，从当前时间重新计算；缺省不改")
+    enabled: bool | None = Field(default=None, description="是否启用渠道；缺省不改")
 
 
 class ChatCompletionRequest(BaseModel):
@@ -62,26 +64,26 @@ class ChatCompletionRequest(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    model: str = ""
-    messages: list[dict[str, Any]] = Field(default_factory=list)
-    stream: bool = False
-    stream_options: dict[str, Any] | None = None
-    n: int | None = None
-    temperature: float | None = None
-    top_p: float | None = None
-    max_tokens: int | None = None
-    max_completion_tokens: int | None = None
-    stop: str | list[str] | None = None
-    presence_penalty: float | None = None
-    frequency_penalty: float | None = None
-    seed: int | None = None
-    user: str | None = None
-    logprobs: bool | None = None
-    top_logprobs: int | None = None
-    response_format: dict[str, Any] | None = None
-    tools: list[dict[str, Any]] | None = None
-    functions: list[dict[str, Any]] | None = None
-    tool_choice: Any = None
+    model: str = Field(default="", description="模型名；留空用渠道默认，非空须与渠道模型一致")
+    messages: list[dict[str, Any]] = Field(default_factory=list, description="对话消息数组，每项含 role/content；仅取最后一条 user 的文本作为输入")
+    stream: bool = Field(default=False, description="是否以 SSE 流式返回，默认 false")
+    stream_options: dict[str, Any] | None = Field(default=None, description="流式选项，仅支持 include_usage；非流式请求传此参数会 400")
+    n: int | None = Field(default=None, description="候选数，仅支持 1")
+    temperature: float | None = Field(default=None, description="采样温度，仅支持默认值 1")
+    top_p: float | None = Field(default=None, description="核采样阈值，仅支持默认值 1")
+    max_tokens: int | None = Field(default=None, description="最大生成 token 数，当前渠道不支持")
+    max_completion_tokens: int | None = Field(default=None, description="最大完成 token 数，当前渠道不支持")
+    stop: str | list[str] | None = Field(default=None, description="停止词，当前渠道不支持")
+    presence_penalty: float | None = Field(default=None, description="存在惩罚，仅支持默认值 0")
+    frequency_penalty: float | None = Field(default=None, description="频率惩罚，仅支持默认值 0")
+    seed: int | None = Field(default=None, description="随机种子，当前渠道不支持")
+    user: str | None = Field(default=None, description="终端用户标识，当前渠道未使用")
+    logprobs: bool | None = Field(default=None, description="是否返回对数概率，当前渠道不支持")
+    top_logprobs: int | None = Field(default=None, description="返回 Top-N 对数概率，当前渠道不支持")
+    response_format: dict[str, Any] | None = Field(default=None, description="响应格式约束，当前渠道不支持")
+    tools: list[dict[str, Any]] | None = Field(default=None, description="工具定义，当前渠道不支持")
+    functions: list[dict[str, Any]] | None = Field(default=None, description="函数定义，当前渠道不支持")
+    tool_choice: Any = Field(default=None, description="工具选择策略，当前渠道不支持")
 
 
 def _validate_completion_request(
@@ -166,6 +168,8 @@ async def list_channels(
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """列出全部发布渠道（仅管理员），total 为渠道总数。"""
+
     items = await publish_service.list_channels(db)
     return {"items": items, "total": len(items)}
 
@@ -176,6 +180,8 @@ async def create_channel(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """新建发布渠道并返回原始 API Key（仅管理员，Key 仅此一次回显）。"""
+
     try:
         raw_key, row = await publish_service.create_channel(
             db,
@@ -206,10 +212,12 @@ async def create_channel(
 
 @router.get("/publish/channels/{channel_id}")
 async def get_channel(
-    channel_id: str,
+    channel_id: str = Path(description="要查看详情的发布渠道 id"),
     db: AsyncSession = Depends(get_db),
     _user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """按 id 获取一个发布渠道的详情与用量（仅管理员）。"""
+
     try:
         return await publish_service.get_channel_detail(db, channel_id)
     except LookupError as exc:
@@ -218,10 +226,12 @@ async def get_channel(
 
 @router.post("/publish/channels/{channel_id}/rotate")
 async def rotate_channel_key(
-    channel_id: str,
+    channel_id: str = Path(description="要轮换 API Key 的发布渠道 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """轮换渠道 API Key，旧 Key 立即失效，返回新 Key（仅管理员）。"""
+
     try:
         raw_key, row = await publish_service.rotate_key(db, channel_id)
     except LookupError as exc:
@@ -238,11 +248,13 @@ async def rotate_channel_key(
 
 @router.patch("/publish/channels/{channel_id}")
 async def update_channel(
-    channel_id: str,
-    body: ChannelUpdateRequest,
+    channel_id: str = Path(description="要编辑的发布渠道 id"),
+    body: ChannelUpdateRequest = Body(description="要更新的字段，缺省字段不改"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """局部更新渠道配置：缺省字段不改，provider/model 须同时给，返回更新后详情（仅管理员）。"""
+
     patch = body.model_dump(exclude_unset=True)
     # provider/model 是一个整体配置：只改一半会让渠道落到不一致的模型
     if ("provider" in patch) != ("model" in patch):
@@ -273,10 +285,12 @@ async def update_channel(
 
 @router.delete("/publish/channels/{channel_id}")
 async def delete_channel(
-    channel_id: str,
+    channel_id: str = Path(description="要删除的发布渠道 id"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_admin),
 ) -> dict:
+    """删除一个发布渠道，不可恢复（仅管理员）。"""
+
     try:
         row = await publish_service.get_channel(db, channel_id)
         name = row.name
@@ -421,6 +435,8 @@ async def create_chat_completion(
     channel: PublishedChannel = Depends(require_channel),
     db: AsyncSession = Depends(get_db),
 ):
+    """OpenAI 兼容的对话补全端点，用 Bearer API Key 鉴权；支持流式与非流式，仅回文本。"""
+
     _validate_completion_request(body, channel)
     prompt = _last_user_text(body.messages)
     if prompt == "":
@@ -547,6 +563,8 @@ async def create_chat_completion(
 async def list_published_models(
     channel: PublishedChannel = Depends(require_channel),
 ) -> dict:
+    """OpenAI 兼容的模型列表端点，用 Bearer API Key 鉴权，仅返回当前渠道绑定的模型。"""
+
     created = (
         int(channel.created_at.timestamp()) if channel.created_at is not None else 0
     )

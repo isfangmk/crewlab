@@ -7,8 +7,8 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -23,38 +23,49 @@ router = APIRouter(tags=["approvals"])
 
 
 class RejectBody(BaseModel):
-    reason: str
+    """拒绝审批的请求体。"""
+
+    reason: str = Field(description="拒绝原因，必填，不能为空字符串")
 
 
 class ApproveBody(BaseModel):
+    """批准审批的请求体。"""
+
     # 批准允许空说明
-    reason: str = ""
+    reason: str = Field(default="", description="批准说明，可留空")
     # 澄清提问（kind=user_input）的用户回答 {selected, values, text}；普通审批不带
-    answer: dict | None = None
+    answer: dict | None = Field(default=None, description="澄清提问的用户回答，结构为 {selected, values, text}；普通审批留空")
     # 免审范围：仅审批闸门生效，不豁免澄清提问
     #   "tool" = 本次对话不再询问此工具；"all" = 本次对话不再询问所有工具；None = 仅本次
-    trust_scope: Literal["tool", "all"] | None = None
+    trust_scope: Literal["tool", "all"] | None = Field(
+        default=None,
+        description="免审范围，仅对审批闸门生效、不豁免澄清提问：tool 本次对话不再询问此工具，all 本次对话不再询问所有工具，留空仅本次询问",
+    )
 
 
 class BatchDecideBody(BaseModel):
-    ids: list[str]
-    confirmed: bool
+    """批量审批/拒绝的请求体。"""
+
+    ids: list[str] = Field(description="要处理的审批 id 列表，不能为空")
+    confirmed: bool = Field(description="是否批准：true 批量批准，false 批量拒绝")
     # 批准可空；拒绝由服务层校验必填
-    reason: str = ""
+    reason: str = Field(default="", description="处理说明；批准可留空，拒绝时必填")
 
 
 @router.get("/approvals")
 async def list_approvals(
-    status: str | None = None,
-    q: str | None = Query(None),
-    created_from: datetime | None = Query(None),
-    created_to: datetime | None = Query(None),
-    sort_dir: str = Query("desc"),
-    limit: int = Query(20, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    status: str | None = Query(None, description="按状态筛选：pending 待审批 / approved 已批准 / executed 已执行 / rejected 已拒绝 / failed 失败 / expired 已过期；留空全部"),
+    q: str | None = Query(None, description="按审批内容关键字模糊筛选；留空不过滤"),
+    created_from: datetime | None = Query(None, description="创建时间下限（含），ISO 8601 格式；留空不限"),
+    created_to: datetime | None = Query(None, description="创建时间上限（含），ISO 8601 格式；留空不限"),
+    sort_dir: str = Query("desc", description="排序方向：desc 最新在前，asc 最早在前"),
+    limit: int = Query(20, ge=1, le=200, description="每页条数，1~200"),
+    offset: int = Query(0, ge=0, description="分页偏移量，从 0 开始"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    """审批列表（管理页）：支持状态/关键字/时间筛选与服务端分页，并附各状态命中数。"""
+
     try:
         items, total = await approval_service.list_approvals(
             db,
@@ -88,15 +99,17 @@ async def approvals_count(
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    """统计当前待审批（pending）条数，供首页角标使用。"""
     return {"pending": await approval_service.pending_count(db)}
 
 
 @router.get("/approvals/{approval_id}")
 async def get_approval(
-    approval_id: str,
+    approval_id: str = Path(description="要查看的审批 id"),
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
+    """按 id 查看单条审批详情。"""
     try:
         row = await approval_service.get_approval(db, approval_id)
     except LookupError as exc:
@@ -108,11 +121,12 @@ async def get_approval(
 
 @router.post("/approvals/{approval_id}/approve")
 async def approve(
-    approval_id: str,
-    body: ApproveBody,
+    approval_id: str = Path(description="要批准的审批 id"),
+    body: ApproveBody = Body(description="批准请求体，可附说明/澄清回答/免审范围"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """批准一条审批：非管理员不得批准升级（escalate）审批。"""
     try:
         row = await approval_service.get_approval(db, approval_id)
         approval_service.require_escalation_permission(row.payload, is_admin=user.role == "admin")
@@ -150,6 +164,7 @@ async def batch_decide(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """批量批准或拒绝多条审批；非管理员不得批量批准升级（escalate）审批。"""
     if len(body.ids) == 0:
         raise HTTPException(status_code=400, detail="ids 不能为空")
     if body.confirmed:
@@ -189,8 +204,8 @@ async def batch_decide(
 
 @router.post("/approvals/{approval_id}/approve/stream")
 async def approve_stream(
-    approval_id: str,
-    body: ApproveBody,
+    approval_id: str = Path(description="要批准并续跑的审批 id"),
+    body: ApproveBody = Body(description="批准请求体，可附说明/澄清回答/免审范围"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ):
@@ -249,11 +264,12 @@ async def approve_stream(
 
 @router.post("/approvals/{approval_id}/reject")
 async def reject(
-    approval_id: str,
-    body: RejectBody,
+    approval_id: str = Path(description="要拒绝的审批 id"),
+    body: RejectBody = Body(description="拒绝请求体，reason 必填"),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
+    """拒绝一条审批，拒绝原因必填。"""
     if body.reason == "":
         raise HTTPException(status_code=400, detail="拒绝原因 reason 必填")
     try:

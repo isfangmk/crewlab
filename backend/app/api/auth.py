@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,10 +18,12 @@ router = APIRouter(tags=["auth"])
 
 
 class LoginRequest(BaseModel):
+    """登录请求体。"""
+
     model_config = ConfigDict(extra="forbid")
 
-    email: str = Field(min_length=1)
-    password: str = Field(min_length=1)
+    email: str = Field(min_length=1, description="登录邮箱")
+    password: str = Field(min_length=1, description="登录密码")
 
 
 class LoginResponse(BaseModel):
@@ -32,12 +34,14 @@ class LoginResponse(BaseModel):
 
 
 class CreateUserRequest(BaseModel):
+    """新建用户的请求体。"""
+
     model_config = ConfigDict(extra="forbid")
 
-    email: str = Field(min_length=1)
-    display_name: str = Field(min_length=1)
-    password: str = Field(min_length=1)
-    role: str = Field(min_length=1)
+    email: str = Field(min_length=1, description="用户登录邮箱")
+    display_name: str = Field(min_length=1, description="用户显示名称")
+    password: str = Field(min_length=1, description="初始登录密码")
+    role: str = Field(min_length=1, description="用户角色：admin 管理员 / developer 开发者 / viewer 只读")
 
 
 class UserOut(BaseModel):
@@ -63,6 +67,8 @@ class UserOptionOut(BaseModel):
 
 @router.post("/auth/login", response_model=LoginResponse)
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> LoginResponse:
+    """邮箱密码登录，校验通过后签发 Bearer access_token。"""
+
     try:
         user, token = await auth_service.authenticate(db, body.email, body.password)
     except LookupError as exc:
@@ -99,12 +105,12 @@ async def me(user: AuthUser = Depends(require_auth)) -> dict:
 
 @router.get("/users", response_model=UserListOut)
 async def list_users(
-    q: str | None = Query(None, max_length=200),
-    role: str | None = Query(None),
-    status: str | None = Query(None),
-    sort_dir: str = Query("desc"),
-    limit: int = Query(20, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    q: str | None = Query(None, max_length=200, description="按邮箱或显示名称模糊筛选，最长 200 字；留空不过滤"),
+    role: str | None = Query(None, description="按角色筛选：admin / developer / viewer；留空不过滤"),
+    status: str | None = Query(None, description="按状态筛选：active 启用 / disabled 停用；留空不过滤"),
+    sort_dir: str = Query("desc", description="排序方向：desc 最新在前，asc 最早在前"),
+    limit: int = Query(20, ge=1, le=200, description="每页条数，1~200"),
+    offset: int = Query(0, ge=0, description="分页偏移量，从 0 开始"),
     db: AsyncSession = Depends(get_db),
     _admin: AuthUser = Depends(require_admin),
 ) -> UserListOut:
@@ -159,6 +165,7 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
     admin: AuthUser = Depends(require_admin),
 ) -> UserOut:
+    """管理员新建用户，返回创建后的用户信息。"""
     try:
         row = await auth_service.create_user(
             db,
@@ -187,18 +194,21 @@ async def create_user(
 
 
 class SetStatusRequest(BaseModel):
+    """设置用户状态请求体。"""
+
     model_config = ConfigDict(extra="forbid")
 
-    status: str = Field(min_length=1)
+    status: str = Field(min_length=1, description="目标状态：active 启用 / disabled 停用")
 
 
 @router.post("/users/{user_id}/status", response_model=UserOut)
 async def set_status(
-    user_id: int,
-    body: SetStatusRequest,
+    user_id: int = Path(description="要设置状态的用户 id"),
+    body: SetStatusRequest = Body(description="目标状态"),
     db: AsyncSession = Depends(get_db),
     admin: AuthUser = Depends(require_admin),
 ) -> UserOut:
+    """管理员启用或停用指定用户（停用后该用户无法登录）。"""
     try:
         row = await auth_service.set_user_status(db, user_id, body.status)
     except LookupError as exc:
@@ -223,18 +233,21 @@ async def set_status(
 
 
 class UpdateRoleRequest(BaseModel):
+    """修改用户角色请求体。"""
+
     model_config = ConfigDict(extra="forbid")
 
-    role: str = Field(min_length=1)
+    role: str = Field(min_length=1, description="目标角色：admin 管理员 / developer 开发者 / viewer 只读")
 
 
 @router.patch("/users/{user_id}/role", response_model=UserOut)
 async def update_role(
-    user_id: int,
-    body: UpdateRoleRequest,
+    user_id: int = Path(description="要修改角色的用户 id"),
+    body: UpdateRoleRequest = Body(description="目标角色"),
     db: AsyncSession = Depends(get_db),
     admin: AuthUser = Depends(require_admin),
 ) -> UserOut:
+    """管理员修改指定用户的角色；不允许修改当前登录账号自己的角色。"""
     if user_id == admin.id:
         raise HTTPException(status_code=400, detail="不能修改当前登录账号的角色")
     try:
@@ -261,18 +274,21 @@ async def update_role(
 
 
 class ResetPasswordRequest(BaseModel):
+    """重置密码请求体。"""
+
     model_config = ConfigDict(extra="forbid")
 
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, description="要设置的新登录密码")
 
 
 @router.post("/users/{user_id}/password", status_code=204)
 async def reset_password(
-    user_id: int,
-    body: ResetPasswordRequest,
+    user_id: int = Path(description="要重置密码的用户 id"),
+    body: ResetPasswordRequest = Body(description="新密码"),
     db: AsyncSession = Depends(get_db),
     admin: AuthUser = Depends(require_admin),
 ) -> None:
+    """管理员重置指定用户的登录密码；成功返回 204 无响应体。"""
     try:
         row = await auth_service.reset_user_password(db, user_id, body.password)
     except LookupError as exc:
@@ -290,10 +306,11 @@ async def reset_password(
 
 @router.delete("/users/{user_id}", status_code=204)
 async def delete_user(
-    user_id: int,
+    user_id: int = Path(description="要删除的用户 id"),
     db: AsyncSession = Depends(get_db),
     admin: AuthUser = Depends(require_admin),
 ) -> None:
+    """管理员删除指定用户；不允许删除当前登录账号，成功返回 204。"""
     if user_id == admin.id:
         raise HTTPException(status_code=400, detail="不能删除当前登录账号")
     try:
