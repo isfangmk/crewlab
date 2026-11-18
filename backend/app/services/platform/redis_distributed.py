@@ -163,6 +163,14 @@ async def end(task_id: str) -> None:
 _FLAG_CHANNEL = "flag:signal"
 _FLAG_TTL = 3600
 _local_flags: dict[str, bool] = {}
+# 插话中断：外部注册回调，flag 名为 chat-interrupt:{session_id} 时触发本地 abort
+_interrupt_hooks: list[Any] = []
+
+
+def register_interrupt_hook(hook: Any) -> None:
+    """注册跨 worker 插话中断回调 hook(session_id)；供编排层在启动时挂接。"""
+
+    _interrupt_hooks.append(hook)
 
 
 def _flag_key(name: str) -> str:
@@ -257,6 +265,14 @@ async def _listen_stops() -> None:
                 if name:
                     _local_flags[name] = bool(payload.get("value"))
                     logger.info("收到跨 worker 共享标志 name=%s value=%s", name, payload.get("value"))
+                    # 插话中断：chat-interrupt:{session_id} 的置位触发本地回调
+                    if name.startswith("chat-interrupt:") and payload.get("value"):
+                        sid = name[len("chat-interrupt:"):]
+                        for hook in list(_interrupt_hooks):
+                            try:
+                                hook(sid)
+                            except Exception:  # noqa: BLE001 - 单个 hook 失败不影响广播循环
+                                logger.exception("插话中断 hook 执行失败 sid=%s", sid)
     except asyncio.CancelledError:
         raise
     finally:

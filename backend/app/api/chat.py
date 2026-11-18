@@ -63,6 +63,14 @@ class QueueMessageRequest(BaseModel):
     mentions: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class UpdateQueueItemIn(BaseModel):
+    """原地修改一条队列消息的正文。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1)
+
+
 def _require_session_owner(session, user: AuthUser) -> None:
     """校验会话属当前用户；admin 放行。
 
@@ -698,6 +706,80 @@ async def delete_queued_message(
         detail={"session_id": session_id, "item_id": item_id, "position": position},
     )
     return {"deleted": item_id}
+
+
+@router.patch("/chat/sessions/{session_id}/queue/{item_id}")
+async def update_queued_message(
+    session_id: str,
+    item_id: str,
+    body: UpdateQueueItemIn,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    """原地修改一条排队消息的正文；位置不变，轮到它时按新正文执行。"""
+
+    try:
+        session = await chat_service.get_session(db, session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _require_session_owner(session, user)
+
+    if not await chat_queue.update_content(session_id, item_id, body.content):
+        raise HTTPException(status_code=404, detail=f"队列项不存在: {item_id}")
+    total = await chat_queue.total(session_id)
+    await notification_bus.publish(
+        session.owner_user_id,
+        kind="queue_changed",
+        payload={"session_id": session_id, "action": "updated", "total": total},
+    )
+    await write_audit(
+        actor_user_id=user.id,
+        action="session.queue_update",
+        resource_type="chat_session",
+        resource_id=session_id,
+        detail={"session_id": session_id, "item_id": item_id},
+    )
+    return {"session_id": session_id, "item_id": item_id, "content": body.content}
+
+
+@router.post("/chat/sessions/{session_id}/queue/{item_id}/interject")
+async def interject_queued_message(
+    session_id: str,
+    item_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: AuthUser = Depends(require_not_viewer),
+) -> dict:
+    """插话：标记该队列项优先，并打断当前回合让它立即执行。"""
+
+    try:
+        session = await chat_service.get_session(db, session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _require_session_owner(session, user)
+
+    if not await chat_queue.mark_interrupt(session_id, item_id, True):
+        raise HTTPException(status_code=404, detail=f"队列项不存在: {item_id}")
+    interrupted = await chat_stream_orchestrator.request_interrupt(session_id)
+    total = await chat_queue.total(session_id)
+    await notification_bus.publish(
+        session.owner_user_id,
+        kind="queue_changed",
+        payload={"session_id": session_id, "action": "interjected", "total": total},
+    )
+    await write_audit(
+        actor_user_id=user.id,
+        action="session.queue_interject",
+        resource_type="chat_session",
+        resource_id=session_id,
+        detail={"session_id": session_id, "item_id": item_id, "interrupted": interrupted},
+    )
+    logger.info(
+        "队列插话 session_id=%s item_id=%s current_turn_interrupted=%s",
+        session_id,
+        item_id,
+        interrupted,
+    )
+    return {"session_id": session_id, "item_id": item_id, "interrupted": interrupted}
 
 
 @router.get("/chat/sessions/{session_id}/messages")

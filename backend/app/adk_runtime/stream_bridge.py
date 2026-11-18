@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -255,8 +256,9 @@ async def _iter_runner_events(
     thinking_enabled: bool,
     seed_tool_started_at: dict[str, float] | None = None,
     max_llm_calls: int = 0,
+    abort_signal: asyncio.Event | None = None,
 ) -> AsyncIterator[SseFrame]:
-    """把一次 Runner.run_async 转成有序 SSE 帧。"""
+    """把一次 Runner.run_async 转成有序 SSE 帧；abort_signal 置位即中止 ADK invocation。"""
 
     if model == "":
         raise ValueError("model 不能为空")
@@ -343,6 +345,7 @@ async def _iter_runner_events(
         session_id=session_id,
         new_message=new_message,
         run_config=run_config,
+        abort_signal=abort_signal,
     ):
         adk_seq += 1
         _absorb_usage(event)
@@ -627,8 +630,9 @@ async def stream_adk_turn(
     skills: list[Any] | None = None,
     sub_agents: list[Any] | None = None,
     include_followups: bool = True,
+    abort_signal: asyncio.Event | None = None,
 ) -> AsyncIterator[SseFrame]:
-    """跑一轮用户对话；可附带图片多模态 parts。"""
+    """跑一轮用户对话；可附带图片多模态 parts；abort_signal 置位即中止本轮。"""
 
     agent = build_chat_agent(
         provider_id=provider_id,
@@ -678,6 +682,7 @@ async def stream_adk_turn(
             model=model,
             thinking_enabled=thinking_enabled,
             max_llm_calls=max_turns,
+            abort_signal=abort_signal,
         ):
             yield frame
     finally:

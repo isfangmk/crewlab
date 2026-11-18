@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import SessionLocal
 from app.request_context import set_session_id
 from app.services.chat import chat_queue, chat_service, chat_stream_bus
-from app.services.platform import notification_bus
+from app.services.platform import notification_bus, redis_distributed
 
 logger = logging.getLogger(__name__)
 
@@ -35,17 +35,67 @@ def _spawn(coro: Any) -> None:
     task.add_done_callback(_tasks.discard)
 
 
-def _decorate_terminal_frame(event: str, data: dict[str, Any]) -> dict[str, Any]:
-    """终态帧挂钩点：插话打断阶段在此注入 interrupted / resume 等字段。
+# 插话真打断：会话 → 该会话当前所有活跃回合的 abort_event（正常同一时刻一个）。
+# event 是进程内对象，跨 worker 的中断请求经 Redis flag:signal 广播到本进程 hook。
+_abort_events: dict[str, set[asyncio.Event]] = {}
 
-    本阶段只占位（interrupted=False），让 done 帧结构先稳定下来；后续插话打断
-    只需改这一处，不必逐个改各调用方的帧构造。非终态帧原样返回。
+
+def _fire_local_interrupt(session_id: str) -> bool:
+    """置位本进程该会话的所有活跃 abort_event；返回是否命中活跃回合。"""
+
+    events = _abort_events.get(session_id)
+    if not events:
+        return False
+    for event in list(events):
+        event.set()
+    return True
+
+
+def _register_abort_event(session_id: str, event: asyncio.Event) -> None:
+    _abort_events.setdefault(session_id, set()).add(event)
+
+
+def _unregister_abort_event(session_id: str, event: asyncio.Event) -> None:
+    events = _abort_events.get(session_id)
+    if events is None:
+        return
+    events.discard(event)
+    if not events:
+        _abort_events.pop(session_id, None)
+
+
+# 跨 worker 广播回调：其他 worker 发来的 chat-interrupt:{sid} 触发本进程置位。
+redis_distributed.register_interrupt_hook(_fire_local_interrupt)
+
+
+async def request_interrupt(session_id: str) -> bool:
+    """请求打断某会话当前回合：本进程立即置位 + 广播给其他 worker。
+
+    返回是否在本进程命中活跃回合（跨 worker 的命中无法同步得知，返回 False 不代表没打断）。
+    """
+
+    local_hit = _fire_local_interrupt(session_id)
+    try:
+        await redis_distributed.set_flag(f"chat-interrupt:{session_id}", True)
+    except Exception:  # noqa: BLE001 - 广播失败不能影响本地中断
+        logger.exception("插话中断广播失败 session_id=%s", session_id)
+    logger.info("插话中断请求 session_id=%s local_hit=%s", session_id, local_hit)
+    return local_hit
+
+
+def _decorate_terminal_frame(
+    event: str, data: dict[str, Any], *, interrupted: bool = False
+) -> dict[str, Any]:
+    """终态帧挂钩点：插话打断时在此注入 interrupted 字段。
+
+    所有 done/error 帧统一经此，前端与订阅者按此字段判断是否为打断收尾；
+    非终态帧原样返回。
     """
 
     if event not in ("done", "error"):
         return data
     decorated = dict(data)
-    decorated.setdefault("interrupted", False)
+    decorated.setdefault("interrupted", interrupted)
     return decorated
 
 
@@ -59,6 +109,11 @@ async def _drain_one_queued_turn(session_id: str) -> None:
     """
 
     while True:
+        # 清除上一回合可能残留的插话广播标志，避免跨 worker 新回合被旧信号影响
+        try:
+            await redis_distributed.set_flag(f"chat-interrupt:{session_id}", False)
+        except Exception:  # noqa: BLE001 - 清标志失败不阻断消费
+            logger.exception("清除插话中断标志失败 session_id=%s", session_id)
         try:
             item = await chat_queue.dequeue(session_id)
         except Exception:  # noqa: BLE001 - 出队失败不能拖垮回合收尾
@@ -173,6 +228,9 @@ async def _produce(
     # 后台任务不继承请求上下文：显式设置 sid 让日志可追溯
     set_session_id(session_id)
     terminal = "finished"
+    # 插话真打断：本回合的 abort_event 注册到进程内表，供 request_interrupt / 跨 worker hook 置位
+    abort_event = asyncio.Event()
+    _register_abort_event(session_id, abort_event)
     try:
         # 独立 session：请求作用域的 db 会随 HTTP 响应结束而关闭，后台必须自建。
         async with SessionLocal() as db:
@@ -190,11 +248,14 @@ async def _produce(
                 attachment_ids=attachment_ids,
                 locale=locale,
                 mentions=mentions,
+                abort_signal=abort_event,
             ):
                 await chat_stream_bus.publish(
                     turn_id,
                     event=frame.event,
-                    data=_decorate_terminal_frame(frame.event, frame.data),
+                    data=_decorate_terminal_frame(
+                        frame.event, frame.data, interrupted=abort_event.is_set()
+                    ),
                 )
                 if frame.event in ("done", "error"):
                     terminal = frame.event
@@ -205,11 +266,14 @@ async def _produce(
             await chat_stream_bus.publish(
                 turn_id,
                 event="error",
-                data=_decorate_terminal_frame("error", {"error": str(exc)}),
+                data=_decorate_terminal_frame(
+                    "error", {"error": str(exc)}, interrupted=abort_event.is_set()
+                ),
             )
         except Exception:  # noqa: BLE001 - 连 Redis 都挂了就只能记日志
             logger.exception("发布错误终态帧失败 session_id=%s", session_id)
     finally:
+        _unregister_abort_event(session_id, abort_event)
         await chat_stream_bus.finish_turn(session_id, status=terminal)
         # 回合落库完成：通知该用户所有标签页重拉消息列表（取代 5s 轮询）。
         # 发起标签页自己也在读本回合 SSE，但通知让它及其他标签页都能刷新侧栏/统计。

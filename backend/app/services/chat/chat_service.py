@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -210,6 +211,8 @@ def message_to_wire(m: ChatMessage, *, attachments: list[dict] | None = None) ->
         "created_at": m.created_at.isoformat(),
         # 回答统计（耗时 / token）；无统计为 None，禁止假 0
         "stats": json.loads(m.stats_json) if m.stats_json else None,
+        # 该消息是否为插话打断时写入（被截断的半句），供前端标注
+        "interrupted": bool(m.interrupted),
     }
     if attachments is not None and len(attachments) > 0:
         wire["attachments"] = attachments
@@ -1180,6 +1183,7 @@ async def _add_message(
     tool_call: dict | None,
     attachment_ids: list[str] | None = None,
     stats: dict | None = None,
+    interrupted: bool = False,
 ) -> ChatMessage:
     seq = await _next_seq(db, session_id)
     attachments_json = None
@@ -1199,6 +1203,7 @@ async def _add_message(
         attachments_json=attachments_json,
         stats_json=json.dumps(stats, ensure_ascii=False) if stats else None,
         seq=seq,
+        interrupted=interrupted,
     )
     db.add(msg)
     await db.commit()
@@ -1275,6 +1280,8 @@ class AdkFramePersister:
         self._written_ids: set[str] = set()
         # 本回合实际使用的模型上下文；审批恢复必须沿用它
         self._turn_context: dict | None = turn_context
+        # 插话打断标记：done 帧带 interrupted=True 时，本回合落库的正文段打此标记
+        self._interrupted: bool = False
 
     def _buffer_delta(self, kind: str, message_id: str, delta: str) -> str:
         """缓冲正文/思考增量，返回本段实际行 id；首次到达记序保证跨类型落库顺序。"""
@@ -1323,6 +1330,7 @@ class AdkFramePersister:
             content=content,
             tool_call=None,
             stats=stats,
+            interrupted=self._interrupted,
         )
 
     async def _flush_all(
@@ -1540,9 +1548,11 @@ class AdkFramePersister:
             self._buffer_delta("thinking", message_id, delta)
             return frame
         if frame.event == "done":
+            # 插话打断：done 帧带 interrupted=True 时，本回合缓冲的正文段打标记落库
+            data = frame.data if isinstance(frame.data, dict) else {}
+            self._interrupted = bool(data.get("interrupted"))
             # 运行统计（耗时 / token）挂到本运行最后一条 assistant 气泡；缺失键不写，禁止假 0
             stats: dict = {}
-            data = frame.data if isinstance(frame.data, dict) else {}
             duration_ms = data.get("duration_ms")
             if isinstance(duration_ms, int):
                 stats["duration_ms"] = duration_ms
@@ -1628,6 +1638,7 @@ async def stream_session_message(
     locale: str | None = None,
     mentions: list[dict] | None = None,
     channel: str = "",
+    abort_signal: asyncio.Event | None = None,
 ) -> AsyncIterator[SseFrame]:
     session = await get_session(db, session_id)
     use_provider = provider if provider is not None else session.provider
@@ -1823,19 +1834,20 @@ async def stream_session_message(
             max_turns=resolved_agent.max_turns,
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,
-            sub_agents=await build_sub_agents_for_agent(
-                db,
-                resolved_agent,
-                provider_id=llm.provider_id,
-                model=use_model,
-                base_url=llm.base_url,
-                api_key=llm.api_key,
-                model_prefix=llm.model_prefix,
-                provider_extra_body=llm_config.provider_extra_body(llm),
-                thinking_enabled=thinking_enabled,
-                web_search_enabled=web_search_enabled,
-            ),
-        ):
+                sub_agents=await build_sub_agents_for_agent(
+                    db,
+                    resolved_agent,
+                    provider_id=llm.provider_id,
+                    model=use_model,
+                    base_url=llm.base_url,
+                    api_key=llm.api_key,
+                    model_prefix=llm.model_prefix,
+                    provider_extra_body=llm_config.provider_extra_body(llm),
+                    thinking_enabled=thinking_enabled,
+                    web_search_enabled=web_search_enabled,
+                ),
+                abort_signal=abort_signal,
+            ):
             if turn_control.is_stopped(session_id):
                 logger.info("回合被停止 session_id=%s", session_id)
                 stopped = True
@@ -1853,6 +1865,13 @@ async def stream_session_message(
                 obs.mark_first_token()
             out = frame
             if frame.event == "done" and isinstance(frame.data, dict):
+                # 插话打断：abort_signal 被置位说明本回合是被中断收尾的，
+                # 给 done 帧打 interrupted=True，persister 据此把半句标记为 interrupted 落库。
+                if abort_signal is not None and abort_signal.is_set():
+                    out = SseFrame(
+                        event=frame.event,
+                        data={**frame.data, "interrupted": True},
+                    )
                 usage_raw = frame.data.get("usage")
                 if isinstance(usage_raw, dict):
                     last_usage = {
@@ -1862,8 +1881,8 @@ async def stream_session_message(
                     }
                 # SseFrame 不可变，拼上 trace_id 后重建
                 out = SseFrame(
-                    event=frame.event,
-                    data={**frame.data, "trace_id": obs.trace_id},
+                    event=out.event,
+                    data={**out.data, "trace_id": obs.trace_id},
                 )
             out = await persister.persist(out)
             yield out
