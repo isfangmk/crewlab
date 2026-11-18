@@ -30,8 +30,8 @@ _NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 DEFAULT_AGENT_NAME = "default"
 # 内置平台助手：代替用户检索并调用平台接口，不落库（与 default 同机制）
 PLATFORM_AGENT_NAME = "platform-assistant"
-# 平台助手专属元工具；也是它的工具白名单内容
-PLATFORM_TOOL_NAMES = ("search_platform_api", "call_platform_api")
+# 平台助手专属工具；也是它的工具白名单内容（含澄清提问）
+PLATFORM_TOOL_NAMES = ("search_platform_api", "call_platform_api", "ask_user")
 
 # 子助理委托链最大层数：根助理 → 子 → 孙 → 曾孙，运行期装配同口径截断
 MAX_DELEGATION_DEPTH = 3
