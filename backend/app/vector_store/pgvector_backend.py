@@ -55,7 +55,7 @@ class PgVectorStore(VectorStore):
                 text(
                     """
                     INSERT INTO vector_items (namespace, ref_id, dim, embedding)
-                    VALUES (:ns, :ref, :dim, :vec::vector)
+                    VALUES (:ns, :ref, :dim, CAST(:vec AS vector))
                     ON CONFLICT (namespace, ref_id) DO UPDATE SET
                       dim = excluded.dim,
                       embedding = excluded.embedding,
@@ -109,10 +109,10 @@ class PgVectorStore(VectorStore):
                 await conn.execute(
                     text(
                         """
-                        SELECT ref_id, 1 - (embedding <=> :q::vector) AS similarity
+                        SELECT ref_id, 1 - (embedding <=> CAST(:q AS vector)) AS similarity
                         FROM vector_items
                         WHERE namespace = :ns AND dim = :dim
-                        ORDER BY embedding <=> :q::vector
+                        ORDER BY embedding <=> CAST(:q AS vector)
                         LIMIT :k
                         """
                     ),
