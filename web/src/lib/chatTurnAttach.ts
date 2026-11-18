@@ -56,7 +56,9 @@ export async function attachActiveTurn(
       }
       case 'done':
       case 'error':
-        // 回合收口：让页面 refetch 一次，与落库最终态对齐（不重复追加 delta）
+        // 回合收口：与 send() 的 onDone 对齐，先清流式残留 pending（放开建议卡），
+        // 再让页面 refetch 一次与落库最终态对齐（不重复追加 delta）
+        emitChatLive({ type: 'turn_done' });
         requestChatRefetch();
         return false; // 停止读取，释放连接
     }

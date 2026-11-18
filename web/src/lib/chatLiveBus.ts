@@ -19,6 +19,9 @@ export type ChatLiveDetail =
   | { type: 'approval_pending'; event: ApprovalPendingStreamEvent }
   // 用户已对某条审批做出决定：会话据此收起「等待你确认」提示。
   | { type: 'approval_decided'; approvalId: string }
+  // 带外回合（审批续跑 / 跨标签 attach）收口：与 send() 的 onDone 对齐，
+  // 清掉流式残留 pending，放开「猜你想问」等只在收口后可点的入口。
+  | { type: 'turn_done' }
   // create_plan 的继任者 submit_task_graph 落库：右栏工作台据此重拉列表并切到新图。
   | { type: 'graph_created'; graphUid: string };
 

@@ -569,7 +569,7 @@ export default function ChatThreadPage() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, applySessionPrefs]);
 
   useEffect(() => {
 
@@ -952,7 +952,7 @@ export default function ChatThreadPage() {
 
     };
 
-  }, [sessionId]);
+  }, [sessionId, applySessionPrefs]);
 
   // 队列刷新：切到本会话时拉取一次；全局 queue_changed 通知（经 useNotifications
   // 翻译成 window 事件）只刷新当前会话，避免被别的会话变更误导。
@@ -999,6 +999,12 @@ export default function ChatThreadPage() {
           next.add(detail.approvalId);
           return next;
         });
+        return;
+      }
+      if (detail.type === 'turn_done') {
+        // 带外回合收口（审批续跑 / 跨标签 attach）：与 send() 的 onDone 对齐，
+        // 清掉流式残留 pending，放开「猜你想问」等收口后才可点的入口。
+        setMessages((prev) => clearAllPending(prev));
         return;
       }
       if (detail.type === 'thinking_delta') {
@@ -2020,11 +2026,11 @@ export default function ChatThreadPage() {
 
 
   // 中断当前回合：显式通知服务端软停止 + abort 本地流，Esc 与中断按钮共用。
-  function stopTurn() {
+  const stopTurn = useCallback(() => {
     if (!sessionId) return;
     void stopSession(sessionId).catch(() => {});
     abortRef.current?.abort();
-  }
+  }, [sessionId]);
 
   // Esc interrupts the in-flight turn. The turn is detached from the request
 
@@ -2052,7 +2058,7 @@ export default function ChatThreadPage() {
 
     return () => window.removeEventListener('keydown', onKey);
 
-  }, [sessionId]);
+  }, [sessionId, stopTurn]);
 
 
 

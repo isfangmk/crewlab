@@ -102,7 +102,6 @@ export function MessageBubble({
         call={fromSummary(message.tool_call)}
         pending={message.pending}
         onConfirmConfigDraft={onConfirmConfigDraft}
-        onLocate={onLocate}
         onLocatePlan={onLocatePlan}
       />
     );
@@ -499,7 +498,6 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
           call={tc}
           showSearchResults={false}
           onConfirmConfigDraft={onConfirmConfigDraft}
-          onLocate={onLocate}
           onLocatePlan={onLocatePlan}
         />
       ))}
@@ -583,7 +581,7 @@ function AssistantBubble({ message, onConfirmConfigDraft, followupsActive, onUse
   );
 }
 
-function ToolBubble({ message, onConfirmConfigDraft, onLocate, onLocatePlan }: Props) {
+function ToolBubble({ message, onConfirmConfigDraft, onLocatePlan }: Props) {
   // History-reload path: the message persisted by the agent loop only
   // carries the tool name + JSON result string. We don't have args for
   // these (would need to join chat_tool_calls); show what we have.
@@ -595,7 +593,6 @@ function ToolBubble({ message, onConfirmConfigDraft, onLocate, onLocatePlan }: P
   return (
     <ToolCallBlock
       onConfirmConfigDraft={onConfirmConfigDraft}
-      onLocate={onLocate}
       onLocatePlan={onLocatePlan}
       pending={message.pending}
       call={{
@@ -628,7 +625,6 @@ function ToolCallBlock({
   onConfirmConfigDraft,
   showSearchResults = true,
   pending,
-  onLocate,
   onLocatePlan,
 }: {
   call: {
@@ -645,7 +641,6 @@ function ToolCallBlock({
   showSearchResults?: boolean;
   /** 回合未收口：排查折叠块只展示进行态 */
   pending?: boolean;
-  onLocate?: (target: TaskGraphLocateTarget) => void;
   onLocatePlan?: (target: TaskGraphLocateTarget) => void;
 }) {
   // 任务图工具卡走专属折叠块（拓扑节点 + 草稿确认 + 实时进度）
@@ -1181,6 +1176,8 @@ function PendingApprovalCard({ approvalID, kind, toolName, command }: { approval
         setState('done');
         setResultText(a.result ?? '');
       }
+      // 续跑收口：清掉流式残留 pending，放开建议卡（与 send() 的 onDone 对齐）
+      emitChatLive({ type: 'turn_done' });
       requestChatRefetch();
     } catch (e) {
       setState('error');
@@ -1433,7 +1430,6 @@ function UserInputCard({
       if (pollTimer !== undefined) window.clearTimeout(pollTimer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [approvalID]);
 
   // 提交回答直接续跑，不再二次确认弹窗。
@@ -1486,6 +1482,8 @@ function UserInputCard({
       } else {
         setState('done');
       }
+      // 续跑收口：清掉流式残留 pending，放开建议卡（与 send() 的 onDone 对齐）
+      emitChatLive({ type: 'turn_done' });
       requestChatRefetch();
     } catch (e) {
       setState('error');
