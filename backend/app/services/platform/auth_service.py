@@ -151,6 +151,27 @@ async def resolve_bearer(db: AsyncSession, raw_token: str) -> AuthUser:
     )
 
 
+async def resolve_user_id(db: AsyncSession, user_id: int) -> AuthUser:
+    """按用户 id 构造内部调用身份（平台助手代用户操作）。
+
+    与 resolve_bearer 共用 active / 角色口径；仅供进程内可信调用方使用，
+    调用方必须先完成身份来源校验（会话归属），不能从外部输入直接取 user_id。
+    """
+    if not isinstance(user_id, int) or user_id < 1:
+        raise LookupError("无效 user_id")
+    user = await db.get(User, user_id)
+    if user is None:
+        raise LookupError("用户不存在")
+    if user.status != "active":
+        raise PermissionError("用户已禁用")
+    return AuthUser(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        role=user.role,
+    )
+
+
 async def create_user(
     db: AsyncSession,
     *,

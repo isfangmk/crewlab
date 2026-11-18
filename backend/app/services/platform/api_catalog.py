@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass, field
 
 from app.main import app
+from app.services.platform.internal_call import ACTOR_HEADER, SECRET_HEADER
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ _SKIP_DOWNLOAD_RE = re.compile(r"/download$")
 
 # FastAPI 把 Bearer 依赖展开成 authorization header 参数；身份由内部调用注入，
 # 不给模型暴露，避免它伪造或填错。
-_INTERNAL_PARAM_NAMES = {"authorization"}
+_INTERNAL_PARAM_NAMES = {"authorization", SECRET_HEADER, ACTOR_HEADER}
 
 _HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 
