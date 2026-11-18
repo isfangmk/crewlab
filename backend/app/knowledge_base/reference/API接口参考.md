@@ -13,10 +13,17 @@ Base URL：`http://127.0.0.1:18080/api/v1`。认证：`Authorization: Bearer <to
 | POST | /chat/sessions/{id}/fork | 从会话分叉 |
 | GET | /chat/sessions/{id}/export | 导出会话 |
 | POST | /chat/sessions/{id}/share | 生成分享令牌（GET /chat/shares/{token} 公开读） |
-| POST | /chat/sessions/{id}/messages | 发送消息（SSE 流式返回） |
+| POST | /chat/sessions/{id}/messages/stream | 发起流式回合：立即返回 `{session_id, turn_id}`，帧走 GET /events 订阅（多标签补发+续推） |
+| GET | /chat/sessions/{id}/events?turn_id= | 订阅某回合帧流（Last-Event-ID / `last_id` 续传），终态 done/error（中断回合 done 带 `interrupted: true`） |
+| GET | /chat/sessions/{id}/active-turn | 查当前进行中回合的 turn_id（无则 null），供第二标签续流 |
 | POST | /chat/sessions/{id}/messages/edit-resend | 编辑并重发 |
 | POST/GET | /chat/sessions/{id}/attachments | 上传/列出附件 |
-| POST | /chat/sessions/{id}/stop | 停止生成 |
+| POST | /chat/sessions/{id}/stop | 停止生成（软停止：帧间 `is_stopped` 轮询 break） |
+| POST | /chat/sessions/{id}/queue | 回答中入队一条消息（不打断当前回合） |
+| GET | /chat/sessions/{id}/queue | 列出队列（每项含 `item_id`/`content`/`position`/`interrupt`） |
+| PATCH | /chat/sessions/{id}/queue/{item_id} | 原地改队列项正文（位置不变） |
+| POST | /chat/sessions/{id}/queue/{item_id}/interject | 插话：标记该条优先 + 真打断当前回合（`abort_signal` 中止 ADK），半句按 `interrupted` 标记落库 |
+| DELETE | /chat/sessions/{id}/queue/{item_id} | 删除队列项 |
 
 ## 知识库（/knowledge）
 
@@ -45,5 +52,6 @@ Base URL：`http://127.0.0.1:18080/api/v1`。认证：`Authorization: Bearer <to
 
 ## 约定
 
-- 写操作全部落审计；纯查询类接口不进审计。
-- SSE 流的事件帧包含正文增量、工具卡、审批暂停（approval_pending）等类型，前端按帧类型分发。
+- 写操作全部落审计；纯查询类接口不进审计。队列写操作审计：`session.queue_enqueue` / `session.queue_update` / `session.queue_interject` / `session.queue_delete`。
+- SSE 流的事件帧包含正文增量、工具卡、审批暂停（approval_pending）等类型，前端按帧类型分发；终态 `done` 在插话/停止打断时带 `interrupted: true`。
+- `queue_changed` 通知 payload 带 `action`（enqueued/dequeued/updated/interjected/deleted）与 `total`；前端收到后重拉 GET /queue（`interrupt` 字段由该接口返回，不在通知里）。

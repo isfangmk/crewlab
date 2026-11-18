@@ -26,7 +26,7 @@ flowchart TD
 | 能力 | Redis 结构 | key 约定 | 主要模块 |
 |---|---|---|---|
 | 对话帧分发 | Stream | `chat:turn:{turn_id}` / `chat:active:{sid}` | `services/chat/chat_stream_bus.py` |
-| 对话排队消息 | Stream | `chat:queue:{sid}` | `services/chat/chat_queue.py` |
+| 对话排队消息 | Stream + 2 Hash | `chat:queue:{sid}`（保序）/ `chat:queue:data:{sid}`（可变内容）/ `chat:queue:int:{sid}`（插话标记） | `services/chat/chat_queue.py` |
 | 工作流/任务图事件 | Stream | 每 run 一个 Stream | `services/workflow/workflow_events.py`、`services/taskgraph/task_graph_events.py` |
 | 全局通知 | Stream | `notify:{uid}` | `services/platform/notification_bus.py`、`api/events.py` |
 | 分布式锁 | String（SET NX PX） | `lock:{name}` | `services/platform/redis_distributed.py` |
@@ -62,15 +62,20 @@ flowchart LR
 - 不持有服务端订阅状态——Stream 本身常驻，断开只需取消生成器。
 - 大 payload（图表数据）不塞 Redis，仍走 artifacts 表，Stream 只传事件与引用。
 
-## 对话排队消息：`chat:queue:{sid}`（回答中再发）
+## 对话排队消息与插话中断：`chat:queue:{sid}`（回答中再发）
 
-回答进行中用户再发的消息默认排队，当前回合结束后依次消费，链式起新回合直到队列空。这是**临时缓冲**，权威数据仍是落库消息；队列只存「起一个新回合所需参数」。
+回答进行中用户再发的消息默认排队、当前回合结束后依次消费；队列项可**插话**（标记优先 + 真打断当前回合立即执行自己）、**修改**（原地改正文位置不变）、**删除**。这是**临时缓冲**，权威数据仍是落库消息；队列只存「起一个新回合所需参数」。相关中断/落库语义见《对话与智能体架构》。
 
-- **key**：每个会话一条 Stream `chat:queue:{sid}`，Stream ID 即 `item_id`（单调、可作位置/去重）。字段含正文、provider/model、thinking/web_search 开关、附件 id 列表、mentions、owner_uid、created_at；复杂字段 JSON 序列化。每次操作续 `QUEUE_TTL=24h`，长期不活跃自动回收。
-- **四个操作**（`chat_queue.py`）：`enqueue`（XADD + XLEN 得 position）、`list_items`（XRANGE）、`delete`（XDEL）、`total`（XLEN）都续 TTL；`_decode_item` 容错缺失/损坏字段，脏数据不中断消费链。
-- **原子出队**：Lua 脚本一次完成 `XRANGE ... COUNT 1` + `XDEL` + 续 TTL + 返回剩余条数。必须原子，否则多 worker 会重复消费同一条消息。空队列返回 nil。
-- **链式消费**（`chat_stream_orchestrator._drain_one_queued_turn`）：当前回合 `_produce` 的 finally 在 `chat_refetch` 通知之后调用；原子取第一条 → 发 `queue_changed(dequeued)` → `_spawn(begin_streamed_turn)` 起新回合；新回合 finally 再 drain，直到队列空。空正文脏项出队后跳过继续取（不死循环）。每次只起一个新回合，同回合内不无限循环。
-- **端点**：`POST .../queue`（入队，`require_not_viewer` + 会话属主校验，审计 `session.queue_enqueue`）、`GET .../queue`（只读列表）、`DELETE .../queue/{item_id}`（审计 `session.queue_delete`）；入队/删除都发 `queue_changed` 通知。
+- **三层 key**（`chat_queue.py`）：
+  - `chat:queue:{sid}` —— Stream，**只存 iid**（字段 `iid`=UUID hex），保序权威；Stream ID 单调、删后不可复用，不存可变内容。
+  - `chat:queue:data:{sid}` —— Hash，iid → JSON（正文/provider/model/开关/附件 id/mentions/owner_uid/created_at/interrupt）；改正文只改这里，位置不变。
+  - `chat:queue:int:{sid}` —— Hash，iid → "1"（仅插话项）；Lua 出队用 `HGET` 判断优先，不解析 JSON。
+  - 每次操作续 `QUEUE_TTL=24h`，长期不活跃自动回收；`_decode_item` 容错缺失/损坏字段，脏数据不中断消费链。
+- **操作**（`chat_queue.py`）：`enqueue`（pipe 同时 HSET data + XADD order，返回 iid+position）、`list_items`（XRANGE 取 iid 顺序 + HMGET data）、`update_content`（原地 HSET data 改正文）、`mark_interrupt`（改 data 内字段 + HSET/HDEL int 索引）、`delete`（XDEL + HDEL 两 Hash）、`total`（XLEN）；都续 TTL。
+- **原子出队**：Lua 一次完成 `XRANGE` 全扫 → 优先取带 `interrupt=1` 的项（否则第一条）→ `XDEL` + 两个 Hash `HDEL` + 续 TTL + 返回 `{stream_id, remaining, iid, 'json', raw_json}`。必须原子，否则多 worker 会重复消费。注意 Lua 返回 1-based 扁平数组，redis-py 转 0-based 后正文在 `raw[4]`（`raw[3]` 是标记串 `'json'`）。空队列返回 nil。
+- **链式消费**（`chat_stream_orchestrator._drain_one_queued_turn`）：当前回合 `_produce` 的 finally 在 `chat_refetch` 通知之后调用；先清 `chat-interrupt:{sid}` 标志 → 原子取一条（插话优先）→ 发 `queue_changed(dequeued)` → `_spawn(begin_streamed_turn)` 起新回合；新回合 finally 再 drain，直到队列空。空正文脏项出队后跳过继续取（不死循环）。每次只起一个新回合。
+- **插话真打断**：`POST .../interject` 先 `mark_interrupt`，再 `request_interrupt(session_id)`——本进程置位该会话所有活跃 `abort_event` + `set_flag("chat-interrupt:{sid}")` 经 `flag:signal` 广播，其他 worker 的 `_listen_stops` hook 置位本地 event；`run_async(abort_signal=...)` 真中止当前回合，半句按 `interrupted` 标记落库。
+- **端点**：`POST .../queue`（入队，审计 `session.queue_enqueue`）、`GET .../queue`（列表，返回含 `interrupt` 字段）、`PATCH .../queue/{item_id}`（改正文，审计 `session.queue_update`）、`POST .../queue/{item_id}/interject`（插话，审计 `session.queue_interject`）、`DELETE .../queue/{item_id}`（审计 `session.queue_delete`）；同为 `require_not_viewer` + 会话属主校验，写操作都发 `queue_changed`（payload 带 `action`/`total`）。
 
 ## 事件总线跨进程化（阶段2）
 
@@ -126,7 +131,7 @@ flowchart LR
 | graph_finished | task_graph_service | requestChatRefetch + graph_created |
 | knowledge_sync_done | knowledge_sync | window KNOWLEDGE_SYNC_EVENT |
 | eval_run_done | eval_runner | window EVAL_RUN_EVENT |
-| queue_changed | queue 端点（入队/删除）+ 出队消费 | window CHAT_QUEUE_CHANGED_EVENT → ChatThread 按 session_id 过滤后重拉队列 |
+| queue_changed | queue 端点（入队/修改/插话/删除）+ 出队消费 | window CHAT_QUEUE_CHANGED_EVENT → ChatThread 按 session_id 过滤后重拉队列（payload 带 `action`/`total`，插话项 `interrupt` 由 GET /queue 返回） |
 
 > **区分两套事件机制**：NotificationKind 是跨标签页的「刷新信号」（上表，走 `notify:{uid}` Stream + `/events`）；SSE 帧事件（assistant_delta / tool_start / tool_end / approval_pending / node_started 等）是单次运行的数据流，走对话帧总线或工作流/任务图事件 Stream。前者只带信号、前端重拉权威数据；后者带实际数据增量。
 
@@ -147,7 +152,7 @@ flowchart LR
 |---|---|
 | 连接/配置/生命周期 | `app/redis/`、`config.py`（redis_url）、`main.py` lifespan |
 | 对话帧语义/key/TTL | `services/chat/chat_stream_bus.py` + `web/src/api/sse.ts` |
-| 对话排队消息 | `services/chat/chat_queue.py`、`api/chat.py`（三个 queue 端点）、`chat_stream_orchestrator._drain_one_queued_turn` |
+| 对话排队消息/插话中断 | `services/chat/chat_queue.py`（三层存储+优先出队）、`api/chat.py`（五个 queue 端点）、`chat_stream_orchestrator._drain_one_queued_turn / request_interrupt`、`redis_distributed.register_interrupt_hook`（flag:signal 跨 worker） |
 | 事件总线保留策略 | `services/workflow/workflow_events.py`、`services/taskgraph/task_graph_events.py` |
 | 锁/租约/停止/共享状态 | `services/platform/redis_distributed.py` 及调用方 |
 | 通知种类/续传 | `services/platform/notification_bus.py`、`api/events.py`、`web/src/lib/useNotifications.ts` |
