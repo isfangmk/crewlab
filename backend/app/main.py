@@ -182,10 +182,6 @@ async def lifespan(_app: FastAPI):
         await ensure_agent_runtime(db)
         await ensure_knowledge_settings(db)
         await ensure_system_timezone(db)
-        # 平台助手：幂等创建独立助理（已存在不覆盖）
-        from app.services.platform.platform_assistant_seed import ensure_platform_assistant
-
-        await ensure_platform_assistant(db)
         # 向量表 tool_name 必须与 wire 规则一致，否则检索装配会查错名。
         from app.services.mcp.tool_search_index import assert_embedding_names_consistent
 

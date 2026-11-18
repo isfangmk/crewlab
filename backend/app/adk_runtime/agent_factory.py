@@ -202,13 +202,18 @@ def build_chat_agent(
         timeout=llm_timeout_seconds,
         extra_body=extra_body if extra_body else None,
     )
+    from app.services.agent.agent_service import PLATFORM_AGENT_NAME
+
+    is_platform_agent = agent_name == PLATFORM_AGENT_NAME
     tools: list[Any] = (
         list(build_builtin_tools(include_ask_user=include_ask_user))
-        if include_builtin_tools
+        if include_builtin_tools and not is_platform_agent
         else []
     )
-    # SkillToolset(EAGER)：目录可见，正文仍 load_skill 按需加载
-    tools.append(build_skill_toolset(knowledge_scope, skills))
+    # SkillToolset(EAGER)：目录可见，正文仍 load_skill 按需加载。
+    # 平台助手不挂技能（只挂两个元工具，避免工具爆炸与越权面）。
+    if not is_platform_agent:
+        tools.append(build_skill_toolset(knowledge_scope, skills))
     if knowledge_scope is not None and not knowledge_scope.is_empty:
         logger.info(
             "装配知识范围 agent=%s paths=%s doc_ids=%s",

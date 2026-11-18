@@ -61,6 +61,22 @@ async def build_agent_tool_bundle(
     可调用实体（不经 search→load），供已明确要用哪些工具的无人值守节点省掉发现轮次。
     仅无人值守节点传 True；主对话/子助理保持默认的延迟加载口径。
     """
+    # 内置平台助手只挂两个元工具，不装配 builtin / 技能 / MCP / 联网搜索 /
+    # 技能安装工具。build_chat_agent 同步跳过 builtin 与 SkillToolset，口径一致。
+    if agent.name == agent_service.PLATFORM_AGENT_NAME:
+        from app.adk_runtime.platform_api_tools import (
+            PLATFORM_CONFIRM_TOOL,
+            build_platform_tools,
+        )
+
+        logger.info("平台助手仅挂载元工具 agent=%s", agent.name)
+        return AgentToolBundle(
+            runtime_skills=[],
+            extra_tools=build_platform_tools(),
+            confirm_tool_names={PLATFORM_CONFIRM_TOOL},
+            disallowed_tool_names=set(),
+            rule_actions={},
+        )
 
     runtime_skills = await skills_service.resolve_skills(db, agent.skills)
     allowed_tools = (
@@ -132,19 +148,6 @@ async def build_agent_tool_bundle(
         session_id,
         owner_user_id,
     )
-    # 平台助手：挂两个元工具代替大量 CRUD 接口。写操作进审批闸门，
-    # GET 查询在审批回调里按目标 method 动态放行。
-    from app.adk_runtime.platform_api_tools import (
-        PLATFORM_AGENT_NAME,
-        PLATFORM_CONFIRM_TOOL,
-        build_platform_tools,
-    )
-
-    is_platform_agent = agent.name == PLATFORM_AGENT_NAME
-    if is_platform_agent:
-        extra_tools.extend(build_platform_tools())
-        confirm_tool_names.add(PLATFORM_CONFIRM_TOOL)
-        logger.info("已挂载平台助手元工具 agent=%s", agent.name)
     # 非 safe 的内置工具默认进闸（如 run_workflow）：默认要人工确认；
     # 审批规则 auto_approve 可以免审——风险定级与是否审批是两根轴
     from app.tools.catalog import BUILTIN_TOOL_SPECS

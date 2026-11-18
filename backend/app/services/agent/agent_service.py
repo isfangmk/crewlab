@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 DEFAULT_AGENT_NAME = "default"
+# 内置平台助手：代替用户检索并调用平台接口，不落库（与 default 同机制）
+PLATFORM_AGENT_NAME = "platform-assistant"
+# 平台助手专属元工具；也是它的工具白名单内容
+PLATFORM_TOOL_NAMES = ("search_platform_api", "call_platform_api")
 
 # 子助理委托链最大层数：根助理 → 子 → 孙 → 曾孙，运行期装配同口径截断
 MAX_DELEGATION_DEPTH = 3
@@ -278,6 +282,43 @@ def builtin_default_agent() -> ResolvedAgent:
     )
 
 
+# 能力边界：只说能做什么、约束是什么，不写"什么提问用哪个工具"的路由规则——
+# 工具选择由模型按用户提问自行判断（项目硬规则）。
+_PLATFORM_AGENT_PERSONA = (
+    "你是 AI 工作台的平台助手，代替用户完成平台上的查询与管理工作。"
+    "你可以检索平台提供的各项操作，按用户意图执行查询或变更；"
+    "所有操作都以当前登录用户身份进行，权限与该用户在页面上直接操作完全相同，"
+    "没有越权能力——用户无权访问的接口，你也访问不到。"
+    "新增、修改、删除等变更操作需要用户确认后才会执行，查询操作直接执行。"
+    "执行前先确认用户意图与关键参数（如目标资源的标识、要改成的取值）明确；"
+    "信息不足时向用户澄清，不要臆造标识或填入占位值。"
+    "操作完成后，用一句话说明做了什么、结果如何；失败时如实说明原因。"
+)
+_PLATFORM_AGENT_REMINDER = (
+    "绝不使用超出当前用户权限的操作；关键参数不确定时先问用户，不要猜。"
+    "变更操作的确认结果以用户为准，不要替用户决定。"
+)
+
+
+def builtin_platform_agent() -> ResolvedAgent:
+    """内置平台助手（不落库）：只挂两个元工具，按用户身份调用平台接口。"""
+
+    return ResolvedAgent(
+        name=PLATFORM_AGENT_NAME,
+        display_name="平台助手",
+        description="代替用户在平台上完成查询、新增、修改、删除等操作，权限与本人直接操作一致",
+        when_to_use="需要在对话里完成平台上的管理操作时使用。",
+        system_prompt=_PLATFORM_AGENT_PERSONA,
+        critical_reminder=_PLATFORM_AGENT_REMINDER,
+        tools=list(PLATFORM_TOOL_NAMES),
+        disallowed_tools=[],
+        permission_mode="",
+        model="",
+        max_turns=0,
+        source="builtin",
+    )
+
+
 def _row_to_resolved(row: UserAgent) -> ResolvedAgent:
     return ResolvedAgent(
         name=row.name,
@@ -311,6 +352,8 @@ def validate_agent_name(name: str) -> None:
         raise ValueError("name 须为小写字母开头的标识（字母/数字/_/-，最长 64）")
     if name == DEFAULT_AGENT_NAME:
         raise ValueError("name 不能为保留名 default")
+    if name == PLATFORM_AGENT_NAME:
+        raise ValueError("name 不能为保留名 platform-assistant")
 
 
 def validate_max_tool_result_chars(value: int | None) -> int | None:
@@ -533,7 +576,7 @@ async def skill_declared_tools(db: AsyncSession, skills: list[str] | None) -> se
 async def list_agents(db: AsyncSession) -> list[ResolvedAgent]:
     result = await db.scalars(select(UserAgent).order_by(UserAgent.name.asc()))
     rows = list(result.all())
-    items = [builtin_default_agent()]
+    items = [builtin_default_agent(), builtin_platform_agent()]
     items.extend(_row_to_resolved(r) for r in rows)
     return items
 
@@ -541,6 +584,8 @@ async def list_agents(db: AsyncSession) -> list[ResolvedAgent]:
 async def get_agent(db: AsyncSession, name: str) -> ResolvedAgent:
     if name == DEFAULT_AGENT_NAME:
         return builtin_default_agent()
+    if name == PLATFORM_AGENT_NAME:
+        return builtin_platform_agent()
     row = await db.get(UserAgent, name)
     if row is None:
         raise LookupError(f"助理不存在: {name}")
@@ -841,6 +886,8 @@ async def resolve_draft_agent(
 async def delete_user_agent(db: AsyncSession, name: str) -> None:
     if name == DEFAULT_AGENT_NAME:
         raise ValueError("不能删除内置助理 default")
+    if name == PLATFORM_AGENT_NAME:
+        raise ValueError("不能删除内置助理 platform-assistant")
     row = await db.get(UserAgent, name)
     if row is None:
         raise LookupError(f"助理不存在: {name}")

@@ -11,9 +11,6 @@ from google.adk.tools import FunctionTool
 
 from app.tools.platform_api import call_platform_api, search_platform_api
 
-# 平台助手的业务助理名（与 UserAgent.name 对应，阶段二按此名创建）
-PLATFORM_AGENT_NAME = "platform-assistant"
-
 # 需要人工审批的工具名：call_platform_api 写操作进闸，GET 由审批回调动态放行
 PLATFORM_CONFIRM_TOOL = "call_platform_api"
 
