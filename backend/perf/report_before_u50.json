@@ -1,0 +1,27 @@
+{
+  "generated_at": "2026-11-18T09:17:25",
+  "host": "http://127.0.0.1:18080",
+  "read_endpoints": 2,
+  "write_endpoints": 1,
+  "endpoints": {
+    "GET /api/v1/chat/sessions/{session_id}/messages": {
+      "count": 63,
+      "min": 24.98,
+      "p50": 10733.64,
+      "p95": 15373.29,
+      "p99": 15550.18,
+      "max": 15550.18,
+      "avg": 9518.64
+    },
+    "GET /api/v1/chat/sessions": {
+      "count": 57,
+      "min": 5171.17,
+      "p50": 16232.07,
+      "p95": 22826.9,
+      "p99": 23618.73,
+      "max": 23618.73,
+      "avg": 15665.24
+    }
+  },
+  "failures": {}
+}

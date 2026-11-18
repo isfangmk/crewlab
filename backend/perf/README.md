@@ -36,9 +36,15 @@ PERF_REPORT=perf/report_before_u10.json \
 
 # 5. 优化后复测：换成 report_after_*.json，同样参数重跑
 
-# 6. 清理 __perf__ 数据（会话/消息/记忆 + Redis 队列 key）
+# 6. 生成前后对比表（读 report_before_*/report_after_*）：
+.venv/Scripts/python.exe -m perf.compare
+
+# 7. 清理 __perf__ 数据（会话/消息/记忆 + Redis 队列 key）
 .venv/Scripts/python.exe -m perf.seed --clean
 ```
+
+> **Git Bash 注意**：`PERF_PATHS` 的值以 `/api/...` 开头会被 MSYS 自动转成
+> `C:/Program Files/Git/api/...`，导致过滤失效。命令前加 `MSYS_NO_PATHCONV=1`。
 
 ## 纳入 / 排除
 

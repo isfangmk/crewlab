@@ -141,19 +141,25 @@ async def clean() -> None:
         await clean_db(db)
     # 清 Redis 队列 key（专属会话）
     try:
-        from app.redis import close, connect, get_redis
-        from app.services.chat import chat_queue as q
-
         manifest = load_manifest()
-        await connect()
-        r = get_redis()
-        for sid in manifest.get("session_ids", []):
-            await r.delete(q._order_key(sid), q._data_key(sid), q._int_key(sid))
-        await close()
-        print("已清理 Redis 队列 key")
-    except Exception:
-        # manifest 不存在或 Redis 未起：清理 DB 已足够
-        pass
+    except RuntimeError:
+        manifest = None  # 无 manifest：本次没有可清理的专属会话 key
+    if manifest is not None:
+        try:
+            import redis
+
+            from app.redis import close, connect, get_redis
+            from app.services.chat import chat_queue as q
+
+            await connect()
+            r = get_redis()
+            for sid in manifest.get("session_ids", []):
+                await r.delete(q._order_key(sid), q._data_key(sid), q._int_key(sid))
+            await close()
+            print("已清理 Redis 队列 key")
+        except redis.RedisError:
+            # Redis 未起：DB 数据已清理，队列 key 会随 TTL 自然过期
+            print("Redis 不可用，跳过队列 key 清理")
     print("清理完成")
 
 

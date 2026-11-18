@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import statistics
 import time
@@ -42,11 +43,17 @@ _SESSION_POOL = _MANIFEST.get("session_ids", [])
 _BIG_SESSION_POOL = _MANIFEST.get("big_session_ids", []) or _SESSION_POOL
 _MEMORY_POOL = _MANIFEST.get("memory_ids", [])
 _enpoints = [e for e in discover() if e.kind in ("read", "write")]
+# PERF_PATHS：逗号分隔的 path 子集，用于聚焦关键端点单独取基线（避免随机打散样本不足）
+_PATH_FILTER = {p.strip() for p in os.environ.get("PERF_PATHS", "").split(",") if p.strip()}
+if _PATH_FILTER:
+    _enpoints = [e for e in _enpoints if e.path in _PATH_FILTER]
 _read_endpoints = [e for e in _enpoints if e.kind == "read"]
 _write_endpoints = [e for e in _enpoints if e.kind == "write"]
 
 # token 只在初始化登录一次，绝不打印
 _TOKEN = ""
+# 压测均匀取样端点；SystemRandom 避开 S311 且无加密语义负担
+_RNG = random.SystemRandom()
 
 # ---- 响应时间采集 ----
 _stats: dict[str, list[float]] = defaultdict(list)
@@ -180,10 +187,8 @@ class ReadUser(PerfUser):
     def read_all(self) -> None:
         if not _read_endpoints:
             return
-        # 每轮随机打一个读端点，覆盖全部
-        import random
-
-        ep = random.choice(_read_endpoints)
+        # 每轮随机打一个读端点，覆盖全部（压测取样，非安全用途）
+        ep = _RNG.choice(_read_endpoints)
         self._call(ep)
 
 
@@ -194,7 +199,5 @@ class WriteUser(PerfUser):
     def write_all(self) -> None:
         if not _write_endpoints:
             return
-        import random
-
-        ep = random.choice(_write_endpoints)
+        ep = _RNG.choice(_write_endpoints)
         self._call(ep)
