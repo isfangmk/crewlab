@@ -1,6 +1,6 @@
 // Agents 页面测试 — 覆盖「点击助理卡片查看定义详情」链路，并验证
 // 按 source 区分的编辑路径（user 直接编辑 / 内置预置 fork 成自定义）。
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
@@ -25,6 +25,9 @@ const diskAgent = {
   when_to_use: '当任务围绕系统是否健康时派给我。',
   system_prompt: '# SRE 专家\n你是 SRE 专家，优先看黄金四信号。',
   tools: ['query_promql', 'query_incidents'],
+  builtin_tool_count: 13,
+  mcp_server_count: 2,
+  builtin_tools: ['run_python', 'query_knowledge'],
   permission_mode: 'read-only',
   critical_reminder: '',
   output_format: 'free',
@@ -40,6 +43,9 @@ const userAgent = {
   description: '我的数据库助手。',
   system_prompt: '你是数据库专家。',
   tools: ['analyze_database_status'],
+  builtin_tool_count: 13,
+  mcp_server_count: 1,
+  builtin_tools: ['run_python', 'query_knowledge'],
   permission_mode: '',
   critical_reminder: '禁止臆测。',
   output_format: 'checklist',
@@ -224,7 +230,7 @@ describe('AgentsPage', () => {
     // 新建助理默认不勾选 MCP：Server 显示为未挂载，检索目录为空
     expect(within(dialog).getByText('未挂载')).toBeInTheDocument();
     expect(within(dialog).getByText('MCP 可检索 0')).toBeInTheDocument();
-    expect(within(dialog).getByText('内置常驻 0')).toBeInTheDocument();
+    expect(within(dialog).getByText('内置工具 0')).toBeInTheDocument();
 
     // 勾选 Server 后整台挂载，工具进检索目录
     await userEvent.click(within(dialog).getByRole('checkbox', { name: /挂载 MCP Server demo-operations/ }));
@@ -527,7 +533,7 @@ describe('AgentsPage', () => {
 
     const search = within(dialog).getByRole('searchbox', { name: '搜索能力' });
     await userEvent.type(search, 'promql');
-    // 只按技能 key / 描述匹配；内置工具不在页面展示
+    // 按技能 key / 描述匹配（本用例内置工具目录为空）
     expect(await within(dialog).findByText('匹配 1 项')).toBeInTheDocument();
     expect(within(dialog).getByText('promql-query')).toBeInTheDocument();
     expect(within(dialog).queryByText('k8s-ops')).not.toBeInTheDocument();
@@ -544,6 +550,50 @@ describe('AgentsPage', () => {
     expect(within(dialog).getByText('变更')).toBeInTheDocument();
   });
 
+  it('新建助理内置工具默认全选，可取消勾选并反映到装配预览', async () => {
+    server.use(
+      http.get('/api/v1/tools/builtin', () =>
+        HttpResponse.json({
+          items: [
+            { name: 'run_python', group: 'code', description: '执行 Python', risk: 'safe', mount: 'always', params: [] },
+            { name: 'query_knowledge', group: 'knowledge', description: '检索知识库', risk: 'safe', mount: 'always', params: [] },
+            { name: 'web_search', group: 'search', description: '联网搜索', risk: 'safe', mount: 'per_turn', params: [] },
+          ],
+          total: 3,
+        }),
+      ),
+    );
+
+    render(
+      <MemoryRouter>
+        <AgentsPage />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: /新建助理/ }));
+    const dialog = await screen.findByRole('dialog');
+    await fillCreateBasics(dialog, 'builtin_pick_agent');
+    await clickNext(dialog);
+    await fillCreatePersona(dialog);
+    await clickNext(dialog);
+    await clickNext(dialog);
+
+    // 展开内置工具分组（默认折叠）
+    await userEvent.click(within(dialog).getByRole('button', { name: /内置工具.*已选 2/ }));
+
+    // 内置工具组默认全部勾选（web_search 是 per_turn，不在勾选范围）
+    const runPy = within(dialog).getByRole('checkbox', { name: '装配内置工具 run_python' });
+    const queryKb = within(dialog).getByRole('checkbox', { name: '装配内置工具 query_knowledge' });
+    expect(runPy).toBeChecked();
+    expect(queryKb).toBeChecked();
+    expect(within(dialog).queryByRole('checkbox', { name: '装配内置工具 web_search' })).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/已选 2/)).toBeInTheDocument();
+
+    // 取消一项后预览数减 1
+    await userEvent.click(runPy);
+    expect(runPy).not.toBeChecked();
+    expect(within(dialog).getByText(/已选 1/)).toBeInTheDocument();
+  });
+
   it('详情弹窗展示知识范围与输出格式', async () => {
     render(
       <MemoryRouter>
@@ -557,46 +607,6 @@ describe('AgentsPage', () => {
     expect(within(dialog).getByText('数据库')).toBeInTheDocument();
     expect(within(dialog).getByText('清单')).toBeInTheDocument();
     expect(within(dialog).getByText('输出格式与示例')).toBeInTheDocument();
-  });
-
-  it('编辑器 footer 有版本历史入口，可回滚到旧版本', async () => {
-    const rolled: number[] = [];
-    server.use(
-      http.get('/api/v1/agents/custom/my_db_helper/versions', () =>
-        HttpResponse.json({
-          items: [
-            { version: 2, change_summary: '改提示', created_by: 1, created_at: '2026-11-10T00:00:00Z', restored_from_version: null },
-            { version: 1, change_summary: '初版', created_by: 1, created_at: '2026-11-09T00:00:00Z', restored_from_version: null },
-          ],
-          total: 2,
-        }),
-      ),
-      http.post('/api/v1/agents/custom/my_db_helper/rollback', async ({ request }) => {
-        const body = (await request.json()) as { version: number };
-        rolled.push(body.version);
-        return HttpResponse.json({ ...userAgent, version: 3 });
-      }),
-    );
-
-    render(
-      <MemoryRouter>
-        <AgentsPage />
-      </MemoryRouter>,
-    );
-    await userEvent.click(await screen.findByRole('button', { name: '数据库专家' }));
-    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /编辑/ }));
-
-    await userEvent.click(await screen.findByRole('button', { name: '版本' }));
-    expect(await screen.findByText('版本历史')).toBeInTheDocument();
-    expect(await screen.findByText('v2')).toBeInTheDocument();
-    expect(screen.getByText('v1')).toBeInTheDocument();
-
-    // 列表按新→旧排列：第二个「回滚」按钮对应 v1
-    const rollbackButtons = screen.getAllByRole('button', { name: '回滚' });
-    await userEvent.click(rollbackButtons[1]);
-    const confirmDialog = await screen.findByRole('dialog', { name: /回滚到版本 1/ });
-    await userEvent.click(within(confirmDialog).getByRole('button', { name: /^回滚$/ }));
-    await waitFor(() => expect(rolled).toContain(1));
   });
 
   it('编辑器 footer 的试跑按钮打开草稿试跑面板', async () => {

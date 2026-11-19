@@ -32,7 +32,6 @@ import {
   ChevronRight,
   Copy,
   FlaskConical,
-  History,
   ListChecks,
   MessageSquarePlus,
   Pencil,
@@ -70,7 +69,6 @@ import { CapabilityBinding } from '@/components/CapabilityBinding';
 import { KnowledgeScopePicker, scopeSelectionFromWire, scopeSelectionIsIncomplete, scopeSelectionToWire, type ScopeSelection } from '@/components/KnowledgeScopePicker';
 import { PersonaFields, OUTPUT_FORMAT_LABELS, examplesInvalid } from '@/components/PersonaFields';
 import { AgentPlaygroundPanel } from '@/components/AgentPlaygroundPanel';
-import { AgentVersionHistoryModal } from '@/components/AgentVersionHistory';
 import type { CapabilityCatalog } from '@/lib/capabilityPreview';
 import type { ScopePreview } from '@/api/knowledge';
 import type { AgentExample, OutputFormat } from '@/api/agents';
@@ -352,7 +350,8 @@ function AgentCard({
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const toolCount = agent.tools.length;
+  const builtinToolCount = agent.builtin_tool_count ?? 0;
+  const mcpServerCount = agent.mcp_server_count ?? 0;
   const isUser = agent.source === 'user';
   const canDelete = agent.source !== 'builtin' && agent.name !== 'default';
   // 显示名称优先取后端 display_name；旧数据或预置助理退回内置短名 / Agent 标识。
@@ -470,9 +469,10 @@ function AgentCard({
         </div>
       )}
 
-      {/* 三格配置摘要：工具 / 技能 / 委托，对应「这个助理能做什么」。 */}
-      <div className="mt-3 grid grid-cols-3 divide-x divide-zinc-800/60 rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
-        <Stat label={tr('工具', 'Tools')} value={toolCount > 0 ? String(toolCount) : tr('无', 'None')} />
+      {/* 四格配置摘要：内置工具 / MCP Server / 技能 / 委托。数字就是实际挂载数。 */}
+      <div className="mt-3 grid grid-cols-4 divide-x divide-zinc-800/60 rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
+        <Stat label={tr('内置工具', 'Built-in')} value={String(builtinToolCount)} />
+        <Stat label="MCP" value={String(mcpServerCount)} />
         <Stat label={tr('技能', 'Skills')} value={skillLabel} />
         <Stat label={tr('委托', 'Delegation')} value={delegationLabel} />
       </div>
@@ -842,13 +842,17 @@ function AgentEditor({
     scopeSelectionFromWire(base?.knowledge_scope ?? { paths: [], doc_ids: [] }),
   );
   const [scopePreviewState, setScopePreviewState] = useState<ScopePreview | null>(null);
-  // 新建助理不继承任何能力：MCP 与技能都从空勾选开始（内置工具仍常驻）。
+  // 新建助理不继承任何能力：MCP 与技能都从空勾选开始（内置工具默认全选）。
   const [allowedTools, setAllowedTools] = useState<string[]>(
     mode === 'edit' ? base?.tools ?? [] : [],
   );
   const [disallowedTools, setDisallowedTools] = useState<string[]>(base?.disallowed_tools ?? []);
   const [selectedSkills, setSelectedSkills] = useState<string[] | null>(
     mode === 'edit' ? base?.skills ?? [] : [],
+  );
+  // 内置工具勾选：编辑用已存名单；新建待 catalog 到达后默认全选（null = 待初始化）
+  const [selectedBuiltinTools, setSelectedBuiltinTools] = useState<string[] | null>(
+    mode === 'edit' ? base?.builtin_tools ?? [] : null,
   );
   // 子助理候选：编辑时排除自身（后端同样拒绝自引用）
   const [subAgents, setSubAgents] = useState<string[]>(base?.sub_agents ?? []);
@@ -870,9 +874,8 @@ function AgentEditor({
   const [err, setErr] = useState<string | null>(null);
   // 配置项按用途分区，避免单页纵向滚动过长；切换分区不丢草稿。
   const [section, setSection] = useState<EditorSection>('basic');
-  // 试跑面板与版本历史：均用当前草稿，不需先保存
+  // 试跑面板用当前草稿，不需先保存
   const [showPlayground, setShowPlayground] = useState(false);
-  const [showVersions, setShowVersions] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -881,6 +884,10 @@ function AgentEditor({
         if (cancelled) return;
         setSubAgentCandidates(
           agents.items.filter((item) => item.name !== existing?.name),
+        );
+        // 新建助理：内置工具默认全部勾选（可选 = mount 为 always 的常驻工具）
+        setSelectedBuiltinTools((cur) =>
+          cur ?? builtins.items.filter((tool) => tool.mount === 'always').map((tool) => tool.name),
         );
         setCatalog({
           builtin: builtins.items.map((tool) => ({
@@ -1052,6 +1059,7 @@ function AgentEditor({
     examples: examples.map((item) => ({ input: item.input, output: item.output })),
     knowledge_scope: scopeSelectionToWire(scope),
     skills: selectedSkills,
+    builtin_tools: selectedBuiltinTools ?? (catalog?.builtin ?? []).filter((t) => t.mount === 'always').map((t) => t.name),
     sub_agents: subAgents,
   });
 
@@ -1144,15 +1152,6 @@ function AgentEditor({
             </>
           ) : (
             <>
-              <Button variant="outline" size="sm"
-                type="button"
-                onClick={() => setShowVersions(true)}
-                title={tr('版本历史', 'Version history')}
-                className="px-3 py-1.5"
-              >
-                <History size={13} aria-hidden />
-                {tr('版本', 'Versions')}
-              </Button>
               <Button variant="outline" size="sm"
                 type="button"
                 onClick={() => setShowPlayground(true)}
@@ -1346,6 +1345,8 @@ function AgentEditor({
               onDisallowedToolsChange={setDisallowedTools}
               selectedSkills={selectedSkills}
               onSelectedSkillsChange={setSelectedSkills}
+              selectedBuiltinTools={selectedBuiltinTools}
+              onSelectedBuiltinToolsChange={setSelectedBuiltinTools}
             />
           </TabsContent>
 
@@ -1483,13 +1484,6 @@ function AgentEditor({
       </div>
     )}
 
-    {showVersions && existing !== null && (
-      <AgentVersionHistoryModal
-        name={existing.name}
-        onClose={() => setShowVersions(false)}
-        onRolledBack={onSaved}
-      />
-    )}
     </>
   );
 }

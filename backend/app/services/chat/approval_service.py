@@ -542,6 +542,7 @@ async def stream_decide(
             context_compaction_threshold=context_compaction_threshold,
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,
+            builtin_tools=resolved_agent.builtin_tools,
             answer=answer,
             trust_scope=trust_scope,
             sub_agents=await build_sub_agents_for_agent(

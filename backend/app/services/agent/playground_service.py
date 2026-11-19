@@ -108,6 +108,7 @@ async def stream_preview(
         max_turns=agent.max_turns,
         knowledge_scope=agent.knowledge_scope,
         skills=tool_bundle.runtime_skills,
+        builtin_tools=agent.builtin_tools,
         sub_agents=None,
         # 试跑台是原始文本面板，不输出建议问题块
         include_followups=False,

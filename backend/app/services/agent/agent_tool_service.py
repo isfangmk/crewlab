@@ -61,23 +61,6 @@ async def build_agent_tool_bundle(
     可调用实体（不经 search→load），供已明确要用哪些工具的无人值守节点省掉发现轮次。
     仅无人值守节点传 True；主对话/子助理保持默认的延迟加载口径。
     """
-    # 内置平台助手只挂两个元工具，不装配 builtin / 技能 / MCP / 联网搜索 /
-    # 技能安装工具。build_chat_agent 同步跳过 builtin 与 SkillToolset，口径一致。
-    if agent.name == agent_service.PLATFORM_AGENT_NAME:
-        from app.adk_runtime.platform_api_tools import (
-            PLATFORM_CONFIRM_TOOL,
-            build_platform_tools,
-        )
-
-        logger.info("平台助手仅挂载元工具 agent=%s", agent.name)
-        return AgentToolBundle(
-            runtime_skills=[],
-            extra_tools=build_platform_tools(),
-            confirm_tool_names={PLATFORM_CONFIRM_TOOL},
-            disallowed_tool_names=set(),
-            rule_actions={},
-        )
-
     runtime_skills = await skills_service.resolve_skills(db, agent.skills)
     allowed_tools = (
         list(allowed_tools_override)
@@ -117,36 +100,45 @@ async def build_agent_tool_bundle(
             agent.name,
             len(confirm_tool_names),
         )
-    if web_search_enabled:
+    # 平台助手不挂联网搜索：它的职责是检索/调用平台接口，不走外网搜索。
+    if web_search_enabled and agent.name != agent_service.PLATFORM_AGENT_NAME:
         search_base, search_key = await resolve_deepseek_search_cred(db)
         extra_tools.append(build_web_search_tool(base_url=search_base, api_key=search_key))
         logger.info("已挂载 web_search agent=%s", agent.name)
-    # 对话创建 / 安装技能：三个变更类工具随助理始终装配，走同一套人工审批闸门。
+    # 对话创建 / 安装技能：三个变更类工具按助理勾选装配，走同一套人工审批闸门。
     # 归属信息从请求上下文取：会话路径的 user_id/session_id 已由鉴权与编排入口写入。
     raw_uid = user_id_var.get()
     owner_user_id = int(raw_uid) if raw_uid not in ("", "-") and raw_uid.isdigit() else None
     session_id = session_id_var.get()
-    extra_tools.extend(
-        [
-            build_create_skill_tool(db, owner_user_id=owner_user_id),
-            build_install_skill_from_url_tool(db, owner_user_id=owner_user_id),
+    selected_builtin = set(agent.builtin_tools)
+    config_tools: list[Any] = []
+    if "create_skill" in selected_builtin:
+        config_tools.append(build_create_skill_tool(db, owner_user_id=owner_user_id))
+    if "install_skill_from_url" in selected_builtin:
+        config_tools.append(build_install_skill_from_url_tool(db, owner_user_id=owner_user_id))
+    if "install_skill_from_zip" in selected_builtin:
+        config_tools.append(
             build_install_skill_from_zip_tool(
                 db, session_id=session_id, owner_user_id=owner_user_id
-            ),
-        ]
-    )
-    logger.info(
-        "已挂载技能创建/安装工具 agent=%s session_id=%s owner=%s",
-        agent.name,
-        session_id,
-        owner_user_id,
-    )
+            )
+        )
+    extra_tools.extend(config_tools)
+    if config_tools:
+        logger.info(
+            "已挂载技能创建/安装工具 agent=%s session_id=%s owner=%s count=%s",
+            agent.name,
+            session_id,
+            owner_user_id,
+            len(config_tools),
+        )
     # 非 safe 的内置工具默认进闸（如 delete_memory）：内置工具按自身 risk 决定是否审批，
     # 不受审批规则控制（规则只匹配 MCP 工具）。
     from app.tools.catalog import BUILTIN_TOOL_SPECS
 
     confirm_tool_names |= {
-        spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["risk"] != "safe"
+        spec["name"]
+        for spec in BUILTIN_TOOL_SPECS
+        if spec["risk"] != "safe" and spec["name"] in selected_builtin
     }
     # 审批规则只匹配 MCP 工具（工具×助理×风险），命中规则优先于默认免审口径。
     # 内置工具不进 tools_risk，规则无法控制它。

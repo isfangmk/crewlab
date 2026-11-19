@@ -18,7 +18,6 @@ from typing import Any
 
 import httpx
 
-from app.main import app as fastapi_app
 from app.services.observability.audit_service import write_audit
 from app.services.platform.api_catalog import PlatformApiEntry, entry_by_id
 from app.services.platform.internal_call import internal_call_headers
@@ -127,6 +126,9 @@ async def _call_api(
             "（保留其中的 {} 占位符，不要替换成具体值），路径参数放到 arguments 里。"
         )
     path, query, body = build_internal_request(entry, arguments)
+
+    # 延迟导入避免 app.main → api → agent_service → catalog → platform_api 的循环
+    from app.main import app as fastapi_app
 
     transport = httpx.ASGITransport(app=fastapi_app)
     async with httpx.AsyncClient(

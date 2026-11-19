@@ -1,7 +1,6 @@
 """ORM 模型导出。"""
 
 from app.models.agent import UserAgent
-from app.models.agent_version import UserAgentVersion
 from app.models.approval import Approval
 from app.models.approval_rule import ApprovalRule
 from app.models.artifact import Artifact
@@ -51,7 +50,6 @@ __all__ = [
     "McpOauthToken",
     "McpOauthState",
     "UserAgent",
-    "UserAgentVersion",
     "KnowledgeDoc",
     "KnowledgeChunk",
     "KnowledgeSource",

@@ -543,6 +543,17 @@ async def list_enabled_servers(db: AsyncSession) -> list[McpServer]:
     return list(result.all())
 
 
+async def available_server_names(db: AsyncSession) -> set[str]:
+    """全部可挂载的 MCP Server 名：启用且有工具缓存。"""
+
+    names: set[str] = set()
+    for server in await list_enabled_servers(db):
+        if not server.tools_cache_json or server.tools_cache_json == "[]":
+            continue
+        names.add(server.name)
+    return names
+
+
 async def get_server(db: AsyncSession, server_id: int) -> McpServer:
     row = await db.get(McpServer, server_id)
     if row is None:

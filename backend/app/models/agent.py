@@ -51,6 +51,10 @@ class UserAgent(Base):
     )
     # 勾选的技能 key；NULL = 继承全部技能，'[]' = 不装配任何技能
     skills_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 勾选的内置工具名 JSON 数组；名单即装配范围，'[]' = 不装配任何内置工具
+    builtin_tools_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
     # 子助理委托：JSON 数组（助理 name 列表）；NULL = 无委托
     sub_agents_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

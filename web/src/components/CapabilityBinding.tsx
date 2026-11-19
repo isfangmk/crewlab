@@ -1,6 +1,6 @@
 // CapabilityBinding — 助理「能力绑定可视化」。
 //
-// 两组可配置能力同屏：技能 / MCP Server。内置工具由后端全部常驻装配，不在页面展示也不可改：
+// 三组可配置能力同屏：内置工具 / 技能 / MCP Server。全部按勾选装配，默认全选：
 //   - MCP 按 Server 筛选挂载，Server 内只把勾选的工具放进检索目录（后端
 //     filter_mcp_servers_by_tools + build_searchable_mcp_toolsets 的口径）；
 //     未勾选的工具搜不到也调不了
@@ -9,7 +9,7 @@
 // 左侧是能力目录，右侧是按运行时口径算出的装配预览；勾选与装配数不一致时逐条说明。
 import { useMemo, useState, type ReactNode } from 'react';
 import {
-  ChevronDown, ChevronRight, Server, Sparkles,
+  Bot, ChevronDown, ChevronRight, Server, Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -39,9 +39,12 @@ type Props = {
   /** null = 继承全部技能；数组 = 只装配这些 */
   selectedSkills: string[] | null;
   onSelectedSkillsChange(next: string[] | null): void;
+  /** 勾选的内置工具名；null = 待目录加载初始化（默认全选） */
+  selectedBuiltinTools: string[] | null;
+  onSelectedBuiltinToolsChange(next: string[]): void;
 };
 
-type CapabilityGroupKey = 'skills' | 'mcp';
+type CapabilityGroupKey = 'builtin' | 'skills' | 'mcp';
 
 export function CapabilityBinding({
   catalog,
@@ -52,10 +55,13 @@ export function CapabilityBinding({
   onDisallowedToolsChange,
   selectedSkills,
   onSelectedSkillsChange,
+  selectedBuiltinTools,
+  onSelectedBuiltinToolsChange,
 }: Props) {
   const { tr } = useI18n();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [openGroups, setOpenGroups] = useState<Record<CapabilityGroupKey, boolean>>({
+    builtin: false,
     skills: false,
     mcp: false,
   });
@@ -66,8 +72,8 @@ export function CapabilityBinding({
     () =>
       catalog === null
         ? null
-        : previewCapabilities(catalog, allowedTools, disallowedTools, selectedSkills),
-    [catalog, allowedTools, disallowedTools, selectedSkills],
+        : previewCapabilities(catalog, allowedTools, disallowedTools, selectedSkills, selectedBuiltinTools),
+    [catalog, allowedTools, disallowedTools, selectedSkills, selectedBuiltinTools],
   );
 
   if (catalogError !== null) {
@@ -111,6 +117,10 @@ export function CapabilityBinding({
     if (safeQuery === '') return true;
     return includes(skill.key) || includes(skill.description);
   });
+  const selectableBuiltin = catalog.builtin.filter((tool) => tool.mount === 'always');
+  const builtinMatches = selectableBuiltin.filter((tool) =>
+    safeQuery === '' || includes(tool.name) || includes(tool.description),
+  );
   const mcpMatches = catalog.mcpServers
     .map((server) => {
       const serverMatch = safeQuery === '' || includes(server.name);
@@ -125,7 +135,7 @@ export function CapabilityBinding({
       };
     })
     .filter((item) => item.matched);
-  const matchCount = skillMatches.length + mcpMatches.length;
+  const matchCount = builtinMatches.length + skillMatches.length + mcpMatches.length;
   const searching = safeQuery !== '';
 
   const skillChecked = (key: string) => selectedSkills === null || selectedSkills.includes(key);
@@ -138,6 +148,16 @@ export function CapabilityBinding({
       ? [...next.filter((key) => key !== skill.key), skill.key]
       : next.filter((key) => key !== skill.key);
     onSelectedSkillsChange(trimmed);
+  };
+
+  const chosenBuiltin = selectedBuiltinTools ?? selectableBuiltin.map((tool) => tool.name);
+  const builtinChecked = (name: string) => chosenBuiltin.includes(name);
+  const toggleBuiltin = (name: string, checked: boolean) => {
+    onSelectedBuiltinToolsChange(
+      checked
+        ? [...chosenBuiltin.filter((item) => item !== name), name]
+        : chosenBuiltin.filter((item) => item !== name),
+    );
   };
 
   // 预览区的异常与口径说明不能藏起来：部分挂载、目录外工具都在这里逐条列出。
@@ -195,13 +215,13 @@ export function CapabilityBinding({
               </span>
               <span className="text-[10px] text-zinc-500">
                 {tr(
-                  `${catalog.builtin.length} 内置（常驻）· ${catalog.skills.length} 技能 · ${catalog.mcpServers.length} MCP`,
-                  `${catalog.builtin.length} built-in (always on) · ${catalog.skills.length} skills · ${catalog.mcpServers.length} MCP`,
+                  `${selectableBuiltin.length} 内置 · ${catalog.skills.length} 技能 · ${catalog.mcpServers.length} MCP`,
+                  `${selectableBuiltin.length} built-in · ${catalog.skills.length} skills · ${catalog.mcpServers.length} MCP`,
                 )}
               </span>
             </div>
             <p className="mt-0.5 text-[10px] text-zinc-500">
-              {tr('内置工具全部常驻、不可改；勾选技能与 MCP 后立即生效', 'Built-in tools are always on and fixed; skill and MCP changes apply immediately')}
+              {tr('内置工具默认全选；勾选后保存立即生效', 'Built-in tools are all selected by default; changes apply after saving')}
             </p>
           </div>
           <div className="w-full shrink-0 sm:w-[14.5rem]">
@@ -230,6 +250,48 @@ export function CapabilityBinding({
             </div>
           ) : (
             <>
+              {/* 内置工具 */}
+              {(!searching || builtinMatches.length > 0) && (
+                <CapabilityGroup
+                  title={tr('内置工具', 'Built-in tools')}
+                  icon={Bot}
+                  count={builtinMatches.length}
+                  status={tr(`已选 ${preview.builtinTools}`, `${preview.builtinTools} selected`)}
+                  statusTone={preview.builtinTools > 0 ? 'accent' : 'muted'}
+                  hint={tr('勾选的内置工具才装配；默认全部勾选', 'Only checked built-in tools are mounted; all selected by default')}
+                  open={groupOpen('builtin')}
+                  lockedOpen={searching}
+                  onToggle={() => toggleGroup('builtin')}
+                >
+                  {builtinMatches.length === 0 ? (
+                    <div className="px-2 py-2 text-[11px] text-zinc-500">
+                      {tr('没有匹配的内置工具。', 'No matching built-in tools.')}
+                    </div>
+                  ) : (
+                    builtinMatches.map((tool) => (
+                      <div key={tool.name} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-zinc-900/60">
+                        <Checkbox
+                          checked={builtinChecked(tool.name)}
+                          onCheckedChange={() => toggleBuiltin(tool.name, !builtinChecked(tool.name))}
+                          className="h-3 w-3 shrink-0"
+                          aria-label={tr(`装配内置工具 ${tool.name}`, `Mount built-in tool ${tool.name}`)}
+                        />
+                        <span
+                          className="w-[10.5rem] shrink-0 truncate text-[11px] text-zinc-200"
+                          title={tool.name}
+                        >
+                          {tool.name}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-[10px] text-zinc-500" title={tool.description}>
+                          {tool.description}
+                        </span>
+                        <RiskBadge value={tool.risk} />
+                      </div>
+                    ))
+                  )}
+                </CapabilityGroup>
+              )}
+
               {/* 技能 */}
               {(!searching || skillMatches.length > 0) && (
                 <CapabilityGroup
@@ -396,7 +458,7 @@ export function CapabilityBinding({
           <ul className="mt-1.5 space-y-1 text-[10.5px] text-zinc-400">
             <li className="flex items-center gap-1.5">
               <span className="h-1 w-1 shrink-0 rounded-full bg-indigo-400" />
-              <span>{tr('内置常驻', 'Built-in (always)')} {preview.builtinTools}</span>
+              <span>{tr('内置工具', 'Built-in')} {preview.builtinTools}</span>
             </li>
             <li className="flex items-center gap-1.5">
               <span className="h-1 w-1 shrink-0 rounded-full bg-indigo-400" />
@@ -422,7 +484,7 @@ export function CapabilityBinding({
           <div className="mt-1 space-y-0.5">
             <AssignedRow
               label={tr(`内置工具 · ${preview.builtinTools} 个`, `Built-in · ${preview.builtinTools}`)}
-              detail={tr('全部常驻', 'all always on')}
+              detail={tr('勾选装配', 'selected')}
             />
             <AssignedRow
               label={tr(`技能 · ${preview.skills} 个`, `Skills · ${preview.skills}`)}
@@ -447,8 +509,8 @@ export function CapabilityBinding({
 
         <p className="mt-auto text-[9.5px] leading-4 text-zinc-500">
           {tr(
-            '内置工具全部常驻可用；MCP 工具不进入初始上下文，模型按需检索。',
-            'Built-in tools are all always available; MCP tools are not in the initial context and are searched on demand.',
+            '内置工具按勾选装配；MCP 工具不进入初始上下文，模型按需检索。',
+            'Built-in tools are mounted per selection; MCP tools are not in the initial context and are searched on demand.',
           )}
         </p>
 

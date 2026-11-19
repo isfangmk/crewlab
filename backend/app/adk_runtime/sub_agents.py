@@ -101,6 +101,7 @@ async def build_sub_agents_for_agent(
                 disallowed_tool_names=bundle.disallowed_tool_names,
                 rule_actions=bundle.rule_actions,
                 skills=bundle.runtime_skills,
+                builtin_tools=sub.builtin_tools,
                 include_builtin_tools=True,
                 # 子 Agent 无人值守：澄清提问只在根 Agent（与用户直接对话）上
                 include_ask_user=False,

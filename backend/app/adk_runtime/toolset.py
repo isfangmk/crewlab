@@ -47,18 +47,23 @@ def build_knowledge_tools(scope: KnowledgeScope | None = None) -> list[FunctionT
 
 
 def build_builtin_tools(
-    *, include_ask_user: bool = True, knowledge_scope: KnowledgeScope | None = None
+    *,
+    builtin_tools: list[str],
+    include_ask_user: bool = True,
+    knowledge_scope: KnowledgeScope | None = None,
 ) -> list[FunctionTool]:
-    """始终装配的内置工具组：代码解释器、记忆、工作流、任务图执行、知识检索与澄清交互。
+    """装配内置工具组：代码解释器、记忆、任务图执行、知识检索与澄清交互。
 
     这些能力不依赖技能声明，直接作为 Agent 工具挂载。
     knowledge_scope 注入给常驻的 query_knowledge（空 = 全库检索）。
     include_ask_user=False 用于子 Agent：被委派的子任务无人值守，
     澄清提问只能出现在与用户直接对话的根 Agent 上；
     任务图提交同理——节点无人值守，不能往下再开图。
+    builtin_tools 是装配名单：名单内的才装配，空数组 = 不装配。
     """
 
-    names = builtin_group_names("workflow", "code", "memory", "interaction", "taskgraph")
+    selected = set(builtin_tools)
+    names = builtin_group_names("code", "memory", "interaction", "taskgraph", "platform")
     if not include_ask_user:
         names = [
             name
@@ -71,7 +76,9 @@ def build_builtin_tools(
                 "update_task_graph",
             )
         ]
+    names = [name for name in names if name in selected]
     tools = [FunctionTool(tool_impl(name)) for name in names]
-    # 知识检索常驻装配，带助理的知识范围
-    tools.extend(build_knowledge_tools(knowledge_scope))
+    # 知识检索单独构造（带知识范围），按基础名 query_knowledge 参与勾选
+    if "query_knowledge" in selected:
+        tools.extend(build_knowledge_tools(knowledge_scope))
     return tools

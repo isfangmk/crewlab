@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import select
@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.adk_runtime.naming import adk_identifier, root_adk_name
 from app.models.agent import UserAgent
 from app.models.mcp import McpServer
-from app.services.agent import agent_version_service
 from app.services.knowledge.knowledge_scope import (
     KnowledgeScope,
     empty_scope,
@@ -22,6 +21,7 @@ from app.services.knowledge.knowledge_scope import (
     scope_to_wire,
 )
 from app.services.platform import app_settings_service
+from app.tools.builtin_names import all_builtin_tool_names
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ _NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 DEFAULT_AGENT_NAME = "default"
 # 内置平台助手：代替用户检索并调用平台接口，不落库（与 default 同机制）
 PLATFORM_AGENT_NAME = "platform-assistant"
-# 平台助手专属工具；也是它的工具白名单内容（含澄清提问）
+# 平台助手的工具白名单；不含 mcp__ 项，故按契约不挂载任何 MCP
 PLATFORM_TOOL_NAMES = ("search_platform_api", "call_platform_api", "ask_user")
 
 # 子助理委托链最大层数：根助理 → 子 → 孙 → 曾孙，运行期装配同口径截断
@@ -80,6 +80,8 @@ class ResolvedAgent:
     knowledge_scope: KnowledgeScope = empty_scope()
     # 勾选的技能 key；None = 继承全部技能（磁盘 + 用户），[] = 不装配任何技能
     skills: list[str] | None = None
+    # 勾选的内置工具名；完整名单=全部装配，[]=不装配任何（默认取完整名单）
+    builtin_tools: list[str] = field(default_factory=lambda: all_builtin_tool_names())
     # 子助理委托：委托链在保存时校验（存在性 / 防环）
     sub_agents: tuple[str, ...] = ()
 
@@ -202,12 +204,37 @@ async def compose_persona(db: AsyncSession, agent: ResolvedAgent) -> str:
     return "\n\n".join(parts)
 
 
+def builtin_always_tool_count() -> int:
+    """内置常驻工具数：所有普通助理都会装配，用于卡片展示。"""
+
+    from app.tools.catalog import BUILTIN_TOOL_SPECS
+
+    return sum(1 for spec in BUILTIN_TOOL_SPECS if spec["mount"] == "always")
+
+
+def mcp_server_count(agent: ResolvedAgent, available_servers: set[str]) -> int:
+    """助理实际挂载的 MCP Server 个数。
+
+    默认助理挂全部可用 Server；其余助理按自身白名单，只数目录里仍存在的 Server。
+    平台助手不挂 MCP。
+    """
+
+    if agent.name == PLATFORM_AGENT_NAME:
+        return 0
+    if agent.name == DEFAULT_AGENT_NAME:
+        return len(available_servers)
+    names = mcp_server_names_from_tools(agent.tools)
+    return len(names & available_servers)
+
+
 def agent_to_wire(
-    agent: ResolvedAgent, *, version: int = 0, updated_at: str | None = None
+    agent: ResolvedAgent,
+    *,
+    mcp_servers: int = 0,
 ) -> dict:
     """把解析后的助理转成列表/详情响应字段。
 
-    version / updated_at 来自版本快照表，由调用方按需注入（列表可批量取）。
+    mcp_servers 是该助理实际挂载的 MCP Server 个数，由调用方按目录算好。
     """
 
     return {
@@ -216,6 +243,9 @@ def agent_to_wire(
         "description": agent.description,
         "when_to_use": agent.when_to_use,
         "tools": agent.tools,
+        "builtin_tool_count": len(agent.builtin_tools),
+        "builtin_tools": list(agent.builtin_tools),
+        "mcp_server_count": mcp_servers,
         "disallowed_tools": agent.disallowed_tools,
         "permission_mode": agent.permission_mode,
         "model": agent.model,
@@ -230,36 +260,6 @@ def agent_to_wire(
         "skills": None if agent.skills is None else list(agent.skills),
         "sub_agents": list(agent.sub_agents),
         "source": agent.source,
-        "version": version,
-        "updated_at": updated_at,
-    }
-
-
-def agent_to_snapshot(agent: ResolvedAgent) -> dict:
-    """把解析后的助理转成可回放的配置快照（与 UserAgentInput 同形）。"""
-
-    return {
-        "name": agent.name,
-        "display_name": agent.display_name,
-        "description": agent.description,
-        "when_to_use": agent.when_to_use,
-        "system_prompt": agent.system_prompt,
-        "critical_reminder": agent.critical_reminder,
-        "allowed_tools": list(agent.tools),
-        "disallowed_tools": list(agent.disallowed_tools),
-        "permission_mode": agent.permission_mode,
-        "model": agent.model,
-        "max_turns": agent.max_turns,
-        "max_tool_result_chars": agent.max_tool_result_chars,
-        "context_compaction_threshold": agent.context_compaction_threshold,
-        "output_format": agent.output_format,
-        "examples": [dict(item) for item in agent.examples],
-        "knowledge_scope": {
-            "paths": list(agent.knowledge_scope.paths),
-            "doc_ids": list(agent.knowledge_scope.doc_ids),
-        },
-        "skills": None if agent.skills is None else list(agent.skills),
-        "sub_agents": list(agent.sub_agents),
     }
 
 
@@ -301,8 +301,15 @@ _PLATFORM_AGENT_REMINDER = (
 
 
 def builtin_platform_agent() -> ResolvedAgent:
-    """内置平台助手（不落库）：只挂两个元工具，按用户身份调用平台接口。"""
+    """内置平台助手（不落库）：挂通用内置工具 + 平台操作元工具，按用户身份调用平台接口。"""
 
+    # 平台助手装配除 web_search（per_turn）与技能管理工具外的全部内置工具；
+    # 技能管理工具不挂（平台助手只挂知识检索技能，不创建/安装技能）。
+    platform_builtin_tools = [
+        name
+        for name in all_builtin_tool_names()
+        if name not in ("create_skill", "install_skill_from_url", "install_skill_from_zip")
+    ]
     return ResolvedAgent(
         name=PLATFORM_AGENT_NAME,
         display_name="平台助手",
@@ -316,6 +323,9 @@ def builtin_platform_agent() -> ResolvedAgent:
         model="",
         max_turns=0,
         source="builtin",
+        builtin_tools=platform_builtin_tools,
+        # 只挂知识检索技能（其它内置技能若有，也不给平台助手）
+        skills=["knowledge-search"],
     )
 
 
@@ -339,6 +349,7 @@ def _row_to_resolved(row: UserAgent) -> ResolvedAgent:
         examples=_parse_examples_json(row.examples_json),
         knowledge_scope=_parse_scope_json(row.knowledge_scope_json),
         skills=_parse_skills_json(row.skills_json),
+        builtin_tools=_parse_builtin_tools_json(row.builtin_tools_json),
         sub_agents=(
             tuple(_parse_str_list(row.sub_agents_json, "sub_agents_json"))
             if row.sub_agents_json
@@ -527,13 +538,20 @@ async def validate_skill_binding(
     allowed_tools: list[str],
     disallowed_tools: list[str],
 ) -> tuple[list[str], list[str]]:
-    """校验技能勾选：技能 key 必须存在。
-
-    工具能力由助理白名单统一管理，内置工具常驻全挂。
-    """
+    """校验技能勾选：技能 key 必须存在。"""
 
     await validate_skill_keys(db, skills)
     return list(allowed_tools), list(disallowed_tools)
+
+
+def validate_builtin_tool_names(builtin_tools: list[str]) -> None:
+    """勾选的内置工具名必须在目录中；名单即装配范围，空数组表示不装配任何。"""
+
+    from app.tools.catalog import BUILTIN_SELECTABLE_TOOL_NAMES
+
+    unknown = [name for name in builtin_tools if name not in BUILTIN_SELECTABLE_TOOL_NAMES]
+    if unknown:
+        raise ValueError(f"内置工具不存在: {unknown}")
 
 
 async def validate_skill_keys(db: AsyncSession, skills: list[str] | None) -> None:
@@ -590,6 +608,16 @@ def _dump_skills(skills: list[str] | None) -> str | None:
     return _dump_str_list(skills, "skills")
 
 
+def _parse_builtin_tools_json(raw: str) -> list[str]:
+    """内置工具勾选：JSON 数组，名单即装配范围（可为空数组）。"""
+
+    return _parse_str_list(raw, "builtin_tools_json")
+
+
+def _dump_builtin_tools(builtin_tools: list[str]) -> str:
+    return _dump_str_list(builtin_tools, "builtin_tools")
+
+
 async def create_user_agent(
     db: AsyncSession,
     *,
@@ -610,9 +638,8 @@ async def create_user_agent(
     examples: tuple[dict[str, str], ...] = (),
     knowledge_scope: KnowledgeScope = empty_scope(),
     skills: list[str] | None = None,
+    builtin_tools: list[str] = all_builtin_tool_names(),
     sub_agents: tuple[str, ...] = (),
-    created_by: int | None = None,
-    change_summary: str = "",
 ) -> ResolvedAgent:
     validate_agent_name(name)
     clean_display_name = validate_display_name(display_name)
@@ -651,6 +678,7 @@ async def create_user_agent(
         examples_json=_dump_examples(examples),
         knowledge_scope_json=json.dumps(scope_to_wire(scope), ensure_ascii=False),
         skills_json=_dump_skills(skills),
+        builtin_tools_json=_dump_builtin_tools(builtin_tools),
         sub_agents_json=(
             _dump_str_list(list(sub_agents), "sub_agents") if sub_agents else None
         ),
@@ -658,14 +686,6 @@ async def create_user_agent(
     db.add(row)
     await db.commit()
     await db.refresh(row)
-    # 创建即落第一版快照，后续每次更新都追加一版，回滚时可回到任一历史点
-    await agent_version_service.snapshot_agent_version(
-        db,
-        name,
-        agent_to_snapshot(_row_to_resolved(row)),
-        created_by=created_by,
-        change_summary=change_summary,
-    )
     logger.info(
         "创建用户助理 name=%s tools=%s sub_agents=%s",
         name,
@@ -695,10 +715,8 @@ async def update_user_agent(
     examples: tuple[dict[str, str], ...] = (),
     knowledge_scope: KnowledgeScope = empty_scope(),
     skills: list[str] | None = None,
+    builtin_tools: list[str] = all_builtin_tool_names(),
     sub_agents: tuple[str, ...] = (),
-    created_by: int | None = None,
-    change_summary: str = "",
-    restored_from_version: int | None = None,
 ) -> ResolvedAgent:
     row = await db.get(UserAgent, name)
     if row is None:
@@ -734,63 +752,14 @@ async def update_user_agent(
     row.examples_json = _dump_examples(examples)
     row.knowledge_scope_json = json.dumps(scope_to_wire(scope), ensure_ascii=False)
     row.skills_json = _dump_skills(skills)
+    row.builtin_tools_json = _dump_builtin_tools(builtin_tools)
     row.sub_agents_json = (
         _dump_str_list(list(sub_agents), "sub_agents") if sub_agents else None
     )
     await db.commit()
     await db.refresh(row)
-    # 每次更新追加一版快照；回滚时记录来源版本，回滚本身也可回滚
-    await agent_version_service.snapshot_agent_version(
-        db,
-        name,
-        agent_to_snapshot(_row_to_resolved(row)),
-        created_by=created_by,
-        change_summary=change_summary,
-        restored_from_version=restored_from_version,
-    )
     logger.info("更新用户助理 name=%s", name)
     return _row_to_resolved(row)
-
-
-async def rollback_user_agent(
-    db: AsyncSession,
-    name: str,
-    version: int,
-    *,
-    actor_user_id: int | None = None,
-    change_summary: str = "",
-) -> ResolvedAgent:
-    """回滚到指定版本：读旧快照覆盖当前配置，再落一版记录来源。"""
-
-    detail = await agent_version_service.get_version(db, name, version)
-    snapshot = detail["snapshot"]
-    # 快照里的 name 必须与目标助理一致，避免跨助理误覆盖
-    if snapshot.get("name") != name:
-        raise ValueError(f"快照归属不一致: {snapshot.get('name')!r} != {name!r}")
-    return await update_user_agent(
-        db,
-        name,
-        display_name=snapshot.get("display_name", ""),
-        description=snapshot.get("description", ""),
-        when_to_use=snapshot.get("when_to_use", ""),
-        system_prompt=snapshot.get("system_prompt", ""),
-        critical_reminder=snapshot.get("critical_reminder", ""),
-        allowed_tools=list(snapshot.get("allowed_tools", [])),
-        disallowed_tools=list(snapshot.get("disallowed_tools", [])),
-        permission_mode=snapshot.get("permission_mode", ""),
-        model=snapshot.get("model", ""),
-        max_turns=int(snapshot.get("max_turns", 0)),
-        max_tool_result_chars=snapshot.get("max_tool_result_chars"),
-        context_compaction_threshold=snapshot.get("context_compaction_threshold"),
-        output_format=snapshot.get("output_format", "free"),
-        examples=tuple(dict(item) for item in snapshot.get("examples", [])),
-        knowledge_scope=parse_scope(snapshot.get("knowledge_scope", {})),
-        skills=snapshot.get("skills"),
-        sub_agents=tuple(snapshot.get("sub_agents", [])),
-        created_by=actor_user_id,
-        change_summary=change_summary or f"回滚到版本 {version}",
-        restored_from_version=version,
-    )
 
 
 async def resolve_draft_agent(
@@ -813,6 +782,7 @@ async def resolve_draft_agent(
     examples: tuple[dict[str, str], ...] = (),
     knowledge_scope: KnowledgeScope = empty_scope(),
     skills: list[str] | None = None,
+    builtin_tools: list[str] = all_builtin_tool_names(),
     sub_agents: tuple[str, ...] = (),
 ) -> ResolvedAgent:
     """把未保存的草稿解析成可运行的助理配置（不落库）。
@@ -855,6 +825,7 @@ async def resolve_draft_agent(
         examples=examples,
         knowledge_scope=scope,
         skills=skills,
+        builtin_tools=builtin_tools,
         sub_agents=sub_agents,
     )
 

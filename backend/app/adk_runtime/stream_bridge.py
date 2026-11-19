@@ -25,6 +25,7 @@ from google.genai import types
 from app.adk_runtime.agent_factory import build_chat_agent
 from app.adk_runtime.context_compaction import build_events_compaction_config
 from app.services.knowledge.knowledge_scope import KnowledgeScope
+from app.tools.builtin_names import all_builtin_tool_names
 from app.tools.user_input import ASK_USER_TOOL_NAME
 
 logger = logging.getLogger(__name__)
@@ -686,6 +687,7 @@ async def stream_adk_turn(
     knowledge_scope: KnowledgeScope | None = None,
     skills: list[Any] | None = None,
     sub_agents: list[Any] | None = None,
+    builtin_tools: list[str] = all_builtin_tool_names(),
     include_followups: bool = True,
     abort_signal: asyncio.Event | None = None,
     max_tool_result_chars: int | None = None,
@@ -713,6 +715,7 @@ async def stream_adk_turn(
         knowledge_scope=knowledge_scope,
         skills=skills,
         sub_agents=sub_agents,
+        builtin_tools=builtin_tools,
         include_followups=include_followups,
         max_tool_result_chars=max_tool_result_chars,
     )
@@ -778,6 +781,7 @@ async def stream_adk_confirmation(
     knowledge_scope: KnowledgeScope | None = None,
     skills: list[Any] | None = None,
     sub_agents: list[Any] | None = None,
+    builtin_tools: list[str] = all_builtin_tool_names(),
     answer: dict[str, Any] | None = None,
     trust_scope: str | None = None,
     max_tool_result_chars: int | None = None,
@@ -813,6 +817,7 @@ async def stream_adk_confirmation(
         knowledge_scope=knowledge_scope,
         skills=skills,
         sub_agents=sub_agents,
+        builtin_tools=builtin_tools,
         max_tool_result_chars=max_tool_result_chars,
     )
     runner = _build_runner(agent, session_service, context_compaction_threshold)

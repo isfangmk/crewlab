@@ -1996,6 +1996,7 @@ async def stream_session_message(
             context_compaction_threshold=effective_context_compaction_threshold,
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,
+            builtin_tools=resolved_agent.builtin_tools,
                 sub_agents=await build_sub_agents_for_agent(
                     db,
                     resolved_agent,

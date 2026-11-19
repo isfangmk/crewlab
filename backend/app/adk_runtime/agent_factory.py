@@ -18,6 +18,7 @@ from app.models.llm import LlmProvider
 from app.services.knowledge.knowledge_scope import KnowledgeScope
 from app.services.platform.llm_config import compose_litellm_model, provider_extra_body
 from app.services.skills.skills_service import build_skill_toolset
+from app.tools.builtin_names import all_builtin_tool_names
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,8 @@ def build_chat_agent(
     skills: list[Any] | None = None,
     sub_agents: list[Any] | None = None,
     adk_name: str | None = None,
+    # 装配的内置工具名单：名单内的才装配，空数组 = 不装配；默认全部
+    builtin_tools: list[str] = all_builtin_tool_names(),
     include_builtin_tools: bool = True,
     include_ask_user: bool = True,
     include_followups: bool = True,
@@ -204,20 +207,16 @@ def build_chat_agent(
         timeout=llm_timeout_seconds,
         extra_body=extra_body if extra_body else None,
     )
-    from app.services.agent.agent_service import PLATFORM_AGENT_NAME
-
-    is_platform_agent = agent_name == PLATFORM_AGENT_NAME
     tools: list[Any] = (
         list(build_builtin_tools(
             include_ask_user=include_ask_user, knowledge_scope=knowledge_scope,
+            builtin_tools=builtin_tools,
         ))
-        if include_builtin_tools and not is_platform_agent
+        if include_builtin_tools
         else []
     )
     # SkillToolset(EAGER)：目录可见，正文仍 load_skill 按需加载。
-    # 平台助手不挂技能（只挂两个元工具，避免工具爆炸与越权面）。
-    if not is_platform_agent:
-        tools.append(build_skill_toolset(skills))
+    tools.append(build_skill_toolset(skills))
     if knowledge_scope is not None and not knowledge_scope.is_empty:
         logger.info(
             "装配知识范围 agent=%s paths=%s doc_ids=%s",

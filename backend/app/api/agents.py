@@ -12,8 +12,9 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import require_auth, require_not_viewer
 from app.db import get_db
-from app.services.agent import agent_service, agent_version_service, playground_service
+from app.services.agent import agent_service, playground_service
 from app.services.knowledge.knowledge_scope import KnowledgeScope, parse_scope, validate_scope
+from app.services.mcp import mcp_service
 from app.services.observability.audit_service import write_audit
 from app.services.platform.auth_service import AuthUser
 
@@ -67,10 +68,13 @@ class UserAgentInput(BaseModel):
     knowledge_scope: KnowledgeScopeInput = Field(description="助理可访问的知识范围")
     # None = 继承全部技能；数组 = 只装配这些（可为空数组 = 不装配任何技能）
     skills: list[str] | None = Field(default=None, description="要装配的技能 key 列表；留空继承全部技能，空数组不装配任何技能")
+    # 勾选的内置工具名；缺省 = 全部；空数组 = 不装配任何内置工具
+    builtin_tools: list[str] = Field(
+        default_factory=lambda: agent_service.all_builtin_tool_names(),
+        description="要装配的内置工具名列表；缺省装配全部，空数组不装配任何内置工具",
+    )
     # 子助理委托：name 列表；空/缺省 = 不委托
     sub_agents: list[str] = Field(default=[], description="可委托的子助理 name 列表；留空不委托")
-    # 本次保存的变更摘要，只进版本快照，不进助理配置本身
-    change_summary: str = Field(default="", description="本次保存的变更摘要，只进版本快照，不进助理配置本身")
 
 
 def _agent_audit_detail(agent: object) -> dict:
@@ -117,9 +121,10 @@ async def _resolve_agent_scope(
 async def _resolve_agent_tools(
     db: AsyncSession, body: UserAgentInput
 ) -> tuple[list[str], list[str]]:
-    """校验技能勾选（key 必须存在）；工具白名单按原样透传。"""
+    """校验技能与内置工具勾选；工具白名单按原样透传。"""
 
     try:
+        agent_service.validate_builtin_tool_names(body.builtin_tools)
         return await agent_service.validate_skill_binding(
             db,
             body.skills,
@@ -132,25 +137,27 @@ async def _resolve_agent_tools(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+async def _wire_with_counts(db: AsyncSession, agents: list) -> list[dict]:
+    """批量组装助理响应：一次查目录，算出各自挂载的 MCP Server 数。"""
+
+    available = await mcp_service.available_server_names(db)
+    return [
+        agent_service.agent_to_wire(
+            a, mcp_servers=agent_service.mcp_server_count(a, available)
+        )
+        for a in agents
+    ]
+
+
 @router.get("/agents")
 async def list_agents(
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
-    """列出全部助理（内置 + 用户自定义），含版本与更新时间。"""
+    """列出全部助理（内置 + 用户自定义）。"""
 
     items = await agent_service.list_agents(db)
-    meta = await agent_version_service.list_current_meta(db)
-    out = []
-    for a in items:
-        m = meta.get(a.name, {})
-        out.append(
-            agent_service.agent_to_wire(
-                a,
-                version=int(m.get("version", 0)),
-                updated_at=m.get("updated_at"),
-            )
-        )
+    out = await _wire_with_counts(db, items)
     return {"items": out, "total": len(out)}
 
 
@@ -160,18 +167,15 @@ async def get_agent(
     db: AsyncSession = Depends(get_db),
     _user: str = Depends(require_auth),
 ) -> dict:
-    """按 name 获取单个助理详情，含当前版本号。"""
+    """按 name 获取单个助理详情。"""
 
     try:
         agent = await agent_service.get_agent(db, name)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    version = await agent_version_service.current_version(db, name)
-    meta = await agent_version_service.list_current_meta(db)
+    available = await mcp_service.available_server_names(db)
     return agent_service.agent_to_wire(
-        agent,
-        version=version,
-        updated_at=meta.get(name, {}).get("updated_at"),
+        agent, mcp_servers=agent_service.mcp_server_count(agent, available)
     )
 
 
@@ -181,7 +185,7 @@ async def create_user_agent(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
-    """新建用户自定义助理，保存后生成版本 1 快照。"""
+    """新建用户自定义助理。"""
 
     if body.name is None or body.name == "":
         raise HTTPException(status_code=400, detail="创建助理必须提供 name")
@@ -207,9 +211,8 @@ async def create_user_agent(
             examples=tuple(item.model_dump() for item in body.examples),
             knowledge_scope=scope,
             skills=body.skills,
+            builtin_tools=body.builtin_tools,
             sub_agents=tuple(body.sub_agents),
-            created_by=user.id,
-            change_summary=body.change_summary,
         )
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -220,8 +223,10 @@ async def create_user_agent(
         resource_id=agent.name,
         detail=_agent_audit_detail(agent),
     )
-    version = await agent_version_service.current_version(db, agent.name)
-    return agent_service.agent_to_wire(agent, version=version)
+    available = await mcp_service.available_server_names(db)
+    return agent_service.agent_to_wire(
+        agent, mcp_servers=agent_service.mcp_server_count(agent, available)
+    )
 
 
 @router.patch("/agents/custom/{name}")
@@ -231,7 +236,7 @@ async def update_user_agent(
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(require_not_viewer),
 ) -> dict:
-    """按 name 更新用户自定义助理，保存后生成新版本快照。"""
+    """按 name 更新用户自定义助理。"""
 
     scope = await _resolve_agent_scope(db, body)
     allowed_tools, disallowed_tools = await _resolve_agent_tools(db, body)
@@ -255,9 +260,8 @@ async def update_user_agent(
             examples=tuple(item.model_dump() for item in body.examples),
             knowledge_scope=scope,
             skills=body.skills,
+            builtin_tools=body.builtin_tools,
             sub_agents=tuple(body.sub_agents),
-            created_by=user.id,
-            change_summary=body.change_summary,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -270,80 +274,10 @@ async def update_user_agent(
         resource_id=agent.name,
         detail=_agent_audit_detail(agent),
     )
-    version = await agent_version_service.current_version(db, agent.name)
-    return agent_service.agent_to_wire(agent, version=version)
-
-
-class RollbackRequest(BaseModel):
-    """助理回滚的 request body。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    version: int = Field(ge=1, description="要恢复到的目标版本号，从 1 开始")
-    change_summary: str = Field(default="", description="本次回滚的变更摘要，只进版本快照")
-
-
-@router.get("/agents/custom/{name}/versions")
-async def list_agent_versions(
-    name: str = Path(description="要列出版本的助理 name"),
-    db: AsyncSession = Depends(get_db),
-    _user: AuthUser = Depends(require_auth),
-) -> dict:
-    """列出助理的历史版本快照。"""
-
-    try:
-        await agent_service.get_agent(db, name)
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    items = await agent_version_service.list_versions(db, name)
-    return {"items": items, "total": len(items)}
-
-
-@router.get("/agents/custom/{name}/versions/{version}")
-async def get_agent_version(
-    name: str = Path(description="助理 name"),
-    version: int = Path(description="要查看的版本号，从 1 开始"),
-    db: AsyncSession = Depends(get_db),
-    _user: AuthUser = Depends(require_auth),
-) -> dict:
-    """按 name 与版本号获取助理的历史版本快照。"""
-
-    try:
-        return await agent_version_service.get_version(db, name, version)
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.post("/agents/custom/{name}/rollback")
-async def rollback_agent(
-    name: str = Path(description="要回滚的助理 name"),
-    body: RollbackRequest = Body(description="回滚目标版本与变更摘要"),
-    db: AsyncSession = Depends(get_db),
-    user: AuthUser = Depends(require_not_viewer),
-) -> dict:
-    """把助理回滚到指定的历史版本，内容以快照为准。"""
-
-    try:
-        agent = await agent_service.rollback_user_agent(
-            db,
-            name,
-            body.version,
-            actor_user_id=user.id,
-            change_summary=body.change_summary,
-        )
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except (ValueError, TypeError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    await write_audit(
-        actor_user_id=user.id,
-        action="agent.rollback",
-        resource_type="agent",
-        resource_id=name,
-        detail={"restored_from_version": body.version},
+    available = await mcp_service.available_server_names(db)
+    return agent_service.agent_to_wire(
+        agent, mcp_servers=agent_service.mcp_server_count(agent, available)
     )
-    version = await agent_version_service.current_version(db, name)
-    return agent_service.agent_to_wire(agent, version=version)
 
 
 class PlaygroundRequest(BaseModel):
@@ -393,6 +327,7 @@ async def playground_stream(
             examples=tuple(item.model_dump() for item in draft.examples),
             knowledge_scope=scope,
             skills=draft.skills,
+            builtin_tools=draft.builtin_tools,
             sub_agents=tuple(draft.sub_agents),
         )
     except (ValueError, TypeError, json.JSONDecodeError) as exc:

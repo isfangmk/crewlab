@@ -12,7 +12,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from app.main import app
 from app.services.platform.internal_call import ACTOR_HEADER, SECRET_HEADER
 
 logger = logging.getLogger(__name__)
@@ -107,19 +106,27 @@ class PlatformApiEntry:
         return specs
 
 
+def _openapi_schema() -> dict:
+    """延迟导入 app.main 取 OpenAPI 视图，避免 catalog 装配期的循环导入。"""
+
+    from app.main import app
+
+    return app.openapi()
+
+
 def _resolve_ref(schema: dict) -> dict:
     """解析 application/json 的顶层 $ref 到实际 schema（只解一层即可覆盖 body 模型）。"""
     ref = schema.get("$ref")
     if not isinstance(ref, str) or not ref.startswith("#/components/schemas/"):
         return schema
     name = ref.rsplit("/", 1)[-1]
-    resolved = app.openapi().get("components", {}).get("schemas", {}).get(name)
+    resolved = _openapi_schema().get("components", {}).get("schemas", {}).get(name)
     return resolved if isinstance(resolved, dict) else schema
 
 
 def build_api_catalog() -> list[PlatformApiEntry]:
     """遍历 FastAPI OpenAPI 生成目录。返回结果稳定排序，便于向量同步对比。"""
-    schema = app.openapi()
+    schema = _openapi_schema()
     entries: list[PlatformApiEntry] = []
     for path, path_item in schema.get("paths", {}).items():
         if not path.startswith("/api"):

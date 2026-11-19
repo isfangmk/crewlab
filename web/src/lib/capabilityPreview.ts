@@ -6,7 +6,7 @@
 //   - 可用性：`mcp_service.build_searchable_mcp_toolsets` 会跳过未探测成功（status !== 'ok'）的 Server，
 //       白名单非空时 Server 内未勾选的工具不进检索目录（既搜不到也调不了）
 //   - MCP 工具一律不进初始上下文：装配的是 search_tools / load_tool，按需检索加载
-//   - 内置工具全部常驻装配、不走白名单，也不在能力页展示
+//   - 内置工具按助理勾选装配（selectedBuiltinTools），默认全选；web_search 仍由对话开关控制
 //   - 技能：勾选的技能才装配（`skills_service.resolve_skills`）；`null` = 继承全部技能
 //   - 禁用名单：`adk_runtime.tool_approval.before_tool_callback` 在执行前直接拒绝，
 //     只影响可执行性，不会从目录里消失
@@ -81,6 +81,7 @@ export function previewCapabilities(
   allowedTools: string[],
   disallowedTools: string[],
   selectedSkills: string[] | null = null,
+  selectedBuiltinTools: string[] | null = null,
 ): CapabilityPreview {
   // 白名单为空 = 不挂任何 MCP；非空 = 只挂出现过的 Server。
   const mountedSkills =
@@ -101,14 +102,18 @@ export function previewCapabilities(
     whitelistServers.add(mcpServerNameFromWire(key));
   }
 
-  const builtinAlways = catalog.builtin.filter((tool) => tool.mount === 'always');
+  const alwaysTools = catalog.builtin.filter((tool) => tool.mount === 'always');
+  // selectedBuiltinTools 为 null（目录未加载）时按全部勾选展示
+  const chosen = selectedBuiltinTools ?? alwaysTools.map((tool) => tool.name);
+  const chosenSet = new Set(chosen);
+  const builtinAlways = alwaysTools.filter((tool) => chosenSet.has(tool.name));
   const perTurn = catalog.builtin.filter((tool) => tool.mount === 'per_turn');
 
   // 装配口径与后端 build_searchable_mcp_toolsets 对齐：Server 启用 + 探测成功 + 有工具缓存，
   // 且白名单里至少还有一个属于它的工具；否则整台不装配。
   const mountedServers: string[] = [];
   const unmounted: string[] = [];
-  // 页面只配置 MCP 工具，屏蔽数也只按 MCP 工具名统计（内置工具常驻、不可屏蔽）
+  // 屏蔽数只按 MCP 工具名统计（内置工具走勾选装配，不在屏蔽名单内）
   const usableNames = new Set<string>();
   let searchableMcpTools = 0;
   const partialServers: { server: string; selected: number; total: number }[] = [];

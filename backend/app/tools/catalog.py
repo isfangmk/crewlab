@@ -10,6 +10,9 @@ import inspect
 import re
 from typing import Any
 
+from app.tools.builtin_names import (
+    BUILTIN_SELECTABLE_TOOL_NAMES as _SELECTABLE_NAMES,
+)
 from app.tools.code_interpreter import run_python
 from app.tools.knowledge import query_knowledge
 from app.tools.memory import (
@@ -18,6 +21,7 @@ from app.tools.memory import (
     remember_memory,
     update_memory,
 )
+from app.tools.platform_api import call_platform_api, search_platform_api
 from app.tools.task_graph import get_task_graph, submit_task_graph, update_task_graph
 from app.tools.user_input import ASK_USER_TOOL_NAME, ask_user
 
@@ -122,6 +126,20 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
         "risk": "mutating",
         "mount": "always",
     },
+    {
+        "name": "search_platform_api",
+        "group": "platform",
+        "description": "按自然语言检索平台可操作的接口，返回候选 api_id 与参数说明",
+        "risk": "safe",
+        "mount": "always",
+    },
+    {
+        "name": "call_platform_api",
+        "group": "platform",
+        "description": "按 api_id 调用平台接口（写操作需人工审批）",
+        "risk": "mutating",
+        "mount": "always",
+    },
 ]
 
 
@@ -185,6 +203,8 @@ _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
     "create_skill": _create_skill_signature,
     "install_skill_from_url": _install_skill_from_url_signature,
     "install_skill_from_zip": _install_skill_from_zip_signature,
+    "search_platform_api": search_platform_api,
+    "call_platform_api": call_platform_api,
 }
 
 
@@ -207,6 +227,28 @@ def builtin_group_names(*groups: str) -> list[str]:
     """按分组取工具名（保持声明顺序）；ADK 装配与目录都用它。"""
 
     return [spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["group"] in groups]
+
+
+def builtin_selectable_tool_names() -> list[str]:
+    """可勾选的内置工具名（声明顺序）；单一数据源在 builtin_names。"""
+
+    return list(_SELECTABLE_NAMES)
+
+
+def all_builtin_tool_names() -> list[str]:
+    """全部可勾选的内置工具名；新助理默认全选。"""
+
+    return builtin_selectable_tool_names()
+
+
+# 校验用集合，装配与前端勾选的名单都以 builtin_names 为准。
+BUILTIN_SELECTABLE_TOOL_NAMES: frozenset[str] = frozenset(_SELECTABLE_NAMES)
+
+# 名单必须与目录声明的常驻工具一致，防止两处漂移。
+if frozenset(
+    spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["mount"] == "always"
+) != BUILTIN_SELECTABLE_TOOL_NAMES:
+    raise RuntimeError("可勾选内置工具名单与目录声明不一致")
 
 
 def tool_param_specs(func: Any) -> list[dict]:
@@ -263,6 +305,7 @@ BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
     "interaction": {"title": "澄清交互", "title_en": "User input"},
     "taskgraph": {"title": "任务图执行", "title_en": "Task graph"},
     "config": {"title": "技能管理", "title_en": "Skill management"},
+    "platform": {"title": "平台操作", "title_en": "Platform operations"},
 }
 
 
