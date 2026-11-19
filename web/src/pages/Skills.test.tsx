@@ -1,5 +1,5 @@
 // Skills 页面测试 — 覆盖技能目录的核心链路：
-// 内置技能只读详情 / 新建技能包（含工具声明与资源文件）/ 编辑 / ZIP 导入预览。
+// 内置技能只读详情 / 新建技能包（含资源文件）/ 编辑 / ZIP 导入预览。
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -29,15 +29,9 @@ const diskSkill = {
   group: 'observe',
   source: 'disk',
   instructions: '# 数据库体检\n\n1. 先看 references/checks.md\n2. 再输出结论',
-  params: [
-    { name: 'device_id', type: 'int', required: true, desc: '目标设备 id' },
-    { name: 'window', type: 'duration', default: '15m', desc: '分析时间窗' },
-  ],
-  tools: ['query_knowledge'],
   references: [{ path: 'checks.md', size: 12, binary: false }],
   assets: [{ path: 'logo.png', size: 2048, binary: true }],
   scripts: [],
-  inventory_only: false,
   inject_state: false,
 };
 
@@ -49,12 +43,9 @@ const userSkill = {
   group: 'knowledge',
   source: 'user',
   instructions: '# 写 runbook',
-  params: [],
-  tools: [],
   references: [],
   assets: [],
   scripts: [],
-  inventory_only: false,
   inject_state: false,
 };
 
@@ -68,38 +59,6 @@ const skillGroups = {
     { key: 'other', title: '其他', title_en: 'Other' },
   ],
 };
-
-const builtinTools = [
-  { name: 'query_knowledge', description: '检索组织知识库', risk: 'safe', mount: 'always' },
-];
-
-// 技能可以声明 MCP 工具：编辑器要按 Server 分组列出探测缓存里的工具
-const mcpServers = [
-  {
-    id: 1,
-    name: 'ai-engine',
-    transport: 'http',
-    endpoint: 'http://127.0.0.1:1',
-    credential: '',
-    header_template_json: '{}',
-    approval_policy: 'never',
-    tool_risks: { get_host_load: 'safe' },
-    enabled: true,
-    status: 'ok',
-    last_error: '',
-    tools_cache_json: JSON.stringify([
-      {
-        name: 'get_host_load',
-        description: '查询主机负载',
-        input_schema: {
-          type: 'object',
-          properties: { host: { type: 'string', description: '主机名' } },
-          required: ['host'],
-        },
-      },
-    ]),
-  },
-];
 
 function renderPage() {
   return render(
@@ -117,24 +76,15 @@ describe('SkillsPage', () => {
         HttpResponse.json({ items: [diskSkill, userSkill], total: 2 }),
       ),
       http.get('/api/v1/skills/groups', () => HttpResponse.json(skillGroups)),
-      http.get('/api/v1/tools/builtin', () =>
-        HttpResponse.json({ items: builtinTools, total: builtinTools.length }),
-      ),
-      http.get('/api/v1/mcp/servers', () =>
-        HttpResponse.json({ items: mcpServers, total: mcpServers.length }),
-      ),
     );
   });
 
-  it('点击技能行打开详情：正文、声明工具与三类资源清单都在，内置技能不可编辑', async () => {
+  it('点击技能行打开详情：正文与三类资源清单都在，内置技能不可编辑', async () => {
     renderPage();
     await userEvent.click((await screen.findAllByText('database-health'))[0]);
 
     // 完整描述不再截断（列表行 + 弹窗正文各一份）
     expect(await screen.findAllByText(longDesc)).toHaveLength(2);
-    expect(screen.getByText('device_id')).toBeInTheDocument();
-    expect(screen.getByText('目标设备 id')).toBeInTheDocument();
-    expect(screen.getByText('15m')).toBeInTheDocument();
     // SKILL.md 正文与资源清单
     expect(screen.getByText(/先看 references\/checks\.md/)).toBeInTheDocument();
     expect(screen.getByText('checks.md')).toBeInTheDocument();
@@ -208,7 +158,7 @@ describe('SkillsPage', () => {
     });
   });
 
-  it('用户技能可以编辑：表单回填正文与工具声明后提交 PATCH', async () => {
+  it('用户技能可以编辑：表单回填正文后提交 PATCH', async () => {
     const captured = {} as { body?: Record<string, unknown> };
     server.use(
       http.get('/api/v1/skills/:key', () =>
@@ -241,7 +191,7 @@ describe('SkillsPage', () => {
     expect(captured.body?.group).toBe('knowledge');
   });
 
-  it('新建技能：填 key/描述/正文并勾选工具后提交 POST', async () => {
+  it('新建技能：填 key/描述/正文并选分组后提交 POST', async () => {
     const captured = {} as { body?: Record<string, unknown> };
     server.use(
       http.post('/api/v1/skills', async ({ request }) => {
@@ -252,14 +202,6 @@ describe('SkillsPage', () => {
           description: String(captured.body.description),
         });
       }),
-      http.get('/api/v1/skills/db-explain', () =>
-        HttpResponse.json({
-          ...userSkill,
-          key: 'db-explain',
-          description: '解释慢查询',
-          tools: ['query_knowledge'],
-        }),
-      ),
     );
 
     renderPage();
@@ -280,60 +222,22 @@ describe('SkillsPage', () => {
     await userEvent.click(screen.getByRole('tab', { name: '基本信息' }));
     await userEvent.click(screen.getByRole('combobox', { name: '分组' }));
     await userEvent.click(await screen.findByRole('option', { name: '知识' }));
-    // 工具勾选在「可调用工具」tab
-    await userEvent.click(screen.getByRole('tab', { name: '可调用工具' }));
-    await userEvent.click(screen.getByRole('checkbox', { name: '声明工具 query_knowledge' }));
     await userEvent.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => expect(captured.body).toBeDefined());
     expect(captured.body?.key).toBe('db-explain');
-    expect(captured.body?.tools).toEqual(['query_knowledge']);
     expect(captured.body?.group).toBe('knowledge');
     expect(captured.body?.references).toEqual([]);
   });
 
-  it('新建技能可以声明 MCP 工具：按 Server 分组勾选后按 wire 名提交', async () => {
-    const captured = {} as { body?: Record<string, unknown> };
-    server.use(
-      http.post('/api/v1/skills', async ({ request }) => {
-        captured.body = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json({ ...userSkill, key: 'mcp-skill' });
-      }),
-    );
-
+  it('编辑器用三个并列 tab：必填缺失时保存禁用，切换 tab 不丢草稿', async () => {
     renderPage();
     await userEvent.click(await screen.findByRole('button', { name: /新建技能/ }));
 
-    await userEvent.type(screen.getByPlaceholderText('knowledge-search / my-runbook'), 'mcp-skill');
-    await userEvent.type(screen.getByPlaceholderText('一句话说明何时该加载这个技能'), '查主机负载');
-    // 正文在「指令正文」tab
-    await userEvent.click(screen.getByRole('tab', { name: '指令正文' }));
-    await userEvent.type(screen.getByPlaceholderText(/# 什么时候用/), '# 负载\n\n调用 MCP 工具');
-    // 分组在「基本信息」tab
-    await userEvent.click(screen.getByRole('tab', { name: '基本信息' }));
-    await userEvent.click(screen.getByRole('combobox', { name: '分组' }));
-    await userEvent.click(await screen.findByRole('option', { name: '设备管理' }));
-
-    // MCP 工具按 Server 分组出现，勾选后以 wire 名进 tools（「可调用工具」tab）
-    await userEvent.click(screen.getByRole('tab', { name: '可调用工具' }));
-    expect(await screen.findByText('mcp · ai-engine')).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole('checkbox', { name: '声明工具 mcp__ai-engine__get_host_load' }),
-    );
-    await userEvent.click(screen.getByRole('button', { name: '保存' }));
-
-    await waitFor(() => expect(captured.body).toBeDefined());
-    expect(captured.body?.tools).toEqual(['mcp__ai-engine__get_host_load']);
-  });
-
-  it('编辑器用四个并列 tab：必填缺失时保存禁用，切换 tab 不丢草稿', async () => {
-    renderPage();
-    await userEvent.click(await screen.findByRole('button', { name: /新建技能/ }));
-
-    // 恰好 4 个并列 tab，没有嵌套（嵌套会产生更多 tab / tablist）
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    // 恰好 3 个并列 tab，没有嵌套（嵌套会产生更多 tab / tablist）
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
     expect(screen.getAllByRole('tablist')).toHaveLength(1);
-    for (const name of ['基本信息', '指令正文', '可调用工具', '资源文件']) {
+    for (const name of ['基本信息', '指令正文', '资源文件']) {
       expect(screen.getByRole('tab', { name })).toBeInTheDocument();
     }
 
@@ -349,53 +253,11 @@ describe('SkillsPage', () => {
     await userEvent.click(screen.getByRole('tab', { name: '指令正文' }));
     await userEvent.type(screen.getByPlaceholderText(/# 什么时候用/), '# 草稿正文');
     // 切到别的 tab 再切回，未提交输入仍在（keepMounted）
-    await userEvent.click(screen.getByRole('tab', { name: '可调用工具' }));
+    await userEvent.click(screen.getByRole('tab', { name: '资源文件' }));
     await userEvent.click(screen.getByRole('tab', { name: '指令正文' }));
     expect(screen.getByPlaceholderText(/# 什么时候用/)).toHaveValue('# 草稿正文');
     // 必填补齐后保存可用
     expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
-  });
-
-  it('详情把 MCP 工具标出来源，不可用时给出告警', async () => {
-    server.use(
-      http.get('/api/v1/skills', () =>
-        HttpResponse.json({
-          items: [
-            {
-              ...userSkill,
-              key: 'mcp-declared',
-              tools: ['mcp__ai-engine__get_host_load', 'mcp__gone__ask'],
-              tool_refs: [
-                {
-                  name: 'mcp__ai-engine__get_host_load',
-                  kind: 'mcp',
-                  server: 'ai-engine',
-                  available: true,
-                  description: '查询主机负载',
-                },
-                {
-                  name: 'mcp__gone__ask',
-                  kind: 'unknown',
-                  available: false,
-                  description: '',
-                },
-              ],
-            },
-          ],
-          total: 1,
-        }),
-      ),
-    );
-
-    renderPage();
-    // 只有名称可点开详情：行内其他单元格不再触发打开
-    await userEvent.click(await screen.findByRole('button', { name: 'runbook-writer' }));
-
-    expect(await screen.findByText('mcp · ai-engine · get_host_load')).toBeInTheDocument();
-    // 目录里已不存在的声明原样展示，且 tone=warning
-    const gone = screen.getByText('mcp__gone__ask');
-    expect(gone).toBeInTheDocument();
-    expect(gone.closest('[data-tone]')?.getAttribute('data-tone')).toBe('warning');
   });
 
   it('导入 ZIP：先解析预览，再带风险等级与分组落库', async () => {
@@ -414,7 +276,6 @@ describe('SkillsPage', () => {
           preapproved_tools: '',
           risk: null,
           group: null,
-          tools: ['query_knowledge'],
           inject_state: false,
           references: [{ path: 'guide.md', size: 10, binary: false }],
           assets: [],
@@ -438,7 +299,7 @@ describe('SkillsPage', () => {
       target: { files: [zip] },
     });
 
-    // 预览：key / 资源计数 / 工具
+    // 预览：key / 资源计数
     expect(await screen.findByText('imported-skill')).toBeInTheDocument();
     expect(screen.getByText(/references 1 · assets 0 · scripts 0/)).toBeInTheDocument();
 

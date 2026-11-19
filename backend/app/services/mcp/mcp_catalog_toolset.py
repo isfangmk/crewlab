@@ -104,11 +104,10 @@ class CachedMcpCatalogToolset(BaseToolset):
             tools.append(loader)
         self._tools = tools
         logger.info(
-            "已从工具缓存装配 MCP 目录 server_id=%s name=%s tools=%s policy=%s",
+            "已从工具缓存装配 MCP 目录 server_id=%s name=%s tools=%s",
             self._server_id,
             self._server_name,
             len(self._tools),
-            server.approval_policy,
         )
 
     # readonly_context 是 LoadMcpResourceTool 契约参数（SDK 调用），实现侧不需要

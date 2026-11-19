@@ -31,7 +31,6 @@ import {
   type NodeProbeResult,
   type NodeRunStatus,
   type ToolParam,
-  type ToolSource,
   type VariableType,
   type WorkflowCatalog,
   type WorkflowDefinition,
@@ -334,7 +333,7 @@ function KindFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catal
     case 'search':
       return <SearchFields node={node} onNodeChange={onNodeChange} />;
     case 'mcp':
-      return <ToolFields node={node} catalog={catalog} onNodeChange={onNodeChange} />;
+      return <McpToolFields node={node} catalog={catalog} onNodeChange={onNodeChange} />;
     case 'http':
       return <HttpFields node={node} onNodeChange={onNodeChange} />;
     case 'code':
@@ -532,88 +531,7 @@ function TaskFields({ node, onNodeChange }: { node: WorkflowNode; onNodeChange(p
   );
 }
 
-function ToolFields({ node, catalog, onNodeChange }: { node: WorkflowNode; catalog: WorkflowCatalog | null; onNodeChange(patch: Partial<WorkflowNode>): void }) {
-  const { tr, locale } = useI18n();
-  const source: ToolSource = node.tool_source === 'builtin' ? 'builtin' : 'mcp';
-  const builtinTools = useMemo(() => catalog?.builtin_tools ?? [], [catalog]);
-  const selected = builtinTools.find((tool) => tool.name === node.tool_name) ?? null;
-
-  const switchSource = (next: ToolSource) => {
-    if (next === source) return;
-    // 两套工具的参数名不通用：切换来源时清空目标与参数，避免把旧值带给新工具
-    onNodeChange({
-      tool_source: next,
-      tool_name: '',
-      mcp_server: '',
-      mcp_tool: '',
-      arguments: {},
-    });
-  };
-
-  const setArgument = (name: string, value: string) => {
-    onNodeChange({ arguments: { ...node.arguments, [name]: value } });
-  };
-
-  return (
-    <>
-      <div
-        role="tablist"
-        aria-label={tr('工具来源', 'Tool source')}
-        className="grid grid-cols-2 gap-0.5 rounded-lg border border-border/60 bg-bg/40 p-0.5"
-      >
-        <ToolSourceTab active={source === 'builtin'} onClick={() => switchSource('builtin')}>
-          {tr('内置工具', 'Built-in')}
-        </ToolSourceTab>
-        <ToolSourceTab active={source === 'mcp'} onClick={() => switchSource('mcp')}>
-          {tr('MCP 工具', 'MCP')}
-        </ToolSourceTab>
-      </div>
-
-      {source === 'builtin' ? (
-        <>
-          <Field
-            label={tr('工具', 'Tool')}
-            required
-            hint={
-              builtinTools.length === 0
-                ? tr('没有可用的内置工具', 'No built-in tool is available')
-                : undefined
-            }
-          >
-            <Select
-              value={node.tool_name}
-              onValueChange={(value) => onNodeChange({ tool_name: value, arguments: {} })}
-              options={builtinTools.map((tool) => ({
-                value: tool.name,
-                label: `${locale === 'zh-CN' ? tool.group_title : tool.group_title_en} · ${tool.name}`,
-              }))}
-              aria-label={tr('内置工具', 'Built-in tool')}
-              searchable
-              className="h-8 w-full font-sans text-[11.5px]"
-            />
-          </Field>
-          {selected !== null && <InfoBox tone="muted">{selected.description}</InfoBox>}
-          {selected !== null &&
-            selected.params.map((param) => (
-              <ToolParamField
-                key={param.name}
-                param={param}
-                value={node.arguments[param.name] ?? ''}
-                onChange={(value) => setArgument(param.name, value)}
-              />
-            ))}
-          {selected !== null && selected.params.length === 0 && (
-            <InfoBox tone="muted">{tr('这个工具不需要参数', 'This tool takes no parameters')}</InfoBox>
-          )}
-        </>
-      ) : (
-        <McpToolFields node={node} catalog={catalog} onNodeChange={onNodeChange} />
-      )}
-    </>
-  );
-}
-
-/** 工具参数：内置工具与 MCP 工具共用，按后端导出的签名/schema 渲染。 */
+/** 工具参数：按后端导出的 schema 渲染。 */
 function ToolParamField({ param, value, onChange }: { param: ToolParam; value: string; onChange(next: string): void }) {
   const { tr } = useI18n();
   const typeLabel = param.schema_type ?? param.type;
@@ -994,24 +912,6 @@ function PanelTab({ active, onClick, children }: { active: boolean; onClick(): v
   );
 }
 
-function ToolSourceTab({ active, onClick, children }: { active: boolean; onClick(): void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        'h-7 rounded-md text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40',
-        active
-          ? 'bg-indigo-500 font-medium text-white shadow-sm'
-          : 'text-text-faint hover:bg-zinc-500/10 hover:text-text',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 function PanelIconButton({
   label,

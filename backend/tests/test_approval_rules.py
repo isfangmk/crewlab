@@ -67,8 +67,8 @@ def test_pick_rule_precedence() -> None:
         _rule("*", "auto_approve", name="catch-all"),
         _rule("mcp__obs-tools__*", "require_approval", name="server-prefix"),
         _rule("mcp__obs-tools__acknowledge_alert", "escalate", name="exact"),
-        _rule("run_workflow", "block", name="global-block"),
-        _rule("run_workflow", "escalate", name="agent-block", agent_id="ops", priority=9),
+        _rule("mcp__obs-tools__blocked", "block", name="global-block"),
+        _rule("mcp__obs-tools__blocked", "escalate", name="agent-block", agent_id="ops", priority=9),
     ]
     # 具体名压过前缀通配与通配
     d = pick_rule(rules, tool_name="mcp__obs-tools__acknowledge_alert", agent_id=None, risk="safe")
@@ -80,9 +80,9 @@ def test_pick_rule_precedence() -> None:
     d = pick_rule(rules, tool_name="run_python", agent_id=None, risk="safe")
     assert d is not None and d.rule_name == "catch-all"
     # 助理专属压过全局（同为无通配）
-    d = pick_rule(rules, tool_name="run_workflow", agent_id="ops", risk="dangerous")
+    d = pick_rule(rules, tool_name="mcp__obs-tools__blocked", agent_id="ops", risk="dangerous")
     assert d is not None and d.rule_name == "agent-block"
-    d = pick_rule(rules, tool_name="run_workflow", agent_id="other", risk="dangerous")
+    d = pick_rule(rules, tool_name="mcp__obs-tools__blocked", agent_id="other", risk="dangerous")
     assert d is not None and d.rule_name == "global-block"
 
     # 风险过滤：risk=dangerous 的规则不命中 safe 工具

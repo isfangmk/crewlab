@@ -11,7 +11,6 @@ from typing import Any, cast
 
 from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import (
-    SseConnectionParams,
     StdioConnectionParams,
     StdioServerParameters,
     StreamableHTTPConnectionParams,
@@ -25,8 +24,7 @@ from app.services.mcp.mcp_catalog_toolset import parse_cached_tools
 logger = logging.getLogger(__name__)
 
 
-_APPROVAL_POLICIES = frozenset({"never", "non_readonly", "always"})
-_TRANSPORTS = frozenset({"http", "sse", "stdio"})
+_TRANSPORTS = frozenset({"http", "stdio"})
 
 # stdio 首次拉起进程（尤其体积较大的原生二进制）比 HTTP 握手慢，
 # 默认 5s 偏紧。统一放宽，探活/探测的 wait_for 也用这个值。
@@ -70,15 +68,6 @@ def warn_unhealthy_server(server: McpServer, *, site: str) -> None:
         )
 
 
-def effective_approval_policy(server: McpServer) -> str:
-    """取审批策略并校验取值（never | non_readonly | always）。"""
-
-    policy = server.approval_policy
-    if policy not in _APPROVAL_POLICIES:
-        raise ValueError(f"MCP Server {server.name} approval_policy 非法: {policy}")
-    return policy
-
-
 def _cache_count(raw: str) -> int:
     """缓存 JSON 数组长度；空 / 坏数据按 0 处理（只影响展示计数）。"""
 
@@ -107,7 +96,6 @@ def server_to_wire(s: McpServer, *, oauth_status: str = "none") -> dict:
         "env_json": s.env_json,
         "credential": s.credential,
         "header_template_json": s.header_template_json,
-        "approval_policy": effective_approval_policy(s),
         "tool_risks": tool_risk_map(s),
         "enabled": s.enabled,
         "status": s.status,
@@ -301,7 +289,7 @@ async def _credential_fields(db: AsyncSession, server: McpServer) -> dict[str, s
 async def connection_params_for_server(db: AsyncSession, server: McpServer):
     """按 Server 配置构造 ADK MCP 连接参数（所有传输的统一收口）。
 
-    http/sse：credential 存「凭证库里的凭证名」，header_template_json 的
+    http：credential 存「凭证库里的凭证名」，header_template_json 的
     {{字段}} 占位符替换成真实值；OAuth/手动 Token 优先于模板同名键。
     stdio：command/args/cwd/env 启动本机进程，env 值里的 {{字段}} 也按
     同一套凭证机制替换。凭证缺失 / 字段缺失都显式失败。
@@ -333,7 +321,7 @@ async def connection_params_for_server(db: AsyncSession, server: McpServer):
             server_params=server_params, timeout=STDIO_CONNECT_TIMEOUT_SECONDS
         )
 
-    # http/sse 分支：header 模板 + OAuth/手动 Token
+    # http 分支：header 模板 + OAuth/手动 Token
     template_headers = _parse_headers(server.header_template_json)
     if server.credential == "" and has_header_placeholder(template_headers):
         raise ValueError(
@@ -350,8 +338,6 @@ async def connection_params_for_server(db: AsyncSession, server: McpServer):
 
     if server.transport == "http":
         return StreamableHTTPConnectionParams(url=server.endpoint, headers=headers)
-    if server.transport == "sse":
-        return SseConnectionParams(url=server.endpoint, headers=headers)
     raise ValueError(f"不支持的 MCP transport: {server.transport}")
 
 
@@ -379,22 +365,11 @@ def _tool_looks_readonly(tool_name: str, description: str) -> bool:
     return False
 
 
-def _needs_approval(policy: str, tool_name: str, description: str) -> bool:
-    """单个工具是否进审批名单：闸门口径与展示口径共用这一个判定。"""
-
-    if policy == "never":
-        return False
-    if policy == "always":
-        return True
-    return not _tool_looks_readonly(tool_name, description)
-
-
 def tool_risk_map(server: McpServer) -> dict[str, str]:
     """每个缓存工具的风险标签：safe（只读）| mutating（非只读/未知）。
 
-    风险只做展示、只按只读启发式定级；是否要审批由 approval_policy 另一根轴决定
-    （confirm_tool_names_for_servers），两轴互不绑定。
-    缓存为空（未探测/待重探）返回空映射——展示层不报错，执行层才要求缓存可用。
+    风险只做展示与审批规则过滤（按只读启发式定级）；是否审批由审批规则决定，
+    未命中规则的工具免审。缓存为空（未探测/待重探）返回空映射。
     """
 
     if not server.tools_cache_json or server.tools_cache_json == "[]":
@@ -408,39 +383,11 @@ def tool_risk_map(server: McpServer) -> dict[str, str]:
     return result
 
 
-def confirm_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
-    """按 approval_policy 收集需审批的业务工具 wire 名。
-
-    - never：不进审批
-    - always：全部进审批
-    - non_readonly：非只读工具进审批
-    """
-
-    names: set[str] = set()
-    for server in servers:
-        policy = effective_approval_policy(server)
-        if policy == "never":
-            continue
-        if server.status != "ok":
-            warn_unhealthy_server(server, site="approval_list")
-            continue
-        cached = parse_cached_tools(
-            server.tools_cache_json, server_name=server.name, require_schema=False
-        )
-        for item in cached:
-            if not _needs_approval(policy, item["name"], item["description"]):
-                continue
-            names.add(mcp_tool_wire_name(server.name, item["name"]))
-    logger.info("需审批 MCP 工具数=%s", len(names))
-    return names
-
-
 def all_business_tool_names_for_servers(servers: list[McpServer]) -> set[str]:
-    """所有可用 MCP server 的业务工具 wire 名（含免审策略 never 的）。
+    """所有可用 MCP server 的业务工具 wire 名。
 
     助理只读模式用：把所有工具都拉进审批名单。
-    与 confirm_tool_names_for_servers 的可用性判定保持一致
-    （探测未成功的 server 跳过）。
+    探测未成功的 server 跳过。
     """
 
     names: set[str] = set()
@@ -466,10 +413,10 @@ async def build_searchable_mcp_toolsets(
     目录来自 DB tools_cache（CachedMcpCatalogToolset），发现阶段不连远程；
     检索用 EmbeddingToolIndex。工具再多也只占一个检索入口，模型按需加载。
 
-    allowed_tools 是助理的工具白名单（空 = 继承全部）。白名单非空时它就是
-    唯一口径：Server 内没被勾选的工具不进检索目录，也就搜不到、调不了；
-    被勾选的工具同样要靠 search/load 获取，不做免检索直塞。
-    未挂载的 Server 根本不会进入本函数，因此它的工具既不可见也搜不到。
+    allowed_tools 是助理的工具白名单：空列表不挂任何 MCP 工具；None 表示不过滤
+    （供无助理上下文的内部调用）。白名单非空时它就是唯一口径：Server 内没被勾选的
+    工具不进检索目录，也就搜不到、调不了；被勾选的工具同样要靠 search/load 获取，
+    不做免检索直塞。未挂载的 Server 根本不会进入本函数，因此它的工具既不可见也搜不到。
     """
 
     from app.services.mcp.mcp_catalog_toolset import CachedMcpCatalogToolset, McpToolsView
@@ -478,8 +425,7 @@ async def build_searchable_mcp_toolsets(
         PrefetchingEmbeddingToolset,
     )
 
-    # 空白名单 = 继承全部；非空则按 wire 名逐个收口
-    allowed = None if not allowed_tools else set(allowed_tools)
+    allowed = None if allowed_tools is None else set(allowed_tools)
     toolsets = []
     skipped: list[str] = []
     for server in servers:
@@ -526,12 +472,10 @@ async def build_searchable_mcp_toolsets(
             _bind_tool_wire_name(discovery, f"{prefix}{discovery.name}")
         toolsets.append(searchable)
         logger.info(
-            "装配可搜索 MCP toolset id=%s name=%s prefix=%s policy=%s "
-            "searchable_tools=%s index=embedding source=cache",
+            "装配可搜索 MCP toolset id=%s name=%s prefix=%s searchable_tools=%s index=embedding source=cache",
             server.id,
             server.name,
             prefix,
-            server.approval_policy,
             len(permitted),
         )
     if skipped:
@@ -818,14 +762,11 @@ def validate_server_config(
     args_json: str,
     env_json: str,
     header_template_json: str,
-    approval_policy: str,
 ) -> None:
     """create/update 共用的配置校验（单一收口，避免两处规则漂移）。"""
 
     if transport not in _TRANSPORTS:
         raise ValueError(f"不支持的 transport: {transport}")
-    if approval_policy not in _APPROVAL_POLICIES:
-        raise ValueError(f"approval_policy 非法: {approval_policy}")
     assert_mcp_server_name(name)
     _parse_headers(header_template_json)
     if transport == "stdio":
@@ -846,7 +787,6 @@ async def create_server(
     credential: str,
     header_template_json: str,
     enabled: bool,
-    approval_policy: str = "always",
     command: str = "",
     args_json: str = "[]",
     cwd: str = "",
@@ -860,7 +800,6 @@ async def create_server(
         args_json=args_json,
         env_json=env_json,
         header_template_json=header_template_json,
-        approval_policy=approval_policy,
     )
     # 名称唯一：显式预检，避免 IntegrityError 变成 500
     existing = await db.scalar(select(McpServer).where(McpServer.name == name))
@@ -876,7 +815,6 @@ async def create_server(
         env_json=env_json,
         credential=credential,
         header_template_json=header_template_json,
-        approval_policy=approval_policy,
         enabled=enabled,
         status="",
         last_error="",
@@ -907,7 +845,6 @@ async def update_server(
     credential: str,
     header_template_json: str,
     enabled: bool,
-    approval_policy: str = "always",
     command: str = "",
     args_json: str = "[]",
     cwd: str = "",
@@ -922,7 +859,6 @@ async def update_server(
         args_json=args_json,
         env_json=env_json,
         header_template_json=header_template_json,
-        approval_policy=approval_policy,
     )
     # 改名时同样校验唯一性
     duplicate = await db.scalar(
@@ -939,7 +875,6 @@ async def update_server(
     row.env_json = env_json
     row.credential = credential
     row.header_template_json = header_template_json
-    row.approval_policy = approval_policy
     row.enabled = enabled
     await db.commit()
     await db.refresh(row)

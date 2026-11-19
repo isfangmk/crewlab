@@ -1,7 +1,7 @@
-"""画布工具节点的内置工具目录与参数转换。
+"""内置工具目录的参数转换。
 
 画布参数一律以文本录入，执行前必须按工具签名转成真实类型；
-这里覆盖类型转换、必填/未知参数与目录过滤规则，不触达外部服务。
+这里覆盖类型转换、必填/未知参数与目录登记规则，不触达外部服务。
 """
 
 from __future__ import annotations
@@ -11,12 +11,10 @@ import pytest
 from app.services.platform.builtin_tool_service import list_builtin_tool_groups
 from app.tools.catalog import (
     BUILTIN_TOOL_SPECS,
-    WORKFLOW_NODE_TOOL_NAMES,
     _coerce_value,
     builtin_tool_registry,
     coerce_tool_params,
     tool_param_specs,
-    workflow_builtin_tools,
 )
 
 
@@ -48,49 +46,6 @@ def test_every_tool_group_has_title() -> None:
         dict.fromkeys(spec["group"] for spec in BUILTIN_TOOL_SPECS)
     )
     assert all(g["title"] != "" and g["title_en"] != "" for g in groups)
-
-
-def test_workflow_builtin_tools_exposes_params() -> None:
-    """目录项自带参数定义，前端按签名渲染表单。"""
-
-    tools = {tool["name"]: tool for tool in workflow_builtin_tools()}
-
-    assert set(tools) == WORKFLOW_NODE_TOOL_NAMES
-    workflow = tools["list_workflows"]
-    assert workflow["group"] == "workflow"
-    assert workflow["group_title"] == "工作流"
-    assert workflow["group_title_en"] == "Workflow"
-    params = {param["name"]: param for param in workflow["params"]}
-    assert params["status"]["required"] is False
-    assert params["status"]["type"] == "string"
-    assert params["limit"]["type"] == "int"
-    assert params["limit"]["default"] == 20
-
-
-def test_workflow_builtin_tools_only_exposes_necessary_tools() -> None:
-    """画布只给没有专用节点的工作流查询工具。"""
-
-    names = {tool["name"] for tool in workflow_builtin_tools()}
-
-    # 需要人工确认、已有专用节点、依赖会话上下文的工具都不进画布
-    assert "run_workflow" not in names
-    assert "query_knowledge" not in names
-    assert "web_search" not in names
-    assert "run_python" not in names
-    assert "remember_memory" not in names
-    assert "recall_memory" not in names
-    assert "list_workflows" in names
-    assert "get_workflow" in names
-    assert "list_workflow_runs" in names
-    assert "get_workflow_run" in names
-
-
-def test_workflow_tool_allowlist_is_safe() -> None:
-    """白名单里的名字必须存在，且都是 safe——画布无人值守只跑无副作用工具。"""
-
-    risks = {spec["name"]: spec["risk"] for spec in BUILTIN_TOOL_SPECS}
-    assert WORKFLOW_NODE_TOOL_NAMES <= set(risks)
-    assert all(risks[name] == "safe" for name in WORKFLOW_NODE_TOOL_NAMES)
 
 
 def test_coerce_tool_params_converts_text() -> None:

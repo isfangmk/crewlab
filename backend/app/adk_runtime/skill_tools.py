@@ -40,7 +40,6 @@ def build_create_skill_tool(db: AsyncSession, *, owner_user_id: int | None) -> F
         risk: str,
         group: str,
         preapproved_tools: str = "",
-        tools: str = "",
     ) -> dict:
         """按用户描述新建一个平台技能（需人工审批）。
 
@@ -51,7 +50,6 @@ def build_create_skill_tool(db: AsyncSession, *, owner_user_id: int | None) -> F
             risk: 风险等级，safe / mutating / dangerous 之一。
             group: 技能分组 key（如 knowledge / cloud / other）。
             preapproved_tools: 预批准工具名，空格分隔，可留空。
-            tools: 技能声明要用的工具名，逗号分隔或 JSON 数组字符串，可留空。
         """
 
         try:
@@ -63,7 +61,6 @@ def build_create_skill_tool(db: AsyncSession, *, owner_user_id: int | None) -> F
                 risk=risk,
                 group=group,
                 preapproved_tools=preapproved_tools,
-                tools=tools,
                 owner_user_id=owner_user_id,
             )
         except Exception as exc:  # noqa: BLE001 — 异常转结构化结果，不打断回合

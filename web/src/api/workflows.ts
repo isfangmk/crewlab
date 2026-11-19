@@ -27,9 +27,6 @@ export type NodeKind =
 
 export type VariableType = 'string' | 'number' | 'boolean' | 'json';
 
-/** 工具节点来源：builtin = 平台内置工具，mcp = 外部 MCP Server。 */
-export type ToolSource = 'builtin' | 'mcp';
-
 export type ToolParam = {
   name: string;
   type: 'string' | 'int' | 'float' | 'bool';
@@ -39,17 +36,6 @@ export type ToolParam = {
   enum?: string[];
   /** MCP schema 的原始类型（object / array 需要按 JSON 文本编辑）。 */
   schema_type?: string;
-};
-
-/** 画布工具节点可选的内置工具（目录由后端按工具签名导出）。 */
-export type BuiltinTool = {
-  name: string;
-  group: string;
-  group_title: string;
-  group_title_en: string;
-  description: string;
-  risk: string;
-  params: ToolParam[];
 };
 
 /** 画布 MCP 页签可选的工具：参数来自探测缓存的 input_schema。 */
@@ -93,9 +79,7 @@ export type WorkflowNode = {
   limit: number;
   paths: string[];
 
-  // mcp（工具节点）：来源 + 内置工具名 / MCP Server 与工具原名
-  tool_source: ToolSource;
-  tool_name: string;
+  // mcp（工具节点）：MCP Server 与工具原名
   mcp_server: string;
   mcp_tool: string;
   arguments: Record<string, string>;
@@ -202,7 +186,6 @@ export type WorkflowCatalog = {
   node_kinds: CatalogKind[];
   models: { provider: string; model: string; title: string }[];
   mcp_tools: McpTool[];
-  builtin_tools: BuiltinTool[];
 };
 
 export type WorkflowRun = {
@@ -281,8 +264,6 @@ export function blankDefinition(): WorkflowDefinition {
         query: '',
         limit: 5,
         paths: [],
-        tool_source: 'mcp',
-        tool_name: '',
         mcp_server: '',
         mcp_tool: '',
         arguments: {},

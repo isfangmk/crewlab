@@ -31,8 +31,7 @@ async def test_run_query_knowledge(env: dict[str, str], api_base: str) -> None:
             "title": "知识检索",
             "title_en": "Knowledge",
         }
-        assert groups["workflow"]["title"] == "工作流"
-        # 每项的分组必须在已登记分组里；不再维护易过期的分组名单快照
+        # 每项的分组必须在已登记分组里
         assert all(i["group"] in groups for i in body["items"])
 
         run = await client.post(
@@ -49,10 +48,10 @@ async def test_run_query_knowledge(env: dict[str, str], api_base: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_workflow_catalog_lists_builtin_tools(
+async def test_workflow_catalog_lists_mcp_tools(
     env: dict[str, str], api_base: str
 ) -> None:
-    """画布「工具」节点能从目录拿到内置工具与参数定义。"""
+    """画布「工具」节点能从目录拿到 MCP 工具与参数定义。"""
 
     async with httpx.AsyncClient(base_url=api_base, timeout=60.0) as client:
         if (await client.get("/healthz")).status_code != 200:
@@ -65,20 +64,6 @@ async def test_workflow_catalog_lists_builtin_tools(
 
         kinds = {item["key"]: item for item in body["node_kinds"]}
         assert kinds["mcp"]["title"] == "工具"
-
-        tools = {item["name"]: item for item in body["builtin_tools"]}
-        # 画布只给没有专用节点的工作流查询工具；需要人工确认的工具也不出现
-        assert set(tools) == {
-            "list_workflows",
-            "get_workflow",
-            "list_workflow_runs",
-            "get_workflow_run",
-        }
-        workflow = tools["list_workflows"]
-        assert workflow["group_title"] == "工作流"
-        params = {param["name"]: param for param in workflow["params"]}
-        assert params["status"]["required"] is False
-        assert params["limit"]["type"] == "int"
 
         # MCP 页签同样要拿到参数定义；缓存缺失时明确标记，前端退回手动参数表
         for tool in body["mcp_tools"]:

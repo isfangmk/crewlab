@@ -44,7 +44,7 @@ def _spawn_server() -> tuple[subprocess.Popen, str] | None:
             return None
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                return proc, f"http://127.0.0.1:{port}/sse"
+                return proc, f"http://127.0.0.1:{port}/mcp"
         except OSError:
             time.sleep(0.3)
     proc.terminate()
@@ -74,12 +74,11 @@ async def test_resources_prompts_probe_and_read(
                 headers=headers,
                 json={
                     "name": name,
-                    "transport": "sse",
+                    "transport": "http",
                     "endpoint": endpoint,
                     "credential": "",
                     "header_template_json": "{}",
                     "enabled": True,
-                    "approval_policy": "always",
                 },
             )
             assert resp.status_code == 200, resp.text
@@ -198,7 +197,7 @@ async def test_resources_prompts_probe_and_read(
 async def test_catalog_toolset_injects_resource_loader() -> None:
     """有资源缓存时目录 toolset 注入 load_mcp_resource；无资源时不注入。"""
 
-    from google.adk.tools.mcp_tool.mcp_session_manager import SseConnectionParams
+    from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 
     from app.models.mcp import McpServer
     from app.services.mcp.mcp_catalog_toolset import CachedMcpCatalogToolset
@@ -218,15 +217,14 @@ async def test_catalog_toolset_injects_resource_loader() -> None:
         ],
         ensure_ascii=False,
     )
-    params = SseConnectionParams(url="http://127.0.0.1:1/sse")
+    params = StreamableHTTPConnectionParams(url="http://127.0.0.1:1/mcp")
     row = McpServer(
         id=1,
         name="extras-demo",
-        transport="sse",
-        endpoint="http://127.0.0.1:1/sse",
+        transport="http",
+        endpoint="http://127.0.0.1:1/mcp",
         credential="",
         header_template_json="{}",
-        approval_policy="never",
         enabled=True,
         status="ok",
         last_error="",

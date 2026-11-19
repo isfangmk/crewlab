@@ -370,15 +370,12 @@ class SearchNode(CanvasNode):
 
 
 class ToolNode(CanvasNode):
-    """工具节点：按 tool_source 调用平台内置工具或外部 MCP 工具。"""
+    """工具节点：调用外部 MCP 工具。"""
 
     def input_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
         node = self.node_def
         # 调用目标与参数从哪来，是这一步最该被看清的东西
-        if node.tool_source == "builtin":
-            inputs: dict[str, Any] = {"tool": node.tool_name}
-        else:
-            inputs = {"server": node.mcp_server, "tool": node.mcp_tool}
+        inputs: dict[str, Any] = {"server": node.mcp_server, "tool": node.mcp_tool}
         for template in node.arguments.values():
             inputs.update(template_values(template, state))
         return inputs
@@ -386,35 +383,7 @@ class ToolNode(CanvasNode):
     async def execute(self, *, ctx: Any, state: dict[str, Any]) -> Any:
         node = self.node_def
         args = workflow_vars.render_map(node.arguments, state)
-        if node.tool_source == "builtin":
-            return await self._run_builtin(node, args)
         return await self._run_mcp(ctx, node, args)
-
-    async def _run_builtin(self, node: WorkflowNode, args: dict[str, Any]) -> Any:
-        """内置工具：直接按名字执行，不经过模型决策。"""
-
-        from app.services.platform.builtin_tool_service import run_builtin_tool
-        from app.tools.catalog import BUILTIN_TOOL_SPECS
-
-        spec = next(
-            (item for item in BUILTIN_TOOL_SPECS if item["name"] == node.tool_name),
-            None,
-        )
-        if spec is None:
-            raise LookupError(f"内置工具不存在: {node.tool_name}")
-        # 画布节点无人值守执行，没有审批入口：只跑无副作用（safe）的工具
-        if spec["risk"] != "safe":
-            raise PermissionError(
-                f"内置工具非 safe 风险，不能在画布节点中直接执行: {node.tool_name}"
-            )
-        logger.info(
-            "内置工具节点调用 node=%s tool=%s args=%s",
-            node.id,
-            node.tool_name,
-            serialize(args),
-        )
-        payload = await run_builtin_tool(self.run_ctx.db, node.tool_name, args)
-        return payload["result"]
 
     async def _run_mcp(
         self, ctx: Any, node: WorkflowNode, args: dict[str, Any]

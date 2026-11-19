@@ -24,7 +24,6 @@ import {
   Plus,
   RefreshCw,
   Server,
-  ShieldCheck,
   Sparkles,
   Trash2,
   Wrench,
@@ -81,7 +80,6 @@ function emptyInput(): McpServerInput {
     endpoint: '',
     credential: '',
     header_template_json: '{}',
-    approval_policy: 'always',
     enabled: true,
     command: '',
     args_json: '[]',
@@ -210,8 +208,8 @@ export default function McpPage() {
         subtitle={
           <>
             {tr(
-              '注册外部 MCP server 后，它暴露的工具会进入 Agent / 工作流 工具箱。工具执行默认需要人工确认；审批策略可按服务设置：始终审批 / 非只读才审批 / 永不审批（免审直跑，仅建议给只读服务）。',
-              'Registered external MCP servers expose tools into the Agent / Workflow toolbag. Tool execution requires human approval by default; set the approval policy per server: always / non-readonly only / never (runs without approval; recommended for read-only servers only).',
+              '注册外部 MCP server 后，它暴露的工具会进入助理工具箱。工具默认免审，如需人工确认请到「审批规则」页按工具 / 风险配置。',
+              'Registered external MCP servers expose tools into assistants. Tools run without approval by default; configure approval in the Approval Rules page by tool / risk.',
             )}
             {!isAdmin && (
               <span className="ml-1 text-warn">{tr('仅 admin 可增删改。', 'Only admins can add / edit / remove.')}</span>
@@ -349,7 +347,6 @@ function toInput(s: McpServer): McpServerInput {
     endpoint: s.endpoint,
     credential: s.credential,
     header_template_json: s.header_template_json,
-    approval_policy: s.approval_policy ?? 'always',
     enabled: s.enabled,
     command: s.command ?? '',
     args_json: s.args_json ?? '[]',
@@ -424,11 +421,6 @@ function ServerRow({
   const toolCount = loaded.tools.length;
   // 测试失败优先展示最新一次结果；否则展示上次连接留下的错误。
   const errorMessage = test?.error || (server.status === 'error' ? server.last_error : '');
-  const freePass = server.approval_policy === 'never';
-  const approvalLabel =
-    server.approval_policy === 'non_readonly'
-      ? tr('写操作审批', 'Writes need approval')
-      : tr('每次审批', 'Always asks');
   const embeddingLabel =
     server.embedding_sync_status === 'ok'
       ? tr(`索引 ${server.embedding_sync_count ?? 0}`, `Index ${server.embedding_sync_count ?? 0}`)
@@ -471,12 +463,6 @@ function ServerRow({
                   )}
                 </span>
               )}
-              {freePass && (
-                <Chip dense tone="warning">
-                  <ShieldCheck size={10} />
-                  {tr('免审', 'no approval')}
-                </Chip>
-              )}
               {!server.enabled && <Chip dense>{tr('已停用', 'disabled')}</Chip>}
             </div>
             <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-zinc-500">
@@ -484,7 +470,7 @@ function ServerRow({
               <span className="shrink-0 text-zinc-700">·</span>
               <span className="min-w-0 truncate" title={server.endpoint}>{server.endpoint || '—'}</span>
             </div>
-            {/* 摘要行：工具/资源/提示词数 · 审批口径 · 工具索引，沿用分隔点串联。 */}
+            {/* 摘要行：工具/资源/提示词数 · 工具索引，沿用分隔点串联。 */}
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-zinc-500">
               <span className={cn(loaded.error && 'text-warn')}>
                 {loaded.error
@@ -518,12 +504,6 @@ function ServerRow({
                       ? tr('OAuth 已授权', 'OAuth authorized')
                       : tr('OAuth 已过期', 'OAuth expired')}
                   </span>
-                </>
-              )}
-              {!freePass && (
-                <>
-                  <span className="text-zinc-700">·</span>
-                  <span>{approvalLabel}</span>
                 </>
               )}
               {embeddingLabel !== '' && (
@@ -1759,12 +1739,12 @@ function ServerEditor({
           />
         </Field>
 
-        <Field label={tr('传输方式', 'Transport')} hint={tr('http / sse / stdio', 'http / sse / stdio')}>
+        <Field label={tr('传输方式', 'Transport')} hint={tr('http / stdio', 'http / stdio')}>
           <Select
             label={tr('传输方式', 'Transport')}
             value={input.transport}
             onValueChange={(selectedValue) => {
-              if (selectedValue !== 'http' && selectedValue !== 'sse' && selectedValue !== 'stdio') {
+              if (selectedValue !== 'http' && selectedValue !== 'stdio') {
                 throw new Error(`不支持的 transport: ${selectedValue}`);
               }
               onChange({ transport: selectedValue });
@@ -1772,7 +1752,6 @@ function ServerEditor({
             className="w-full"
           >
             <option value="http">http</option>
-            <option value="sse">sse</option>
             <option value="stdio">stdio</option>
           </Select>
         </Field>
@@ -1837,7 +1816,7 @@ function ServerEditor({
               type="text"
               value={input.endpoint}
               onChange={(e) => onChange({ endpoint: e.target.value })}
-              placeholder="https://mcp.example.com/sse"
+              placeholder="https://mcp.example.com/mcp"
               className={cn(inputClass, "font-sans")}
             />
           </Field>
@@ -1878,28 +1857,6 @@ function ServerEditor({
             rows={3}
             className={cn(inputClass, "font-sans")}
           />
-        </Field>
-
-        {input.approval_policy === 'never' && (
-          <div className="flex items-start gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[11.5px] leading-5 text-warn">
-            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-            <span>{tr('免审直跑：仅建议给只读服务，跳过人工确认。', 'Runs without approval. Recommended for read-only servers only.')}</span>
-          </div>
-        )}
-
-        <Field label={tr('审批策略', 'Approval policy')}>
-          <Select
-            label={tr('审批策略', 'Approval policy')}
-            value={input.approval_policy}
-            onValueChange={(v) =>
-              onChange({ approval_policy: v as McpServerInput['approval_policy'] })
-            }
-            className="w-full"
-          >
-            <option value="always">{tr('始终审批', 'Always')}</option>
-            <option value="non_readonly">{tr('非只读才审批', 'Non-readonly')}</option>
-            <option value="never">{tr('永不审批', 'Never')}</option>
-          </Select>
         </Field>
 
         <Toggle

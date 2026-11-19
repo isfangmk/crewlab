@@ -32,14 +32,12 @@ class McpServerInput(BaseModel):
     """新增或更新 MCP Server 的请求体。"""
 
     name: str = Field(min_length=1, description="Server 名称，展示用，需唯一")
-    transport: str = Field(min_length=1, description="传输方式：http / sse / stdio")
-    # http/sse 必填；stdio 可留空
-    endpoint: str = Field(default="", description="远端 Server 地址（URL）；http/sse 必填，stdio 留空")
+    transport: str = Field(min_length=1, description="传输方式：http / stdio")
+    # http 必填；stdio 可留空
+    endpoint: str = Field(default="", description="远端 Server 地址（URL）；http 必填，stdio 留空")
     credential: str = Field(default="", description="凭证库中的凭证名，用于调用该 Server 时取用密钥")
     header_template_json: str = Field(default="{}", description="自定义请求头模板，JSON 对象字符串，键值均为字符串")
     enabled: bool = Field(default=True, description="是否启用；停用后不参与工具发现与调用")
-    # never | non_readonly | always；缺省 always
-    approval_policy: str = Field(default="always", description="工具审批策略：never 永不审批、non_readonly 仅非只读工具审批、always 所有工具审批")
     # stdio 专用（以服务端进程权限运行本机命令，仅管理员可配）
     command: str = Field(default="", description="stdio 专用：启动本地服务端进程的命令（以服务端进程权限运行，仅管理员可配）")
     args_json: str = Field(default="[]", description="stdio 专用：命令行参数，JSON 字符串数组，如 [\"--port\",\"8080\"]")
@@ -82,7 +80,6 @@ async def create_server(
             credential=body.credential,
             header_template_json=body.header_template_json,
             enabled=body.enabled,
-            approval_policy=body.approval_policy,
             command=body.command,
             args_json=body.args_json,
             cwd=body.cwd,
@@ -105,7 +102,6 @@ async def create_server(
             "endpoint": row.endpoint,
             "command": row.command,
             "enabled": row.enabled,
-            "approval_policy": row.approval_policy,
         },
     )
     return mcp_service.server_to_wire(row, oauth_status="none")
@@ -130,7 +126,6 @@ async def update_server(
             credential=body.credential,
             header_template_json=body.header_template_json,
             enabled=body.enabled,
-            approval_policy=body.approval_policy,
             command=body.command,
             args_json=body.args_json,
             cwd=body.cwd,
@@ -154,7 +149,6 @@ async def update_server(
             "endpoint": row.endpoint,
             "command": row.command,
             "enabled": row.enabled,
-            "approval_policy": row.approval_policy,
         },
     )
     return {"ok": True}

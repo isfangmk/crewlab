@@ -4,43 +4,42 @@ import { describe, expect, it } from 'vitest';
 import {
   mcpServerNameFromWire,
   previewCapabilities,
-  type CapabilityCatalog,
 } from './capabilityPreview';
 
-function catalog(): CapabilityCatalog {
+function catalog() {
   return {
     builtin: [
-      { name: 'query_knowledge', description: '检索知识库', risk: 'safe', mount: 'always' },
-      { name: 'web_search', description: '联网搜索', risk: 'safe', mount: 'per_turn' },
+      { name: 'query_knowledge', description: '检索知识库', risk: 'safe' as const, mount: 'always' as const },
+      { name: 'web_search', description: '联网搜索', risk: 'safe' as const, mount: 'per_turn' as const },
     ],
-    skills: [{ key: 'knowledge-search', description: '知识检索', tools: ['query_knowledge'] }],
+    skills: [{ key: 'knowledge-search', description: '知识检索' }],
     mcpServers: [
       {
         name: 'ai-engine',
         enabled: true,
         status: 'ok',
         tools: [
-          { wire: 'mcp__ai-engine__ask', description: 'ask', risk: 'safe' },
-          { wire: 'mcp__ai-engine__rerank', description: 'rerank', risk: 'safe' },
+          { wire: 'mcp__ai-engine__ask', description: 'ask', risk: 'safe' as const },
+          { wire: 'mcp__ai-engine__rerank', description: 'rerank', risk: 'safe' as const },
         ],
       },
       {
         name: 'observability',
         enabled: true,
         status: 'ok',
-        tools: [{ wire: 'mcp__observability__query_metrics', description: 'query', risk: 'safe' }],
+        tools: [{ wire: 'mcp__observability__query_metrics', description: 'query', risk: 'safe' as const }],
       },
       {
         name: 'never-probed',
         enabled: true,
         status: 'error',
-        tools: [{ wire: 'mcp__never-probed__ping', description: 'ping', risk: 'mutating' }],
+        tools: [{ wire: 'mcp__never-probed__ping', description: 'ping', risk: 'mutating' as const }],
       },
       {
         name: 'disabled-one',
         enabled: false,
         status: 'ok',
-        tools: [{ wire: 'mcp__disabled-one__run', description: 'run', risk: 'mutating' }],
+        tools: [{ wire: 'mcp__disabled-one__run', description: 'run', risk: 'mutating' as const }],
       },
     ],
   };
@@ -59,17 +58,14 @@ describe('mcpServerNameFromWire', () => {
 });
 
 describe('previewCapabilities', () => {
-  it('白名单为空时继承全部可用 Server，未探测成功/停用的不计入', () => {
+  it('白名单为空时不挂任何 Server', () => {
     const preview = previewCapabilities(catalog(), [], []);
 
-    expect(preview.whitelistActive).toBe(false);
-    expect(preview.mountedServers).toEqual(['ai-engine', 'observability']);
-    expect(preview.unmountedServers).toEqual(['never-probed', 'disabled-one']);
-    expect(preview.searchableMcpTools).toBe(3);
-    // 始终装配的内置工具只有 query_knowledge；web_search 由对话开关决定
+    expect(preview.mountedServers).toEqual([]);
+    expect(preview.unmountedServers).toEqual(['ai-engine', 'observability', 'never-probed', 'disabled-one']);
+    expect(preview.searchableMcpTools).toBe(0);
     expect(preview.builtinTools).toBe(1);
     expect(preview.perTurnTools).toBe(1);
-    // MCP 工具不进上下文，只进检索目录
     expect(preview.contextTools).toBe(1);
     expect(preview.skills).toBe(1);
     expect(preview.partialServers).toEqual([]);
@@ -82,7 +78,6 @@ describe('previewCapabilities', () => {
       [],
     );
 
-    expect(preview.whitelistActive).toBe(true);
     expect(preview.whitelistHasMcp).toBe(true);
     expect(preview.mountedServers).toEqual(['observability']);
     expect(preview.searchableMcpTools).toBe(1);
@@ -109,74 +104,30 @@ describe('previewCapabilities', () => {
     expect(preview.partialServers).toEqual([]);
   });
 
-  it('禁用名单只统计当前可见、且不是技能声明的工具', () => {
+  it('禁用名单只统计当前挂载的工具', () => {
+    // 空白名单不挂任何 MCP；勾选一台后只有它的工具计入已屏蔽
     const preview = previewCapabilities(
       catalog(),
-      [],
+      ['mcp__ai-engine__ask'],
       ['mcp__ai-engine__ask', 'mcp__observability__query_metrics', 'query_knowledge', 'mcp__never-probed__ping'],
     );
 
-    // never-probed 未挂载，不计入已屏蔽；
-    // query_knowledge 由 knowledge-search 技能声明，随技能装配且不可屏蔽，也不计入
-    expect(preview.blockedTools).toBe(2);
-    expect(preview.lockedTools).toEqual(['query_knowledge']);
+    // 只有挂载的 ai-engine 工具计入；其余未挂载或内置常驻的不计
+    expect(preview.blockedTools).toBe(1);
   });
 
   it('技能勾选：null 继承全部，数组只装配勾选的技能', () => {
     const all = previewCapabilities(catalog(), [], [], null);
     expect(all.skills).toBe(1);
-    expect(all.skillTools).toBe(1);
 
     const none = previewCapabilities(catalog(), [], [], []);
     expect(none.skills).toBe(0);
-    expect(none.skillTools).toBe(0);
-    // 没有装配技能时，技能工具不再锁定，可以正常屏蔽
-    expect(none.lockedTools).toEqual([]);
-    expect(previewCapabilities(catalog(), [], ['query_knowledge'], []).blockedTools).toBe(1);
   });
 
   it('勾选了目录里已不存在的技能时单独暴露', () => {
     const preview = previewCapabilities(catalog(), [], [], ['knowledge-search', 'gone-skill']);
     expect(preview.skills).toBe(1);
     expect(preview.unknownSkills).toEqual(['gone-skill']);
-  });
-
-  it('技能声明的 MCP 工具会额外挂载对应 Server', () => {
-    const withSkill: CapabilityCatalog = {
-      ...catalog(),
-      // 技能除了内置工具还声明了一个 MCP 工具
-      skills: [
-        {
-          key: 'metrics-skill',
-          description: '指标排查',
-          tools: ['query_knowledge', 'mcp__observability__query_metrics'],
-        },
-      ],
-    };
-
-    // 白名单只有内置工具：按 Server 筛选会把 observability 排除，
-    // 但技能声明了它的工具，运行时会自动并入白名单，预览必须算进来。
-    const preview = previewCapabilities(withSkill, ['query_knowledge'], []);
-
-    expect(preview.whitelistHasMcp).toBe(true);
-    expect(preview.mountedServers).toEqual(['observability']);
-    expect(preview.skillDeclaredServers).toEqual(['observability']);
-    expect(preview.lockedTools).toContain('mcp__observability__query_metrics');
-    // 该 Server 只有一个工具且已由技能声明，不存在「只选了部分」的口径差异
-    expect(preview.partialServers).toEqual([]);
-    expect(preview.searchableMcpTools).toBe(1);
-  });
-
-  it('未装配技能时，声明带来的 Server 不再挂载', () => {
-    const withSkill: CapabilityCatalog = {
-      ...catalog(),
-      skills: [{ key: 'metrics-skill', description: '指标排查', tools: ['mcp__observability__query_metrics'] }],
-    };
-
-    const preview = previewCapabilities(withSkill, ['query_knowledge'], [], []);
-    expect(preview.mountedServers).toEqual([]);
-    expect(preview.skillDeclaredServers).toEqual([]);
-    expect(preview.lockedTools).toEqual([]);
   });
 
   it('白名单里残留的失效工具单独暴露', () => {

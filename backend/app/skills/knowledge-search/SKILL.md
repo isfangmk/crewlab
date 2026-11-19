@@ -7,8 +7,6 @@ metadata:
   group: knowledge
   version: "1.0"
   risk: safe
-  adk_additional_tools:
-    - query_knowledge
 ---
 
 # 知识库检索

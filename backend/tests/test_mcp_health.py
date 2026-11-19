@@ -52,7 +52,7 @@ def _spawn_server() -> tuple[subprocess.Popen, str] | None:
 
 async def _add_server(name: str, endpoint: str, *, enabled: bool = True) -> int:
     async with SessionLocal() as db:
-        row = McpServer(name=name, transport="sse", endpoint=endpoint, enabled=enabled)
+        row = McpServer(name=name, transport="http", endpoint=endpoint, enabled=enabled)
         db.add(row)
         await db.commit()
         await db.refresh(row)
@@ -75,7 +75,7 @@ def test_unhealthy_warn_dedups_per_state(caplog) -> None:
     tag = uuid.uuid4().hex[:8]
     server = McpServer(
         name=f"warn-dedup-{tag}",
-        transport="sse",
+        transport="http",
         endpoint="http://127.0.0.1:9/mcp",
         status="error",
         last_error="ConnectionError: down",

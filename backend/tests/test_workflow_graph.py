@@ -91,59 +91,16 @@ def test_start_accepts_common_id() -> None:
     assert definition.require_start().id == "start"
 
 
-def test_tool_node_accepts_builtin_and_legacy_mcp() -> None:
-    """工具节点两种来源都能保存；老定义没有 tool_source 时按 MCP 兼容。"""
+def test_mcp_node_requires_server_and_tool() -> None:
+    """工具节点必须指定 server 与 tool，两者缺一不可。"""
 
     from app.schemas.workflow import WorkflowNode
 
-    builtin = WorkflowNode.model_validate(
-        {
-            "id": "tool",
-            "kind": "mcp",
-            "tool_source": "builtin",
-            "tool_name": "query_knowledge",
-            "arguments": {"query": "{{topic}}"},
-        }
-    )
-    assert builtin.tool_source == "builtin"
-    assert builtin.tool_name == "query_knowledge"
-
-    legacy = WorkflowNode.model_validate(
-        {"id": "tool", "kind": "mcp", "mcp_server": "ops", "mcp_tool": "restart"}
-    )
-    assert legacy.tool_source == "mcp"
-    assert legacy.tool_name == ""
-
-
-def test_tool_node_rejects_mixed_sources() -> None:
-    """内置与 MCP 两套字段不能混填，否则执行时不知道调用谁。"""
-
-    from app.schemas.workflow import WorkflowNode
-
-    with pytest.raises(ValidationError, match="内置工具"):
-        WorkflowNode.model_validate(
-            {"id": "tool", "kind": "mcp", "tool_source": "builtin"}
-        )
     with pytest.raises(ValidationError, match="mcp_server"):
+        WorkflowNode.model_validate({"id": "tool", "kind": "mcp"})
+    with pytest.raises(ValidationError, match="mcp_tool"):
         WorkflowNode.model_validate(
-            {
-                "id": "tool",
-                "kind": "mcp",
-                "tool_source": "builtin",
-                "tool_name": "query_knowledge",
-                "mcp_server": "ops",
-                "mcp_tool": "restart",
-            }
-        )
-    with pytest.raises(ValidationError, match="tool_name"):
-        WorkflowNode.model_validate(
-            {
-                "id": "tool",
-                "kind": "mcp",
-                "mcp_server": "ops",
-                "mcp_tool": "restart",
-                "tool_name": "query_knowledge",
-            }
+            {"id": "tool", "kind": "mcp", "mcp_server": "ops"}
         )
 
 
@@ -152,7 +109,7 @@ def test_non_tool_node_rejects_tool_fields() -> None:
 
     with pytest.raises(ValidationError, match="mcp"):
         WorkflowNode.model_validate(
-            {"id": "end", "kind": "end", "tool_source": "builtin", "tool_name": "x"}
+            {"id": "end", "kind": "end", "mcp_server": "ops", "mcp_tool": "restart"}
         )
 
 
@@ -572,47 +529,7 @@ def test_node_input_is_what_the_node_reads() -> None:
         _node("mcp", "mcp", mcp_server="ops", mcp_tool="restart", arguments={"q": "{{topic}}"}),
         state,
     ) == {"server": "ops", "tool": "restart", "topic": "磁盘告警"}
-    assert _input_of(
-        _node(
-            "tool",
-            "mcp",
-            tool_source="builtin",
-            tool_name="list_workflows",
-            arguments={"keyword": "{{topic}}", "limit": "1"},
-        ),
-        state,
-    ) == {"tool": "list_workflows", "topic": "磁盘告警"}
     assert _input_of(_node("end", "end", output_key="score"), state) == {"score": 88}
-
-
-@pytest.mark.asyncio
-async def test_tool_node_executes_builtin_tool() -> None:
-    """内置工具节点直接执行工具，不经过模型决策。"""
-
-    payload = {
-        "nodes": [
-            _node("start", "start", variables=[{"name": "topic"}]),
-            _node(
-                "tool",
-                "mcp",
-                tool_source="builtin",
-                tool_name="list_workflows",
-                output_key="tool",
-                arguments={"limit": "1"},
-            ),
-            _node("end", "end", output_key="tool"),
-        ],
-        "edges": [
-            {"id": "e1", "source": "start", "target": "tool"},
-            {"id": "e2", "source": "tool", "target": "end"},
-        ],
-    }
-    definition = WorkflowDefinition.model_validate(payload)
-    built = _built_node({"id": "tool", "kind": "mcp"}, definition)
-    result = await built.execute(ctx=None, state={})  # type: ignore[attr-defined]
-    assert result["returned"] == len(result["workflows"])
-    assert result["returned"] <= 1
-    assert isinstance(result["total"], int)
 
 
 def test_join_node_input_is_predecessor_outputs() -> None:
@@ -713,6 +630,19 @@ def test_preview_input_keeps_variables_and_valid_json() -> None:
     excerpt = parsed["kb"]["items"][0]["excerpt"]
     assert excerpt.endswith("…")
     assert len(excerpt) <= 601
+
+
+def test_preview_output_keeps_valid_json_and_gate() -> None:
+    """输出落库不能把整段 JSON 截断：pending_gate 要按 gate 键读回停住的节点。"""
+
+    from app.adk_runtime.workflow_nodes import preview
+
+    raw = preview({"gate": "approve", "kind": "approval", "prompt": "x" * 9000})
+    parsed = json.loads(raw)
+    assert parsed["gate"] == "approve"
+    assert parsed["kind"] == "approval"
+    assert parsed["prompt"].endswith("…")
+    assert len(parsed["prompt"]) <= 4001
 
 
 @pytest.mark.asyncio

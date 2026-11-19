@@ -30,8 +30,6 @@ class SkillPayloadIn(BaseModel):
     risk: str = Field(min_length=1, description="平台侧风险等级，随技能一并保存，用于风险提示与控制")
     # 平台侧分组（固定枚举），驱动技能目录页的筛选条与分组表
     group: str = Field(min_length=1, max_length=32, description="平台侧分组，驱动技能目录页筛选，最长 32")
-    # metadata.adk_additional_tools
-    tools: list[str] = Field(default_factory=list, description="附加工具名列表，写入 metadata.adk_additional_tools")
     # metadata.adk_inject_state
     inject_state: bool = Field(default=False, description="是否向技能注入运行状态，写入 metadata.adk_inject_state")
     references: list[SkillFileIn] = Field(default_factory=list, description="references 参考资源目录中的文件列表")

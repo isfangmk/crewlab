@@ -18,7 +18,7 @@ def _approval_row(session_id: str) -> Approval:
         session_id=session_id,
         confirmation_fc_id=f"fc_{uuid.uuid4().hex[:12]}",
         tool_call_id=f"call_{uuid.uuid4().hex[:8]}",
-        tool_name="run_workflow",
+        tool_name="mcp__obs-tools__restart",
         kind="tool",
         title="测试审批",
         summary="单元测试",

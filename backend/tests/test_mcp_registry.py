@@ -11,7 +11,7 @@ from tests.conftest import login_access_token
 
 
 def test_remote_entry_maps_to_server_input() -> None:
-    """remotes 条目映射为登记预填：嵌套 transport.type=sse → sse。"""
+    """remotes 条目映射为登记预填：传输统一归一为 http（平台只支持 http/stdio）。"""
 
     entry = {
         "name": "io.example__filesystem",
@@ -25,7 +25,7 @@ def test_remote_entry_maps_to_server_input() -> None:
     }
     out = registry_entry_to_server_input(entry)
     assert out["name"] == "io.example-filesystem"
-    assert out["transport"] == "sse"
+    assert out["transport"] == "http"
     assert out["endpoint"] == "https://example.com/mcp/sse"
     assert out["hint"] == ""
 
@@ -101,7 +101,7 @@ async def test_search_registry_real_call() -> None:
     for item in result["items"]:
         assert isinstance(item["name"], str)
         assert item["name"] != ""
-        assert item["transport"] in ("http", "sse")
+        assert item["transport"] == "http"
     assert isinstance(result["next_cursor"], str)
 
 

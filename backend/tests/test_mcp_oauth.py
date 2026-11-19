@@ -73,13 +73,12 @@ async def _create_server(
         headers=headers,
         json={
             "name": name,
-            "transport": "sse",
+            "transport": "http",
             "endpoint": endpoint,
             "credential": "",
             "header_template_json": "{}",
             "trusted": True,
             "enabled": True,
-            "approval_policy": "always",
         },
     )
     assert resp.status_code == 200, resp.text
@@ -141,7 +140,7 @@ async def test_oauth_full_flow_refresh_and_state_guard(
                 pytest.skip("后端未就绪")
             headers = await _login(client, env)
             server_id, _name = await _create_server(
-                client, headers, f"http://127.0.0.1:{extras_port}/sse"
+                client, headers, f"http://127.0.0.1:{extras_port}/mcp"
             )
 
             # 发起授权：发现（资源元数据 → AS 元数据）+ 动态注册 + PKCE
@@ -243,7 +242,7 @@ async def test_manual_token_headers_and_expiry(
                 pytest.skip("后端未就绪")
             headers = await _login(client, env)
             server_id, _name = await _create_server(
-                client, headers, f"http://127.0.0.1:{extras_port}/sse"
+                client, headers, f"http://127.0.0.1:{extras_port}/mcp"
             )
 
             saved = await client.post(

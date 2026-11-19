@@ -32,8 +32,6 @@ class InstallFromUrlIn(BaseModel):
 
 def _payload_from_in(body: SkillPayloadIn) -> SkillPayload:
     metadata: dict[str, Any] = {}
-    if body.tools:
-        metadata["adk_additional_tools"] = list(body.tools)
     if body.inject_state:
         metadata["adk_inject_state"] = True
     return SkillPayload(
@@ -61,7 +59,6 @@ def _preview_payload(payload: SkillPayload) -> dict:
         "preapproved_tools": payload.preapproved_tools,
         "risk": risk if isinstance(risk, str) and risk in RISK_LEVELS else None,
         "group": group if isinstance(group, str) and group != "" else None,
-        "tools": payload.declared_tools(),
         "inject_state": payload.inject_state(),
         "references": skills_service._resource_wire(payload.references, False),
         "assets": skills_service._resource_wire(payload.assets, False),
@@ -135,7 +132,6 @@ async def create_skill(
         detail={
             "risk": row.risk,
             "group": row.skill_group,
-            "tools": payload.declared_tools(),
             "references": len(payload.references),
             "assets": len(payload.assets),
             "scripts": len(payload.scripts),
@@ -170,7 +166,6 @@ async def update_skill(
         detail={
             "risk": row.risk,
             "group": row.skill_group,
-            "tools": payload.declared_tools(),
             "references": len(payload.references),
             "assets": len(payload.assets),
             "scripts": len(payload.scripts),
@@ -282,8 +277,6 @@ async def import_skill_zip(
             payload,
             risk=str(resolved_risk),
             group=str(resolved_group),
-            # 第三方技能包允许声明平台暂未实现的工具，与磁盘技能同口径
-            forbid_unknown_tools=False,
             origin="imported",
         )
     except (ValueError, TypeError) as exc:
@@ -305,7 +298,6 @@ async def import_skill_zip(
             "filename": file.filename,
             "risk": row.risk,
             "group": row.skill_group,
-            "tools": payload.declared_tools(),
             "references": len(payload.references),
             "assets": len(payload.assets),
             "scripts": len(payload.scripts),
@@ -351,7 +343,7 @@ async def reload_skills(
     """
 
     try:
-        disk_items = await skills_service.disk_skill_summaries(db)
+        disk_items = await skills_service.disk_skill_summaries()
         items = await skills_service.list_skill_summaries(db)
     except (ValueError, TypeError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -1,6 +1,8 @@
-"""助理工具能力装配：技能、MCP、禁用名单、只读审批与联网搜索。
+"""助理工具能力装配：技能、MCP、禁用名单、审批与联网搜索。
 
 根助理、子助理与审批续跑共用这一套口径，避免三处装配逻辑各自漂移。
+审批口径：MCP 工具默认免审、只由审批规则驱动；内置工具按自身 risk 决定审批
+且不受审批规则控制；助理只读模式把所有 MCP 工具拉进审批。
 """
 
 from __future__ import annotations
@@ -50,9 +52,7 @@ async def build_agent_tool_bundle(
 ) -> AgentToolBundle:
     """按助理配置装配技能、MCP 工具、审批与禁用名单。
 
-    技能先解析再按「白名单 + 技能声明的工具」筛选 MCP Server：技能可以先建后改，
-    只依赖保存助理时并入的白名单会漏掉后来新增的 MCP 工具。
-
+    内置工具常驻全挂、不走白名单；白名单只决定 MCP Server 的检索目录。
     allowed_tools_override 供无人值守节点按本节点声明的 MCP 工具收窄检索目录：
     覆盖助理自身白名单，让 searchable 目录只含本节点要用的业务工具；None 时
     保持助理口径不变（主对话/子助理/审批/playground 均走此默认路径）。
@@ -82,10 +82,12 @@ async def build_agent_tool_bundle(
     allowed_tools = (
         list(allowed_tools_override)
         if allowed_tools_override is not None
-        else agent_service.effective_allowed_tools(agent, runtime_skills)
+        else agent_service.effective_allowed_tools(agent)
     )
     mcp_servers = await mcp_service.list_enabled_servers(db)
     mcp_servers = agent_service.filter_mcp_servers_by_tools(mcp_servers, allowed_tools)
+    # 助理级禁用名单：命中的工具直接拒绝执行
+    disallowed_tool_names = agent_service.agent_disallowed_tool_names(agent)
     from app.services.mcp.tool_search_index import warm_vector_cache_from_db
 
     await warm_vector_cache_from_db(db)
@@ -103,18 +105,9 @@ async def build_agent_tool_bundle(
                 allowed_tools=allowed_tools,
             )
         )
-    confirm_tool_names = mcp_service.confirm_tool_names_for_servers(mcp_servers)
-    # 助理级禁用名单：命中的工具直接拒绝执行
-    disallowed_tool_names = agent_service.agent_disallowed_tool_names(agent)
-    # 技能要靠声明的工具工作，配置漂移（技能后加声明、助理已屏蔽）必须留痕
-    drift = disallowed_tool_names & skills_service.declared_tools_of_skills(runtime_skills)
-    if drift:
-        logger.warning(
-            "技能声明的工具被助理禁用名单拦截 agent=%s tools=%s",
-            agent.name,
-            sorted(drift),
-        )
-    # 助理级只读模式：该助理用到的 MCP 工具一律要人工确认
+    # MCP 工具默认免审：审批单一由审批规则驱动，未命中规则的工具直接放行。
+    confirm_tool_names: set[str] = set()
+    mcp_servers = await mcp_service.list_enabled_servers(db)
     if agent.permission_mode == "read-only":
         confirm_tool_names = confirm_tool_names | set(
             mcp_service.all_business_tool_names_for_servers(mcp_servers)
@@ -148,19 +141,18 @@ async def build_agent_tool_bundle(
         session_id,
         owner_user_id,
     )
-    # 非 safe 的内置工具默认进闸（如 run_workflow）：默认要人工确认；
-    # 审批规则 auto_approve 可以免审——风险定级与是否审批是两根轴
+    # 非 safe 的内置工具默认进闸（如 delete_memory）：内置工具按自身 risk 决定是否审批，
+    # 不受审批规则控制（规则只匹配 MCP 工具）。
     from app.tools.catalog import BUILTIN_TOOL_SPECS
 
-    confirm_tool_names = confirm_tool_names | {
+    confirm_tool_names |= {
         spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["risk"] != "safe"
     }
-    # 审批规则（工具×助理×风险）：命中规则优先于 server 策略改写名单
+    # 审批规则只匹配 MCP 工具（工具×助理×风险），命中规则优先于默认免审口径。
+    # 内置工具不进 tools_risk，规则无法控制它。
     from app.services.chat.approval_rule_service import apply_rule_actions, resolve_actions
 
-    tools_risk: dict[str, str | None] = {
-        spec["name"]: spec["risk"] for spec in BUILTIN_TOOL_SPECS
-    }
+    tools_risk: dict[str, str | None] = {}
     for server in mcp_servers:
         for raw_name, risk in mcp_service.tool_risk_map(server).items():
             # tool_risk_map 键是原始工具名；闸门与规则匹配用 wire 名

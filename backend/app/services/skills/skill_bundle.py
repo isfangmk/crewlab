@@ -63,16 +63,6 @@ class SkillPayload:
     assets: dict[str, Union[str, bytes]] = field(default_factory=dict)
     scripts: dict[str, str] = field(default_factory=dict)
 
-    def declared_tools(self) -> list[str]:
-        """metadata.adk_additional_tools；未声明返回空列表。"""
-
-        raw = self.metadata.get("adk_additional_tools")
-        if raw is None:
-            return []
-        if not isinstance(raw, list):
-            raise TypeError("metadata.adk_additional_tools 必须是字符串数组")
-        return [str(item) for item in raw]
-
     def inject_state(self) -> bool:
         raw = self.metadata.get("adk_inject_state")
         if raw is None:
@@ -363,7 +353,5 @@ def validate_payload(payload: SkillPayload) -> None:
     if payload.instructions.strip() == "":
         raise ValueError("SKILL.md 正文不能为空")
     check_payload_limits(payload)
-    # 声明工具的类型校验（数组 / 非空字符串）在取值时完成
-    payload.declared_tools()
     # adk_inject_state 的类型校验在取值时完成
     payload.inject_state()

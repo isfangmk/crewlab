@@ -23,10 +23,6 @@ logger = logging.getLogger(__name__)
 # 两处同名注册会让模型侧校验「Tool names must be unique」直接拒单。
 READONLY_TOOL_NAMES: tuple[str, ...] = (
     "recall_memory",
-    "list_workflows",
-    "get_workflow",
-    "list_workflow_runs",
-    "get_workflow_run",
 )
 
 # 允许 run_python 的扩展只读集：汇总分析/画图属分析产出，不是写操作。

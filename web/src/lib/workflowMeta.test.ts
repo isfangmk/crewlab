@@ -84,9 +84,9 @@ describe('nodeIssue', () => {
 
     const tool = emptyNode('mcp', 'tool', { x: 0, y: 0 });
     expect(nodeIssue(tool)).toBe('请选择 MCP 工具');
-    tool.tool_source = 'builtin';
-    expect(nodeIssue(tool)).toBe('请选择内置工具');
-    tool.tool_name = 'query_knowledge';
+    tool.mcp_server = 'ops';
+    expect(nodeIssue(tool)).toBe('请选择 MCP 工具');
+    tool.mcp_tool = 'restart';
     expect(nodeIssue(tool)).toBeNull();
   });
 });
@@ -105,10 +105,6 @@ describe('nodeSummary', () => {
 
     const tool = emptyNode('mcp', 'tool', { x: 0, y: 0 });
     expect(nodeSummary(tool)).toBe('未选择工具');
-    tool.tool_source = 'builtin';
-    tool.tool_name = 'query_knowledge';
-    expect(nodeSummary(tool)).toBe('query_knowledge');
-    tool.tool_source = 'mcp';
     tool.mcp_server = 'ops';
     tool.mcp_tool = 'restart';
     expect(nodeSummary(tool)).toBe('ops · restart');

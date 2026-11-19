@@ -20,13 +20,6 @@ from app.tools.memory import (
 )
 from app.tools.task_graph import get_task_graph, submit_task_graph, update_task_graph
 from app.tools.user_input import ASK_USER_TOOL_NAME, ask_user
-from app.tools.workflow import (
-    get_workflow,
-    get_workflow_run,
-    list_workflow_runs,
-    list_workflows,
-    run_workflow,
-)
 
 # mount 说明装配时机：always = 随 SkillToolset 始终装配；per_turn = 由对话开关决定
 BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
@@ -84,42 +77,6 @@ BUILTIN_TOOL_SPECS: list[dict[str, str]] = [
         "group": "interaction",
         "description": "向用户发起澄清：弹卡片让用户选择选项或填写信息，答案回流后继续",
         # 只在有人值守的对话里用：子 Agent 与工作流无人值守，不挂载该工具
-        "risk": "safe",
-        "mount": "always",
-    },
-    {
-        "name": "list_workflows",
-        "group": "workflow",
-        "description": "列出工作流及其节点规模、状态与最近一次运行",
-        "risk": "safe",
-        "mount": "always",
-    },
-    {
-        "name": "get_workflow",
-        "group": "workflow",
-        "description": "查单个工作流的完整定义：节点、连线、运行输入",
-        "risk": "safe",
-        "mount": "always",
-    },
-    {
-        "name": "run_workflow",
-        "group": "workflow",
-        "description": "按 ID 运行工作流，返回运行流水号与状态",
-        # 会真实执行整张画布（调模型、查知识库、发请求），定级为变更
-        "risk": "mutating",
-        "mount": "always",
-    },
-    {
-        "name": "list_workflow_runs",
-        "group": "workflow",
-        "description": "查工作流运行记录（状态、耗时、失败原因）",
-        "risk": "safe",
-        "mount": "always",
-    },
-    {
-        "name": "get_workflow_run",
-        "group": "workflow",
-        "description": "查单次运行的逐节点结果：每步输入、输出、耗时与报错",
         "risk": "safe",
         "mount": "always",
     },
@@ -222,11 +179,6 @@ _BUILTIN_TOOL_REGISTRY: dict[str, Any] = {
     "query_knowledge": query_knowledge,
     "web_search": _web_search_signature,
     ASK_USER_TOOL_NAME: ask_user,
-    "list_workflows": list_workflows,
-    "get_workflow": get_workflow,
-    "run_workflow": run_workflow,
-    "list_workflow_runs": list_workflow_runs,
-    "get_workflow_run": get_workflow_run,
     "submit_task_graph": submit_task_graph,
     "get_task_graph": get_task_graph,
     "update_task_graph": update_task_graph,
@@ -249,12 +201,6 @@ def tool_impl(name: str) -> Any:
     if impl is None:
         raise LookupError(f"未知内置工具: {name}")
     return impl
-
-
-def workflow_tool_names() -> list[str]:
-    """工作流工具组：ADK 装配只认这一份清单。"""
-
-    return [spec["name"] for spec in BUILTIN_TOOL_SPECS if spec["group"] == "workflow"]
 
 
 def builtin_group_names(*groups: str) -> list[str]:
@@ -308,58 +254,16 @@ def tool_param_specs(func: Any) -> list[dict]:
     return specs
 
 
-# 内置 Tool 目录与画布工具节点共用同一份分组标题
+# 内置 Tool 的分组标题，供 /tools/builtin 目录接口使用。
 BUILTIN_TOOL_GROUPS: dict[str, dict[str, str]] = {
     "code": {"title": "代码解释器", "title_en": "Code interpreter"},
     "knowledge": {"title": "知识检索", "title_en": "Knowledge"},
     "search": {"title": "联网搜索", "title_en": "Web search"},
     "memory": {"title": "记忆", "title_en": "Memory"},
-    "workflow": {"title": "工作流", "title_en": "Workflow"},
     "interaction": {"title": "澄清交互", "title_en": "User input"},
     "taskgraph": {"title": "任务图执行", "title_en": "Task graph"},
     "config": {"title": "技能管理", "title_en": "Skill management"},
 }
-
-
-# 画布「工具」节点只暴露没有专用节点、且能在无人值守运行中安全执行的内置工具：
-# 知识检索 / 联网搜索 / 代码已有专用节点；记忆类依赖会话上下文；
-# run_workflow 需要人工确认，都不能放进画布。
-WORKFLOW_NODE_TOOL_NAMES = frozenset(
-    {
-        "list_workflows",
-        "get_workflow",
-        "list_workflow_runs",
-        "get_workflow_run",
-    }
-)
-
-
-def workflow_builtin_tools() -> list[dict[str, Any]]:
-    """画布「工具」节点可选的内置工具（含参数定义）。
-
-    只给没有专用节点、且无人值守执行安全的工作流查询工具；其余能力
-    在画布上有独立节点，重复暴露只会让编排时不知道该选哪个。
-    """
-
-    tools: list[dict[str, Any]] = []
-    for spec in BUILTIN_TOOL_SPECS:
-        if spec["name"] not in WORKFLOW_NODE_TOOL_NAMES:
-            continue
-        group = BUILTIN_TOOL_GROUPS.get(spec["group"])
-        if group is None:
-            raise RuntimeError(f"内置工具分组缺少标题: {spec['group']}")
-        tools.append(
-            {
-                "name": spec["name"],
-                "group": spec["group"],
-                "group_title": group["title"],
-                "group_title_en": group["title_en"],
-                "description": spec["description"],
-                "risk": spec["risk"],
-                "params": tool_param_specs(tool_impl(spec["name"])),
-            }
-        )
-    return tools
 
 
 # 字符串参数按声明类型解析：画布参数一律以文本录入，执行前必须转成工具签名要的类型。

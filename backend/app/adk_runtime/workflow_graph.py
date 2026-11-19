@@ -46,11 +46,7 @@ async def _load_tools(db: AsyncSession, definition: WorkflowDefinition) -> dict[
         base_url, api_key = await resolve_deepseek_search_cred(db)
         tools["web_search_base_url"] = base_url
         tools["web_search_api_key"] = api_key
-    mcp_nodes = [
-        n
-        for n in definition.nodes
-        if n.kind == "mcp" and n.tool_source == "mcp"
-    ]
+    mcp_nodes = [n for n in definition.nodes if n.kind == "mcp"]
     if mcp_nodes:
         from app.services.mcp import mcp_service
 

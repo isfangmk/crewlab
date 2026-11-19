@@ -45,7 +45,6 @@ def _stdio_row(**overrides: object) -> McpServer:
         env_json='{"CBM_CACHE_DIR":"D:/cbm-cache"}',
         credential="",
         header_template_json="{}",
-        approval_policy="non_readonly",
         enabled=True,
         status="ok",
         last_error="",
@@ -90,7 +89,7 @@ async def test_stdio_rejects_bad_json() -> None:
 
     base = dict(
         name="bad", transport="stdio", endpoint="", command="x",
-        header_template_json="{}", approval_policy="always",
+        header_template_json="{}",
         env_json="[]",  # env 必须是映射
         args_json="[]",
     )
@@ -126,7 +125,6 @@ async def test_stdio_real_binary_probe_and_tools() -> None:
                 env_json="{}",
                 credential="",
                 header_template_json="{}",
-                approval_policy="never",
                 enabled=True,
             )
             created = True

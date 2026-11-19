@@ -41,16 +41,11 @@ def registry_entry_to_server_input(entry: dict[str, Any]) -> dict[str, Any]:
     for remote in entry.get("remotes") or []:
         if not isinstance(remote, dict):
             continue
-        transport_info = remote.get("transport")
-        transport_type = ""
-        if isinstance(transport_info, dict):
-            transport_type = str(transport_info.get("type") or "")
-        else:
-            transport_type = str(remote.get("type") or "")
         url = str(remote.get("url") or "")
         if url == "":
             continue
-        transport = "sse" if transport_type == "sse" else "http"
+        # 传输只支持 http/stdio；registry 的 sse 条目也按 http 处理
+        transport = "http"
         return {
             "name": name,
             "description": description,

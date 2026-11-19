@@ -19,11 +19,10 @@ vi.mock('@/store/auth', () => ({
 const mcpServer = {
   id: 1,
   name: 'obs-tools',
-  transport: 'sse',
-  endpoint: 'http://127.0.0.1:18099/sse',
+  transport: 'http',
+  endpoint: 'http://127.0.0.1:18099/mcp',
   credential: '',
   header_template_json: '{}',
-  approval_policy: 'non_readonly',
   tool_risks: { query_metric: 'safe', list_alerts: 'safe', acknowledge_alert: 'mutating' },
   enabled: true,
   status: 'ok',
@@ -85,9 +84,8 @@ describe('MCP 服务卡片', () => {
     renderPage();
     expect(await screen.findByText('obs-tools')).toBeInTheDocument();
     expect(screen.getByText('共 1 个服务')).toBeInTheDocument();
-    expect(screen.getByText('http://127.0.0.1:18099/sse')).toBeInTheDocument();
+    expect(screen.getByText('http://127.0.0.1:18099/mcp')).toBeInTheDocument();
     expect(screen.getByText('3 个工具')).toBeInTheDocument();
-    expect(screen.getByText('写操作审批')).toBeInTheDocument();
     expect(screen.getByText('索引 3')).toBeInTheDocument();
     expect(screen.queryByText('mcp__obs-tools__list_alerts')).not.toBeInTheDocument();
 
@@ -157,8 +155,8 @@ describe('MCP 服务卡片', () => {
             {
               name: 'io.example-fs',
               description: '文件系统服务',
-              transport: 'sse',
-              endpoint: 'https://example.com/mcp/sse',
+              transport: 'http',
+              endpoint: 'https://example.com/mcp',
               hint: '',
             },
           ],
@@ -177,7 +175,7 @@ describe('MCP 服务卡片', () => {
     await userEvent.click(screen.getByRole('button', { name: '添加' }));
     // 预填登记表单：名称 / 端点
     expect(await screen.findByDisplayValue('io.example-fs')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('https://example.com/mcp/sse')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('https://example.com/mcp')).toBeInTheDocument();
   });
 });
 
@@ -200,7 +198,7 @@ describe('Registry 分页深翻', () => {
         return HttpResponse.json({
           items: [
             { name: 'item-b', description: '', transport: 'http', endpoint: 'https://b.example/mcp', hint: '' },
-            { name: 'item-c', description: '', transport: 'sse', endpoint: 'https://c.example/sse', hint: '' },
+            { name: 'item-c', description: '', transport: 'http', endpoint: 'https://c.example/mcp', hint: '' },
           ],
           next_cursor: '',
           total: 2,

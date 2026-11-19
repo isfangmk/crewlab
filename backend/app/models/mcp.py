@@ -22,9 +22,9 @@ class McpServer(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     __table_args__ = {"sqlite_autoincrement": True}
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
-    # http | sse | stdio
+    # http | stdio
     transport: Mapped[str] = mapped_column(String(32), nullable=False)
-    # http/sse 的端点 URL；stdio 时留空
+    # http 的端点 URL；stdio 时留空
     endpoint: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
     # stdio 专用：以服务端进程权限运行本机命令，仅管理员可配
     command: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
@@ -34,8 +34,6 @@ class McpServer(Base):
     env_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     credential: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     header_template_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
-    # never | non_readonly | always
-    approval_policy: Mapped[str] = mapped_column(String(32), nullable=False, default="always")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     last_error: Mapped[str] = mapped_column(Text, nullable=False, default="")

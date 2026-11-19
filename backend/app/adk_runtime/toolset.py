@@ -30,10 +30,10 @@ __all__ = [
 
 
 def build_knowledge_tools(scope: KnowledgeScope | None = None) -> list[FunctionTool]:
-    """供 SkillToolset.additional_tools 挂载；scope 为空时使用全库检索。
+    """知识检索工具：作为 Agent 常驻工具挂载，scope 为空时使用全库检索。
 
-    只返回知识检索工具：ADK 的 additional_tools 要等技能在元数据里声明后
-    才注入，代码解释器/记忆/工作流这类始终可用的能力直接挂在 Agent 上。
+    代码解释器/记忆/工作流这类能力同样常驻；知识检索带每个助理不同的知识范围，
+    故单独构造并并入 build_builtin_tools。
     """
 
     if scope is None or scope.is_empty:
@@ -46,11 +46,13 @@ def build_knowledge_tools(scope: KnowledgeScope | None = None) -> list[FunctionT
     return [FunctionTool(scoped_query_knowledge(scope))]
 
 
-def build_builtin_tools(*, include_ask_user: bool = True) -> list[FunctionTool]:
-    """始终装配的内置工具组：代码解释器、记忆、工作流、任务图执行与澄清交互。
+def build_builtin_tools(
+    *, include_ask_user: bool = True, knowledge_scope: KnowledgeScope | None = None
+) -> list[FunctionTool]:
+    """始终装配的内置工具组：代码解释器、记忆、工作流、任务图执行、知识检索与澄清交互。
 
-    ADK 的 SkillToolset.additional_tools 只有在技能声明后才注入；这些能力
-    不依赖外部凭证且对话随时可用，所以直接作为 Agent 工具挂载。
+    这些能力不依赖技能声明，直接作为 Agent 工具挂载。
+    knowledge_scope 注入给常驻的 query_knowledge（空 = 全库检索）。
     include_ask_user=False 用于子 Agent：被委派的子任务无人值守，
     澄清提问只能出现在与用户直接对话的根 Agent 上；
     任务图提交同理——节点无人值守，不能往下再开图。
@@ -69,4 +71,7 @@ def build_builtin_tools(*, include_ask_user: bool = True) -> list[FunctionTool]:
                 "update_task_graph",
             )
         ]
-    return [FunctionTool(tool_impl(name)) for name in names]
+    tools = [FunctionTool(tool_impl(name)) for name in names]
+    # 知识检索常驻装配，带助理的知识范围
+    tools.extend(build_knowledge_tools(knowledge_scope))
+    return tools

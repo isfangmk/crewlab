@@ -23,13 +23,11 @@ import {
   listSkills,
   localizedSkill,
   reloadSkills,
-  type SkillClass,
   type SkillGroup,
   type SkillGroupMeta,
   type SkillOrigin,
   type SkillSummary,
 } from '@/api/skills';
-import { mcpToolDisplayName } from '@/lib/mcpWire';
 import { Modal } from '@/components/Modal';
 import { useI18n } from '@/i18n/locale';
 import { orderedGroupKeys } from '@/lib/toolSkill';
@@ -496,15 +494,11 @@ function SkillRow({
         <div className="line-clamp-1">{skill.description || '—'}</div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 font-sans text-[10px] text-zinc-600">
           {skill.group && <span>{skill.group}</span>}
-          {Array.isArray(skill.tools) && skill.tools.length > 0 && (
-            <span>tools: {skill.tools.join(', ')}</span>
-          )}
           {resourceCount > 0 && (
             <span>
               refs {skill.references?.length ?? 0} · assets {skill.assets?.length ?? 0} · scripts {skill.scripts?.length ?? 0}
             </span>
           )}
-          {skill.inventory_only ? <span>· {tr('不可装配', 'not assemblable')}</span> : null}
         </div>
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-right">
@@ -611,73 +605,6 @@ function SkillDetailModal({
             <CodeBlock>{skill.instructions}</CodeBlock>
           ) : (
             <div className="text-[12px] text-zinc-500">{tr('没有正文', 'No body')}</div>
-          )}
-        </DetailSection>
-
-        <DetailSection title={tr('可调用工具', 'Declared tools')}>
-          {Array.isArray(skill.tools) && skill.tools.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {(skill.tool_refs ?? skill.tools.map((name) => ({ name, kind: 'builtin' as const, available: true, description: '' }))).map(
-                (ref) => (
-                  <Hint
-                    key={ref.name}
-                    content={
-                      ref.kind === 'mcp'
-                        ? ref.available
-                          ? tr(`MCP Server ${ref.server} 的工具`, `Tool of MCP server ${ref.server}`)
-                          : tr(
-                              `MCP Server ${ref.server} 未启用或探测失败，运行时不会挂载`,
-                              `MCP server ${ref.server} is disabled or unverified; it will not be mounted`,
-                            )
-                        : ref.kind === 'unknown'
-                          ? tr('目录里没有这个工具，运行时无法调用', 'This tool is not in the catalog and cannot be called')
-                          : ref.description
-                    }
-                  >
-                    <Chip
-                      dense
-                      tone={
-                        !ref.available ? 'warning' : ref.kind === 'mcp' ? 'accent' : 'default'
-                      }
-                    >
-                      {ref.kind === 'mcp' ? `mcp · ${ref.server} · ${mcpToolDisplayName(ref.name)}` : ref.name}
-                    </Chip>
-                  </Hint>
-                ),
-              )}
-            </div>
-          ) : (
-            <div className="text-[12px] text-zinc-500">
-              {tr('纯说明型技能：不挂任何工具', 'Instruction-only skill: no tools declared')}
-            </div>
-          )}
-          {skill.params.length > 0 && (
-            <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800/60">
-              <table className="og-action-table w-full text-[12px]">
-                <thead className="border-b border-zinc-800/60 text-[11px] text-zinc-500">
-                  <tr className="whitespace-nowrap">
-                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('参数', 'Param')}</th>
-                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('类型', 'Type')}</th>
-                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('必填', 'Required')}</th>
-                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('默认值', 'Default')}</th>
-                    <th scope="col" className="px-3 py-2 text-left font-medium">{tr('说明', 'Description')}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/60">
-                  {skill.params.map((p, index) => (
-                    <tr key={`${p.name}-${index}`}>
-                      <td className="whitespace-nowrap px-3 py-2 font-sans text-zinc-200">{p.name}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-zinc-400">{p.type}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-zinc-400">{p.required ? tr('是', 'Yes') : '—'}</td>
-                      <td className="whitespace-nowrap px-3 py-2 font-sans text-zinc-400">
-                        {p.default === undefined || p.default === null ? '—' : String(p.default)}
-                      </td>
-                      <td className="px-3 py-2 text-zinc-400">{p.desc || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           )}
         </DetailSection>
 

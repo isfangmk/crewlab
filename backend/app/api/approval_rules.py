@@ -27,8 +27,8 @@ class ApprovalRuleIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=128, description="规则名称，1~128 字")
-    # 工具名通配（fnmatch）：run_workflow / mcp__obs-tools__* / *
-    tool_pattern: str = Field(min_length=1, max_length=256, description="工具名匹配模式（fnmatch 通配），如 run_workflow、mcp__obs-tools__*、*；1~256 字")
+    # 工具名通配（fnmatch）：delete_memory / mcp__obs-tools__* / *
+    tool_pattern: str = Field(min_length=1, max_length=256, description="工具名匹配模式（fnmatch 通配），如 delete_memory、mcp__obs-tools__*、*；1~256 字")
     # 空 = 全部助理（agent name）
     agent_id: str | None = Field(default=None, description="限定生效的助理 id（agent name）；留空表示全部助理")
     risk: Literal["safe", "mutating", "dangerous"] | None = Field(default=None, description="限定生效的风险等级：safe 安全 / mutating 有副作用 / dangerous 危险；留空表示不限")

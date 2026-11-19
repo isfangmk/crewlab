@@ -53,7 +53,7 @@ class UserAgentInput(BaseModel):
     when_to_use: str = Field(description="何时使用该助理的说明，供其他助理判断是否委托")
     system_prompt: str = Field(min_length=1, description="系统提示词，定义助理角色与行为，至少 1 字")
     critical_reminder: str = Field(description="必须遵守的额外提醒；留空表示没有")
-    allowed_tools: list[str] = Field(description="允许使用的工具名列表；空数组表示继承全部工具")
+    allowed_tools: list[str] = Field(description="允许使用的 MCP 工具名列表；空数组不挂载任何 MCP（内置工具始终常驻，不在此列）")
     disallowed_tools: list[str] = Field(description="禁止使用的工具名列表；空数组表示不额外禁用")
     permission_mode: str = Field(description="权限模式：read-only 只读，空串为默认（不额外限制）")
     model: str = Field(description="运行时使用的模型标识")
@@ -117,7 +117,7 @@ async def _resolve_agent_scope(
 async def _resolve_agent_tools(
     db: AsyncSession, body: UserAgentInput
 ) -> tuple[list[str], list[str]]:
-    """校验技能勾选并把技能声明的工具并入白名单；违规直接 400。"""
+    """校验技能勾选（key 必须存在）；工具白名单按原样透传。"""
 
     try:
         return await agent_service.validate_skill_binding(

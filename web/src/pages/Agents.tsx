@@ -472,7 +472,7 @@ function AgentCard({
 
       {/* 三格配置摘要：工具 / 技能 / 委托，对应「这个助理能做什么」。 */}
       <div className="mt-3 grid grid-cols-3 divide-x divide-zinc-800/60 rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
-        <Stat label={tr('工具', 'Tools')} value={toolCount > 0 ? String(toolCount) : tr('全部', 'All')} />
+        <Stat label={tr('工具', 'Tools')} value={toolCount > 0 ? String(toolCount) : tr('无', 'None')} />
         <Stat label={tr('技能', 'Skills')} value={skillLabel} />
         <Stat label={tr('委托', 'Delegation')} value={delegationLabel} />
       </div>
@@ -624,7 +624,7 @@ function AgentDetailModal({
           <SourceLabel source={agent.source} />
           {agent.permission_mode === 'read-only' && <Chip dense tone="success">{tr('只读', 'Read-only')}</Chip>}
           <span className="ml-auto text-[11px] text-zinc-500">
-            {toolCount > 0 ? tr(`${toolCount} 个工具`, `${toolCount} tool(s)`) : tr('继承全部工具', 'Inherits all tools')}
+            {toolCount > 0 ? tr(`${toolCount} 个工具`, `${toolCount} tool(s)`) : tr('不挂载 MCP', 'No MCP mounted')}
           </span>
         </div>
 
@@ -705,9 +705,9 @@ function AgentDetailModal({
           </div>
         </DetailSection>
 
-        <DetailSection title={tr('允许使用的工具', 'Allowed tools')}>
+        <DetailSection title={tr('允许使用的 MCP 工具', 'Allowed MCP tools')}>
           {toolCount === 0 ? (
-            <p className="text-[12px] text-zinc-500">{tr('继承 coordinator 的全部工具', 'Inherits all coordinator tools')}</p>
+            <p className="text-[12px] text-zinc-500">{tr('不挂载任何 MCP Server（内置工具不受此限制）', 'No MCP server mounted (built-in tools are unaffected)')}</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {agent.tools.map((t) => (
@@ -842,10 +842,13 @@ function AgentEditor({
     scopeSelectionFromWire(base?.knowledge_scope ?? { paths: [], doc_ids: [] }),
   );
   const [scopePreviewState, setScopePreviewState] = useState<ScopePreview | null>(null);
-  const [allowedTools, setAllowedTools] = useState<string[]>(base?.tools ?? []);
+  // 新建助理不继承任何能力：MCP 与技能都从空勾选开始（内置工具仍常驻）。
+  const [allowedTools, setAllowedTools] = useState<string[]>(
+    mode === 'edit' ? base?.tools ?? [] : [],
+  );
   const [disallowedTools, setDisallowedTools] = useState<string[]>(base?.disallowed_tools ?? []);
   const [selectedSkills, setSelectedSkills] = useState<string[] | null>(
-    base?.skills === undefined ? null : base.skills,
+    mode === 'edit' ? base?.skills ?? [] : [],
   );
   // 子助理候选：编辑时排除自身（后端同样拒绝自引用）
   const [subAgents, setSubAgents] = useState<string[]>(base?.sub_agents ?? []);
@@ -889,7 +892,6 @@ function AgentEditor({
           skills: skills.items.map((skill) => ({
             key: skill.key,
             description: skill.description,
-            tools: skill.tools ?? [],
           })),
           mcpServers: servers.map((server) => ({
             name: server.name,

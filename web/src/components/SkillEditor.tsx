@@ -23,9 +23,6 @@ import {
 } from '@/components/ui';
 import { Hint } from '@/components/ui/Tooltip';
 import { ApiError } from '@/api/client';
-import { listMcpServers, parseToolsCache } from '@/api/mcp';
-import { listBuiltinTools } from '@/api/tools';
-import { mcpToolWireName } from '@/lib/mcpWire';
 import {
   SKILL_CLASSES,
   createSkill,
@@ -47,13 +44,12 @@ import { cn } from '@/lib/cn';
 /** 资源目录类型：三类目录的语义不同，编辑器要分开呈现。 */
 type ResourceKind = 'references' | 'assets' | 'scripts';
 
-/** 编辑器的并列配置分区：基本信息 / 指令正文 / 可调用工具 / 资源文件。 */
-type EditorSection = 'basic' | 'instructions' | 'tools' | 'resources';
+/** 编辑器的并列配置分区：基本信息 / 指令正文 / 资源文件。 */
+type EditorSection = 'basic' | 'instructions' | 'resources';
 
 const EDITOR_SECTIONS: { key: EditorSection; label: { zh: string; en: string } }[] = [
   { key: 'basic', label: { zh: '基本信息', en: 'Basics' } },
   { key: 'instructions', label: { zh: '指令正文', en: 'Instructions' } },
-  { key: 'tools', label: { zh: '可调用工具', en: 'Tools' } },
   { key: 'resources', label: { zh: '资源文件', en: 'Resources' } },
 ];
 
@@ -61,19 +57,6 @@ type FileDraft = {
   path: string;
   text: string;
   base64: string;
-};
-
-/**
- * 可声明的工具选项：内置工具与 MCP 工具同列。
- * group 用 `builtin` / `mcp:<server>`，groupLabel 只用于分组标题；
- * available=false 表示 MCP Server 停用或探测失败（声明仍可保存）。
- */
-type ToolOption = {
-  name: string;
-  description: string;
-  group: string;
-  groupLabel: string;
-  available: boolean;
 };
 
 // 风险等级的中文含义（与 RiskBadge 同一口径）
@@ -154,50 +137,17 @@ export function SkillEditor({
   const [group, setGroup] = useState<SkillGroup>('other');
   const [groupOptions, setGroupOptions] = useState<SkillGroupMeta[]>([]);
   const [instructions, setInstructions] = useState('');
-  const [tools, setTools] = useState<string[]>([]);
   const [injectState, setInjectState] = useState(false);
   const [files, setFiles] = useState<Record<ResourceKind, FileDraft[]>>({
     references: [],
     assets: [],
     scripts: [],
   });
-  const [knownTools, setKnownTools] = useState<ToolOption[]>([]);
-  const [toolQuery, setToolQuery] = useState('');
   const [loading, setLoading] = useState(mode === 'edit');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
   const assetTarget = useRef<ResourceKind>('assets');
-
-  // 可声明的工具 = 内置工具 + 各 MCP Server 探测缓存里的工具（wire 名）。
-  // 未探测成功的 Server 不参与（没有工具缓存），其已声明项在渲染时单列「目录外」。
-  useEffect(() => {
-    void Promise.all([listBuiltinTools(), listMcpServers()])
-      .then(([builtins, servers]) => {
-        const options: ToolOption[] = builtins.items.map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          group: 'builtin',
-          groupLabel: '内置工具',
-          available: true,
-        }));
-        for (const server of servers) {
-          if (server.tools_cache_json === '') continue;
-          const available = server.enabled && server.status === 'ok';
-          for (const tool of parseToolsCache(server.tools_cache_json, server.tool_risks)) {
-            options.push({
-              name: mcpToolWireName(server.name, tool.name),
-              description: tool.description,
-              group: `mcp:${server.name}`,
-              groupLabel: `mcp · ${server.name}`,
-              available,
-            });
-          }
-        }
-        setKnownTools(options);
-      })
-      .catch((e: Error) => setErr(e.message));
-  }, []);
 
   // 分组选项来自后端枚举，编辑器的下拉与目录页筛选用同一份数据
   useEffect(() => {
@@ -222,7 +172,6 @@ export function SkillEditor({
         setRisk(skill.class);
         setGroup(skill.group ?? 'other');
         setInstructions(skill.instructions ?? '');
-        setTools(skill.tools ?? []);
         setInjectState(skill.inject_state === true);
         setFiles({
           references: (skill.references ?? []).map((f) => ({ path: f.path, text: f.text ?? '', base64: '' })),
@@ -284,13 +233,12 @@ export function SkillEditor({
       preapproved_tools: '',
       risk,
       group,
-      tools,
       inject_state: injectState,
       references: toWire('references'),
       assets: toWire('assets'),
       scripts: toWire('scripts'),
     };
-  }, [key, description, instructions, risk, group, tools, injectState, files]);
+  }, [key, description, instructions, risk, group, injectState, files]);
 
   const submit = async () => {
     setErr(null);
@@ -308,43 +256,6 @@ export function SkillEditor({
       setSubmitting(false);
     }
   };
-
-  const toggleTool = (name: string) => {
-    setTools((cur) => (cur.includes(name) ? cur.filter((item) => item !== name) : [...cur, name]));
-  };
-
-  // 工具分组：内置工具一组，每个 MCP Server 一组；已声明但目录里已不存在的
-  // 单独成组（可取消勾选，否则改名/删 Server 后就没法去掉旧声明）。
-  const toolGroups = useMemo(() => {
-    const query = toolQuery.trim().toLowerCase();
-    const matches = (name: string, description: string) =>
-      query === '' || `${name} ${description}`.toLowerCase().includes(query);
-
-    const groups: { key: string; label: string; items: ToolOption[] }[] = [];
-    for (const tool of knownTools) {
-      if (!matches(tool.name, tool.description)) continue;
-      const hit = groups.find((group) => group.key === tool.group);
-      if (hit === undefined) {
-        groups.push({ key: tool.group, label: tool.groupLabel, items: [tool] });
-      } else {
-        hit.items.push(tool);
-      }
-    }
-    const missing = tools
-      .filter((name) => !knownTools.some((tool) => tool.name === name))
-      .filter((name) => matches(name, ''))
-      .map((name) => ({
-        name,
-        description: '',
-        group: 'missing',
-        groupLabel: tr('目录外（Server 未探测或已删除）', 'Outside catalog (server not verified or removed)'),
-        available: false,
-      }));
-    if (missing.length > 0) {
-      groups.push({ key: 'missing', label: missing[0].groupLabel, items: missing });
-    }
-    return groups;
-  }, [knownTools, tools, toolQuery, tr]);
 
   // 必填项分散在多个分区：缺失时给 tab 标状态点，底部给可定位提示，并禁用保存。
   const missingRequired: string[] = [];
@@ -505,78 +416,6 @@ export function SkillEditor({
                   {tr('frontmatter 由「基本信息」分区的字段生成，这里只写 Markdown 正文。', 'Frontmatter is generated from the Basics section; write only the Markdown body here.')}
                 </div>
               </Field>
-            </TabsContent>
-
-            <TabsContent value="tools" keepMounted className="min-h-[16rem] space-y-4">
-              <DetailSection title={tr('可调用工具 metadata.adk_additional_tools', 'Declared tools (metadata.adk_additional_tools)')}>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="text"
-                      value={toolQuery}
-                      onChange={(e) => setToolQuery(e.target.value)}
-                      placeholder={tr('搜索工具名或说明（内置 + MCP）', 'Search tool name or description (built-in + MCP)')}
-                      className="h-7 w-full text-[11px]"
-                      aria-label={tr('搜索可声明工具', 'Search declarable tools')}
-                    />
-                    <span className="shrink-0 text-[10px] text-zinc-500">
-                      {tr(`已选 ${tools.length}`, `${tools.length} selected`)}
-                    </span>
-                  </div>
-                  {knownTools.length === 0 ? (
-                    <div className="text-[11px] text-zinc-500">{tr('加载工具目录中…', 'Loading tool catalog…')}</div>
-                  ) : toolGroups.length === 0 ? (
-                    <div className="text-[11px] text-zinc-500">{tr('没有匹配的工具', 'No matching tool')}</div>
-                  ) : (
-                    toolGroups.map((group) => (
-                      <div key={group.key} className="overflow-hidden rounded-md border border-zinc-800/60">
-                        <div className="flex items-center gap-1.5 border-b border-zinc-800/60 bg-zinc-950/40 px-1.5 py-1">
-                          <span className="truncate font-sans text-[10px] text-zinc-400">{group.label}</span>
-                          <span className="shrink-0 text-[10px] text-zinc-600">{group.items.length}</span>
-                          <span className="ml-auto shrink-0 text-[10px] text-zinc-500">
-                            {tr(
-                              `已选 ${group.items.filter((item) => tools.includes(item.name)).length}`,
-                              `${group.items.filter((item) => tools.includes(item.name)).length} selected`,
-                            )}
-                          </span>
-                        </div>
-                        <div className="max-h-44 space-y-0.5 overflow-y-auto px-1 py-1">
-                          {group.items.map((tool) => {
-                            const checked = tools.includes(tool.name);
-                            return (
-                              <Label
-                                key={tool.name}
-                                className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-zinc-900/60"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() => toggleTool(tool.name)}
-                                  className="h-3.5 w-3.5 shrink-0 accent-indigo-500"
-                                  aria-label={tr(`声明工具 ${tool.name}`, `Declare tool ${tool.name}`)}
-                                />
-                                <span className="shrink-0 font-sans text-[11px] text-zinc-200">{tool.name}</span>
-                                {!tool.available && (
-                                  <Chip dense tone="warning">
-                                    {tr('不可用', 'unavailable')}
-                                  </Chip>
-                                )}
-                                <span className="truncate text-[10px] text-zinc-500">{tool.description}</span>
-                              </Label>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                  <div className="px-1.5 text-[11px] text-zinc-500">
-                    {tr(
-                      '勾选的工具会随技能一起可用，并在助理里自动勾选、不可屏蔽；MCP 工具进检索目录，模型按需 search/load 调用，同 Server 中未勾选的工具搜不到也调不了。不勾选 = 纯说明型技能。',
-                      'Checked tools open with the skill, are auto-selected in assistants and cannot be blocked; MCP tools join the search index and are loaded on demand, while unchecked tools of the same server stay unsearchable. None = an instruction-only skill.',
-                    )}
-                  </div>
-                </div>
-              </DetailSection>
             </TabsContent>
 
             <TabsContent value="resources" keepMounted className="min-h-[16rem] space-y-4">
@@ -810,9 +649,6 @@ export function SkillImportDialog({ onClose, onImported }: { onClose(): void; on
                 </span>
               </div>
               <div className="mt-1 text-[11px] text-zinc-400">{preview.description}</div>
-              {preview.tools.length > 0 && (
-                <div className="mt-1 font-sans text-[10px] text-zinc-500">tools: {preview.tools.join(', ')}</div>
-              )}
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

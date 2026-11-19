@@ -19,7 +19,7 @@ class ApprovalRule(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     # 停用的规则不参与匹配，保留配置便于恢复
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    # 工具名通配（fnmatch 语法）：run_workflow / mcp__obs-tools__* / *
+    # 工具名通配（fnmatch 语法）：delete_memory / mcp__obs-tools__* / *
     tool_pattern: Mapped[str] = mapped_column(String(256), nullable=False)
     # 空 = 全部助理；非空 = 仅该助理（agent name）
     agent_id: Mapped[str | None] = mapped_column(String(128), nullable=True)

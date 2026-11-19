@@ -39,14 +39,14 @@ flowchart TD
 `build_agent_tool_bundle` 是一次装配的单一收口，按固定顺序合成最终能力面：
 
 1. **技能解析**：`resolve_skills(db, agent.skills)` 得到运行时技能集合。
-2. **工具白名单**：`effective_allowed_tools(agent, runtime_skills)`；MCP server 按白名单过滤。
+2. **工具白名单**：`effective_allowed_tools(agent)`；MCP server 按白名单过滤（内置工具常驻装配、不走白名单）。
 3. **MCP 工具装配**：预热向量缓存后，二选一——
    - 无人值守节点已知要用哪些工具：`direct_mcp_tools=True` 时按名直接挂实体，跳过 search→load；
    - 对话路径：挂 `SearchableToolset`，白名单决定检索目录，命中的仍需 `search/load`。
-4. **确认名单**：`confirm_tool_names_for_servers`（按 server 审批策略）+ 助理只读模式下该助理用到的全部 MCP 工具。
-5. **禁用名单**：`agent_disallowed_tool_names`。若与技能声明工具冲突（配置漂移：技能后加声明、助理已屏蔽），留痕日志。
-6. **非 safe 内置工具默认进闸**：如 `run_workflow`（risk=mutating）默认进确认名单；审批规则 `auto_approve` 可免审——**风险定级与是否审批是两根轴**。
-7. **审批规则动作**：`resolve_actions` → `rule_actions` → `apply_rule_actions` 改写确认/禁用名单（首条命中，规则优先于 server 策略）。
+4. **确认名单**：MCP 工具默认免审（无 server 策略）；只有助理只读模式下把该助理用到的全部 MCP 工具拉进确认名单。
+5. **禁用名单**：`agent_disallowed_tool_names`。
+6. **非 safe 内置工具默认进闸**：如 `delete_memory`（risk=mutating）默认进确认名单，内置工具按自身 risk 决定审批、不受审批规则控制。
+7. **审批规则动作**：`resolve_actions` 只匹配 MCP 工具 → `rule_actions` → `apply_rule_actions` 改写确认/禁用名单（首条命中；未命中规则的 MCP 工具免审）。
 8. **产出 bundle**：`allowed_tools / confirm_tool_names / disallowed_tool_names / rule_actions / runtime_skills` 交给 agent_factory 装配。
 
 ## 提示词三块来源

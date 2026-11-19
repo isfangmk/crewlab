@@ -308,7 +308,7 @@ export default function ApprovalRulesPage() {
                 id="rule-pattern"
                 value={draft.tool_pattern}
                 onChange={(e) => setDraft({ ...draft, tool_pattern: e.target.value })}
-                placeholder={tr('例：mcp__obs-tools__* / run_workflow / *', 'e.g. mcp__obs-tools__* / run_workflow / *')}
+                placeholder={tr('例：mcp__obs-tools__* / *', 'e.g. mcp__obs-tools__* / *')}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">

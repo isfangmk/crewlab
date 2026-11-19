@@ -45,15 +45,15 @@ class TestToolSurface:
             assert n in names
 
     def test_readonly_heuristic_labels(self):
-        """查询工具过只读启发式 → 安全；写工具不过 → 需审批（与后端判定同口径）。"""
+        """查询工具过只读启发式 → safe；写工具不过 → mutating（供审批规则过滤）。"""
 
         import server as obs_server
 
-        from app.services.mcp.mcp_service import _needs_approval
+        from app.services.mcp.mcp_service import _tool_looks_readonly
 
         names = set(obs_server.server._tool_manager._tools)
-        approval_needed = {n for n in names if _needs_approval("non_readonly", n, "")}
-        assert approval_needed == {"acknowledge_alert", "create_silence"}
+        mutating = {n for n in names if not _tool_looks_readonly(n, "")}
+        assert mutating == {"acknowledge_alert", "create_silence"}
 
 
 class TestIncidentCrossDomain:

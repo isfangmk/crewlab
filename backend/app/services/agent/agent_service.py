@@ -527,50 +527,26 @@ async def validate_skill_binding(
     allowed_tools: list[str],
     disallowed_tools: list[str],
 ) -> tuple[list[str], list[str]]:
-    """校验技能勾选，并把技能声明的工具并入白名单。
+    """校验技能勾选：技能 key 必须存在。
 
-    口径：
-      - 技能声明的工具随技能自动并入 allowed_tools（空白名单 = 继承全部，无需并入）；
-      - 技能声明的工具不允许出现在 disallowed_tools（技能要靠这些工具工作），
-        违反时显式 400，不静默剔除；
-      - 技能 key 必须存在。
+    工具能力由助理白名单统一管理，内置工具常驻全挂。
     """
 
-    declared = await skill_declared_tools(db, skills)
-    blocked = sorted(set(disallowed_tools) & declared)
-    if blocked:
-        raise ValueError(
-            f"以下工具由技能声明，不能屏蔽（如需去掉请取消勾选对应技能）: {blocked}"
-        )
-    if len(allowed_tools) == 0:
-        return list(allowed_tools), list(disallowed_tools)
-    merged = list(allowed_tools)
-    for name in sorted(declared):
-        if name not in merged:
-            merged.append(name)
-    return merged, list(disallowed_tools)
+    await validate_skill_keys(db, skills)
+    return list(allowed_tools), list(disallowed_tools)
 
 
-async def skill_declared_tools(db: AsyncSession, skills: list[str] | None) -> set[str]:
-    """勾选技能声明的工具名集合；未知技能 key 显式报错。"""
+async def validate_skill_keys(db: AsyncSession, skills: list[str] | None) -> None:
+    """勾选的技能 key 必须存在；None = 继承全部，无需校验。"""
 
     from app.services.skills.skills_service import list_skill_entries
 
-    entries = await list_skill_entries(db)
-    by_key = {entry.skill.name: entry for entry in entries}
-    selected = by_key.keys() if skills is None else skills
-    names: set[str] = set()
-    for key in selected:
-        entry = by_key.get(key)
-        if entry is None:
-            raise ValueError(f"技能不存在: {key}")
-        raw = entry.skill.frontmatter.metadata.get("adk_additional_tools")
-        if raw is None:
-            continue
-        if not isinstance(raw, list):
-            raise TypeError(f"技能 {key} 的 adk_additional_tools 必须是数组")
-        names.update(str(item) for item in raw)
-    return names
+    if skills is None:
+        return
+    by_key = {entry.skill.name for entry in await list_skill_entries(db)}
+    missing = [key for key in skills if key not in by_key]
+    if missing:
+        raise ValueError(f"技能不存在: {missing}")
 
 
 async def list_agents(db: AsyncSession) -> list[ResolvedAgent]:
@@ -905,17 +881,11 @@ async def delete_user_agent(db: AsyncSession, name: str) -> None:
     logger.info("删除用户助理 name=%s", name)
 
 
-def mcp_server_names_from_tools(tools: list[str]) -> set[str] | None:
-    """从 tools 白名单提取 MCP server 名。
-
-    返回 None 表示未限制（空白名单 = 继承全部 MCP）。
-    返回空 set 表示白名单非空但不含任何 mcp__* 项。
-    """
+def mcp_server_names_from_tools(tools: list[str]) -> set[str]:
+    """从 tools 白名单提取 MCP server 名；空白名单不挂任何 MCP。"""
 
     from app.services.mcp.mcp_service import mcp_server_name_from_wire_name
 
-    if len(tools) == 0:
-        return None
     names: set[str] = set()
     for key in tools:
         if not key.startswith("mcp__"):
@@ -924,22 +894,13 @@ def mcp_server_names_from_tools(tools: list[str]) -> set[str] | None:
     return names
 
 
-def effective_allowed_tools(agent: ResolvedAgent, skills: list) -> list[str]:
-    """运行时白名单：助理存储的白名单 + 已装配技能声明的工具。
+def effective_allowed_tools(agent: ResolvedAgent) -> list[str]:
+    """MCP 工具白名单：助理勾选的 MCP 工具；空列表表示不挂任何 MCP。
 
-    空白名单表示「继承全部」，不需要并入；技能声明的 MCP 工具在这里补齐，
-    否则技能后加声明时 Server 不会被挂载。
+    内置工具常驻全挂、不进白名单；白名单只决定哪些 MCP Server 进检索目录。
     """
 
-    from app.services.skills.skills_service import declared_tools_of_skills
-
-    if len(agent.tools) == 0:
-        return []
-    merged = list(agent.tools)
-    for name in sorted(declared_tools_of_skills(skills)):
-        if name not in merged:
-            merged.append(name)
-    return merged
+    return list(agent.tools)
 
 
 def filter_mcp_servers_by_tools(
@@ -949,8 +910,6 @@ def filter_mcp_servers_by_tools(
     """按工具白名单筛选可挂载的 MCP Server（按 mcp__<server>__* 的 server 段）。"""
 
     allowed_names = mcp_server_names_from_tools(allowed_tools)
-    if allowed_names is None:
-        return servers
     # wire 的 server 段就是 McpServer.name 原值，直接比对。
     return [s for s in servers if s.name in allowed_names]
 
@@ -965,7 +924,7 @@ def filter_mcp_servers_for_agent(
     logger.info(
         "按助理筛选 MCP agent=%s allowed_servers=%s matched=%s",
         agent.name,
-        sorted(mcp_server_names_from_tools(agent.tools) or []),
+        sorted(mcp_server_names_from_tools(agent.tools)),
         [s.name for s in filtered],
     )
     return filtered

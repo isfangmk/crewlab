@@ -73,29 +73,6 @@ def _validate_skill_key(key: str) -> str:
     return key
 
 
-def _decode_tools(tools: Any) -> list[str] | None:
-    """LLM 产出的 tools 可能是数组，也可能是 JSON / 逗号分隔字符串，统一解成列表。"""
-
-    if tools is None:
-        return None
-    if isinstance(tools, str):
-        raw = tools.strip()
-        if raw == "":
-            return None
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            parsed = [item.strip() for item in raw.split(",")]
-        if isinstance(parsed, str):
-            parsed = [parsed]
-        if not isinstance(parsed, list):
-            raise ValueError("tools 必须是字符串数组或 JSON 数组字符串")
-        return [str(item).strip() for item in parsed if str(item).strip() != ""]
-    if isinstance(tools, (list, tuple)):
-        return [str(item).strip() for item in tools if str(item).strip() != ""]
-    raise ValueError("tools 类型非法")
-
-
 def _as_files(value: Any, *, scripts: bool = False) -> dict[str, Any] | None:
     """资源入参归一化：dict 直用；wire 列表 / JSON 字符串走 skill_bundle 解码。"""
 
@@ -145,7 +122,7 @@ def _resolve_group(metadata: dict[str, Any], explicit: str | None, *, key: str) 
     return validate_skill_group(explicit)
 
 
-def _result(row: Any, payload: SkillPayload) -> dict:
+def _result(row: Any) -> dict:
     """工具返回值：key + summary，前端据此展示技能卡片。"""
 
     return {
@@ -156,7 +133,6 @@ def _result(row: Any, payload: SkillPayload) -> dict:
             "risk": row.risk,
             "group": row.skill_group,
             "origin": row.origin,
-            "tools": payload.declared_tools(),
         },
     }
 
@@ -388,7 +364,6 @@ async def create_skill_from_chat(
     risk: str,
     group: str,
     preapproved_tools: str = "",
-    tools: Any = None,
     references: Any = None,
     assets: Any = None,
     scripts: Any = None,
@@ -402,9 +377,6 @@ async def create_skill_from_chat(
     validate_skill_group(group)
 
     metadata: dict[str, Any] = {}
-    decoded_tools = _decode_tools(tools)
-    if decoded_tools:
-        metadata["adk_additional_tools"] = decoded_tools
     payload = SkillPayload(
         key=key,
         description=description,
@@ -428,10 +400,9 @@ async def create_skill_from_chat(
             "via": "chat",
             "risk": row.risk,
             "group": row.skill_group,
-            "tools": payload.declared_tools(),
         },
     )
-    return _result(row, payload)
+    return _result(row)
 
 
 async def install_skill_from_url(
@@ -468,7 +439,6 @@ async def install_skill_from_url(
         payload,
         risk=resolved_risk,
         group=resolved_group,
-        forbid_unknown_tools=False,
         origin="imported",
     )
     logger.info(
@@ -492,7 +462,7 @@ async def install_skill_from_url(
             "group": row.skill_group,
         },
     )
-    return _result(row, payload)
+    return _result(row)
 
 
 async def install_skill_from_zip(
@@ -521,7 +491,6 @@ async def install_skill_from_zip(
         payload,
         risk=resolved_risk,
         group=resolved_group,
-        forbid_unknown_tools=False,
         origin="imported",
     )
     logger.info(
@@ -545,4 +514,4 @@ async def install_skill_from_zip(
             "group": row.skill_group,
         },
     )
-    return _result(row, payload)
+    return _result(row)

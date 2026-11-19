@@ -2,8 +2,7 @@ import { request } from './client';
 import type { ToolRisk } from './tools';
 
 /** MCP Server 列表/详情响应字段。 */
-export type McpApprovalPolicy = 'never' | 'non_readonly' | 'always';
-export type McpTransport = 'http' | 'sse' | 'stdio';
+export type McpTransport = 'http' | 'stdio';
 
 export interface McpServer {
   id: number;
@@ -17,8 +16,7 @@ export interface McpServer {
   env_json: string;
   credential: string;
   header_template_json: string;
-  approval_policy: McpApprovalPolicy;
-  /** 每个缓存工具的风险标签：工具名 → safe | mutating（后端按只读启发式现算，与审批策略无关） */
+  /** 每个缓存工具的风险标签：工具名 → safe | mutating（后端按只读启发式现算，供审批规则过滤） */
   tool_risks: Record<string, ToolRisk>;
   enabled: boolean;
   status: string;
@@ -62,7 +60,6 @@ export interface McpServerInput {
   endpoint: string;
   credential: string;
   header_template_json: string;
-  approval_policy: McpApprovalPolicy;
   enabled: boolean;
   command: string;
   args_json: string;
@@ -233,7 +230,7 @@ export interface McpPromptGetResp {
 export interface McpRegistryItem {
   name: string;
   description: string;
-  transport: 'http' | 'sse';
+  transport: 'http';
   endpoint: string;
   hint: string;
 }

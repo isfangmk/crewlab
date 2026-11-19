@@ -43,7 +43,7 @@ class UserSkill(Base):
     )
     # SKILL.md 正文（frontmatter 之后的 Markdown）
     instructions: Mapped[str] = mapped_column(Text, nullable=False)
-    # frontmatter.metadata：adk_additional_tools / adk_inject_state 等
+    # frontmatter.metadata：risk / group / adk_inject_state 等平台侧属性
     metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}", server_default="{}")
     # 资源目录：JSON 数组 [{path, text} | {path, base64}]
     references_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")

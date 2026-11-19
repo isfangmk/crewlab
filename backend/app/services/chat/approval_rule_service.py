@@ -1,7 +1,7 @@
 """审批规则解析：工具×助理×风险 首条命中生效，匹配顺序确定可测。
 
-规则优先于 per-server 三档策略与会话信任：命中 block/require_approval/escalate
-的工具不被会话信任豁免；auto_approve 直接免审。未命中规则的工具维持现状语义。
+规则只匹配 MCP 工具：命中 block/require_approval/escalate 的工具不被会话信任豁免；
+auto_approve 直接免审。未命中规则的 MCP 工具默认免审。内置工具不受审批规则控制。
 """
 
 from __future__ import annotations

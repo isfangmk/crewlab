@@ -79,7 +79,6 @@ const catalog = {
   ],
   models: [],
   mcp_tools: [],
-  builtin_tools: [],
 };
 
 function definition(): WorkflowDefinition {

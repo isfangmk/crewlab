@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import base64
-import inspect
 import json
 import logging
 from collections.abc import Mapping
@@ -22,14 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app as _app_pkg
 from app.adk_runtime.sandbox_code_executor import SandboxCodeExecutor
-from app.adk_runtime.toolset import build_knowledge_tools
 from app.models.skill import UserSkill
-from app.services.knowledge.knowledge_scope import KnowledgeScope
-from app.services.mcp import mcp_service
-from app.services.mcp.mcp_service import McpToolRef
 from app.services.skills import skill_bundle, skill_groups
 from app.services.skills.skill_bundle import RISK_LEVELS, SkillPayload
-from app.tools.catalog import tool_param_specs
 
 logger = logging.getLogger(__name__)
 
@@ -64,26 +58,22 @@ def load_local_skills() -> list[Skill]:
 
 
 def build_skill_toolset(
-    scope: KnowledgeScope | None = None,
     skills: list[Skill] | None = None,
 ) -> SkillToolset:
     """EAGER：目录写入系统提示，避免无差别 list_skills；真正正文仍靠 load_skill 按需注入。
 
-    scope 是助理的知识范围，注入给 query_knowledge（空 = 全库）。
     skills 是助理勾选的技能集合；None 表示继承全部（磁盘 + 用户技能）。
+    本 toolset 只装配技能；知识检索由内置工具集常驻装配。
     """
 
     resolved = list(load_local_skills()) if skills is None else list(skills)
-    knowledge_tools = build_knowledge_tools(scope)
     logger.info(
-        "装配技能集 skills=%s knowledge_tools=%s",
+        "装配技能集 skills=%s",
         [skill.name for skill in resolved],
-        len(knowledge_tools),
     )
     return SkillToolset(
         skills=resolved,
         discovery_mode=SkillDiscoveryMode.EAGER,
-        additional_tools=knowledge_tools,
         # 技能脚本在沙盒里跑：技能可以来自用户 zip 导入，
         # 直接在宿主进程执行等于把宿主机交给第三方脚本。
         code_executor=SandboxCodeExecutor(),
@@ -95,36 +85,6 @@ def _require_meta_str(meta: dict, key: str, skill_name: str) -> str:
     if not isinstance(value, str) or value == "":
         raise ValueError(f"skill metadata.{key} 必须是非空字符串: {skill_name}")
     return value
-
-
-def _skill_declared_tools(skill: Skill) -> list[str]:
-    """技能声明的工具；不是每个技能都要挂工具，所以允许缺省与空数组。"""
-
-    meta = skill.frontmatter.metadata
-    if not isinstance(meta, dict):
-        raise TypeError(f"skill metadata 必须是对象: {skill.frontmatter.name}")
-    extra = meta.get("adk_additional_tools")
-    if extra is None:
-        return []
-    if not isinstance(extra, list):
-        raise TypeError(f"adk_additional_tools 必须是数组: {skill.frontmatter.name}")
-    for i, name in enumerate(extra):
-        if not isinstance(name, str) or name == "":
-            raise TypeError(f"adk_additional_tools[{i}] 必须是非空字符串: {skill.frontmatter.name}")
-    return list(extra)
-
-
-def declared_tools_of_skills(skills: list[Skill]) -> set[str]:
-    """一组已装配技能声明的工具名（内置工具名或 MCP wire 名）。
-
-    运行时用它把技能声明的 MCP 工具补进白名单：技能可以先建后改，
-    只依赖保存助理时并入的那一份会漏掉后来新增的声明。
-    """
-
-    names: set[str] = set()
-    for skill in skills:
-        names.update(_skill_declared_tools(skill))
-    return names
 
 
 def _resource_wire(
@@ -155,15 +115,11 @@ def _resource_wire(
 def skill_to_wire(
     entry: SkillEntry,
     include_contents: bool = False,
-    mcp_tools: dict[str, McpToolRef] | None = None,
 ) -> dict:
     """映射为前端 SkillSummary。
 
-    风险等级与参数从 SKILL.md frontmatter 与工具签名读取，
-    不写死：写死会让前端把任意技能都当成可安全执行。
-
-    声明的工具可以是两类：内置工具（注册表里的函数）或 MCP 工具（wire 名
-    mcp__<server>__<tool>，参数来自探测缓存的 input_schema）。
+    风险等级与参数从 SKILL.md frontmatter 读取，不写死：写死会让前端把任意
+    技能都当成可安全执行。工具能力由助理统一授予。
     """
 
     skill = entry.skill
@@ -175,47 +131,6 @@ def skill_to_wire(
     risk = _require_meta_str(meta, "risk", fm.name)
     if risk not in RISK_LEVELS:
         raise ValueError(f"skill metadata.risk 非法: {fm.name} risk={risk}")
-    tools = _skill_declared_tools(skill)
-    mcp_catalog = mcp_tools if mcp_tools is not None else {}
-
-    registry = builtin_tool_registry()
-    params: list[dict] = []
-    tool_refs: list[dict[str, Any]] = []
-    for tool_name in tools:
-        func = registry.get(tool_name)
-        if func is not None:
-            doc = inspect.getdoc(func) or ""
-            tool_refs.append(
-                {
-                    "name": tool_name,
-                    "kind": "builtin",
-                    "available": True,
-                    "description": doc.splitlines()[0] if doc != "" else "",
-                }
-            )
-            params.extend(tool_param_specs(func))
-            continue
-        ref = mcp_catalog.get(tool_name)
-        if ref is not None:
-            # Server 停用 / 探测失败时工具仍在目录里，但运行时不会挂载
-            tool_refs.append(
-                {
-                    "name": tool_name,
-                    "kind": "mcp",
-                    "server": ref.server_name,
-                    "available": ref.available,
-                    "description": ref.description,
-                }
-            )
-            params.extend(mcp_service.skill_params_from_schema(ref.input_schema))
-            continue
-        # 技能声明了平台没有的工具：显式暴露为不可执行，
-        # 不能在技能页显示一个必然失败的「执行」按钮。
-        tool_refs.append(
-            {"name": tool_name, "kind": "unknown", "available": False, "description": ""}
-        )
-
-    executable = all(bool(ref["available"]) for ref in tool_refs)
 
     return {
         "key": fm.name,
@@ -226,24 +141,12 @@ def skill_to_wire(
         "preapproved_tools": fm.allowed_tools or "",
         "inject_state": meta.get("adk_inject_state") is True,
         "instructions": skill.instructions,
-        "params": params,
         "source": entry.source,
         "origin": entry.origin,
-        "inventory_only": not executable,
-        "tools": tools,
-        "tool_refs": tool_refs,
         "references": _resource_wire(skill.resources.references, include_contents),
         "assets": _resource_wire(skill.resources.assets, include_contents),
         "scripts": _resource_wire(skill.resources.scripts, include_contents),
     }
-
-
-def builtin_tool_registry() -> dict[str, Any]:
-    """内置工具注册表（延迟导入避免循环依赖）。"""
-
-    from app.tools.catalog import builtin_tool_registry as _registry
-
-    return _registry()
 
 
 # ---------------------------------------------------------------- DB 读写
@@ -330,37 +233,14 @@ async def get_skill_entry(db: AsyncSession, key: str) -> SkillEntry:
     raise LookupError(f"技能不存在: {key}")
 
 
-async def load_tool_catalog(
-    db: AsyncSession,
-) -> tuple[dict[str, Any], dict[str, McpToolRef]]:
-    """技能可以声明的工具全集：内置工具注册表 + MCP 探测缓存。"""
-
-    return builtin_tool_registry(), await mcp_service.mcp_tool_catalog(db)
-
-
 def _validate_save_payload(
     payload: SkillPayload,
     risk: str,
     group: str,
-    forbid_unknown_tools: bool,
-    known_tools: set[str],
 ) -> None:
     if risk not in RISK_LEVELS:
         raise ValueError(f"风险等级必须是 {'/'.join(RISK_LEVELS)}: {risk}")
     skill_groups.validate_skill_group(group)
-    if forbid_unknown_tools:
-        declared = payload.declared_tools()
-        unknown = [name for name in declared if name not in known_tools]
-        if unknown:
-            hint = ""
-            if any(name.startswith("mcp__") for name in unknown):
-                hint = (
-                    "；mcp__ 开头的工具来自 MCP Server 的探测缓存，"
-                    "请先在 MCP 页「测试连接」并确认工具名"
-                )
-            raise ValueError(
-                f"技能声明的工具不在工具目录（内置工具 + MCP 工具）: {unknown}{hint}"
-            )
     skill_bundle.validate_payload(payload)
     # 平台侧属性写进 metadata，导出的 SKILL.md 才能原样往返
     payload.metadata["risk"] = risk
@@ -372,17 +252,9 @@ async def create_user_skill(
     payload: SkillPayload,
     risk: str,
     group: str,
-    forbid_unknown_tools: bool = True,
     origin: SkillOrigin = "created",
 ) -> UserSkill:
-    registry, mcp_catalog = await load_tool_catalog(db)
-    _validate_save_payload(
-        payload,
-        risk,
-        group,
-        forbid_unknown_tools,
-        known_tools=set(registry) | set(mcp_catalog),
-    )
+    _validate_save_payload(payload, risk, group)
     if await db.get(UserSkill, payload.key) is not None:
         raise ValueError(f"技能已存在: {payload.key}")
     for entry in await list_skill_entries(db):
@@ -405,11 +277,10 @@ async def create_user_skill(
     await db.commit()
     await db.refresh(row)
     logger.info(
-        "创建技能 key=%s origin=%s risk=%s tools=%s references=%s assets=%s scripts=%s",
+        "创建技能 key=%s origin=%s risk=%s references=%s assets=%s scripts=%s",
         row.key,
         origin,
         risk,
-        payload.declared_tools(),
         len(payload.references),
         len(payload.assets),
         len(payload.scripts),
@@ -423,18 +294,10 @@ async def update_user_skill(
     payload: SkillPayload,
     risk: str,
     group: str,
-    forbid_unknown_tools: bool = True,
 ) -> UserSkill:
     if payload.key != key:
         raise ValueError(f"技能名不能修改: {key} -> {payload.key}")
-    registry, mcp_catalog = await load_tool_catalog(db)
-    _validate_save_payload(
-        payload,
-        risk,
-        group,
-        forbid_unknown_tools,
-        known_tools=set(registry) | set(mcp_catalog),
-    )
+    _validate_save_payload(payload, risk, group)
     row = await db.get(UserSkill, key)
     if row is None:
         raise LookupError(f"技能不存在或为内置技能: {key}")
@@ -449,7 +312,7 @@ async def update_user_skill(
     row.scripts_json = skill_bundle.encode_files(payload.scripts)
     await db.commit()
     await db.refresh(row)
-    logger.info("更新技能 key=%s tools=%s", row.key, payload.declared_tools())
+    logger.info("更新技能 key=%s", row.key)
     return row
 
 
@@ -484,27 +347,20 @@ def _payload_from_entry(entry: SkillEntry) -> SkillPayload:
 
 
 async def list_skill_summaries(db: AsyncSession) -> list[dict]:
-    mcp_tools = await mcp_service.mcp_tool_catalog(db)
-    return [skill_to_wire(entry, mcp_tools=mcp_tools) for entry in await list_skill_entries(db)]
+    return [skill_to_wire(entry) for entry in await list_skill_entries(db)]
 
 
 async def get_skill_summary(db: AsyncSession, key: str) -> dict:
     """详情：带资源正文，供详情查看与在线编辑回填（避免编辑丢资源）。"""
 
-    mcp_tools = await mcp_service.mcp_tool_catalog(db)
     entry = await get_skill_entry(db, key)
-    return skill_to_wire(entry, include_contents=True, mcp_tools=mcp_tools)
+    return skill_to_wire(entry, include_contents=True)
 
 
-async def disk_skill_summaries(db: AsyncSession) -> list[dict]:
-    """只读磁盘技能（重载校验用）。MCP 目录一并带入，声明的 MCP 工具才判得准。"""
+async def disk_skill_summaries() -> list[dict]:
+    """只读磁盘技能（重载校验用）。"""
 
-    mcp_tools = await mcp_service.mcp_tool_catalog(db)
     return [
-        skill_to_wire(
-            SkillEntry(skill=skill, source="disk", origin="builtin"),
-            mcp_tools=mcp_tools,
-        )
-
+        skill_to_wire(SkillEntry(skill=skill, source="disk", origin="builtin"))
         for skill in load_local_skills()
     ]

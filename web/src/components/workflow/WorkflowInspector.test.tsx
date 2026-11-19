@@ -1,7 +1,6 @@
 // 节点设置里的下拉框是表单控件，必须撑满字段宽度。
 // Select 默认 w-auto（给筛选器的幽灵态用），漏写 w-full 时会缩成只剩一个箭头。
-// 工具节点同时覆盖内置工具与 MCP 两种来源：页签切换会清空另一套字段。
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { WorkflowInspector } from './WorkflowInspector';
@@ -50,29 +49,6 @@ const catalog: WorkflowCatalog = {
       params_known: false,
     },
   ],
-  builtin_tools: [
-    {
-      name: 'get_workflow_run',
-      group: 'workflow',
-      group_title: '工作流',
-      group_title_en: 'Workflow',
-      description: '查单次运行的逐节点结果',
-      risk: 'safe',
-      params: [
-        { name: 'run_uid', type: 'string', required: true, desc: '运行流水号' },
-        { name: 'max_chars', type: 'int', required: false, default: 2000 },
-      ],
-    },
-    {
-      name: 'list_workflows',
-      group: 'workflow',
-      group_title: '工作流',
-      group_title_en: 'Workflow',
-      description: '列出工作流',
-      risk: 'safe',
-      params: [{ name: 'limit', type: 'int', required: false, default: 20 }],
-    },
-  ],
 };
 
 function renderNode(kind: NodeKind, setup?: (node: WorkflowNode) => void) {
@@ -114,67 +90,6 @@ describe('节点设置表单宽度', () => {
   ])('%s 下拉框撑满字段宽度', (label, kind, setup) => {
     renderNode(kind, setup);
     expect(screen.getByRole('combobox', { name: label })).toHaveClass('w-full');
-  });
-});
-
-describe('工具节点来源页签', () => {
-  it('选中页签用主色实底，未选中页签保持弱化', () => {
-    renderNode('mcp', (node) => {
-      node.mcp_server = 'obs-tools';
-      node.mcp_tool = 'query_metric';
-    });
-
-    expect(screen.getByRole('tab', { name: 'MCP 工具' })).toHaveClass('bg-indigo-500');
-    expect(screen.getByRole('tab', { name: '内置工具' })).not.toHaveClass('bg-indigo-500');
-  });
-
-  it('内置工具页签按工具签名渲染参数表单', () => {
-    renderNode('mcp', (node) => {
-      node.tool_source = 'builtin';
-      node.tool_name = 'get_workflow_run';
-      node.arguments = { run_uid: '{{run}}' };
-    });
-
-    expect(screen.getByRole('tab', { name: '内置工具' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('combobox', { name: '内置工具' })).toHaveClass('w-full');
-    expect(screen.getByRole('textbox', { name: 'run_uid' })).toHaveValue('{{run}}');
-    expect(screen.getByRole('textbox', { name: 'max_chars' })).toHaveAttribute('placeholder', '2000');
-  });
-
-  it('切到 MCP 页签会清空内置工具字段', () => {
-    const { onNodeChange } = renderNode('mcp', (node) => {
-      node.tool_source = 'builtin';
-      node.tool_name = 'query_knowledge';
-      node.arguments = { query: 'DNS' };
-    });
-
-    fireEvent.click(screen.getByRole('tab', { name: 'MCP 工具' }));
-
-    expect(onNodeChange).toHaveBeenCalledWith({
-      tool_source: 'mcp',
-      tool_name: '',
-      mcp_server: '',
-      mcp_tool: '',
-      arguments: {},
-    });
-  });
-
-  it('切到内置工具页签会清空 MCP 字段', () => {
-    const { onNodeChange } = renderNode('mcp', (node) => {
-      node.mcp_server = 'iomp';
-      node.mcp_tool = 'read_ssh_start';
-      node.arguments = { cmd: 'uptime' };
-    });
-
-    fireEvent.click(screen.getByRole('tab', { name: '内置工具' }));
-
-    expect(onNodeChange).toHaveBeenCalledWith({
-      tool_source: 'builtin',
-      tool_name: '',
-      mcp_server: '',
-      mcp_tool: '',
-      arguments: {},
-    });
   });
 });
 

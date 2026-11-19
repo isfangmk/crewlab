@@ -145,7 +145,7 @@ export interface ApprovalRule {
   id: string;
   name: string;
   enabled: boolean;
-  /** 工具名通配（fnmatch）：run_workflow / mcp__obs-tools__* / * */
+  /** 工具名通配（fnmatch）：mcp__obs-tools__* / * */
   tool_pattern: string;
   /** 空 = 全部助理（agent name） */
   agent_id: string | null;

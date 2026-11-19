@@ -39,17 +39,6 @@ export const SKILL_GROUPS: SkillGroup[] = [
 /** 分组目录项：key + 中英文标题（标题跟随 UI 语言）。 */
 export type SkillGroupMeta = { key: SkillGroup; title: string; title_en: string };
 
-export type SkillParamType = 'string' | 'int' | 'float' | 'bool';
-
-export type SkillParamDef = {
-  name: string;
-  type: SkillParamType;
-  required?: boolean;
-  default?: unknown;
-  desc?: string;
-  enum?: string[];
-};
-
 /** 技能包里的一个资源文件；详情/编辑接口会带上 text 或 base64。 */
 export type SkillFile = {
   path: string;
@@ -57,20 +46,6 @@ export type SkillFile = {
   binary: boolean;
   text?: string;
   base64?: string;
-};
-
-/**
- * 技能声明的一个工具。kind=builtin 是内置工具；kind=mcp 是 MCP Server 的工具，
- * 名字形如 mcp__<server>__<tool>（与后端 mcp_tool_wire_name 一致）；
- * kind=unknown 表示目录里已不存在（Server 删除或工具改名）。
- */
-export type SkillToolRef = {
-  name: string;
-  kind: 'builtin' | 'mcp' | 'unknown';
-  server?: string;
-  /** Server 停用 / 探测失败时为 false：声明仍合法，但运行时不会挂载 */
-  available: boolean;
-  description: string;
 };
 
 export type SkillSummary = {
@@ -89,13 +64,6 @@ export type SkillSummary = {
   inject_state?: boolean;
   // SKILL.md 正文
   instructions?: string;
-  params: SkillParamDef[];
-  // true：技能声明的工具不在注册表（目录可见，对话侧也调不了）。
-  inventory_only?: boolean;
-  // 技能 frontmatter 声明的工具名。
-  tools?: string[];
-  // 声明工具的来源与可用性（内置 / MCP / 目录已不存在）
-  tool_refs?: SkillToolRef[];
   references?: SkillFile[];
   assets?: SkillFile[];
   scripts?: SkillFile[];
@@ -111,7 +79,6 @@ export type SkillPayloadInput = {
   preapproved_tools: string;
   risk: SkillClass;
   group: SkillGroup;
-  tools: string[];
   inject_state: boolean;
   references: { path: string; text?: string; base64?: string }[];
   assets: { path: string; text?: string; base64?: string }[];
@@ -125,7 +92,6 @@ export type SkillZipPreview = {
   preapproved_tools: string;
   risk: SkillClass | null;
   group: SkillGroup | null;
-  tools: string[];
   inject_state: boolean;
   references: SkillFile[];
   assets: SkillFile[];

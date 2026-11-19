@@ -58,4 +58,4 @@ def summarize(topic: str) -> str:
 
 
 if __name__ == "__main__":
-    server.run(transport="sse", host="127.0.0.1", port=int(sys.argv[1]))
+    server.run(transport="streamable-http", host="127.0.0.1", port=int(sys.argv[1]))

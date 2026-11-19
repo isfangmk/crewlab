@@ -191,7 +191,6 @@ describe('AgentsPage', () => {
           endpoint: 'https://mcp.example.com/mcp',
           credential: '',
           header_template_json: '{}',
-          approval_policy: 'always',
           tool_risks: { get_service_health: 'mutating' },
           enabled: true,
           status: 'ok',
@@ -222,12 +221,15 @@ describe('AgentsPage', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: /MCP Server/ }));
     expect(within(dialog).getByText('mcp · demo-operations')).toBeInTheDocument();
     expect(within(dialog).queryByText('mcp__demo-operations__get_service_health')).not.toBeInTheDocument();
-    // 白名单为空 = 继承全部，Server 直接显示为已挂载
-    expect(await within(dialog).findByText('mcp · demo-operations')).toBeInTheDocument();
+    // 新建助理默认不勾选 MCP：Server 显示为未挂载，检索目录为空
+    expect(within(dialog).getByText('未挂载')).toBeInTheDocument();
+    expect(within(dialog).getByText('MCP 可检索 0')).toBeInTheDocument();
+    expect(within(dialog).getByText('内置常驻 0')).toBeInTheDocument();
+
+    // 勾选 Server 后整台挂载，工具进检索目录
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /挂载 MCP Server demo-operations/ }));
     expect(within(dialog).getByText('已挂载')).toBeInTheDocument();
-    // 进上下文的只有内置工具；MCP 工具进检索目录，靠 search/load 调用
     expect(within(dialog).getByText('MCP 可检索 1')).toBeInTheDocument();
-    expect(within(dialog).getByText('内置 0')).toBeInTheDocument();
 
     // 工具清单默认折叠，展开后可见 wire 名
     await userEvent.click(within(dialog).getByRole('button', { name: /1 个工具/ }));
@@ -477,22 +479,13 @@ describe('AgentsPage', () => {
     expect(within(dialog).getByText('MySQL 慢查询排查')).toBeInTheDocument();
   });
 
-  it('能力绑定支持按工具、技能与 MCP 工具搜索', async () => {
+  it('能力绑定支持按技能与 MCP 工具搜索', async () => {
     server.use(
-      http.get('/api/v1/tools/builtin', () =>
-        HttpResponse.json({
-          items: [
-            { name: 'query_promql', description: 'Query Prometheus', risk: 'safe', mount: 'always' },
-            { name: 'query_incidents', description: 'List incidents', risk: 'mutating', mount: 'always' },
-          ],
-          total: 2,
-        }),
-      ),
       http.get(listURL, () =>
         HttpResponse.json({
           items: [
-            { key: 'sre-runbook', description: 'SRE runbook', tools: ['query_promql'] },
-            { key: 'k8s-ops', description: 'Kubernetes operations', tools: [] },
+            { key: 'promql-query', description: 'SRE runbook' },
+            { key: 'k8s-ops', description: 'Kubernetes operations' },
           ],
           total: 2,
         }),
@@ -506,7 +499,6 @@ describe('AgentsPage', () => {
             endpoint: 'https://mcp.example.com/mcp',
             credential: '',
             header_template_json: '{}',
-            approval_policy: 'always',
             tool_risks: { get_service_health: 'mutating' },
             enabled: true,
             status: 'ok',
@@ -535,12 +527,9 @@ describe('AgentsPage', () => {
 
     const search = within(dialog).getByRole('searchbox', { name: '搜索能力' });
     await userEvent.type(search, 'promql');
-    expect(await within(dialog).findByText('匹配 2 项')).toBeInTheDocument();
-    expect(within(dialog).getByText('query_promql')).toBeInTheDocument();
-    // 风险标签随目录行渲染：内置安全工具标「安全」
-    expect(within(dialog).getByText('安全')).toBeInTheDocument();
-    expect(within(dialog).queryByText('query_incidents')).not.toBeInTheDocument();
-    expect(within(dialog).getByText('sre-runbook')).toBeInTheDocument();
+    // 只按技能 key / 描述匹配；内置工具不在页面展示
+    expect(await within(dialog).findByText('匹配 1 项')).toBeInTheDocument();
+    expect(within(dialog).getByText('promql-query')).toBeInTheDocument();
     expect(within(dialog).queryByText('k8s-ops')).not.toBeInTheDocument();
     expect(within(dialog).queryByText('mcp · demo-operations')).not.toBeInTheDocument();
 

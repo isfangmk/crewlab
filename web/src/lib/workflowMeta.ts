@@ -213,8 +213,6 @@ export function emptyNode(kind: NodeKind, id: string, position: { x: number; y: 
     query: '',
     limit: 5,
     paths: [],
-    tool_source: 'mcp',
-    tool_name: '',
     mcp_server: '',
     mcp_tool: '',
     arguments: {},
@@ -265,9 +263,6 @@ export function nodeIssue(node: WorkflowNode, zh = true): string | null {
     case 'search':
       return need(node.query) ? (zh ? '请填写搜索语句' : 'Query required') : null;
     case 'mcp':
-      if (node.tool_source === 'builtin') {
-        return need(node.tool_name) ? (zh ? '请选择内置工具' : 'Pick a built-in tool') : null;
-      }
       if (need(node.mcp_server) || need(node.mcp_tool)) return zh ? '请选择 MCP 工具' : 'Pick an MCP tool';
       return null;
     case 'http':
@@ -302,9 +297,6 @@ export function nodeSummary(node: WorkflowNode, zh = true): string {
     case 'search':
       return node.query.trim() === '' ? (zh ? '未填写语句' : 'No query') : node.query;
     case 'mcp':
-      if (node.tool_source === 'builtin') {
-        return node.tool_name === '' ? (zh ? '未选择工具' : 'No tool') : node.tool_name;
-      }
       return node.mcp_server === '' ? zh ? '未选择工具' : 'No tool' : `${node.mcp_server} · ${node.mcp_tool}`;
     case 'http':
       return node.url.trim() === '' ? zh ? '未填写 URL' : 'No URL' : `${node.method} ${node.url}`;

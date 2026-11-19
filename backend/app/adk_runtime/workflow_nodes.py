@@ -594,11 +594,6 @@ def build_node(
     return built
 
 
-def preview(value: Any, limit: int = 4000) -> str:
-    text = serialize(value)
-    return text if len(text) <= limit else text[:limit] + "…"
-
-
 # 落库的输入保留「变量」结构，只把单个值收口：
 # 直接截断整段 JSON 会把它切成非法文本，前端就只能退化成一段纯文本，
 # 没法按变量逐行展示这一步到底读了什么。
@@ -606,14 +601,25 @@ INPUT_VALUE_LIMIT = 600
 INPUT_LIST_LIMIT = 20
 
 
-def _shrink(value: Any) -> Any:
+def _shrink(value: Any, value_limit: int = INPUT_VALUE_LIMIT, list_limit: int = INPUT_LIST_LIMIT) -> Any:
     if isinstance(value, str):
-        return value if len(value) <= INPUT_VALUE_LIMIT else value[:INPUT_VALUE_LIMIT] + "…"
+        return value if len(value) <= value_limit else value[:value_limit] + "…"
     if isinstance(value, list):
-        return [_shrink(item) for item in value[:INPUT_LIST_LIMIT]]
+        return [_shrink(item, value_limit, list_limit) for item in value[:list_limit]]
     if isinstance(value, dict):
-        return {str(key): _shrink(item) for key, item in value.items()}
+        return {str(key): _shrink(item, value_limit, list_limit) for key, item in value.items()}
     return value
+
+
+def preview(value: Any, limit: int = 4000) -> str:
+    """输出落库/展示：按值收口后重新序列化，结果始终是合法 JSON。
+
+    pending_gate 要 json.loads(output_json) 读回 gate，按字符硬截断整段 JSON
+    会留下未闭合的引号/括号，让「最新运行」接口 500。
+    """
+
+    shrunk = _shrink(value, value_limit=limit, list_limit=INPUT_LIST_LIMIT)
+    return serialize(shrunk)
 
 
 def visible_input(value: dict[str, Any]) -> dict[str, Any]:
