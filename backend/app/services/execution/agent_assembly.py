@@ -15,6 +15,7 @@ from google.adk.agents import LlmAgent
 
 from app.adk_runtime.agent_factory import build_chat_agent
 from app.adk_runtime.headless import WorkerBudget
+from app.adk_runtime.naming import split_tools_and_toolsets
 from app.adk_runtime.toolset import build_knowledge_tools
 from app.db import SessionLocal
 from app.services.execution.tool_policy import (
@@ -175,13 +176,17 @@ async def assemble_agent(
         readonly_names=readonly_names,
         tool_focus=effective_focus,
     )
+    mounted_tools, mounted_toolsets = split_tools_and_toolsets(
+        list(getattr(agent, "tools", []) or [])
+    )
     logger.info(
-        "装配无人值守 agent 完成 session_id=%s name=%s model=%s/%s tools_mounted=%s",
+        "装配无人值守 agent 完成 session_id=%s name=%s model=%s/%s tools=%s toolsets=%s",
         session_id,
         name,
         provider_label,
         use_model,
-        len(getattr(agent, "tools", []) or []),
+        mounted_tools,
+        mounted_toolsets,
     )
     return agent
 

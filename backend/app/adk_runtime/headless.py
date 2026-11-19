@@ -380,15 +380,19 @@ async def _run_turn(
 
     answer = "".join(answer_parts)
     conclusion, findings = parse_findings(answer, call_ids)
+    # 列举实际调用过的工具名，便于从日志直接看出模型用了什么，而非只有一个数字。
+    called_tool_names = sorted(
+        (trace["name"] for trace in tool_trace_partial if trace.get("name")),
+    )
     logger.info(
         "无人值守回合收集完成 app=%s stream=%s text_deltas=%s replay_skipped=%s "
-        "text_len=%s tools=%s stopped=%s total_tokens=%s",
+        "text_len=%s called_tools=%s stopped=%s total_tokens=%s",
         runner.app_name,
         on_text_delta is not None,
         text_delta_count,
         replay_skipped,
         len(answer),
-        len(call_ids),
+        called_tool_names,
         stopped,
         usage_total,
     )

@@ -10,7 +10,7 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
 
-from app.adk_runtime.naming import root_adk_name
+from app.adk_runtime.naming import root_adk_name, split_tools_and_toolsets
 from app.adk_runtime.tool_approval import build_before_tool_callback
 from app.adk_runtime.tool_result_budget import build_after_tool_callback
 from app.adk_runtime.toolset import build_builtin_tools
@@ -181,22 +181,24 @@ def build_chat_agent(
 
     extra_body = dict(provider_extra_body) if provider_extra_body else {}
     apply_thinking_extra(extra_body, thinking_enabled=thinking_enabled, provider_id=provider_id)
+    extra_tool_names, extra_toolset_names = split_tools_and_toolsets(list(extra_tools or []))
     logger.info(
         "装配 LlmAgent agent=%s provider=%s model=%s litellm_model=%s base_url=%s "
-        "extra_tools=%s extra_body_keys=%s thinking=%s timeout=%s max_turns=%s "
-        "persona_len=%s confirm_tools=%s max_tool_result_chars=%s",
+        "extra_tools=%s extra_toolsets=%s extra_body_keys=%s thinking=%s timeout=%s "
+        "max_turns=%s persona_len=%s confirm_tools=%s max_tool_result_chars=%s",
         agent_name,
         provider_id,
         model,
         litellm_model,
         base_url,
-        0 if extra_tools is None else len(extra_tools),
+        extra_tool_names,
+        extra_toolset_names,
         sorted(extra_body.keys()),
         extra_body.get("thinking"),
         llm_timeout_seconds,
         max_turns,
         len(persona_instruction),
-        len(confirm_names),
+        sorted(confirm_names),
         max_tool_result_chars,
     )
     llm = LiteLlm(

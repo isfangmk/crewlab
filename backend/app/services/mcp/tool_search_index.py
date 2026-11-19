@@ -239,7 +239,7 @@ async def sync_server_tool_embeddings(
     logger.info(
         "MCP 工具向量已同步 server_id=%s tools=%s embedded_new=%s",
         server_id,
-        len(rows_to_write),
+        sorted(name for name, _, _ in rows_to_write),
         len(missing_texts),
     )
     return len(rows_to_write)
@@ -262,13 +262,13 @@ async def warm_vector_cache_from_db(db: AsyncSession) -> int:
         (await db.scalars(select(McpToolEmbedding.tool_name))).all()
     )
     if names and all(name in _VECTOR_CACHE for name in names):
-        logger.debug("工具向量缓存已热，跳过预热 tools=%s", len(names))
+        logger.debug("工具向量缓存已热，跳过预热 tools=%s", sorted(names))
         return len(names)
     vec_map = await vs.fetch_vectors(MCP_TOOL_NAMESPACE, names)
     for name, vec in vec_map.items():
         remember_vector(name, vec)
     if vec_map:
-        logger.info("已从向量库预热工具缓存 count=%s", len(vec_map))
+        logger.info("已从向量库预热工具缓存 tools=%s", sorted(vec_map))
     return len(vec_map)
 
 
@@ -314,7 +314,7 @@ async def assert_embedding_names_consistent(db: AsyncSession) -> None:
         raise RuntimeError(
             "MCP 工具向量命名与 wire 规则不一致：" + "; ".join(mismatched[:10])
         )
-    logger.info("MCP 工具向量命名校验通过 count=%s", len(rows))
+    logger.info("MCP 工具向量命名校验通过 tools=%s", sorted(r.tool_name for r in rows))
 
 
 def _cosine(a: list[float], b: list[float]) -> float:

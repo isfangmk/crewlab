@@ -567,7 +567,7 @@ async def create_user_agent(
     logger.info(
         "创建用户助理 name=%s tools=%s",
         name,
-        len(allowed_tools),
+        sorted(allowed_tools),
     )
     return _row_to_resolved(row)
 

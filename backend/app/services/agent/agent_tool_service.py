@@ -98,7 +98,7 @@ async def build_agent_tool_bundle(
         logger.info(
             "助理为只读模式，所有 MCP 工具需确认 agent=%s tools=%s",
             agent.name,
-            len(confirm_tool_names),
+            sorted(confirm_tool_names),
         )
     # 平台助手不挂联网搜索：它的职责是检索/调用平台接口，不走外网搜索。
     if web_search_enabled and agent.name != agent_service.PLATFORM_AGENT_NAME:

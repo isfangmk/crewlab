@@ -53,7 +53,7 @@ def skills_dir() -> Path:
 def load_local_skills() -> list[Skill]:
     path = skills_dir()
     skills = load_skills_from_dir(path)
-    logger.info("已装载本地技能 dir=%s count=%s", path, len(skills))
+    logger.info("已装载本地技能 dir=%s skills=%s", path, sorted(s.name for s in skills))
     return skills
 
 

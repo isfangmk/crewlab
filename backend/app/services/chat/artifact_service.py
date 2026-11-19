@@ -194,7 +194,7 @@ async def delete_for_messages(
         "已删除消息关联 Artifacts session_id=%s messages=%s tools=%s count=%s",
         session_id,
         len(message_ids),
-        len(tool_call_ids),
+        tool_call_ids,
         count,
     )
     return count

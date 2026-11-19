@@ -476,7 +476,7 @@ async def build_searchable_mcp_toolsets(
             server.id,
             server.name,
             prefix,
-            len(permitted),
+            sorted(permitted),
         )
     if skipped:
         logger.warning("本次装配跳过不可用的 MCP Server names=%s", skipped)
@@ -1132,7 +1132,7 @@ async def test_server(db: AsyncSession, server_id: int) -> list[dict]:
         if notes:
             row.last_error = "；".join(notes)
         await db.commit()
-        logger.info("探测 MCP 成功 id=%s tools=%s", row.id, len(items))
+        logger.info("探测 MCP 成功 id=%s tools=%s", row.id, sorted(i["name"] for i in items))
         # 向量按运行时完整工具名入库，与 SearchableToolset 索引文本一致
         embed_items = [
             {

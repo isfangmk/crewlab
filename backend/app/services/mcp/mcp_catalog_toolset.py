@@ -15,6 +15,7 @@ from google.adk.tools.mcp_tool.mcp_tool import McpTool
 from mcp.types import Tool as McpSdkTool
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.adk_runtime.naming import tool_display_name
 from app.models.mcp import McpServer
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ class CachedMcpCatalogToolset(BaseToolset):
             "已从工具缓存装配 MCP 目录 server_id=%s name=%s tools=%s",
             self._server_id,
             self._server_name,
-            len(self._tools),
+            [tool_display_name(t) for t in self._tools],
         )
 
     # readonly_context 是 LoadMcpResourceTool 契约参数（SDK 调用），实现侧不需要
