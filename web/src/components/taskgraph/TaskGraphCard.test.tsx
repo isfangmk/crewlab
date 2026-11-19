@@ -34,9 +34,9 @@ const draftWire = {
   stats: { total: 3, succeeded: 0, failed: 0, skipped: 0, stopped: 0, running: 0, pending: 3, tool_calls: 0 },
   used_tokens: 0,
   nodes: [
-    { node_uid: 'n-a', local_id: 'A', depends_on: [], order_index: 0, name: '甲', target: '查 A', instruction: '', tools: [], status: 'pending', attempt: 1, summary: '', findings: [], tool_trace: [], log_text: '', usage: {}, error: '', duration_ms: 0, started_at: null, finished_at: null },
-    { node_uid: 'n-b', local_id: 'B', depends_on: [], order_index: 1, name: '乙', target: '查 B', instruction: '', tools: [], status: 'pending', attempt: 1, summary: '', findings: [], tool_trace: [], log_text: '', usage: {}, error: '', duration_ms: 0, started_at: null, finished_at: null },
-    { node_uid: 'n-c', local_id: 'C', depends_on: ['A', 'B'], order_index: 2, name: '丙', target: '汇总', instruction: '', tools: [], status: 'pending', attempt: 1, summary: '', findings: [], tool_trace: [], log_text: '', usage: {}, error: '', duration_ms: 0, started_at: null, finished_at: null },
+    { node_uid: 'n-a', local_id: 'A', depends_on: [], order_index: 0, name: '甲', target: '查 A', instruction: '', tools: [], skills: [], agent_id: '', status: 'pending', attempt: 1, summary: '', findings: [], tool_trace: [], log_text: '', usage: {}, error: '', duration_ms: 0, started_at: null, finished_at: null },
+    { node_uid: 'n-b', local_id: 'B', depends_on: [], order_index: 1, name: '乙', target: '查 B', instruction: '', tools: [], skills: [], agent_id: '', status: 'pending', attempt: 1, summary: '', findings: [], tool_trace: [], log_text: '', usage: {}, error: '', duration_ms: 0, started_at: null, finished_at: null },
+    { node_uid: 'n-c', local_id: 'C', depends_on: ['A', 'B'], order_index: 2, name: '丙', target: '汇总', instruction: '', tools: [], skills: [], agent_id: '', status: 'pending', attempt: 1, summary: '', findings: [], tool_trace: [], log_text: '', usage: {}, error: '', duration_ms: 0, started_at: null, finished_at: null },
   ],
   findings: [],
   error: '',

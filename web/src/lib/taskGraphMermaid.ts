@@ -33,8 +33,11 @@ function label(text: string, fallback: string): string {
   return clean || fallback;
 }
 
-/** 生成 Mermaid flowchart 文本；TD 自上而下表达并行起点与汇合。 */
-export function buildMermaidGraph(nodes: TaskGraphNode[]): string {
+/** 生成 Mermaid flowchart 文本；TD 自上而下表达并行起点与汇合。
+ *
+ * callbackName 非空时为每个节点追加 click 指令，点击回调收到对应 node_uid。
+ */
+export function buildMermaidGraph(nodes: TaskGraphNode[], callbackName = ''): string {
   if (nodes.length === 0) return '';
   const used = new Set<string>();
   const idByLocal = new Map<string, string>();
@@ -57,6 +60,12 @@ export function buildMermaidGraph(nodes: TaskGraphNode[]): string {
     const tone = (NODE_STATUS_META[n.status] ?? NODE_STATUS_META.pending).tone;
     const style = TONE_STYLE[tone] ?? TONE_STYLE.neutral;
     lines.push(`  style ${idByLocal.get(n.local_id)} ${style}`);
+  }
+  if (callbackName !== '') {
+    for (const n of nodes) {
+      // node_uid 可含连字符，用 JSON 字符串字面量安全传参。
+      lines.push(`  click ${idByLocal.get(n.local_id)} call ${callbackName}(${JSON.stringify(n.node_uid)})`);
+    }
   }
   return lines.join('\n');
 }

@@ -40,6 +40,7 @@ async def assemble_agent(
     instruction: str,
     budget: WorkerBudget,
     tools: tuple[str, ...] = (),
+    skills: tuple[str, ...] | None = None,
     persona: str | None = None,
     agent_id: str = "",
     allow_run_python: bool = False,
@@ -51,6 +52,8 @@ async def assemble_agent(
     - allow_run_python=True 时把 run_python 加入只读白名单并免闸门启发式；
     - tools 非空则按名收窄挂载面（"__none__" 表示不挂任何工具）；其中 mcp__*
       业务工具名作为 MCP 检索目录白名单，让节点能 search→load 真正需要的工具；
+    - skills 非 None 时按声明的 key 装配技能（空元组 = 不挂任何技能），覆盖助理默认；
+      None 时保持原行为：指定 agent_id 用该助理技能，否则不挂技能；
     - agent_id 非空时复用该助理的人设/MCP 白名单/技能/知识范围，
       模型仍走会话口径，只读闸门照常生效。
 
@@ -65,11 +68,12 @@ async def assemble_agent(
     from app.services.platform.llm_config import resolve_model
 
     logger.info(
-        "装配无人值守 agent session_id=%s name=%s agent_id=%s tools=%s allow_python=%s",
+        "装配无人值守 agent session_id=%s name=%s agent_id=%s tools=%s skills=%s allow_python=%s",
         session_id,
         name,
         agent_id,
         list(tools),
+        list(skills) if skills is not None else None,
         allow_run_python,
     )
 
@@ -92,21 +96,25 @@ async def assemble_agent(
             use_model = resolved_agent.model
         llm = await resolve_model(db, session.provider, use_model)
         # MCP 工具白名单口径：
-        # - 指定 agent_id 时以该助理自身白名单为准，忽略节点 tools 声明
-        #   （agent_id 的语义就是复用助理的工具边界，节点再声明 tools 属冲突配置）；
-        # - 未指定时沿用节点 tools：mcp__* 作为检索目录白名单，__none__ 清空全部 MCP。
-        if agent_id != "":
-            bundle = await build_agent_tool_bundle(db, tool_agent)
-            effective_focus = None
-        else:
-            mcp_focus = [t for t in tools if t.startswith("mcp__")]
+        # - 节点声明了 mcp__* 工具（无论是否指定 agent_id）：按声明 direct 直挂实体，
+        #   省掉 search→load 往返；agent_id 节点仍复用该助理的人设/技能/知识范围，
+        #   但工具边界以节点规划为准（图生成时已明确要用哪些工具）。
+        # - 未声明 mcp__* 工具：未指定 agent_id 按 tools 收窄内置工具，
+        #   指定 agent_id 沿用该助理自身白名单的 searchable 目录（兜底）。
+        mcp_focus = [t for t in tools if t.startswith("mcp__")]
+        if mcp_focus:
             bundle = await build_agent_tool_bundle(
                 db,
                 tool_agent,
-                allowed_tools_override=mcp_focus if mcp_focus else None,
-                direct_mcp_tools=bool(mcp_focus),
+                allowed_tools_override=mcp_focus,
+                direct_mcp_tools=True,
             )
+            # focus 保留完整声明：filter_tools_by_focus 按 mcp__<server> 命名空间前缀
+            # 保留直挂 toolset，同时按名精确匹配保留声明的内置工具。
             effective_focus = tools or None
+        else:
+            bundle = await build_agent_tool_bundle(db, tool_agent)
+            effective_focus = None if agent_id != "" else (tools or None)
         runtime_cfg = await app_settings_service.get_agent_runtime(db)
         scope = (
             tool_agent.knowledge_scope
@@ -121,8 +129,16 @@ async def assemble_agent(
                 effective_persona = (
                     f"{effective_persona}\n{tool_agent.critical_reminder}"
                 )
-        # build_chat_agent 的 skills 要已解析的技能对象；未指定 agent_id 保持原行为（不挂技能）。
-        effective_skills = bundle.runtime_skills if agent_id != "" else []
+        # build_chat_agent 的 skills 要已解析的技能对象。
+        # 节点显式声明 skills 时按 key 解析（空 = 不挂），覆盖该助理默认技能；
+        # 未声明（None）保持原行为：指定 agent_id 用该助理技能，否则不挂技能。
+        # 未知 key 由 resolve_skills 显式失败，不静默忽略。
+        if skills is not None:
+            from app.services.skills.skills_service import resolve_skills
+
+            effective_skills = await resolve_skills(db, list(skills))
+        else:
+            effective_skills = bundle.runtime_skills if agent_id != "" else []
         extra_tools = list(bundle.extra_tools)
         web_tool = await build_session_web_search_tool(db, session)
         if web_tool is not None:

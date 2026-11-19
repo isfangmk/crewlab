@@ -52,7 +52,7 @@ async def submit_task_graph(
 
     title: 图标题（短，概括任务）。
     question: 总目标：用户要解决的问题，随上下文传给每个节点。
-    nodes_json: 节点 JSON 数组，每项 {"id","name","target","instruction","tools","agent_id","depends_on"}：
+    nodes_json: 节点 JSON 数组，每项 {"id","name","target","instruction","tools","skills","agent_id","depends_on"}：
       - id 是局部标识（字母开头的英文，如 a/b/extract），仅供 depends_on 引用，不展示给用户；
       - name 是展示名，必须是具体任务动作（如「查询最近24小时告警」「统计各级别日志条数」），
         禁止用 A/B/C、"并行节点"、"节点1" 这类 id 或拓扑角色名——用户看到的是 name，要能一眼看出这步干什么；
@@ -63,9 +63,14 @@ async def submit_task_graph(
       - tools 是本节点明确要调用的工具名数组，必须写可见工具清单里的完整名称：
         MCP 工具写 mcp__<server>__<tool> 全名（如 mcp__obs-tools__search_logs），
         内置工具写本名（如 run_python）；裸名（如 search_logs）不会挂载，禁止使用。
-        只列本节点确实要用的工具，不要写占位值；指定 agent_id 的节点留空即可（工具由该助理自带）；
-      - agent_id 是可选的本节点复用助理标识（如 diagnosis-logs）：指定后本节点直接用该助理的
-        人设与工具边界排查，无需再填 tools；留空用通用节点人设。跨领域排查时给每个领域节点指定对应专项助理；
+        生成图前先规划好每个节点要用的工具并写进来（含指定 agent_id 的节点，工具须在该助理的工具边界内，
+        不要编造），节点执行时按声明直挂，不再 search→load 消耗 token；
+        只列本节点确实要用的工具，不要写占位值；确实无需明确工具、让助理自行检索时才留空；
+      - skills 是本节点明确要装配的技能 key 数组，生成图前先按节点任务规划好要用的技能并写进来，
+        key 必须是可用技能清单里的完整名称、不要编造；节点执行时按声明装配（含指定 agent_id 的节点，
+        覆盖该助理默认技能），只列本节点确实要用的；留空 = 该节点不装配任何技能；
+      - agent_id 是可选的本节点复用助理标识（如 diagnosis-logs）：指定后本节点复用该助理的
+        人设/技能/知识范围，但工具与技能以本节点 tools/skills 声明为准；留空用通用节点人设。跨领域排查时给每个领域节点指定对应专项助理；
       - depends_on 是前驱 id 数组：留空=与其它起点并行，多个=等全部前驱完成的汇合点。
       1..16 个节点。
     edges_json: 额外依赖边 JSON 数组 [{"source","target"}]，与 depends_on 合并；一般留空。

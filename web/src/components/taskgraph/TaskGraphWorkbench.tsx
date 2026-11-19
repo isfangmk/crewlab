@@ -184,7 +184,14 @@ export function TaskGraphWorkbench({
   }, [pendingLocate, items, selectedUid, wire]);
 
   const stats = wire?.stats;
-  const mermaidText = useMemo(() => buildMermaidGraph(wire?.nodes ?? []), [wire]);
+  const callbackName = useMemo(
+    () => `tg_wb_click_${(selectedUid ?? 'none').replace(/[^a-zA-Z0-9_]/g, '_')}`,
+    [selectedUid],
+  );
+  const mermaidText = useMemo(
+    () => buildMermaidGraph(wire?.nodes ?? [], callbackName),
+    [wire, callbackName],
+  );
   const meta = wire ? GRAPH_STATUS_META[wire.status] : GRAPH_STATUS_META.running;
 
   const doRetry = async (nodeUid: string) => {
@@ -249,8 +256,15 @@ export function TaskGraphWorkbench({
               {wire && wire.nodes.length > 0 && (
                 <MermaidGraph
                   definition={mermaidText}
-                  ariaLabel={tr('任务图拓扑', 'Task graph topology')}
-                  className="[&_svg]:max-h-44"
+                  ariaLabel={tr('任务图拓扑：点击节点查看详情', 'Task graph topology: click a node for details')}
+                  className="[&_svg]:max-h-44 [&_.node]:cursor-pointer"
+                  callbackName={callbackName}
+                  onNodeClick={(uid) => {
+                    setExpanded((prev) => ({ ...prev, [uid]: true }));
+                    requestAnimationFrame(() =>
+                      document.getElementById(`tg-node-${uid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+                    );
+                  }}
                 />
               )}
             </div>
@@ -385,6 +399,32 @@ function NodeRow({
       )}
       {expanded && (
         <div className="flex flex-col gap-2 border-t border-zinc-800/60 px-2.5 py-2.5">
+          <div className="grid grid-cols-1 gap-x-3 gap-y-0.5 text-[10.5px] md:grid-cols-2">
+            <div>
+              <span className="text-zinc-500">{tr('使用助理', 'Assistant')}：</span>
+              <span className="text-zinc-200">{node.agent_id || tr('通用节点人设', 'Generic node persona')}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500">{tr('技能', 'Skills')}：</span>
+              <span className="text-zinc-200">
+                {node.skills.length > 0 ? node.skills.join(', ') : tr('无', 'None')}
+              </span>
+            </div>
+            <div className="md:col-span-2">
+              <span className="text-zinc-500">{tr('本节点工具', 'Node tools')}：</span>
+              <span className="text-zinc-200">
+                {node.tools.length > 0
+                  ? node.tools.join(', ')
+                  : tr('由助理自带口径决定', 'Determined by the assistant')}
+              </span>
+            </div>
+            {node.instruction && (
+              <div className="md:col-span-2">
+                <span className="text-zinc-500">{tr('排查指令', 'Instruction')}：</span>
+                <span className="text-zinc-300">{node.instruction}</span>
+              </div>
+            )}
+          </div>
           {node.summary && <p className="text-[11px] leading-relaxed text-zinc-300">{node.summary}</p>}
           {node.findings.map((f, i) => (
             <FindingRow key={i} finding={f} n={i + 1} highlighted={highlightN === i + 1} anchorId={`tg-finding-${node.node_uid}-${i + 1}`} />

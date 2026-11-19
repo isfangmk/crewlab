@@ -37,6 +37,7 @@ type GraphToolResult = {
     status?: string;
     summary?: string;
     error?: string;
+    agent_id?: string;
   }[];
   stats?: { total?: number; succeeded?: number; running?: number; failed?: number };
 };
@@ -48,6 +49,7 @@ type EditNode = {
   target: string;
   instruction: string;
   tools: string;
+  skills: string;
   depends_on: string;
 };
 
@@ -73,6 +75,7 @@ export function TaskGraphCard({
   const [expanded, setExpanded] = useState(true);
   const [busy, setBusy] = useState(false);
   const [editNodes, setEditNodes] = useState<EditNode[] | null>(null);
+  const [selectedNodeUid, setSelectedNodeUid] = useState<string | null>(null);
   const [beat, setBeat] = useState<{ at: number; tool: string } | null>(null);
   const startedRef = useRef<number | null>(null);
 
@@ -137,6 +140,8 @@ export function TaskGraphCard({
         target: '',
         instruction: '',
         tools: [],
+        skills: [],
+        agent_id: n.agent_id ?? '',
         status: (n.status as TaskGraphNode['status']) ?? 'pending',
         attempt: 1,
         summary: n.summary ?? '',
@@ -157,6 +162,7 @@ export function TaskGraphCard({
         name?: string;
         target?: string;
         depends_on?: string[];
+        agent_id?: string;
       }[];
       return raw.map((n, i) => ({
         node_uid: n.id ?? `arg-${i}`,
@@ -167,6 +173,8 @@ export function TaskGraphCard({
         target: n.target ?? '',
         instruction: '',
         tools: [],
+        skills: [],
+        agent_id: n.agent_id ?? '',
         status: 'pending' as const,
         attempt: 1,
         summary: '',
@@ -198,7 +206,16 @@ export function TaskGraphCard({
     return { ...base, ...(result.stats ?? {}) };
   }, [wire, nodes, result.stats]);
 
-  const mermaidText = useMemo(() => buildMermaidGraph(nodes), [nodes]);
+  // click 回调名：与 definition 里的 click 指令一致，节点点击 → 展开该节点详情。
+  const callbackName = useMemo(
+    () => `tg_card_click_${(graphUid ?? 'draft').replace(/[^a-zA-Z0-9_]/g, '_')}`,
+    [graphUid],
+  );
+  const mermaidText = useMemo(
+    () => buildMermaidGraph(nodes, callbackName),
+    [nodes, callbackName],
+  );
+  const selectedNode = nodes.find((n) => n.node_uid === selectedNodeUid) ?? null;
   const meta = GRAPH_STATUS_META[statusKey] ?? GRAPH_STATUS_META.running;
 
   const totalMs = useMemo(() => {
@@ -225,6 +242,7 @@ export function TaskGraphCard({
         target: n.target,
         instruction: n.instruction,
         tools: n.tools.join(', '),
+        skills: n.skills.join(', '),
         depends_on: n.depends_on.join(', '),
       })),
     );
@@ -245,6 +263,7 @@ export function TaskGraphCard({
         target: n.target.trim() || n.name.trim(),
         instruction: n.instruction.trim(),
         tools: n.tools.split(/[,，\s]+/).map((t) => t.trim()).filter(Boolean),
+        skills: n.skills.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean),
         depends_on: n.depends_on.split(/[,，\s]+/).map((d) => d.trim()).filter(Boolean),
       }));
       await updateGraphNodes(graphUid, JSON.stringify(payload));
@@ -321,10 +340,83 @@ export function TaskGraphCard({
       <div className="border-t border-zinc-800/60 px-2.5 py-2">
         <MermaidGraph
           definition={mermaidText}
-          ariaLabel={tr(`任务图拓扑：${nodes.length} 节点`, `Task graph topology: ${nodes.length} nodes`)}
-          className="[&_svg]:max-h-40"
+          ariaLabel={tr(`任务图拓扑：${nodes.length} 节点（点击查看节点详情）`, `Task graph topology: ${nodes.length} nodes (click a node for details)`)}
+          className="[&_svg]:max-h-40 [&_.node]:cursor-pointer"
+          callbackName={callbackName}
+          onNodeClick={(uid) => setSelectedNodeUid((cur) => (cur === uid ? null : uid))}
         />
       </div>
+
+      {/* 点击节点展开：助理 / 工具 / 指令 / 用量 / 预算 / skill 说明。 */}
+      {selectedNode && (
+        <div className="border-t border-zinc-800/60 bg-zinc-950/40 px-3.5 py-2.5 text-[11px]">
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="font-semibold text-zinc-100">{selectedNode.name}</span>
+            <span className="text-zinc-500">{selectedNode.local_id}</span>
+            <button
+              type="button"
+              aria-label={tr('关闭节点详情', 'Close node details')}
+              className="ml-auto text-zinc-500 hover:text-zinc-200"
+              onClick={() => setSelectedNodeUid(null)}
+            >
+              ✕
+            </button>
+          </div>
+          <dl className="grid grid-cols-1 gap-x-4 gap-y-1 md:grid-cols-2">
+            <div>
+              <dt className="text-zinc-500">{tr('使用助理', 'Assistant')}</dt>
+              <dd className="text-zinc-200">{selectedNode.agent_id || tr('通用节点人设', 'Generic node persona')}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">{tr('技能', 'Skills')}</dt>
+              <dd className="text-zinc-200">
+                {selectedNode.skills.length > 0
+                  ? selectedNode.skills.join(', ')
+                  : tr('无', 'None')}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">{tr('本节点工具', 'Node tools')}</dt>
+              <dd className="text-zinc-200">
+                {selectedNode.tools.length > 0
+                  ? selectedNode.tools.join(', ')
+                  : tr('由助理自带口径决定', 'Determined by the assistant')}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">{tr('预算', 'Budget')}</dt>
+              <dd className="text-zinc-200">
+                {tr('步数', 'Steps')} {wire?.config?.max_steps_per_node ?? '-'}
+                {' · '}{tr('超时', 'Timeout')} {wire?.config?.timeout_seconds_per_node ?? '-'}s
+                {' · '}{tr('Token', 'Token')} {wire?.config?.token_budget_per_node ?? '-'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">{tr('排查目标', 'Target')}</dt>
+              <dd className="text-zinc-200">{selectedNode.target || '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">{tr('用量', 'Usage')}</dt>
+              <dd className="text-zinc-200">
+                {tr('Token', 'Token')} {selectedNode.usage?.total_tokens ?? '-'}
+                {' · '}{tr('耗时', 'Time')} {fmtDuration(selectedNode.duration_ms)}
+              </dd>
+            </div>
+          </dl>
+          {selectedNode.instruction && (
+            <div className="mt-1.5">
+              <div className="text-zinc-500">{tr('排查指令', 'Instruction')}</div>
+              <div className="whitespace-pre-wrap text-zinc-300">{selectedNode.instruction}</div>
+            </div>
+          )}
+          {selectedNode.summary && (
+            <div className="mt-1.5">
+              <div className="text-zinc-500">{tr('结论', 'Conclusion')}</div>
+              <div className="whitespace-pre-wrap text-zinc-300">{selectedNode.summary}</div>
+            </div>
+          )}
+        </div>
+      )}
 
       {expanded && (isDraft || isPaused) && editNodes === null && (
         <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800/60 px-3.5 py-2.5">
@@ -408,7 +500,7 @@ export function TaskGraphCard({
               disabled={editNodes.length >= 16}
               onClick={() => setEditNodes((prev) => [
                 ...(prev ?? []),
-                { key: `new-${Date.now()}`, local_id: '', name: '', target: '', instruction: '', tools: '', depends_on: '' },
+                { key: `new-${Date.now()}`, local_id: '', name: '', target: '', instruction: '', tools: '', skills: '', depends_on: '' },
               ])}
               className="flex h-7 items-center gap-1 rounded-lg border border-zinc-700 px-2 text-[11px] text-zinc-300 hover:border-accent/60 disabled:opacity-40"
             >

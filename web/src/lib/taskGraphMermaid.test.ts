@@ -18,6 +18,8 @@ const node = (
   target: '',
   instruction: '',
   tools: [],
+  skills: [],
+  agent_id: '',
   status: status as TaskGraphNode['status'],
   attempt: 1,
   summary: '',

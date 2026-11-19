@@ -124,6 +124,7 @@ async def execute_node(
         target = node.target
         instruction = node.instruction
         tools = tuple(json.loads(node.tools_json or "[]"))
+        skills = tuple(json.loads(node.skills_json or "[]"))
         prior_context = _build_prior_context(node, all_nodes)
         prompt = build_node_prompt(
             question=question,
@@ -158,6 +159,7 @@ async def execute_node(
             instruction=instruction,
             budget=budget,
             tools=tools,
+            skills=skills,
             agent_id=node.agent_id,
             allow_run_python=True,
         )

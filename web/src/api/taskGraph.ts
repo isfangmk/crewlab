@@ -35,6 +35,10 @@ export type TaskGraphNode = {
   target: string;
   instruction: string;
   tools: string[];
+  /** 本节点明确装配的技能 key 列表；空 = 不装配任何技能 */
+  skills: string[];
+  /** 本节点复用的专项助理标识；空 = 用通用节点人设 */
+  agent_id: string;
   status: NodeStatus;
   attempt: number;
   summary: string;

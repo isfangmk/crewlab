@@ -43,10 +43,15 @@ export function MermaidGraph({
   definition,
   className,
   ariaLabel,
+  onNodeClick,
+  callbackName,
 }: {
   definition: string;
   className?: string;
   ariaLabel?: string;
+  onNodeClick?: (nodeUid: string) => void;
+  /** click 指令引用的全局回调名；传 onNodeClick 时必填，且与 definition 里的名字一致。 */
+  callbackName?: string;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const { resolved } = useThemeMode();
@@ -54,6 +59,18 @@ export function MermaidGraph({
   const [failed, setFailed] = useState(false);
   // mermaid.render 的 id 必须是合法 CSS 选择器片段；useId 含冒号，过滤掉。
   const renderId = `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  // click 回调挂到 window 上，随组件卸载清理；名字由调用方保证与 definition 一致。
+  const clickRef = useRef(onNodeClick);
+  clickRef.current = onNodeClick;
+
+  useEffect(() => {
+    if (!onNodeClick || !callbackName) return;
+    const w = window as unknown as Record<string, unknown>;
+    w[callbackName] = (uid: string) => clickRef.current?.(uid);
+    return () => {
+      delete w[callbackName];
+    };
+  }, [callbackName, onNodeClick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +82,8 @@ export function MermaidGraph({
       .then((mermaid) => {
         mermaid.initialize({
           startOnLoad: false,
+          // click call 需要 loose：严格模式禁用函数调用，节点点击将失效。
+          securityLevel: 'loose',
           theme: 'base',
           themeVariables: {
             darkMode: resolved === 'dark',

@@ -34,7 +34,7 @@ import { TaskGraphWorkbench } from './TaskGraphWorkbench';
 
 const node = (uid: string, local: string, status: string, deps: string[] = [], extra: Record<string, unknown> = {}) => ({
   node_uid: uid, local_id: local, depends_on: deps, order_index: 0, name: local, target: local,
-  instruction: '', tools: [], status, attempt: 1, summary: '', findings: [], tool_trace: [],
+  instruction: '', tools: [], skills: [], agent_id: '', status, attempt: 1, summary: '', findings: [], tool_trace: [],
   log_text: '', usage: {}, error: '', duration_ms: 0, started_at: null, finished_at: null, ...extra,
 });
 

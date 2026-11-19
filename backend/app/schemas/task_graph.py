@@ -38,7 +38,8 @@ class TaskGraphNodeSpec(BaseModel):
     name: str = Field(default="", max_length=128, description="节点展示名称，最长 128；留空时用默认名")
     target: str = Field(min_length=1, max_length=2000, description="节点目标，描述本节点要处理的对象或任务目标，最长 2000")
     instruction: str = Field(default="", max_length=8000, description="节点执行指令，告诉该节点具体做什么，最长 8000；留空用默认指令")
-    tools: list[str] = Field(default_factory=list, description="本节点明确要调用的工具名列表，最多 8 个；留空表示由助理自带口径决定，指定 agent_id 时留空即可")
+    tools: list[str] = Field(default_factory=list, description="本节点明确要调用的工具名列表，最多 8 个；生成图前先规划好每节点要用的工具并写进来（含指定 agent_id 的节点），节点执行时按声明直挂、不再 search→load 消耗 token；留空才由该助理的 searchable 目录自行检索")
+    skills: list[str] = Field(default_factory=list, description="本节点明确要装配的技能 key 列表，最多 8 个；生成图前先规划好每节点要用的技能并写进来（含指定 agent_id 的节点），节点执行时按声明装配；留空 = 不装配任何技能")
     agent_id: str = Field(default="", max_length=64, description="可选：指定本节点复用该助理的人设/工具/知识范围；留空用通用节点人设")
     depends_on: list[str] = Field(default_factory=list, description="依赖的前驱节点局部 id 列表；空表示起点并行执行，多依赖需全部完成才启动")
 
@@ -71,6 +72,14 @@ class TaskGraphNodeSpec(BaseModel):
         if len(tools) > _MAX_TOOLS_PER_NODE:
             raise ValueError(f"单节点工具数不能超过 {_MAX_TOOLS_PER_NODE}")
         return tools
+
+    @field_validator("skills")
+    @classmethod
+    def _validate_skills(cls, value: list[str]) -> list[str]:
+        skills = [str(item).strip() for item in value if str(item).strip()]
+        if len(skills) > _MAX_TOOLS_PER_NODE:
+            raise ValueError(f"单节点技能数不能超过 {_MAX_TOOLS_PER_NODE}")
+        return skills
 
     @field_validator("depends_on")
     @classmethod
