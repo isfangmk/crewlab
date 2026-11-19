@@ -12,9 +12,9 @@ from typing import Any, cast
 from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import (
     StdioConnectionParams,
-    StdioServerParameters,
     StreamableHTTPConnectionParams,
 )
+from mcp import StdioServerParameters
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
