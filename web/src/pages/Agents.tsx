@@ -44,7 +44,7 @@ import { cn } from '@/lib/cn';
 import { mcpToolWireName } from '@/lib/mcpWire';
 import { Modal } from '@/components/Modal';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { Button, Card, Checkbox, Chip, CodeBlock, DetailSection, EmptyStateCard,
+import { Button, Card, Chip, CodeBlock, DetailSection, EmptyStateCard,
   ErrorBanner, FilterBar, Input, Label, PageHeader, RowAction, RowActionIcon, SearchInput, Textarea,
   Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui';
 import {
@@ -375,9 +375,7 @@ function AgentCard({
         : tr(`${scopeDocs.length} 篇文档`, `${scopeDocs.length} doc(s)`);
   const formatLabel = tr(OUTPUT_FORMAT_LABELS[agent.output_format].zh, OUTPUT_FORMAT_LABELS[agent.output_format].en);
   const modelLabel = agent.model || '';
-  const skillLabel = agent.skills == null ? tr('全部', 'All') : String(agent.skills.length);
-  const delegationCount = agent.sub_agents?.length ?? 0;
-  const delegationLabel = delegationCount > 0 ? String(delegationCount) : tr('无', 'None');
+  const skillLabel = String(agent.skills.length);
   const exampleCount = agent.examples?.length ?? 0;
 
   const onUse = useCallback(async () => {
@@ -469,12 +467,11 @@ function AgentCard({
         </div>
       )}
 
-      {/* 四格配置摘要：内置工具 / MCP Server / 技能 / 委托。数字就是实际挂载数。 */}
-      <div className="mt-3 grid grid-cols-4 divide-x divide-zinc-800/60 rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
+      {/* 三格配置摘要：内置工具 / MCP Server / 技能。数字就是实际挂载数。 */}
+      <div className="mt-3 grid grid-cols-3 divide-x divide-zinc-800/60 rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
         <Stat label={tr('内置工具', 'Built-in')} value={String(builtinToolCount)} />
         <Stat label="MCP" value={String(mcpServerCount)} />
         <Stat label={tr('技能', 'Skills')} value={skillLabel} />
-        <Stat label={tr('委托', 'Delegation')} value={delegationLabel} />
       </div>
 
       <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[10px]">
@@ -676,18 +673,6 @@ function AgentDetailModal({
           )}
         </DetailSection>
 
-        {agent.sub_agents.length > 0 && (
-          <DetailSection title={tr('子助理委托', 'Sub-assistant delegation')}>
-            <div className="flex flex-wrap gap-1.5">
-              {agent.sub_agents.map((name) => (
-                <Chip key={name} dense className="font-sans">
-                  {name}
-                </Chip>
-              ))}
-            </div>
-          </DetailSection>
-        )}
-
         <DetailSection title={tr('输出格式与示例', 'Output format & examples')}>
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-zinc-500">
             <span>
@@ -792,10 +777,10 @@ const EDITOR_SECTIONS: {
   },
   {
     key: 'runtime',
-    zh: '委托与运行',
-    en: 'Delegation & runtime',
-    hintZh: '指定子助理、权限与模型参数',
-    hintEn: 'Choose sub-assistants, permissions and model settings',
+    zh: '运行与治理',
+    en: 'Runtime & governance',
+    hintZh: '权限、模型参数与治理配置',
+    hintEn: 'Permissions, model settings and governance',
   },
 ];
 
@@ -847,16 +832,13 @@ function AgentEditor({
     mode === 'edit' ? base?.tools ?? [] : [],
   );
   const [disallowedTools, setDisallowedTools] = useState<string[]>(base?.disallowed_tools ?? []);
-  const [selectedSkills, setSelectedSkills] = useState<string[] | null>(
+  const [selectedSkills, setSelectedSkills] = useState<string[]>(
     mode === 'edit' ? base?.skills ?? [] : [],
   );
   // 内置工具勾选：编辑用已存名单；新建待 catalog 到达后默认全选（null = 待初始化）
   const [selectedBuiltinTools, setSelectedBuiltinTools] = useState<string[] | null>(
     mode === 'edit' ? base?.builtin_tools ?? [] : null,
   );
-  // 子助理候选：编辑时排除自身（后端同样拒绝自引用）
-  const [subAgents, setSubAgents] = useState<string[]>(base?.sub_agents ?? []);
-  const [subAgentCandidates, setSubAgentCandidates] = useState<AgentSummary[]>([]);
   const [permissionMode, setPermissionMode] = useState(base?.permission_mode ?? '');
   const [model, setModel] = useState(base?.model ?? '');
   const [maxTurns, setMaxTurns] = useState<number>(base?.max_turns ?? 0);
@@ -879,12 +861,9 @@ function AgentEditor({
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([listMcpServers(), listBuiltinTools(), listSkills(), listAgents()])
-      .then(([servers, builtins, skills, agents]) => {
+    void Promise.all([listMcpServers(), listBuiltinTools(), listSkills()])
+      .then(([servers, builtins, skills]) => {
         if (cancelled) return;
-        setSubAgentCandidates(
-          agents.items.filter((item) => item.name !== existing?.name),
-        );
         // 新建助理：内置工具默认全部勾选（可选 = mount 为 always 的常驻工具）
         setSelectedBuiltinTools((cur) =>
           cur ?? builtins.items.filter((tool) => tool.mount === 'always').map((tool) => tool.name),
@@ -1060,7 +1039,6 @@ function AgentEditor({
     knowledge_scope: scopeSelectionToWire(scope),
     skills: selectedSkills,
     builtin_tools: selectedBuiltinTools ?? (catalog?.builtin ?? []).filter((t) => t.mount === 'always').map((t) => t.name),
-    sub_agents: subAgents,
   });
 
   const submit = async () => {
@@ -1242,7 +1220,7 @@ function AgentEditor({
                 {tabLabel(tr('知识范围', 'Knowledge'), scopeBlocked)}
               </TabsTrigger>
               <TabsTrigger value="capabilities">{tr('能力绑定', 'Capabilities')}</TabsTrigger>
-              <TabsTrigger value="runtime">{tr('委托与运行', 'Delegation & runtime')}</TabsTrigger>
+              <TabsTrigger value="runtime">{tr('运行与治理', 'Runtime & governance')}</TabsTrigger>
             </TabsList>
           )}
 
@@ -1309,7 +1287,7 @@ function AgentEditor({
               <Textarea
                 value={whenToUse}
                 onChange={(e) => setWhenToUse(e.target.value)}
-                placeholder={tr('给 coordinator 的判断线索：什么场景把任务派给这个助理', 'Hint for the coordinator: when to delegate to this assistant')}
+                placeholder={tr('说明该助理适用的场景，便于任务图按领域选择节点助理', 'Describe scenarios this assistant fits, so task graphs can pick a node assistant by domain')}
                 className="h-20 w-full resize-y"
               />
             </Field>
@@ -1351,54 +1329,6 @@ function AgentEditor({
           </TabsContent>
 
           <TabsContent value="runtime" keepMounted className="min-h-[24rem] space-y-4">
-            <FieldGroup label={tr('子助理委托', 'Sub-assistant delegation')}>
-              <p className="mb-2 text-[11px] leading-relaxed text-zinc-500">
-                {tr(
-                  '勾选的助理会成为父助理的可委托对象；由父助理按各自的「何时使用」判断何时转交，委托链最多 3 层。',
-                  'Checked assistants become delegation targets; the parent decides when to hand off based on each one\'s "when to use", up to 3 levels deep.',
-                )}
-              </p>
-              {subAgentCandidates.length === 0 ? (
-                <div className="rounded border border-dashed border-zinc-800/60 px-2 py-1.5 text-[11px] text-zinc-500">
-                  {tr('还没有其他助理可委托', 'No other assistants available yet')}
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
-                  {subAgentCandidates.map((item) => {
-                    const checked = subAgents.includes(item.name);
-                    return (
-                      <div
-                        key={item.name}
-                        className="flex items-start gap-1.5 rounded px-1.5 py-1 hover:bg-zinc-900/60"
-                      >
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={() =>
-                            setSubAgents(
-                              checked
-                                ? subAgents.filter((name) => name !== item.name)
-                                : [...subAgents, item.name],
-                            )
-                          }
-                          className="mt-0.5 h-3 w-3"
-                          aria-label={tr(`委托给 ${item.name}`, `Delegate to ${item.name}`)}
-                        />
-                        <div className="min-w-0">
-                          <div className="truncate text-[11px] text-zinc-200">
-                            {item.display_name || SHORT_LABELS[item.name] || item.name}
-                            <span className="ml-1 font-sans text-[10px] text-zinc-500">({item.name})</span>
-                          </div>
-                          <div className="truncate text-[10px] text-zinc-500">
-                            {item.when_to_use || item.description}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </FieldGroup>
-
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <Field label={tr('权限模式', 'Permission mode')}>
                 <Select

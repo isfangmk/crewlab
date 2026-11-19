@@ -176,6 +176,7 @@ async def submit_graph(
                 target=node_spec.target,
                 instruction=node_spec.instruction,
                 tools_json=json.dumps(node_spec.tools, ensure_ascii=False),
+                agent_id=node_spec.agent_id,
                 status="pending",
             )
         )
@@ -227,6 +228,7 @@ async def update_spec(
                 target=node_spec.target,
                 instruction=node_spec.instruction,
                 tools_json=json.dumps(node_spec.tools, ensure_ascii=False),
+                agent_id=node_spec.agent_id,
                 status="pending",
             )
         )
@@ -647,6 +649,7 @@ def node_to_wire(row: TaskGraphNode) -> dict[str, Any]:
         "target": row.target,
         "instruction": row.instruction,
         "tools": json.loads(row.tools_json or "[]"),
+        "agent_id": row.agent_id,
         "status": row.status,
         "attempt": row.attempt,
         "summary": row.summary,

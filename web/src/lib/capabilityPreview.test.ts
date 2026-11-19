@@ -59,7 +59,7 @@ describe('mcpServerNameFromWire', () => {
 
 describe('previewCapabilities', () => {
   it('白名单为空时不挂任何 Server', () => {
-    const preview = previewCapabilities(catalog(), [], []);
+    const preview = previewCapabilities(catalog(), [], [], ['knowledge-search']);
 
     expect(preview.mountedServers).toEqual([]);
     expect(preview.unmountedServers).toEqual(['ai-engine', 'observability', 'never-probed', 'disabled-one']);
@@ -76,6 +76,7 @@ describe('previewCapabilities', () => {
       catalog(),
       ['mcp__observability__query_metrics'],
       [],
+      [],
     );
 
     expect(preview.whitelistHasMcp).toBe(true);
@@ -87,7 +88,7 @@ describe('previewCapabilities', () => {
   });
 
   it('白名单只选部分工具时：未勾选的工具不进检索目录', () => {
-    const preview = previewCapabilities(catalog(), ['mcp__ai-engine__ask'], []);
+    const preview = previewCapabilities(catalog(), ['mcp__ai-engine__ask'], [], []);
     expect(preview.partialServers).toEqual([{ server: 'ai-engine', selected: 1, total: 2 }]);
     // 未勾选的 rerank 搜不到；勾选的 ask 也仍要靠 search/load
     expect(preview.searchableMcpTools).toBe(1);
@@ -95,7 +96,7 @@ describe('previewCapabilities', () => {
   });
 
   it('白名单不含 MCP 工具时所有 Server 都不挂载', () => {
-    const preview = previewCapabilities(catalog(), ['query_knowledge'], []);
+    const preview = previewCapabilities(catalog(), ['query_knowledge'], [], []);
 
     expect(preview.whitelistHasMcp).toBe(false);
     expect(preview.mountedServers).toEqual([]);
@@ -110,14 +111,15 @@ describe('previewCapabilities', () => {
       catalog(),
       ['mcp__ai-engine__ask'],
       ['mcp__ai-engine__ask', 'mcp__observability__query_metrics', 'query_knowledge', 'mcp__never-probed__ping'],
+      [],
     );
 
     // 只有挂载的 ai-engine 工具计入；其余未挂载或内置常驻的不计
     expect(preview.blockedTools).toBe(1);
   });
 
-  it('技能勾选：null 继承全部，数组只装配勾选的技能', () => {
-    const all = previewCapabilities(catalog(), [], [], null);
+  it('技能勾选：显式全选装配全部技能，空数组不装配任何技能', () => {
+    const all = previewCapabilities(catalog(), [], [], ['knowledge-search']);
     expect(all.skills).toBe(1);
 
     const none = previewCapabilities(catalog(), [], [], []);
@@ -134,6 +136,7 @@ describe('previewCapabilities', () => {
     const preview = previewCapabilities(
       catalog(),
       ['mcp__ai-engine__removed', 'mcp__gone__ask', 'no_such_tool'],
+      [],
       [],
     );
 

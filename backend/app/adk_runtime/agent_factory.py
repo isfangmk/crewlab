@@ -137,8 +137,7 @@ def build_chat_agent(
     rule_actions: dict[str, str] | None = None,
     max_turns: int = 0,
     knowledge_scope: KnowledgeScope | None = None,
-    skills: list[Any] | None = None,
-    sub_agents: list[Any] | None = None,
+    skills: list[Any],
     adk_name: str | None = None,
     # 装配的内置工具名单：名单内的才装配，空数组 = 不装配；默认全部
     builtin_tools: list[str] = all_builtin_tool_names(),
@@ -152,7 +151,7 @@ def build_chat_agent(
 ) -> LlmAgent:
     """按配置-模型与助理人设装配 LlmAgent；extra_tools 挂 MCP SearchableToolset 等。
 
-    adk_name 缺省时按业务助理名派生根 Agent 名；子 Agent 由委托装配显式传入。
+    adk_name 缺省时按业务助理名派生根 Agent 名。
     模型名前缀与厂商专属请求体由 provider 配置决定：
     不能对所有 provider 强加 openai/ 前缀或 DeepSeek 的 thinking 字段。
     max_turns 在此校验并记入装配日志；实际限轮由 Runner 的 RunConfig.max_llm_calls 生效。
@@ -226,8 +225,7 @@ def build_chat_agent(
         )
     if extra_tools is not None:
         tools.extend(extra_tools)
-    # ADK agent 名必须是合法 Python 标识符（委托工具名由它派生）；
-    # 业务助理标识只进日志与人设 instruction。
+    # ADK agent 名必须是合法 Python 标识符；业务助理标识只进日志与人设 instruction。
     return LlmAgent(
         name=adk_name,
         model=llm,
@@ -245,7 +243,6 @@ def build_chat_agent(
         # 工具结果大小治理：所有工具结果在变成 FunctionResponse 回喂模型前
         # 统一截断，防止超大结果撑爆上下文打断对话。
         after_tool_callback=build_after_tool_callback(max_tool_result_chars),
-        sub_agents=[a for a in (sub_agents or []) if a is not None],
     )
 
 

@@ -36,9 +36,9 @@ type Props = {
   disallowedTools: string[];
   onAllowedToolsChange(next: string[]): void;
   onDisallowedToolsChange(next: string[]): void;
-  /** null = 继承全部技能；数组 = 只装配这些 */
-  selectedSkills: string[] | null;
-  onSelectedSkillsChange(next: string[] | null): void;
+  /** 勾选装配的技能 key；空数组 = 不装配任何技能 */
+  selectedSkills: string[];
+  onSelectedSkillsChange(next: string[]): void;
   /** 勾选的内置工具名；null = 待目录加载初始化（默认全选） */
   selectedBuiltinTools: string[] | null;
   onSelectedBuiltinToolsChange(next: string[]): void;
@@ -138,15 +138,12 @@ export function CapabilityBinding({
   const matchCount = builtinMatches.length + skillMatches.length + mcpMatches.length;
   const searching = safeQuery !== '';
 
-  const skillChecked = (key: string) => selectedSkills === null || selectedSkills.includes(key);
+  const skillChecked = (key: string) => selectedSkills.includes(key);
 
   const toggleSkill = (skill: SkillCapability, checked: boolean) => {
-    const next = selectedSkills === null
-      ? catalog.skills.map((item) => item.key)
-      : [...selectedSkills];
     const trimmed = checked
-      ? [...next.filter((key) => key !== skill.key), skill.key]
-      : next.filter((key) => key !== skill.key);
+      ? [...selectedSkills.filter((key) => key !== skill.key), skill.key]
+      : selectedSkills.filter((key) => key !== skill.key);
     onSelectedSkillsChange(trimmed);
   };
 
@@ -311,17 +308,15 @@ export function CapabilityBinding({
                     </div>
                   ) : (
                     <>
-                      {selectedSkills !== null && (
-                        <div className="flex justify-end px-2 pb-1">
-                          <button
-                            type="button"
-                            className="text-[9.5px] text-zinc-500 transition-colors hover:text-zinc-200"
-                            onClick={() => onSelectedSkillsChange(null)}
-                          >
-                            {tr('恢复全部技能', 'Restore all skills')}
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex justify-end px-2 pb-1">
+                        <button
+                          type="button"
+                          className="text-[9.5px] text-zinc-500 transition-colors hover:text-zinc-200"
+                          onClick={() => onSelectedSkillsChange(catalog.skills.map((skill) => skill.key))}
+                        >
+                          {tr('恢复全部技能', 'Restore all skills')}
+                        </button>
+                      </div>
                       {skillMatches.map((skill) => (
                         <div key={skill.key} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-zinc-900/60">
                           <Checkbox

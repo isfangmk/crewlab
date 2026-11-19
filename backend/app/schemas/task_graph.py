@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # 节点局部 id：字母开头，字母/数字/下划线/短横线，最长 64。
 # 字母开头是为了与编排器注入的 start/end/join 保留 id 区分。
 _NODE_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+# 节点指定助理的标识：与 UserAgent 命名规则同款（小写字母开头的标识）。
+_AGENT_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 # 编排器保留 id：任务节点不能用，否则与 start/end/join 冲突。
 _RESERVED_NODE_IDS = {"start", "end", "join", "__start__", "__START__"}
@@ -36,7 +38,8 @@ class TaskGraphNodeSpec(BaseModel):
     name: str = Field(default="", max_length=128, description="节点展示名称，最长 128；留空时用默认名")
     target: str = Field(min_length=1, max_length=2000, description="节点目标，描述本节点要处理的对象或任务目标，最长 2000")
     instruction: str = Field(default="", max_length=8000, description="节点执行指令，告诉该节点具体做什么，最长 8000；留空用默认指令")
-    tools: list[str] = Field(default_factory=list, description="本节点可用工具名列表，最多 8 个；留空表示未声明（使用全量），填哨兵 __none__ 表示不挂任何工具")
+    tools: list[str] = Field(default_factory=list, description="本节点明确要调用的工具名列表，最多 8 个；留空表示由助理自带口径决定，指定 agent_id 时留空即可")
+    agent_id: str = Field(default="", max_length=64, description="可选：指定本节点复用该助理的人设/工具/知识范围；留空用通用节点人设")
     depends_on: list[str] = Field(default_factory=list, description="依赖的前驱节点局部 id 列表；空表示起点并行执行，多依赖需全部完成才启动")
 
     @field_validator("id")
@@ -48,6 +51,18 @@ class TaskGraphNodeSpec(BaseModel):
         if node_id.lower() in {item.lower() for item in _RESERVED_NODE_IDS}:
             raise ValueError(f"节点 id 是编排器保留字: {node_id}")
         return node_id
+
+    @field_validator("agent_id")
+    @classmethod
+    def _validate_agent_id(cls, value: str) -> str:
+        agent_id = str(value).strip()
+        if agent_id == "":
+            return ""
+        if not _AGENT_ID_RE.fullmatch(agent_id):
+            raise ValueError(f"agent_id 不合法: {value!r}")
+        if agent_id in ("default", "platform-assistant"):
+            raise ValueError(f"agent_id 不能为内置助理: {agent_id}")
+        return agent_id
 
     @field_validator("tools")
     @classmethod

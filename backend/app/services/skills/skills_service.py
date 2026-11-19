@@ -58,15 +58,15 @@ def load_local_skills() -> list[Skill]:
 
 
 def build_skill_toolset(
-    skills: list[Skill] | None = None,
+    skills: list[Skill],
 ) -> SkillToolset:
     """EAGER：目录写入系统提示，避免无差别 list_skills；真正正文仍靠 load_skill 按需注入。
 
-    skills 是助理勾选的技能集合；None 表示继承全部（磁盘 + 用户技能）。
+    skills 是已解析好的技能集合（可为空 = 不挂任何技能）。
     本 toolset 只装配技能；知识检索由内置工具集常驻装配。
     """
 
-    resolved = list(load_local_skills()) if skills is None else list(skills)
+    resolved = list(skills)
     logger.info(
         "装配技能集 skills=%s",
         [skill.name for skill in resolved],
@@ -211,12 +211,10 @@ async def list_skill_entries(db: AsyncSession) -> list[SkillEntry]:
     return entries
 
 
-async def resolve_skills(db: AsyncSession, keys: list[str] | None) -> list[Skill]:
-    """按助理勾选的 key 取技能；None = 继承全部。未知 key 显式失败。"""
+async def resolve_skills(db: AsyncSession, keys: list[str]) -> list[Skill]:
+    """按助理勾选的 key 取技能；空列表 = 不装配任何技能。未知 key 显式失败。"""
 
     entries = await list_skill_entries(db)
-    if keys is None:
-        return [entry.skill for entry in entries]
     by_key = {entry.skill.name: entry.skill for entry in entries}
     missing = [key for key in keys if key not in by_key]
     if missing:

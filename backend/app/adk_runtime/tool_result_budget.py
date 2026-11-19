@@ -122,7 +122,7 @@ def build_after_tool_callback(
         if final < original or deduped is not tool_response:
             session_id = ""
             try:
-                session_id = tool_context.invocation_context.session.id
+                session_id = tool_context.session.id
             except AttributeError:
                 pass
             logger.warning(

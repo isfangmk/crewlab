@@ -33,7 +33,7 @@ const diskAgent = {
   output_format: 'free',
   examples: [],
   knowledge_scope: { paths: [], doc_ids: [] },
-  sub_agents: [],
+  skills: [],
   source: 'disk',
 };
 
@@ -51,7 +51,7 @@ const userAgent = {
   output_format: 'checklist',
   examples: [{ input: '慢查询怎么查？', output: '- 先看慢日志' }],
   knowledge_scope: { paths: ['数据库'], doc_ids: [] },
-  sub_agents: [],
+  skills: [],
   source: 'user',
 };
 

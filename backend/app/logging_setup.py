@@ -155,6 +155,9 @@ def setup_logging(level: str, *, log_file: Path | None = None) -> None:
 
     root.setLevel(level.upper())
 
+    # uvicorn.access 的访问日志与 RequestIdMiddleware 的统一计时日志重复，关闭
+    logging.getLogger("uvicorn.access").disabled = True
+
     # uvicorn 默认自带 handler；清掉后走根 logger，写入同一日志文件
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         uv_logger = logging.getLogger(name)

@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.stream_bridge import SseFrame, stream_adk_confirmation
-from app.adk_runtime.sub_agents import build_sub_agents_for_agent
 from app.models.approval import Approval
 from app.models.chat import ChatSession
 from app.services.agent import agent_service
@@ -545,18 +544,6 @@ async def stream_decide(
             builtin_tools=resolved_agent.builtin_tools,
             answer=answer,
             trust_scope=trust_scope,
-            sub_agents=await build_sub_agents_for_agent(
-                db,
-                resolved_agent,
-                provider_id=provider_id,
-                model=model,
-                base_url=base_url,
-                api_key=llm.api_key,
-                model_prefix=model_prefix,
-                provider_extra_body=provider_extra_body,
-                thinking_enabled=thinking_enabled,
-                web_search_enabled=web_search_enabled,
-            ),
         ):
             frame = await persister.persist(frame)
             if frame.event == "tool_end" and frame.data.get("tool_call_id") == row.tool_call_id:

@@ -7,7 +7,7 @@
 //       白名单非空时 Server 内未勾选的工具不进检索目录（既搜不到也调不了）
 //   - MCP 工具一律不进初始上下文：装配的是 search_tools / load_tool，按需检索加载
 //   - 内置工具按助理勾选装配（selectedBuiltinTools），默认全选；web_search 仍由对话开关控制
-//   - 技能：勾选的技能才装配（`skills_service.resolve_skills`）；`null` = 继承全部技能
+//   - 技能：勾选的技能才装配（`skills_service.resolve_skills`）；空数组 = 不装配任何技能
 //   - 禁用名单：`adk_runtime.tool_approval.before_tool_callback` 在执行前直接拒绝，
 //     只影响可执行性，不会从目录里消失
 
@@ -53,7 +53,7 @@ export type CapabilityPreview = {
   builtinTools: number;
   /** 按对话开关挂载的工具数（如 web_search） */
   perTurnTools: number;
-  /** 实际装配的技能数（勾选集合或继承全部） */
+  /** 实际装配的技能数（勾选集合） */
   skills: number;
   /** 勾选了但目录里已不存在的技能 */
   unknownSkills: string[];
@@ -80,18 +80,12 @@ export function previewCapabilities(
   catalog: CapabilityCatalog,
   allowedTools: string[],
   disallowedTools: string[],
-  selectedSkills: string[] | null = null,
+  selectedSkills: string[],
   selectedBuiltinTools: string[] | null = null,
 ): CapabilityPreview {
-  // 白名单为空 = 不挂任何 MCP；非空 = 只挂出现过的 Server。
-  const mountedSkills =
-    selectedSkills === null
-      ? catalog.skills
-      : catalog.skills.filter((skill) => selectedSkills.includes(skill.key));
-  const unknownSkills =
-    selectedSkills === null
-      ? []
-      : selectedSkills.filter((key) => !catalog.skills.some((skill) => skill.key === key));
+  // 勾选的技能才装配；空数组 = 不装配任何技能。
+  const mountedSkills = catalog.skills.filter((skill) => selectedSkills.includes(skill.key));
+  const unknownSkills = selectedSkills.filter((key) => !catalog.skills.some((skill) => skill.key === key));
 
   // 白名单里显式勾选的 MCP Server
   const whitelistServers = new Set<string>();

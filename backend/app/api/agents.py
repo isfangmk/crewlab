@@ -43,7 +43,7 @@ class UserAgentInput(BaseModel):
 
     name: str | None = Field(
         default=None,
-        description="助理唯一标识，用于接口、会话与委托引用；创建后不可修改",
+        description="助理唯一标识，用于接口与会话引用；创建后不可修改",
     )
     display_name: str = Field(
         min_length=1,
@@ -51,7 +51,7 @@ class UserAgentInput(BaseModel):
         description="面向用户的显示名称，可使用中文；不参与运行时标识",
     )
     description: str = Field(min_length=1, description="助理用途说明，至少 1 字")
-    when_to_use: str = Field(description="何时使用该助理的说明，供其他助理判断是否委托")
+    when_to_use: str = Field(description="何时使用该助理的说明，描述其适用场景")
     system_prompt: str = Field(min_length=1, description="系统提示词，定义助理角色与行为，至少 1 字")
     critical_reminder: str = Field(description="必须遵守的额外提醒；留空表示没有")
     allowed_tools: list[str] = Field(description="允许使用的 MCP 工具名列表；空数组不挂载任何 MCP（内置工具始终常驻，不在此列）")
@@ -66,15 +66,13 @@ class UserAgentInput(BaseModel):
     output_format: str = Field(description="输出格式：free 自由文本、json JSON 对象、checklist 清单")
     examples: list[AgentExampleInput] = Field(description="少样本示例列表")
     knowledge_scope: KnowledgeScopeInput = Field(description="助理可访问的知识范围")
-    # None = 继承全部技能；数组 = 只装配这些（可为空数组 = 不装配任何技能）
-    skills: list[str] | None = Field(default=None, description="要装配的技能 key 列表；留空继承全部技能，空数组不装配任何技能")
+    # 技能 key 列表；空数组 = 不装配任何技能
+    skills: list[str] = Field(default_factory=list, description="要装配的技能 key 列表；空数组不装配任何技能")
     # 勾选的内置工具名；缺省 = 全部；空数组 = 不装配任何内置工具
     builtin_tools: list[str] = Field(
         default_factory=lambda: agent_service.all_builtin_tool_names(),
         description="要装配的内置工具名列表；缺省装配全部，空数组不装配任何内置工具",
     )
-    # 子助理委托：name 列表；空/缺省 = 不委托
-    sub_agents: list[str] = Field(default=[], description="可委托的子助理 name 列表；留空不委托")
 
 
 def _agent_audit_detail(agent: object) -> dict:
@@ -96,7 +94,6 @@ def _agent_audit_detail(agent: object) -> dict:
         "knowledge_scope_paths": list(scope.paths),
         "knowledge_scope_docs": len(scope.doc_ids),
         "skills": getattr(agent, "skills"),
-        "sub_agents": list(getattr(agent, "sub_agents")),
     }
 
 
@@ -212,7 +209,6 @@ async def create_user_agent(
             knowledge_scope=scope,
             skills=body.skills,
             builtin_tools=body.builtin_tools,
-            sub_agents=tuple(body.sub_agents),
         )
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -261,7 +257,6 @@ async def update_user_agent(
             knowledge_scope=scope,
             skills=body.skills,
             builtin_tools=body.builtin_tools,
-            sub_agents=tuple(body.sub_agents),
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -309,7 +304,6 @@ async def playground_stream(
     allowed_tools, disallowed_tools = await _resolve_agent_tools(db, draft)
     try:
         agent = await agent_service.resolve_draft_agent(
-            db,
             name=draft.name,
             display_name=draft.display_name,
             description=draft.description,
@@ -328,7 +322,6 @@ async def playground_stream(
             knowledge_scope=scope,
             skills=draft.skills,
             builtin_tools=draft.builtin_tools,
-            sub_agents=tuple(draft.sub_agents),
         )
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

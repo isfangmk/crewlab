@@ -20,7 +20,6 @@ from app.adk_runtime.context_compaction import resolve_context_compaction_thresh
 from app.adk_runtime.naming import root_adk_name
 from app.adk_runtime.session_store import get_adk_session_service
 from app.adk_runtime.stream_bridge import APP_NAME, SseFrame, stream_adk_turn
-from app.adk_runtime.sub_agents import build_sub_agents_for_agent
 from app.adk_runtime.tool_result_budget import resolve_max_tool_result_chars
 from app.models.approval import Approval
 from app.models.artifact import Artifact
@@ -1997,20 +1996,8 @@ async def stream_session_message(
             knowledge_scope=resolved_agent.knowledge_scope,
             skills=runtime_skills,
             builtin_tools=resolved_agent.builtin_tools,
-                sub_agents=await build_sub_agents_for_agent(
-                    db,
-                    resolved_agent,
-                    provider_id=llm.provider_id,
-                    model=use_model,
-                    base_url=llm.base_url,
-                    api_key=llm.api_key,
-                    model_prefix=llm.model_prefix,
-                    provider_extra_body=llm_config.provider_extra_body(llm),
-                    thinking_enabled=thinking_enabled,
-                    web_search_enabled=web_search_enabled,
-                ),
-                abort_signal=abort_signal,
-            ):
+            abort_signal=abort_signal,
+        ):
             if turn_control.is_stopped(session_id):
                 logger.info("回合被停止 session_id=%s", session_id)
                 stopped = True

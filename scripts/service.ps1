@@ -4,6 +4,7 @@
 #   scripts/service.ps1 stop    [backend|frontend|mcp|redis|sandbox|all]
 #   scripts/service.ps1 restart [backend|frontend|mcp|redis|sandbox|all]
 #   sandbox 仅在 SANDBOX_EXECUTOR=docker（默认）时启动转发；local 执行器自动跳过。
+#   redis 跑在 WSL 的 Docker 容器（agent-studio-redis）里，启停走 docker，非 Windows 进程。
 param(
   [Parameter(Position = 0, Mandatory = $true)]
   [ValidateSet('start', 'stop', 'restart')]
@@ -185,6 +186,35 @@ function Stop-Sandbox() {
   Remove-Item (Join-Path $Logs "sandbox.pid") -Force -ErrorAction SilentlyContinue
 }
 
+# Redis 跑在 WSL 的 Docker 容器里（agent-studio-redis），端口 6379 由 docker-proxy 映射。
+# 不能按 Windows 端口停（会杀掉 docker-proxy 导致转发中断），与 sandbox 一样走 WSL 专用启停。
+$RedisContainer = "agent-studio-redis"
+
+function Get-RedisRunning() {
+  $state = (& wsl.exe -e sh -c "docker inspect -f '{{.State.Running}}' $RedisContainer 2>/dev/null" 2>&1 | Out-String).Trim()
+  return $state -eq 'true'
+}
+
+function Start-Redis() {
+  if (Get-RedisRunning) {
+    Write-Host "redis container $RedisContainer already running"
+    return
+  }
+  $out = (& wsl.exe -e sh -c "docker start $RedisContainer" 2>&1 | Out-String).Trim()
+  Write-Host $out
+  if ($LASTEXITCODE -ne 0) { Write-Error "redis start failed: $out" }
+}
+
+function Stop-Redis() {
+  if (-not (Get-RedisRunning)) {
+    Write-Host "redis container $RedisContainer not running"
+    return
+  }
+  $out = (& wsl.exe -e sh -c "docker stop $RedisContainer" 2>&1 | Out-String).Trim()
+  Write-Host $out
+  if ($LASTEXITCODE -ne 0) { Write-Error "redis stop failed: $out" }
+}
+
 $ports = @{ backend = 18080; frontend = 5173; mcp = 18099; redis = 6379; sandbox = 0 }
 $names = if ($Target -eq 'all') { @('redis', 'sandbox', 'backend', 'frontend', 'mcp') } else { @($Target) }
 
@@ -195,6 +225,15 @@ foreach ($name in $names) {
       'start' { Start-Sandbox }
       'stop' { Stop-Sandbox }
       'restart' { Stop-Sandbox; Start-Sleep -Seconds 1; Start-Sandbox }
+    }
+    continue
+  }
+  # Redis 是 WSL Docker 容器，同样不按 Windows 端口管理
+  if ($name -eq 'redis') {
+    switch ($Action) {
+      'start' { Start-Redis }
+      'stop' { Stop-Redis }
+      'restart' { Stop-Redis; Start-Sleep -Seconds 1; Start-Redis }
     }
     continue
   }

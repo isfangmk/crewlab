@@ -158,6 +158,7 @@ async def execute_node(
             instruction=instruction,
             budget=budget,
             tools=tools,
+            agent_id=node.agent_id,
             allow_run_python=True,
         )
 

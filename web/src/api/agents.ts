@@ -18,7 +18,7 @@ export type KnowledgeScope = { paths: string[]; doc_ids: string[] };
 
 /** 助理列表/详情响应字段。 */
 export type AgentSummary = {
-  /** 助理唯一标识（Agent ID），用于接口、会话与委托引用 */
+  /** 助理唯一标识（Agent ID），用于接口与会话引用 */
   name: string;
   /** 面向用户的显示名称（Display Name），可使用中文 */
   display_name: string;
@@ -44,10 +44,8 @@ export type AgentSummary = {
   output_format: OutputFormat;
   examples: AgentExample[];
   knowledge_scope: KnowledgeScope;
-  /** 勾选的技能 key；null = 继承全部技能 */
-  skills: string[] | null;
-  /** 可委托的子助理 name 列表；空 = 不委托 */
-  sub_agents: string[];
+  /** 勾选装配的技能 key；空数组 = 不装配任何技能 */
+  skills: string[];
   source: AgentSource;
 };
 
@@ -71,12 +69,10 @@ export type UserAgentInput = {
   output_format: OutputFormat;
   examples: AgentExample[];
   knowledge_scope: KnowledgeScope;
-  /** null = 继承全部技能；数组 = 只装配这些（空数组 = 不装配任何技能） */
-  skills: string[] | null;
+  /** 勾选的技能 key；空数组 = 不装配任何技能 */
+  skills: string[];
   /** 勾选装配的内置工具名；缺省 = 全部，空数组 = 不装配任何内置工具 */
   builtin_tools?: string[];
-  /** 子助理委托：name 列表；空数组 = 不委托 */
-  sub_agents: string[];
 };
 
 export type AgentListResp = { items: AgentSummary[]; total: number };

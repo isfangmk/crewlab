@@ -82,6 +82,8 @@ class TaskGraphNode(Base):
     instruction: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # 声明的工具清单（非空则按名收窄挂载面）
     tools_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    # 可选：指定本节点复用的助理标识；空表示用通用节点人设
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     # pending | running | succeeded | failed | skipped | stopped
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
