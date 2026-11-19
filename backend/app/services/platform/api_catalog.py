@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from app.services.platform.internal_call import ACTOR_HEADER, SECRET_HEADER
 
@@ -124,8 +125,20 @@ def _resolve_ref(schema: dict) -> dict:
     return resolved if isinstance(resolved, dict) else schema
 
 
+@lru_cache(maxsize=1)
+def _catalog_entries() -> tuple[PlatformApiEntry, ...]:
+    """路由在启动时注册完即固定，目录是纯派生结果，缓存一次避免每次调用重复遍历 198 个路由。"""
+
+    return tuple(_build_api_catalog())
+
+
 def build_api_catalog() -> list[PlatformApiEntry]:
-    """遍历 FastAPI OpenAPI 生成目录。返回结果稳定排序，便于向量同步对比。"""
+    """遍历 FastAPI OpenAPI 生成目录（缓存结果）；返回结果稳定排序，便于向量同步对比。"""
+
+    return list(_catalog_entries())
+
+
+def _build_api_catalog() -> list[PlatformApiEntry]:
     schema = _openapi_schema()
     entries: list[PlatformApiEntry] = []
     for path, path_item in schema.get("paths", {}).items():
@@ -165,10 +178,12 @@ def build_api_catalog() -> list[PlatformApiEntry]:
     return entries
 
 
+@lru_cache(maxsize=1)
+def _entries_by_id() -> dict[str, PlatformApiEntry]:
+    return {entry.api_id.upper(): entry for entry in _catalog_entries()}
+
+
 def entry_by_id(api_id: str) -> PlatformApiEntry | None:
     """按 api_id 精确查目录项（调用入口用，避免模型构造任意路径越权）。"""
-    normalized = api_id.strip().upper()
-    for entry in build_api_catalog():
-        if entry.api_id.upper() == normalized:
-            return entry
-    return None
+
+    return _entries_by_id().get(api_id.strip().upper())
