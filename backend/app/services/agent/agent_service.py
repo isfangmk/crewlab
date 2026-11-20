@@ -249,14 +249,25 @@ def agent_to_wire(
     }
 
 
-def builtin_default_agent() -> ResolvedAgent:
-    """工作台内置默认助理（不落库）：挂全部内置工具与全部内置技能，不挂 MCP。"""
+async def builtin_default_agent(db: AsyncSession) -> ResolvedAgent:
+    """工作台内置默认助理（不落库）：挂全部内置工具/技能，以及全部启用 MCP server。
+
+    MCP 按 server 级挂载：动态列举所有健康 server 的业务工具 wire 名作为筛选依据，
+    让它们全部进入检索目录；实际挂到模型的是 SearchableToolset，工具不进初始上下文，
+    必须经 search_tools 检索、load_tool 加载后可用。新增/删除 MCP server 自动生效。
+    """
 
     # 技能显式展开全部内置 key：只挂磁盘内置技能，不继承用户技能；
     # 动态取磁盘目录，新增内置技能后自动纳入，无需改这里。
+    from app.services.mcp import mcp_service
     from app.services.skills.skills_service import load_local_skills
 
     builtin_skill_keys = [skill.name for skill in load_local_skills()]
+    enabled_servers = await mcp_service.list_enabled_servers(db)
+    # 只用于选中 server：工具名进白名单让 server 通过筛选，真正装配仍走 searchable。
+    all_mcp_tool_names = sorted(
+        mcp_service.all_business_tool_names_for_servers(enabled_servers)
+    )
     return ResolvedAgent(
         name=DEFAULT_AGENT_NAME,
         display_name="默认助理",
@@ -264,7 +275,7 @@ def builtin_default_agent() -> ResolvedAgent:
         when_to_use="未指定专用助理时使用。",
         system_prompt="",
         critical_reminder="",
-        tools=[],
+        tools=all_mcp_tool_names,
         disallowed_tools=[],
         permission_mode="",
         model="",
@@ -457,14 +468,14 @@ async def validate_skill_keys(db: AsyncSession, skills: list[str]) -> None:
 async def list_agents(db: AsyncSession) -> list[ResolvedAgent]:
     result = await db.scalars(select(UserAgent).order_by(UserAgent.name.asc()))
     rows = list(result.all())
-    items = [builtin_default_agent(), builtin_platform_agent()]
+    items = [await builtin_default_agent(db), builtin_platform_agent()]
     items.extend(_row_to_resolved(r) for r in rows)
     return items
 
 
 async def get_agent(db: AsyncSession, name: str) -> ResolvedAgent:
     if name == DEFAULT_AGENT_NAME:
-        return builtin_default_agent()
+        return await builtin_default_agent(db)
     if name == PLATFORM_AGENT_NAME:
         return builtin_platform_agent()
     row = await db.get(UserAgent, name)
